@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 01-zord-config-configmap.yaml
+  - 20-zord-edge-postgres.yaml
+  - 21-zord-intent-postgres.yaml
+  - 22-zord-relay-postgres.yaml
+  - 23-zord-token-enclave-postgres.yaml
+  - 30-zord-redis.yaml
+  - 31-zord-kafka.yaml
+  - 32-chroma.yaml

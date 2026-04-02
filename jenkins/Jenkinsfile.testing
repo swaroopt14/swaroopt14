@@ -1,0 +1,135 @@
+pipeline {
+  agent any
+
+  options {
+    disableConcurrentBuilds()
+    timestamps()
+    skipDefaultCheckout(true)
+  }
+
+  parameters {
+    string(name: 'BRANCH_NAME', defaultValue: 'main', description: 'Git branch to build')
+    string(name: 'GIT_CREDENTIALS_ID', defaultValue: 'github-pat', description: 'Jenkins credential ID for cloning the GitHub repo')
+    string(name: 'SONARQUBE_SERVER', defaultValue: 'sonar-server', description: 'Jenkins SonarQube server name')
+    string(name: 'SONAR_PROJECT_NAME', defaultValue: 'frontend', description: 'SonarQube project name')
+    string(name: 'SONAR_PROJECT_KEY', defaultValue: 'frontend', description: 'SonarQube project key')
+  }
+
+  environment {
+    GIT_URL = 'https://github.com/Arealis-network/Arealis-Zord.git'
+    GO_MODULE_DIRS = 'backend/zord-edge backend/zord-intent-engine backend/zord-outcome-engine backend/zord-relay backend/zord-token-enclave backend/zord-contracts backend/zord-prompt-layer'
+    FRONTEND_DIR = 'backend/zord-console'
+    PATH = "/usr/local/go/bin:${env.PATH}"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        deleteDir()
+        checkout([
+          $class: 'GitSCM',
+          branches: [[name: "*/${params.BRANCH_NAME}"]],
+          userRemoteConfigs: [[url: env.GIT_URL, credentialsId: params.GIT_CREDENTIALS_ID]],
+          extensions: [
+            [$class: 'PruneStaleBranch'],
+            [$class: 'WipeWorkspace']
+          ]
+        ])
+      }
+    }
+
+    stage('Backend Unit Testing') {
+      steps {
+        sh '''
+          set -eux
+          command -v go
+          go version
+          rm -rf coverage
+          mkdir -p coverage
+
+          for module in ${GO_MODULE_DIRS}; do
+            if [ -f "${module}/go.mod" ]; then
+              name="$(basename "${module}")"
+              (
+                cd "${module}"
+                go mod tidy
+                go test ./... -covermode=count -coverprofile="../../coverage/${name}.out"
+              )
+            fi
+          done
+        '''
+      }
+    }
+
+    stage('Frontend Validation') {
+      steps {
+        dir("${FRONTEND_DIR}") {
+          sh '''
+            set -eux
+            command -v node
+            node -v
+            npm -v
+            npm ci
+            npm run lint
+            npm run build
+          '''
+        }
+      }
+    }
+
+    stage('Sonarqube Analysis') {
+      steps {
+        script {
+          echo "Using Jenkins SonarQube server: ${params.SONARQUBE_SERVER}"
+          def scannerHome = tool 'sonar-scanner'
+          echo "Resolved SonarScanner tool: ${scannerHome}"
+
+          withSonarQubeEnv("${params.SONARQUBE_SERVER}") {
+            sh """
+              set -eux
+              echo "SONAR_HOST_URL=\${SONAR_HOST_URL}"
+              test -n "\${SONAR_AUTH_TOKEN}"
+              test -x "${scannerHome}/bin/sonar-scanner"
+
+              GO_COVERAGE_REPORTS="\$(find coverage -name '*.out' -print | paste -sd, - || true)"
+
+              if [ -n "\${GO_COVERAGE_REPORTS}" ]; then
+                "${scannerHome}/bin/sonar-scanner" \
+                  -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
+                  -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+                  -Dsonar.sources=backend \
+                  -Dsonar.go.coverage.reportPaths="\${GO_COVERAGE_REPORTS}" \
+                  -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/coverage/**,**/assets/models/**,**/public/** \
+                  -Dsonar.sourceEncoding=UTF-8
+              else
+                "${scannerHome}/bin/sonar-scanner" \
+                  -Dsonar.projectName="${SONAR_PROJECT_NAME}" \
+                  -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+                  -Dsonar.sources=backend \
+                  -Dsonar.exclusions=**/node_modules/**,**/.next/**,**/coverage/**,**/assets/models/**,**/public/** \
+                  -Dsonar.sourceEncoding=UTF-8
+              fi
+            """
+          }
+        }
+      }
+    }
+
+    stage('Quality Gate') {
+      steps {
+        timeout(time: 10, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
+      }
+    }
+  }
+
+  post {
+    success {
+      echo 'Testing and SonarQube analysis succeeded'
+    }
+    failure {
+      echo 'Testing or SonarQube analysis failed'
+    }
+  }
+}

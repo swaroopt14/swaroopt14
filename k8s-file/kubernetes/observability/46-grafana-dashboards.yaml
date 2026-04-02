@@ -1,0 +1,1262 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: arealis-zord
+data:
+  dashboard.yml: |
+    apiVersion: 1
+    providers:
+      - name: default
+        orgId: 1
+        folder: Zord
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /var/lib/grafana/dashboards
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: arealis-zord
+data:
+  zord-all-services.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "links": [],
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Selected Targets Up",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(up{job=~\"$job\",instance=~\"$instance\"})",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Availability by Instance",
+          "gridPos": {
+            "h": 8,
+            "w": 18,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "max by(instance) (up{job=~\"$job\",instance=~\"$instance\"})",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU Usage (rate)",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 8
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(process_cpu_seconds_total{job=~\"$job\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory RSS",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 8
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=~\"$job\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Go Routines",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 8
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "go_goroutines{job=~\"$job\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP RPS",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(http_requests_total{job=~\"$job\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P95 Latency",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(http_request_duration_seconds_bucket{job=~\"$job\",instance=~\"$instance\"}[5m])))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "zord",
+        "overview",
+        "instances"
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "job",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up, job)",
+            "includeAll": true,
+            "multi": true,
+            "refresh": 1,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          },
+          {
+            "name": "instance",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up{job=~\"$job\"}, instance)",
+            "includeAll": true,
+            "multi": true,
+            "refresh": 2,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Zord - All Services (Individual)",
+      "uid": "zord-all-services-individual",
+      "version": 2
+    }
+  zord-edge.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "links": [],
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Zord Edge Up",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(up{job=\"zord-edge\",instance=~\"$instance\"})",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Availability",
+          "gridPos": {
+            "h": 5,
+            "w": 18,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "max by(instance) (up{job=\"zord-edge\",instance=~\"$instance\"})",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU Usage (rate)",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(process_cpu_seconds_total{job=\"zord-edge\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory RSS",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=\"zord-edge\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Go Routines",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "go_goroutines{job=\"zord-edge\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP RPS",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(http_requests_total{job=\"zord-edge\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P95 Latency",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(http_request_duration_seconds_bucket{job=\"zord-edge\",instance=~\"$instance\"}[5m])))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "zord",
+        "zord-edge",
+        "service"
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "instance",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up{job=\"zord-edge\"}, instance)",
+            "includeAll": true,
+            "multi": true,
+            "refresh": 2,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Zord Edge - Individual Instances",
+      "uid": "zord-edge-instances",
+      "version": 1
+    }
+  zord-intent-engine.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "links": [],
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Zord Intent Engine Up",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(up{job=\"zord-intent-engine\",instance=~\"$instance\"})",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Availability",
+          "gridPos": {
+            "h": 5,
+            "w": 18,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "max by(instance) (up{job=\"zord-intent-engine\",instance=~\"$instance\"})",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU Usage (rate)",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(process_cpu_seconds_total{job=\"zord-intent-engine\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory RSS",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=\"zord-intent-engine\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Go Routines",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "go_goroutines{job=\"zord-intent-engine\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP RPS",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(http_requests_total{job=\"zord-intent-engine\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P95 Latency",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(http_request_duration_seconds_bucket{job=\"zord-intent-engine\",instance=~\"$instance\"}[5m])))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "zord",
+        "zord-intent-engine",
+        "service"
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "instance",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up{job=\"zord-intent-engine\"}, instance)",
+            "includeAll": true,
+            "multi": true,
+            "refresh": 2,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Zord Intent Engine - Individual Instances",
+      "uid": "zord-intent-engine-instances",
+      "version": 1
+    }
+  zord-relay.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "links": [],
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Zord Relay Up",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(up{job=\"zord-relay\",instance=~\"$instance\"})",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Availability",
+          "gridPos": {
+            "h": 5,
+            "w": 18,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "max by(instance) (up{job=\"zord-relay\",instance=~\"$instance\"})",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU Usage (rate)",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(process_cpu_seconds_total{job=\"zord-relay\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory RSS",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=\"zord-relay\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Go Routines",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "go_goroutines{job=\"zord-relay\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP RPS",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(http_requests_total{job=\"zord-relay\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P95 Latency",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(http_request_duration_seconds_bucket{job=\"zord-relay\",instance=~\"$instance\"}[5m])))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "zord",
+        "zord-relay",
+        "service"
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "instance",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up{job=\"zord-relay\"}, instance)",
+            "includeAll": true,
+            "multi": true,
+            "refresh": 2,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Zord Relay - Individual Instances",
+      "uid": "zord-relay-instances",
+      "version": 1
+    }
+  zord-token-enclave.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "links": [],
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Zord Token Enclave Up",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(up{job=\"zord-token-enclave\",instance=~\"$instance\"})",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Availability",
+          "gridPos": {
+            "h": 5,
+            "w": 18,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "max by(instance) (up{job=\"zord-token-enclave\",instance=~\"$instance\"})",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU Usage (rate)",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(process_cpu_seconds_total{job=\"zord-token-enclave\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory RSS",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=\"zord-token-enclave\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Go Routines",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "go_goroutines{job=\"zord-token-enclave\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP RPS",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(http_requests_total{job=\"zord-token-enclave\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P95 Latency",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(http_request_duration_seconds_bucket{job=\"zord-token-enclave\",instance=~\"$instance\"}[5m])))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "zord",
+        "zord-token-enclave",
+        "service"
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "instance",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up{job=\"zord-token-enclave\"}, instance)",
+            "includeAll": true,
+            "multi": true,
+            "refresh": 2,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Zord Token Enclave - Individual Instances",
+      "uid": "zord-token-enclave-instances",
+      "version": 1
+    }
+  zord-prompt-layer.json: |
+    {
+      "annotations": {
+        "list": [
+          {
+            "builtIn": 1,
+            "datasource": {
+              "type": "grafana",
+              "uid": "-- Grafana --"
+            },
+            "enable": true,
+            "hide": true,
+            "iconColor": "rgba(0, 211, 255, 1)",
+            "name": "Annotations & Alerts",
+            "type": "dashboard"
+          }
+        ]
+      },
+      "editable": true,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 0,
+      "links": [],
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Zord Prompt Layer Up",
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum(up{job=\"zord-prompt-layer\",instance=~\"$instance\"})",
+              "refId": "A"
+            }
+          ],
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto"
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Availability",
+          "gridPos": {
+            "h": 5,
+            "w": 18,
+            "x": 6,
+            "y": 0
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "max by(instance) (up{job=\"zord-prompt-layer\",instance=~\"$instance\"})",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "CPU Usage (rate)",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(process_cpu_seconds_total{job=\"zord-prompt-layer\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Memory RSS",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "process_resident_memory_bytes{job=\"zord-prompt-layer\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            }
+          }
+        },
+        {
+          "type": "timeseries",
+          "title": "Go Routines",
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 5
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "go_goroutines{job=\"zord-prompt-layer\",instance=~\"$instance\"}",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP RPS",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "sum by(instance) (rate(http_requests_total{job=\"zord-prompt-layer\",instance=~\"$instance\"}[5m]))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "HTTP P95 Latency",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 13
+          },
+          "datasource": "Prometheus",
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(http_request_duration_seconds_bucket{job=\"zord-prompt-layer\",instance=~\"$instance\"}[5m])))",
+              "legendFormat": "{{instance}}",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "unit": "s"
+            }
+          }
+        }
+      ],
+      "refresh": "10s",
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "zord",
+        "zord-prompt-layer",
+        "service"
+      ],
+      "templating": {
+        "list": [
+          {
+            "name": "instance",
+            "type": "query",
+            "datasource": "Prometheus",
+            "query": "label_values(up{job=\"zord-prompt-layer\"}, instance)",
+            "includeAll": true,
+            "multi": true,
+            "refresh": 2,
+            "current": {
+              "text": "All",
+              "value": "$__all"
+            }
+          }
+        ]
+      },
+      "time": {
+        "from": "now-30m",
+        "to": "now"
+      },
+      "timezone": "browser",
+      "title": "Zord Prompt Layer - Individual Instances",
+      "uid": "zord-prompt-layer-instances",
+      "version": 1
+    }

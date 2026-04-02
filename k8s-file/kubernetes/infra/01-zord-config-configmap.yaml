@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zord-config
+  namespace: arealis-zord
+data:
+  EDGE_DB_HOST: zord-edge-postgres
+  EDGE_DB_PORT: "5432"
+  EDGE_DB_USER: zord_user
+  EDGE_DB_NAME: zord_edge_db
+
+  INTENT_DB_HOST: zord-intent-postgres
+  INTENT_DB_PORT: "5432"
+  INTENT_DB_USER: intent_user
+  INTENT_DB_NAME: zord_intent_engine_db
+
+  TOKEN_DB_HOST: zord-token-enclave-postgres
+  TOKEN_DB_PORT: "5432"
+  TOKEN_DB_USER: token_user
+  TOKEN_DB_NAME: zord_token_enclave_db
+
+  KAFKA_BROKERS: zord-kafka:9092
+  KAFKA_TOPIC: vault.envelope.accepted.v1
+  KAFKA_READY_TOPIC: z.intent.ready.v1
+  KAFKA_DLQ_TOPIC: z.intent.dlq.v1
+  KAFKA_PUBLISH_FAILURE_DLQ_TOPIC: z.intent.publish_failure.dlq.v1
+  KAFKA_POISON_EVENT_DLQ_TOPIC: z.intent.poison_event.dlq.v1
+
+  CHROMA_URL: http://chroma:8000
+
+  OTEL_EXPORTER_OTLP_ENDPOINT: otel-collector:4317
+  OTEL_EXPORTER_OTLP_INSECURE: "true"
+
+  EDGE_BUCKET: arealis-zord-vault
+  INTENT_BUCKET: canonical-worm-storage
+  AWS_REGION: ap-south-1
+  CANONICAL_REGION: ap-southeast-2

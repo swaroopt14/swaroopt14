@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: zord-edge-postgres
+  namespace: arealis-zord
+spec:
+  selector:
+    app: zord-edge-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zord-edge-postgres
+  namespace: arealis-zord
+spec:
+  serviceName: zord-edge-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zord-edge-postgres
+  template:
+    metadata:
+      labels:
+        app: zord-edge-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: zord_user
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: EDGE_DB_PASSWORD
+            - name: POSTGRES_DB
+              value: zord_edge_db
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U zord_user -d zord_edge_db"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi

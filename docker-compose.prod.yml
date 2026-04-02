@@ -1,0 +1,230 @@
+name: arealis-zord
+
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-go-service: &go-service
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  read_only: true
+  tmpfs:
+    - /tmp
+  logging: *logging
+  init: true
+  networks:
+    - zord-backend
+
+services:
+  zord-edge:
+    <<: *go-service
+    user: "0:0"
+    build:
+      context: ./backend/zord-edge
+      dockerfile: Dockerfile
+    image: arealis/zord-edge:local
+    env_file:
+      - ./k8s-file/production/env/zord-edge.env
+    volumes:
+      - ./k8s-file/production/secrets/ed25519_private.pem:/run/secrets/ed25519_private.pem:ro
+    environment:
+      - SIGNING_KEY_PATH=/run/secrets/ed25519_private.pem
+    ports:
+      - "8080:8080"
+    networks:
+      - zord-public
+      - zord-backend
+
+  zord-intent-engine:
+    <<: *go-service
+    build:
+      context: ./backend/zord-intent-engine
+      dockerfile: Dockerfile
+    image: arealis/zord-intent-engine:local
+    env_file:
+      - ./k8s-file/production/env/zord-intent-engine.env
+
+  zord-relay:
+    <<: *go-service
+    build:
+      context: ./backend/zord-relay
+      dockerfile: Dockerfile
+    image: arealis/zord-relay:local
+    env_file:
+      - ./k8s-file/production/env/zord-relay.env
+
+  zord-token-enclave:
+    <<: *go-service
+    build:
+      context: ./backend/zord-token-enclave
+      dockerfile: Dockerfile
+    image: arealis/zord-token-enclave:local
+    env_file:
+      - ./k8s-file/production/env/zord-token-enclave.env
+
+  zord-prompt-layer:
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    logging: *logging
+    init: true
+    build:
+      context: ./backend/zord-prompt-layer
+      dockerfile: Dockerfile
+    image: arealis/zord-prompt-layer:local
+    env_file:
+      - ./k8s-file/production/env/zord-prompt-layer.env
+    networks:
+      - zord-backend
+
+  zord-console:
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging: *logging
+    init: true
+    build:
+      context: ./backend/zord-console
+      dockerfile: Dockerfile
+    image: arealis/zord-console:local
+    env_file:
+      - ./k8s-file/production/env/zord-console.env
+    ports:
+      - "3000:3000"
+    networks:
+      - zord-public
+      - zord-backend
+
+  # ------------------------------------------------------------------
+  # Optional local infra for single-EC2 deployments
+  # Run with: docker compose -f docker-compose.prod.yml --profile infra up -d
+  # ------------------------------------------------------------------
+
+  zord-edge-postgres:
+    profiles: ["infra"]
+    image: postgres:16-alpine
+    container_name: zord-edge-postgres
+    environment:
+      - POSTGRES_USER=${EDGE_DB_USER}
+      - POSTGRES_PASSWORD=${EDGE_DB_PASSWORD}
+      - POSTGRES_DB=${EDGE_DB_NAME}
+    volumes:
+      - postgres_edge_data:/var/lib/postgresql/data
+      - ./backend/zord-edge/db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - zord-backend
+    restart: unless-stopped
+
+  zord-intent-postgres:
+    profiles: ["infra"]
+    image: postgres:16-alpine
+    container_name: zord-intent-postgres
+    environment:
+      - POSTGRES_USER=${INTENT_DB_USER}
+      - POSTGRES_PASSWORD=${INTENT_DB_PASSWORD}
+      - POSTGRES_DB=${INTENT_DB_NAME}
+    volumes:
+      - postgres_intent_data:/var/lib/postgresql/data
+    networks:
+      - zord-backend
+    restart: unless-stopped
+
+  zord-relay-postgres:
+    profiles: ["infra"]
+    image: postgres:16-alpine
+    container_name: zord-relay-postgres
+    environment:
+      - POSTGRES_USER=${RELAY_DB_USER}
+      - POSTGRES_PASSWORD=${RELAY_DB_PASSWORD}
+      - POSTGRES_DB=${RELAY_DB_NAME}
+    volumes:
+      - postgres_relay_data:/var/lib/postgresql/data
+      - ./backend/zord-relay/db:/docker-entrypoint-initdb.d:ro
+    networks:
+      - zord-backend
+    restart: unless-stopped
+
+  zord-token-enclave-postgres:
+    profiles: ["infra"]
+    image: postgres:16-alpine
+    container_name: zord-token-enclave-postgres
+    environment:
+      - POSTGRES_USER=${TOKEN_DB_USER}
+      - POSTGRES_PASSWORD=${TOKEN_DB_PASSWORD}
+      - POSTGRES_DB=${TOKEN_DB_NAME}
+    volumes:
+      - postgres_token_enclave_data:/var/lib/postgresql/data
+    networks:
+      - zord-backend
+    restart: unless-stopped
+
+  zord-redis:
+    profiles: ["infra"]
+    image: redis:7-alpine
+    container_name: zord-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - zord-backend
+    restart: unless-stopped
+
+  zord-kafka:
+    profiles: ["infra"]
+    image: apache/kafka:3.7.2
+    container_name: zord-kafka
+    environment:
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://zord-kafka:9092
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@zord-kafka:9093
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0
+      - KAFKA_NUM_PARTITIONS=3
+      - KAFKA_LOG_DIRS=/var/lib/kafka/data
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - zord-backend
+    restart: unless-stopped
+
+  chroma:
+    profiles: ["infra"]
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    networks:
+      - zord-backend
+    restart: unless-stopped
+
+volumes:
+  postgres_edge_data:
+  postgres_intent_data:
+  postgres_relay_data:
+  postgres_token_enclave_data:
+  redis_data:
+  kafka_data:
+
+networks:
+  zord-public:
+    driver: bridge
+  zord-backend:
+    driver: bridge
+    internal: true
+

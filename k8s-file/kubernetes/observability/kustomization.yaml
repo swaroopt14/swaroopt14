@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 40-observability-configmaps.yaml
+  - 41-jaeger.yaml
+  - 42-otel-collector.yaml
+  - 43-prometheus.yaml
+  - 44-loki.yaml
+  - 45-grafana.yaml
+  - 46-grafana-dashboards.yaml
+  - 47-observability-ingress.yaml

@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zord-console
+  namespace: arealis-zord
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zord-console
+  template:
+    metadata:
+      labels:
+        app: zord-console
+    spec:
+      containers:
+      - name: zord-console
+        image: arealis/zord-console:local
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        env:
+        - name: NODE_ENV
+          value: production
+        - name: NEXT_TELEMETRY_DISABLED
+          value: "1"
+        - name: PORT
+          value: "3000"
+        - name: HOSTNAME
+          value: 0.0.0.0
+        - name: ZORD_EDGE_URL
+          value: http://zord-edge:8080
+        - name: ZORD_RELAY_URL
+          value: http://zord-relay:8081
+        - name: ZORD_INTENT_ENGINE_URL
+          value: http://zord-intent-engine:8083
+        - name: ZORD_PII_ENCLAVE_URL
+          value: http://zord-token-enclave:8087
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zord-console
+  namespace: arealis-zord
+spec:
+  type: LoadBalancer
+  selector:
+    app: zord-console
+  ports:
+  - name: http
+    port: 80
+    targetPort: 3000

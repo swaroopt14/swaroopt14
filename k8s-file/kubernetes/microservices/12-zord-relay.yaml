@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zord-relay
+  namespace: arealis-zord
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zord-relay
+  template:
+    metadata:
+      labels:
+        app: zord-relay
+    spec:
+      containers:
+        - name: zord-relay
+          image: arealis/zord-relay:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8081
+            - containerPort: 8082
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: OTEL_EXPORTER_OTLP_INSECURE
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: KAFKA_BROKERS
+            - name: KAFKA_CONSUMER_GROUP
+              value: zord-relay-group
+            - name: KAFKA_READY_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: KAFKA_READY_TOPIC
+            - name: KAFKA_DLQ_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: KAFKA_DLQ_TOPIC
+            - name: KAFKA_PUBLISH_FAILURE_DLQ_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: KAFKA_PUBLISH_FAILURE_DLQ_TOPIC
+            - name: KAFKA_POISON_EVENT_DLQ_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: KAFKA_POISON_EVENT_DLQ_TOPIC
+            - name: INTENT_ENGINE_BASE_URL
+              value: http://zord-intent-engine:8083
+            - name: RELAY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: RELAY_DB_PASSWORD
+            - name: DATABASE_URL
+              value: postgres://relay_user:$(RELAY_DB_PASSWORD)@zord-relay-postgres:5432/zord_relay_db?sslmode=disable
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zord-relay
+  namespace: arealis-zord
+spec:
+  selector:
+    app: zord-relay
+  ports:
+  - name: http
+    port: 8081
+    targetPort: 8081
+  - name: health
+    port: 8082
+    targetPort: 8082

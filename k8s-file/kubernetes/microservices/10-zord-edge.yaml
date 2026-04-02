@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zord-edge
+  namespace: arealis-zord
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: zord-edge
+  template:
+    metadata:
+      labels:
+        app: zord-edge
+    spec:
+      containers:
+        - name: zord-edge
+          image: arealis/zord-edge:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: OTEL_EXPORTER_OTLP_INSECURE
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: EDGE_DB_HOST
+            - name: DB_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: EDGE_DB_PORT
+            - name: DB_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: EDGE_DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: EDGE_DB_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: EDGE_DB_NAME
+            - name: DB_SSLMODE
+              value: disable
+            - name: KAFKA_BROKERS
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: KAFKA_BROKERS
+            - name: KAFKA_TOPIC
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: KAFKA_TOPIC
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: EDGE_BUCKET
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: ZORD_VAULT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: ZORD_VAULT_KEY
+            - name: SIGNING_KEY_PATH
+              value: /run/secrets/ed25519_private.pem
+          volumeMounts:
+            - name: signing-key
+              mountPath: /run/secrets/ed25519_private.pem
+              subPath: ed25519_private.pem
+              readOnly: true
+      volumes:
+        - name: signing-key
+          secret:
+            secretName: edge-signing-key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zord-edge
+  namespace: arealis-zord
+spec:
+  type: LoadBalancer
+  selector:
+    app: zord-edge
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080

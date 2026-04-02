@@ -1,0 +1,107 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zord-prompt-layer
+  namespace: arealis-zord
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zord-prompt-layer
+  template:
+    metadata:
+      labels:
+        app: zord-prompt-layer
+    spec:
+      containers:
+        - name: zord-prompt-layer
+          image: arealis/zord-prompt-layer:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8086
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_EXPORTER_OTLP_INSECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: OTEL_EXPORTER_OTLP_INSECURE
+            - name: SERVICE_NAME
+              value: zord-prompt-layer
+            - name: HTTP_PORT
+              value: "8086"
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: GEMINI_API_KEY
+            - name: GEMINI_API_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: GEMINI_API_KEYS
+            - name: GEMINI_MODEL
+              value: gemini-2.5-flash
+            - name: GEMINI_BASE_URL
+              value: https://generativelanguage.googleapis.com/v1beta
+            - name: EDGE_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: EDGE_DB_PASSWORD
+            - name: INTENT_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: INTENT_DB_PASSWORD
+            - name: RELAY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zord-secrets
+                  key: RELAY_DB_PASSWORD
+            - name: EDGE_READ_DSN
+              value: postgres://zord_user:$(EDGE_DB_PASSWORD)@zord-edge-postgres:5432/zord_edge_db?sslmode=disable
+            - name: INTENT_READ_DSN
+              value: postgres://intent_user:$(INTENT_DB_PASSWORD)@zord-intent-postgres:5432/zord_intent_engine_db?sslmode=disable
+            - name: RELAY_READ_DSN
+              value: postgres://relay_user:$(RELAY_DB_PASSWORD)@zord-relay-postgres:5432/zord_relay_db?sslmode=disable
+            - name: CHROMA_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-config
+                  key: CHROMA_URL
+            - name: CHROMA_COLLECTION
+              value: zord_prompt_chunks
+            - name: DEFAULT_TOP_K
+              value: "5"
+            - name: EMBEDDING_MODEL_PATH
+              value: ./assets/models/bge-small-en-v1.5/model.onnx
+            - name: TOKENIZER_PATH
+              value: ./assets/models/bge-small-en-v1.5/tokenizer.json
+            - name: EMBEDDING_INPUT_IDS_NAME
+              value: input_ids
+            - name: EMBEDDING_ATTENTION_MASK_NAME
+              value: attention_mask
+            - name: EMBEDDING_TOKEN_TYPE_IDS_NAME
+              value: token_type_ids
+            - name: EMBEDDING_OUTPUT_NAME
+              value: last_hidden_state
+            - name: EMBEDDING_MAX_LENGTH
+              value: "256"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zord-prompt-layer
+  namespace: arealis-zord
+spec:
+  selector:
+    app: zord-prompt-layer
+  ports:
+  - name: http
+    port: 8086
+    targetPort: 8086

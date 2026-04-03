@@ -1,0 +1,86 @@
+{
+    "dashboard": {
+        "id": null,
+        "title": "Zord Services Monitoring",
+        "tags": [
+            "zord",
+            "microservices"
+        ],
+        "timezone": "browser",
+        "panels": [
+            {
+                "id": 1,
+                "title": "HTTP Requests per Service",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "sum(rate(http_requests_total[5m])) by (job)",
+                        "legendFormat": "{{job}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            {
+                "id": 2,
+                "title": "HTTP Request Duration",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job))",
+                        "legendFormat": "95th percentile - {{job}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 0
+                }
+            },
+            {
+                "id": 3,
+                "title": "Messages Processed (Vault Journal)",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "sum(rate(messages_processed_total[5m]))",
+                        "legendFormat": "Messages/sec"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 8
+                }
+            },
+            {
+                "id": 4,
+                "title": "Kafka Messages Published (Relay)",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "sum(rate(kafka_publish_total[5m]))",
+                        "legendFormat": "Kafka Messages/sec"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 8
+                }
+            }
+        ],
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        },
+        "refresh": "5s"
+    }
+}

@@ -1,0 +1,269 @@
+{
+    "dashboard": {
+        "id": null,
+        "title": "Zord Platform - Comprehensive Monitoring",
+        "tags": [
+            "zord",
+            "microservices",
+            "comprehensive"
+        ],
+        "timezone": "browser",
+        "panels": [
+            {
+                "id": 1,
+                "title": "Service Health Overview",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "up",
+                        "legendFormat": "{{job}}"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "red",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "green",
+                                    "value": 1
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 24,
+                    "x": 0,
+                    "y": 0
+                }
+            },
+            {
+                "id": 2,
+                "title": "HTTP Request Rate",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(http_requests_total[5m])) by (job)",
+                        "legendFormat": "{{job}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 8
+                }
+            },
+            {
+                "id": 3,
+                "title": "HTTP Error Rate",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) by (job) / sum(rate(http_requests_total[5m])) by (job) * 100",
+                        "legendFormat": "{{job}} Error Rate %"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 8
+                }
+            },
+            {
+                "id": 4,
+                "title": "Response Time (95th Percentile)",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, job))",
+                        "legendFormat": "{{job}} - 95th percentile"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 16
+                }
+            },
+            {
+                "id": 5,
+                "title": "Intent Processing Rate",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "sum(rate(zord_intent_engine_processing_duration_seconds_count[5m]))",
+                        "legendFormat": "Intents/sec"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 16
+                }
+            },
+            {
+                "id": 6,
+                "title": "Failed Intents by Type",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(zord_intent_engine_failed_intents_total[5m])) by (intent_type)",
+                        "legendFormat": "{{intent_type}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 24
+                }
+            },
+            {
+                "id": 7,
+                "title": "Database Connections",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "zord_database_active_connections",
+                        "legendFormat": "{{service}} - {{database}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 24
+                }
+            },
+            {
+                "id": 8,
+                "title": "Kafka Publish Rate",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(zord_relay_kafka_publish_total[5m])) by (topic)",
+                        "legendFormat": "{{topic}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 32
+                }
+            },
+            {
+                "id": 9,
+                "title": "S3 Operations",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "sum(rate(zord_vault_s3_operations_total[5m])) by (operation, status)",
+                        "legendFormat": "{{operation}} - {{status}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 32
+                }
+            },
+            {
+                "id": 10,
+                "title": "Authentication Failures",
+                "type": "stat",
+                "targets": [
+                    {
+                        "expr": "sum(increase(zord_auth_authentication_failures_total[5m]))",
+                        "legendFormat": "Auth Failures (5m)"
+                    }
+                ],
+                "fieldConfig": {
+                    "defaults": {
+                        "color": {
+                            "mode": "thresholds"
+                        },
+                        "thresholds": {
+                            "steps": [
+                                {
+                                    "color": "green",
+                                    "value": 0
+                                },
+                                {
+                                    "color": "yellow",
+                                    "value": 10
+                                },
+                                {
+                                    "color": "red",
+                                    "value": 50
+                                }
+                            ]
+                        }
+                    }
+                },
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 40
+                }
+            },
+            {
+                "id": 11,
+                "title": "System Resources",
+                "type": "graph",
+                "targets": [
+                    {
+                        "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+                        "legendFormat": "CPU Usage % - {{instance}}"
+                    },
+                    {
+                        "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100",
+                        "legendFormat": "Memory Usage % - {{instance}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 40
+                }
+            },
+            {
+                "id": 12,
+                "title": "Top Tenants by Request Volume",
+                "type": "table",
+                "targets": [
+                    {
+                        "expr": "topk(10, sum(rate(zord_edge_tenant_requests_total[1h])) by (tenant_id))",
+                        "legendFormat": "{{tenant_id}}"
+                    }
+                ],
+                "gridPos": {
+                    "h": 8,
+                    "w": 24,
+                    "x": 0,
+                    "y": 48
+                }
+            }
+        ],
+        "time": {
+            "from": "now-1h",
+            "to": "now"
+        },
+        "refresh": "5s"
+    }
+}

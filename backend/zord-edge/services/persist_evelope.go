@@ -39,19 +39,33 @@ func RawIntent(ctx context.Context,
 	storedSignature := "ZORD_" + encodedSignature
 
 	envelope := model.IngressEnvelope{
-		TraceID:           traceID,
-		EnvelopeID:        envelopeID,
-		TenantID:          tenantID,
-		Source:            rawIntent.SourceType,
-		SourceSystem:      rawIntent.SourceSystem,
-		ContentType:       rawIntent.ContentType,
-		IdempotencyKey:    rawIntent.IdempotencyKey,
-		PayloadSize:       rawIntent.PayloadSize,
-		PayloadHash:       rawIntent.PayloadHash,
+		TraceID:                      traceID,
+		EnvelopeID:                   envelopeID,
+		TenantID:                     tenantID,
+		IngressChannel:               rawIntent.SourceType,
+		SourceClass:                  rawIntent.SourceClass,
+		SourceSystem:                 rawIntent.SourceSystem,
+		ContentType:                  rawIntent.ContentType,
+		IdempotencyKey:               rawIntent.IdempotencyKey,
+		PayloadSize:                  rawIntent.PayloadSize,
+		PayloadHash:                  rawIntent.PayloadHash,
 		EnvelopeHash:                 envelopeHash,
 		EnvelopeSignature:            storedSignature,
 		RequestHeadersHash:           rawIntent.RequestHeadersHash,
 		SchemaHint:                   rawIntent.SchemaHint,
+		MappingProfileHint:           rawIntent.MappingProfileHint,
+		ObjectEncryptionAlg:          rawIntent.ObjectEncryptionAlg,
+		KMSKeyVersion:                rawIntent.KMSKeyVersion,
+		ParserClassification:         rawIntent.ParserClassification,
+		TransportRequestID:           rawIntent.TransportRequestID,
+		ClientReferenceHint:          rawIntent.ClientReferenceHint,
+		SourceSystemHint:             rawIntent.SourceSystemHint,
+		IngressAPIVersion:            rawIntent.IngressAPIVersion,
+		RetentionPolicyClass:         rawIntent.RetentionPolicyClass,
+		WebhookProviderID:            rawIntent.WebhookProviderID,
+		ConnectorBindingID:           rawIntent.ConnectorBindingID,
+		EventType:                    rawIntent.EventType,
+		CreatedAt:                    storageAck.ReceivedAt,
 		EncryptionKeyID:              os.Getenv("VAULT_KEY_ID"),
 		ObjectStoreVersion:           os.Getenv("OBJECT_STORE_VERSION"),
 		IdempotencyReservationStatus: "RESERVED",
@@ -74,48 +88,4 @@ func RawIntent(ctx context.Context,
 	return nil
 }
 
-func SaveToIngressOutbox(
-	ctx context.Context, rawIntent model.RawIntentMessage, storageAck *model.AckMessage) error {
 
-	envelopeID, err := uuid.Parse(storageAck.EnvelopeId)
-	if err != nil {
-		log.Printf("Invalid EnvelopeId: %s", storageAck.EnvelopeId)
-		return err
-	}
-	traceID, err := uuid.Parse(rawIntent.TraceID)
-	if err != nil {
-		log.Printf("Invalid TraceID: %s", rawIntent.TraceID)
-		return err
-	}
-	tenantID, err := uuid.Parse(rawIntent.TenantID)
-	if err != nil {
-		log.Printf("Invalid TenantId: %s", rawIntent.TenantID)
-		return err
-	}
-	objectRef := storageAck.ObjectRef
-
-	topic := "vault.envelope.accepted.v1"
-
-	query := `
-		INSERT INTO ingress_outbox
-		(trace_id, envelope_id, tenant_id, object_ref, received_at, source, idempotency_key, encrypted_payload, payload_hash, topic)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-	`
-	_, err = db.DB.ExecContext(ctx, query,
-		traceID,
-		envelopeID,
-		tenantID,
-		objectRef,
-		storageAck.ReceivedAt,
-		rawIntent.SourceType,
-		rawIntent.IdempotencyKey,
-		rawIntent.Payload,
-		rawIntent.PayloadHash,
-		topic,
-	)
-	if err != nil {
-		log.Printf("Failed to insert into ingress_outbox: %v", err)
-		return err
-	}
-	return nil
-}

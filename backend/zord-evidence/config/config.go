@@ -15,6 +15,7 @@ type Config struct {
 	HTTPPort            string
 	PostgresDSN         string
 	KafkaBrokers        []string
+	KafkaEnabled        bool // false when KAFKA_BROKERS is unset or empty
 	KafkaTopic          string
 	KafkaConsumerGroup  string
 	S3Bucket            string
@@ -28,9 +29,11 @@ type Config struct {
 }
 
 func Load() (*Config, error) {
-	_ = godotenv.Load()
+	if err := godotenv.Load(); err != nil {
+		fmt.Printf("Notice: .env file not loaded: %v\n", err)
+	}
 
-	port := getenv("PORT", "8085")
+	port := getenv("PORT", "8088")
 	dsn := os.Getenv("DB_DSN")
 	if dsn == "" {
 		dsn = fmt.Sprintf("user=%s password=%s host=%s port=%s dbname=%s sslmode=%s",
@@ -43,9 +46,18 @@ func Load() (*Config, error) {
 		)
 	}
 
-	brokers := strings.Split(getenv("KAFKA_BROKERS", "localhost:9092"), ",")
-	for i := range brokers {
-		brokers[i] = strings.TrimSpace(brokers[i])
+	// Use os.Getenv directly (not getenv helper) so that KAFKA_BROKERS=""
+	// explicitly disables Kafka rather than falling back to localhost:9092.
+	kafkaRaw := strings.TrimSpace(os.Getenv("KAFKA_BROKERS"))
+	var brokers []string
+	kafkaEnabled := false
+	if kafkaRaw != "" {
+		for _, b := range strings.Split(kafkaRaw, ",") {
+			if b = strings.TrimSpace(b); b != "" {
+				brokers = append(brokers, b)
+			}
+		}
+		kafkaEnabled = len(brokers) > 0
 	}
 
 	strict, err := strconv.ParseBool(getenv("REPLAY_COMPARE_STRICT", "true"))
@@ -58,6 +70,7 @@ func Load() (*Config, error) {
 		HTTPPort:            port,
 		PostgresDSN:         dsn,
 		KafkaBrokers:        brokers,
+		KafkaEnabled:        kafkaEnabled,
 		KafkaTopic:          getenv("EVIDENCE_KAFKA_TOPIC", "z.outcome.events.v1"),
 		KafkaConsumerGroup:  getenv("EVIDENCE_KAFKA_GROUP", "zord-evidence-group"),
 		S3Bucket:            getenv("S3_BUCKET", ""),

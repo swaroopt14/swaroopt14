@@ -106,6 +106,12 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		Payload:        payloadBytes,
 		ContentType:    "application/json",
 		SourceType:     "BULK_FILE",
+		SourceClass:    c.GetString("source_class"),
+		ObjectEncryptionAlg: "AES256",
+		KMSKeyVersion:        "v1",
+		IngressAPIVersion:    "v1",
+		RetentionPolicyClass: "STANDARD",
+		EventType:            "Envelope.Created",
 	}
 
 	_, err = services.ProcessRawIntent(context.Background(), fileMsg, h.S3store, uuid.NewString(), time.Now().UTC())
@@ -221,6 +227,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 					"CSV",
 					headersHash,
 					sourceSystem,
+					c.GetString("source_class"),
 				)
 
 				if err != nil {
@@ -346,6 +353,7 @@ func (h *Handler) processBulkIntentRow(
 	sourceType string,
 	headersHash []byte,
 	sourceSystem string,
+	sourceClass string,
 ) (*model.AckMessage, uuid.UUID, error) {
 
 	encryptedPayload, err := vault.Encrypt(rawPayload)
@@ -367,10 +375,18 @@ func (h *Handler) processBulkIntentRow(
 		Payload:            encryptedPayload,
 		ContentType:        contentType,
 		SourceType:         sourceType,
+		SourceClass:        sourceClass,
 		SourceSystem:       sourceSystem,
 		RequestHeadersHash: headersHash,
 		RequestFingerprint: fingerprint,
 		SchemaHint:         nil,
+
+		// Hardcoded values
+		ObjectEncryptionAlg: "AES256",
+		KMSKeyVersion:        "v1",
+		IngressAPIVersion:    "v1",
+		RetentionPolicyClass: "STANDARD",
+		EventType:            "Envelope.Created",
 	}
 
 	id, err := services.PersistIdempotency(ctx, rawIntent)

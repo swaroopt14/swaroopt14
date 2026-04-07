@@ -98,10 +98,18 @@ func (h *Handler) IntentHandler(context *gin.Context) {
 	rawIntent.Payload = encryptedPayload // Replace raw payload with encrypted one for further stages
 	rawIntent.ContentType = contentType
 	rawIntent.SourceType = sourceType
+	rawIntent.SourceClass = context.GetString("source_class")
 	rawIntent.SourceSystem = sourceSystem
 	rawIntent.TenantName = tenantName
 	rawIntent.RequestHeadersHash = headersHash
 	rawIntent.SchemaHint = nil
+
+	// Hardcoded values
+	rawIntent.ObjectEncryptionAlg = "AES256"
+	rawIntent.KMSKeyVersion = "v1"
+	rawIntent.IngressAPIVersion = "v1"
+	rawIntent.RetentionPolicyClass = "STANDARD"
+	rawIntent.EventType = "Envelope.Created"
 	//Need to replace Hashed payload with Encrypted Payload before sending to S3
 
 	storageAck, err := services.ProcessRawIntent(context.Request.Context(), rawIntent, h.S3store, envelopeID, receivedAt)

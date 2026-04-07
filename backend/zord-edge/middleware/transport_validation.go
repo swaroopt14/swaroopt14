@@ -49,7 +49,28 @@ func TransportValidation() gin.HandlerFunc {
 			return
 		}
 
+		sourceClass := c.GetHeader("X-Zord-Source-Class")
+		if sourceClass == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"Error": "X-Zord-Source-Class header is required"})
+			c.Abort()
+			return
+		}
+
+		validSourceClasses := map[string]bool{
+			"INTENT":  true,
+			"OUTCOME": true,
+			"FILE":    true,
+			"CALLBACK": true,
+		}
+
+		if !validSourceClasses[sourceClass] {
+			c.JSON(http.StatusBadRequest, gin.H{"Error": "Invalid Source-Class"})
+			c.Abort()
+			return
+		}
+
 		c.Set("source_type", SourceType)
+		c.Set("source_class", sourceClass)
 
 		// 2. Payload Size Check
 		// Fast check using Content-Length if provided

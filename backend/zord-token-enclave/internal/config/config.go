@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	DBURL     string
-	MasterKey []byte // ✅ decoded raw key bytes
+	DBURL       string
+	MasterKey   []byte // ✅ decoded raw key bytes
+	TokenSecret []byte // ✅ decoded HMAC secret for deterministic tokens
 }
 
 func Load() *Config {
@@ -51,8 +52,20 @@ func Load() *Config {
 		log.Fatalf("❌ MASTER_KEY must decode to 32 bytes, got %d bytes", len(masterKey))
 	}
 
+	// 🔐 Load and decode TOKEN_SECRET
+	tokenSecretB64 := os.Getenv("TOKEN_SECRET")
+	if tokenSecretB64 == "" {
+		log.Fatal("❌ TOKEN_SECRET not set")
+	}
+
+	tokenSecret, err := base64.StdEncoding.DecodeString(tokenSecretB64)
+	if err != nil {
+		log.Fatal("❌ TOKEN_SECRET is not valid base64:", err)
+	}
+
 	return &Config{
-		DBURL:     dbURL,
-		MasterKey: masterKey,
+		DBURL:       dbURL,
+		MasterKey:   masterKey,
+		TokenSecret: tokenSecret,
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"encoding/hex"
 
 	"github.com/google/uuid"
 
@@ -72,6 +73,12 @@ type CanonicalIntentRepository interface {
 		tenantID string,
 		intentID string,
 	) (string, error)
+
+	FindByBusinessIdempotencyKey(
+		ctx context.Context,
+		tenantID string,
+		key string,
+	) (*models.CanonicalIntent, error)
 }
 
 func NewIntentService(
@@ -141,6 +148,59 @@ func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[s
 		return nil, err
 	}
 	return out.Tokens, nil
+}
+
+func (s *IntentService) computeBeneficiaryFingerprint(tokens map[string]string) string {
+	// FIX: deterministic fingerprint using tokens
+	// beneficiary_fingerprint = SHA256(account_number_token + ifsc_token + vpa_token)
+	raw := tokens["account_number"] + tokens["ifsc"] + tokens["vpa"]
+	hash := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(hash[:])
+}
+
+func (s *IntentService) computeBusinessIdempotencyKey(tenantID string, fingerPrint string, amount decimal.Decimal, currency string, timeBucket string) string {
+	// FIX: deterministic business idempotency key
+	// business_idempotency_key = SHA256(tenant_id + beneficiary_fingerprint + amount_minor + currency + time_bucket)
+	
+	// Normalize amount to string (fixed precision)
+	amountStr := amount.String()
+	
+	raw := tenantID + fingerPrint + amountStr + strings.ToUpper(currency) + timeBucket
+	hash := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(hash[:])
+}
+
+func (s *IntentService) computeScores(parsed models.ParsedIncomingIntent) (proofScore, matchScore, qualityScore float64) {
+	// matchability_score: base 0.0 to 1.0
+	if parsed.Beneficiary.Name != "" {
+		matchScore += 0.2
+	}
+	if parsed.Beneficiary.Instrument.Kind != "" {
+		matchScore += 0.2
+	}
+	if parsed.Amount.Value != "" && parsed.Amount.Value != "0" {
+		matchScore += 0.3
+	}
+	if parsed.Amount.Currency != "" {
+		matchScore += 0.1
+	}
+	if parsed.IdempotencyKey != "" {
+		matchScore += 0.2
+	}
+
+	// intent_quality_score: base 0.0 to 1.0
+	if parsed.SchemaVersion != "" {
+		qualityScore += 0.2
+	}
+	if parsed.IntentType != "" {
+		qualityScore += 0.2
+	}
+	qualityScore += matchScore * 0.6
+
+	// proof_readiness_score
+	proofScore = qualityScore // For now, linked to quality
+
+	return
 }
 
 /* ---------------- Pipeline ---------------- */
@@ -225,7 +285,35 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 
 	// -------- STEP 6: Build NIR --------
-	fieldsJSON, _ := json.Marshal(parsed)
+	fieldsMap := make(map[string]models.NIRField)
+	gapCount := 0
+	
+	// Helper to add structured field
+	addFields := func(name string, value any, path string, required bool) {
+		conf := 1.0 // default for direct parse
+		if value == "" || value == nil {
+			if required {
+				gapCount++
+			}
+			conf = 0.0
+		}
+		fieldsMap[name] = models.NIRField{
+			Value:      value,
+			SourcePath: path,
+			Confidence: conf,
+			Sensitive:  false, // Adjust based on field if needed
+		}
+	}
+
+	addFields("intent_type", parsed.IntentType, "$.intent_type", true)
+	addFields("amount", parsed.Amount.Value, "$.amount.value", true)
+	addFields("currency", parsed.Amount.Currency, "$.amount.currency", true)
+	addFields("beneficiary_name", parsed.Beneficiary.Name, "$.beneficiary.name", true)
+	addFields("idempotency_key", parsed.IdempotencyKey, "$.idempotency_key", true)
+	addFields("client_batch_ref", parsed.ClientBatchRef, "$.client_batch_ref", false)
+
+	fieldsJSON, _ := json.Marshal(fieldsMap)
+	
 	nir := &models.NormalizedIngestRecord{
 		NIRID:                  uuid.New(),
 		EnvelopeID:             in.EnvelopeID,
@@ -237,6 +325,8 @@ func (s *IntentService) ProcessIncomingIntent(
 		FieldConfidenceSummary: json.RawMessage(`{"overall": 1.0}`),
 		UnmappedJSON:           json.RawMessage(`{}`),
 		MappingUncertainFlag:   false,
+		RequiredFieldGapCount:  gapCount,
+		LowConfidenceFieldCount: 0,
 		CreatedAt:              time.Now().UTC(),
 	}
 
@@ -354,6 +444,26 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	amount, _ := parseAmount(canonicalInput.Amount.Value)
 
+	// -------- STEP 8.5: COMPUTE SCORES & FINGERPRINT --------
+	
+	pScore, mScore, iScore := s.computeScores(parsed)
+	bFingerprint := s.computeBeneficiaryFingerprint(tokenMap)
+	timeBucket := time.Now().UTC().Format("2006-01-02")
+	bIdemKey := s.computeBusinessIdempotencyKey(in.TenantID.String(), bFingerprint, amount, canonicalInput.Amount.Currency, timeBucket)
+
+	// -------- STEP 8.7: Business Idempotency Check (NEW) --------
+	duplicate, err := s.repo.FindByBusinessIdempotencyKey(ctx, in.TenantID.String(), bIdemKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	dupRisk := false
+	dupReason := "NONE"
+	if duplicate != nil {
+		dupRisk = true
+		dupReason = "SAME_BENEFICIARY_AMOUNT_TIME"
+	}
+
 	// -------- STEP 9: BUILD CANONICAL INTENT --------
 
 	canonical := models.CanonicalIntent{
@@ -387,8 +497,17 @@ func (s *IntentService) ProcessIncomingIntent(
 		RoutingHintsJSON:      json.RawMessage(`{}`),
 		GovernanceState:       "PENDING",
 		BusinessState:         "NEW",
-		DuplicateRiskFlag:     false,
+		DuplicateRiskFlag:     dupRisk,
 		MappingProfileVersion: nir.ProfileVersion,
+		
+		// Service 2 fields
+		BusinessIdempotencyKey: bIdemKey,
+		BeneficiaryFingerprint: bFingerprint,
+		ProofReadinessScore:    pScore,
+		MatchabilityScore:      mScore,
+		IntentQualityScore:     iScore,
+		DuplicateReasonCode:    dupReason,
+
 		UpdatedAt:             func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 	}
 
@@ -504,6 +623,46 @@ func (s *IntentService) ProcessTokenizeResult(
 		return nil, err
 	}
 
+	// -------- Build NIR (Reconstructed for async flow) --------
+	fieldsMap := make(map[string]models.NIRField)
+	fieldsMap["intent_type"] = models.NIRField{Value: canonicalInput.IntentType, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
+	fieldsMap["amount"] = models.NIRField{Value: canonicalInput.Amount.Value, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
+	fieldsMap["currency"] = models.NIRField{Value: canonicalInput.Amount.Currency, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
+	fieldsMap["beneficiary_name"] = models.NIRField{Value: canonicalInput.Beneficiary.Name, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
+	fieldsMap["client_batch_ref"] = models.NIRField{Value: canonicalInput.ClientBatchRef, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
+	fieldsJSON, _ := json.Marshal(fieldsMap)
+
+	nir := &models.NormalizedIngestRecord{
+		NIRID:                  uuid.New(),
+		EnvelopeID:             uuid.MustParse(event.EnvelopeID),
+		TenantID:               uuid.MustParse(event.TenantID),
+		DetectedFormat:         "json",
+		ProfileID:              "kafka_async",
+		ProfileVersion:         "v1",
+		FieldsJSON:             fieldsJSON,
+		FieldConfidenceSummary: json.RawMessage(`{"overall": 0.9}`),
+		CreatedAt:              time.Now().UTC(),
+	}
+
+	// -------- COMPUTE SCORES & FINGERPRINT --------
+	pScore, mScore, iScore := s.computeScores(canonicalInput)
+	bFingerprint := s.computeBeneficiaryFingerprint(tokenMap)
+	timeBucket := time.Now().UTC().Format("2006-01-02")
+	bIdemKey := s.computeBusinessIdempotencyKey(event.TenantID, bFingerprint, amount, canonicalInput.Amount.Currency, timeBucket)
+
+	// -------- Business Idempotency Check (NEW) --------
+	duplicate, err := s.repo.FindByBusinessIdempotencyKey(ctx, event.TenantID, bIdemKey)
+	if err != nil {
+		return nil, err
+	}
+
+	dupRisk := false
+	dupReason := "NONE"
+	if duplicate != nil {
+		dupRisk = true
+		dupReason = "SAME_BENEFICIARY_AMOUNT_TIME"
+	}
+
 	// -------- Build CanonicalIntent --------
 
 	intent := models.CanonicalIntent{
@@ -533,8 +692,17 @@ func (s *IntentService) ProcessTokenizeResult(
 		RoutingHintsJSON:      json.RawMessage(`{}`),
 		GovernanceState:       "PENDING",
 		BusinessState:         "NEW",
-		DuplicateRiskFlag:     false,
+		DuplicateRiskFlag:     dupRisk,
 		MappingProfileVersion: "v1", // Default for async flow
+		
+		// Service 2 fields
+		BusinessIdempotencyKey: bIdemKey,
+		BeneficiaryFingerprint: bFingerprint,
+		ProofReadinessScore:    pScore,
+		MatchabilityScore:      mScore,
+		IntentQualityScore:     iScore,
+		DuplicateReasonCode:    dupReason,
+
 		UpdatedAt:             func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 	}
 
@@ -548,7 +716,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		return nil, err
 	}
 
-	saved, err := s.repo.Save(ctx, nil, intent, outbox)
+	saved, err := s.repo.Save(ctx, nir, intent, outbox)
 	if err != nil {
 		return nil, err
 	}
@@ -581,7 +749,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		return nil, err
 	}
 
-	nirBytes := []byte(`{}`)
+	nirBytes, _ := json.Marshal(nir)
 	nirRef, _, err := s.s3.StoreSnapshot(
 		ctx,
 		"nir",

@@ -52,5 +52,15 @@ type CanonicalIntent struct {
 	BusinessState         string          `json:"business_state,omitempty"`
 	DuplicateRiskFlag     bool            `json:"duplicate_risk_flag,omitempty"`
 	MappingProfileVersion string          `json:"mapping_profile_version,omitempty"`
+
+	// Service 2 mandatory fields
+	BusinessIdempotencyKey string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
+	BeneficiaryFingerprint string          `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
+	ProofReadinessScore    float64         `json:"proof_readiness_score,omitempty" db:"proof_readiness_score"`
+	MatchabilityScore      float64         `json:"matchability_score,omitempty" db:"matchability_score"`
+	IntentQualityScore     float64         `json:"intent_quality_score,omitempty" db:"intent_quality_score"`
+	DuplicateReasonCode    string          `json:"duplicate_reason_code,omitempty" db:"duplicate_reason_code"`
+	ClientBatchRef         string          `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
+
 	UpdatedAt             *time.Time      `json:"updated_at,omitempty"`
 }

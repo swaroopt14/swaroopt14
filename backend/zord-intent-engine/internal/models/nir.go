@@ -7,6 +7,14 @@ import (
 	"github.com/google/uuid"
 )
 
+type NIRField struct {
+	Value      any    `json:"value"`
+	SourcePath string `json:"source_path"`
+	Confidence float64 `json:"confidence"`
+	Transform  string `json:"transform,omitempty"`
+	Sensitive  bool   `json:"sensitive"`
+}
+
 type NormalizedIngestRecord struct {
 	NIRID                  uuid.UUID `json:"nir_id" db:"nir_id"`
 	EnvelopeID             uuid.UUID `json:"envelope_id" db:"envelope_id"`
@@ -18,5 +26,10 @@ type NormalizedIngestRecord struct {
 	FieldConfidenceSummary json.RawMessage `json:"field_confidence_summary" db:"field_confidence_summary"`
 	UnmappedJSON           json.RawMessage `json:"unmapped_json" db:"unmapped_json"`
 	MappingUncertainFlag   bool      `json:"mapping_uncertain_flag" db:"mapping_uncertain_flag"`
+	
+	// NEW
+	RequiredFieldGapCount  int       `json:"required_field_gap_count" db:"required_field_gap_count"`
+	LowConfidenceFieldCount int      `json:"low_confidence_field_count" db:"low_confidence_field_count"`
+	
 	CreatedAt              time.Time `json:"created_at" db:"created_at"`
 }

@@ -49,7 +49,7 @@ func main() {
 	keyManager := keymanager.NewKeyManager(tokenRepo)
 
 	// ---------------- SERVICE ----------------
-	tokenSvc := services.NewTokenService(tokenRepo, keyManager)
+	tokenSvc := services.NewTokenService(tokenRepo, keyManager, cfg.TokenSecret)
 
 	// ---------------- MIGRATION WORKER ----------------
 	go func() {

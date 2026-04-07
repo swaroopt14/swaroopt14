@@ -48,6 +48,16 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     business_state TEXT,
     duplicate_risk_flag BOOLEAN,
     mapping_profile_version TEXT,
+
+    -- 🆕 Service 2 fields
+    business_idempotency_key TEXT,
+    beneficiary_fingerprint TEXT,
+    proof_readiness_score NUMERIC(5,2),
+    matchability_score NUMERIC(5,2),
+    intent_quality_score NUMERIC(5,2),
+    duplicate_reason_code TEXT,
+    client_batch_ref TEXT,
+
     updated_at TIMESTAMPTZ DEFAULT now()
 
 
@@ -58,6 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_payment_intents_tenant_id ON payment_intents(tena
 CREATE INDEX IF NOT EXISTS idx_payment_intents_envelope_id ON payment_intents(envelope_id);
 CREATE INDEX IF NOT EXISTS idx_payment_intents_status ON payment_intents(status);
 CREATE INDEX IF NOT EXISTS idx_payment_intents_created_at ON payment_intents(created_at);
+CREATE INDEX IF NOT EXISTS idx_payment_intents_business_idempotency_key ON payment_intents(tenant_id, business_idempotency_key);
 
 -- ============================================================================
 -- OUTBOX TABLE
@@ -137,8 +148,31 @@ CREATE INDEX IF NOT EXISTS idx_dlq_items_tenant_id ON dlq_items(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_dlq_items_envelope_id ON dlq_items(envelope_id);
 CREATE INDEX IF NOT EXISTS idx_dlq_items_reason_code ON dlq_items(reason_code);
 CREATE INDEX IF NOT EXISTS idx_dlq_items_replayable ON dlq_items(replayable);
-CREATE INDEX IF NOT EXISTS idx_dlq_items_created_at ON dlq_items(created_at);
+CREATE INDEX IF NOT EXISTS idx_dlq_items_created_at ON dlq_items(created_at);-- ============================================================================
+-- NORMALIZED INGEST RECORDS TABLE
+-- Stores raw-to-canonical mapping and field-level confidence
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS normalized_ingest_records (
+    nir_id UUID PRIMARY KEY,
+    envelope_id UUID NOT NULL,
+    tenant_id UUID NOT NULL,
+    detected_format TEXT,
+    profile_id TEXT,
+    profile_version TEXT,
+    fields_json JSONB,
+    field_confidence_summary JSONB,
+    unmapped_json JSONB,
+    mapping_uncertain_flag BOOLEAN,
+    
+    -- 🆕 Service 2 fields
+    required_field_gap_count INT,
+    low_confidence_field_count INT,
 
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_nirs_tenant_id ON normalized_ingest_records(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_nirs_envelope_id ON normalized_ingest_records(envelope_id);
 
 
 -- ============================================================================

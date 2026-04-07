@@ -45,6 +45,15 @@ func CreateTables() error {
     business_state TEXT,
     duplicate_risk_flag BOOLEAN,
     mapping_profile_version TEXT,
+    -- 🆕 Service 2 fields
+    business_idempotency_key TEXT,
+    beneficiary_fingerprint TEXT,
+    proof_readiness_score NUMERIC(5,2),
+    matchability_score NUMERIC(5,2),
+    intent_quality_score NUMERIC(5,2),
+    duplicate_reason_code TEXT,
+    client_batch_ref TEXT,
+
     updated_at TIMESTAMPTZ DEFAULT now()
 );`
 
@@ -56,6 +65,14 @@ func CreateTables() error {
 	if _, err := DB.Exec(`
 	CREATE INDEX IF NOT EXISTS idx_payment_intents_tenant_envelope
 	    ON payment_intents (tenant_id, envelope_id);
+	`); err != nil {
+		return err
+	}
+
+	// Optimized lookup for business idempotency check
+	if _, err := DB.Exec(`
+	CREATE INDEX IF NOT EXISTS idx_payment_intents_business_idempotency_key
+	    ON payment_intents (tenant_id, business_idempotency_key);
 	`); err != nil {
 		return err
 	}
@@ -152,6 +169,9 @@ func CreateTables() error {
 		field_confidence_summary JSONB,
 		unmapped_json JSONB,
 		mapping_uncertain_flag BOOLEAN,
+		-- 🆕 Service 2 fields
+		required_field_gap_count INT,
+		low_confidence_field_count INT,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`
 

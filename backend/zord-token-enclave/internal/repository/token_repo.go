@@ -28,11 +28,12 @@ func (r *TokenRepository) Insert(ctx context.Context, t models.TokenRecord) erro
 	}
 	defer tx.Rollback()
 
-	// Insert token_map
+	// Insert token_map (FIX: handle deterministic collisions)
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO token_map 
 		(token_id, tenant_id, kind, ciphertext, nonce, encryption_key_id, key_version, status, created_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		ON CONFLICT (token_id) DO NOTHING
 	`,
 		t.TokenID,
 		t.TenantID,

@@ -15,15 +15,17 @@ import (
 )
 
 type TokenService struct {
-	repo       *repository.TokenRepository
-	keyManager keymanager.KeyManager
+	repo        *repository.TokenRepository
+	keyManager  keymanager.KeyManager
+	tokenSecret []byte // ✅ FIX: for deterministic tokenization
 }
 
-// ✅ Constructor
-func NewTokenService(r *repository.TokenRepository, km keymanager.KeyManager) *TokenService {
+// ✅ Constructor (UPDATED)
+func NewTokenService(r *repository.TokenRepository, km keymanager.KeyManager, secret []byte) *TokenService {
 	return &TokenService{
-		repo:       r,
-		keyManager: km,
+		repo:        r,
+		keyManager:  km,
+		tokenSecret: secret,
 	}
 }
 
@@ -54,9 +56,12 @@ func (s *TokenService) Tokenize(
 		return "", err
 	}
 
-	tokenID := uuid.New().String()
+	// // FIX: deterministic tokenization
+	// // UPDATED: replaced UUID with HMAC
+	normalized := crypto.NormalizeValue(string(plaintext))
+	tokenID := "det_" + crypto.GenerateDeterministicToken(s.tokenSecret, normalized)
 
-	// 🔥 3. Store in DB with key reference
+	// 🔥 3. Store in DB with key reference (handles ON CONFLICT)
 	rec := models.TokenRecord{
 		TokenID:         tokenID,
 		TenantID:        tenantID,

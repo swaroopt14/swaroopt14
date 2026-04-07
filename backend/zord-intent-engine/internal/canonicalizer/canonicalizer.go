@@ -6,6 +6,13 @@ import (
 	"zord-intent-engine/internal/models"
 )
 
+type MappingProfile struct {
+	ProfileID   string            `json:"profile_id"`
+	Version     string            `json:"version"`
+	MappingRules map[string]string `json:"mapping_rules"`
+	IsActive    bool              `json:"is_active"`
+}
+
 func CanonicalizeIntent(input models.ParsedIncomingIntent) models.ParsedIncomingIntent {
 
 	out := input // copy

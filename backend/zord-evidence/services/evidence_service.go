@@ -2,11 +2,14 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
+	"zord-evidence/kafka"
 	"zord-evidence/models"
 	"zord-evidence/repositories"
 	"zord-evidence/storage"
@@ -15,6 +18,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// validModes are the three lifecycle operating modes defined in spec §3.2
+var validModes = []string{"INTELLIGENCE_ATTACH", "SECONDARY_DISPATCH", "FULL_CONTROL"}
+
 type EvidenceService struct {
 	repo                *repositories.EvidenceRepository
 	s3                  storage.S3Store
@@ -22,9 +28,18 @@ type EvidenceService struct {
 	archiveCrypto       *ArchiveCrypto
 	archivePrefix       string
 	replayCompareStrict bool
+	publisher           kafka.EventPublisher
 }
 
-func NewEvidenceService(repo *repositories.EvidenceRepository, s3 storage.S3Store, signer *Signer, archiveCrypto *ArchiveCrypto, archivePrefix string, strict bool) *EvidenceService {
+func NewEvidenceService(
+	repo *repositories.EvidenceRepository,
+	s3 storage.S3Store,
+	signer *Signer,
+	archiveCrypto *ArchiveCrypto,
+	archivePrefix string,
+	strict bool,
+	publisher kafka.EventPublisher,
+) *EvidenceService {
 	return &EvidenceService{
 		repo:                repo,
 		s3:                  s3,
@@ -32,67 +47,62 @@ func NewEvidenceService(repo *repositories.EvidenceRepository, s3 storage.S3Stor
 		archiveCrypto:       archiveCrypto,
 		archivePrefix:       archivePrefix,
 		replayCompareStrict: strict,
+		publisher:           publisher,
 	}
 }
 
+// GeneratePack is the core of Service 6 (spec §13 steps 1–11).
+// evidence_pack_id is generated only here. All other IDs come from upstream.
 func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateEvidenceRequest) (*models.EvidencePack, error) {
-	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.IntentID) == "" || strings.TrimSpace(req.ContractID) == "" {
-		return nil, fmt.Errorf("tenant_id, intent_id, and contract_id are required")
+	// --- Step 2: validate scope ---
+	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.IntentID) == "" {
+		return nil, fmt.Errorf("tenant_id and intent_id are required")
 	}
-	if strings.TrimSpace(req.SchemaVersions["intent_schema"]) == "" || strings.TrimSpace(req.SchemaVersions["outcome_schema"]) == "" || strings.TrimSpace(req.SchemaVersions["contract_schema"]) == "" {
-		return nil, fmt.Errorf("schema_versions.intent_schema, outcome_schema and contract_schema are required")
+	if !slices.Contains(validModes, req.Mode) {
+		return nil, fmt.Errorf("mode must be one of: %s", strings.Join(validModes, ", "))
+	}
+	if len(req.Items) == 0 {
+		return nil, fmt.Errorf("at least one evidence item is required")
 	}
 
 	now := time.Now().UTC()
-	packID := uuid.NewString()
 
-	items := make([]models.EvidenceItem, 0, 16)
-	items = append(items, models.EvidenceItem{Type: "RAW_INGRESS_ENVELOPE_REF", Ref: req.Inputs.RawIngressEnvelopeRef, SchemaVersion: "v1"})
-	items = append(items, models.EvidenceItem{Type: "CANONICAL_INTENT_SNAPSHOT", Ref: req.Inputs.CanonicalIntentSnapshot.Ref, Hash: req.Inputs.CanonicalIntentSnapshot.Hash, SchemaVersion: req.SchemaVersions["intent_schema"]})
+	// --- Step (uuid): generate evidence_pack_id exclusively in this service ---
+	packID := "ep_" + uuid.NewString()
 
-	for _, ref := range req.Inputs.RawOutcomeEnvelopeRefs {
-		items = append(items, models.EvidenceItem{Type: "RAW_OUTCOME_ENVELOPE_REF", Ref: ref, SchemaVersion: "v1"})
-	}
-	for _, evt := range req.Inputs.OutcomeEvents {
-		items = append(items, models.EvidenceItem{Type: "OUTCOME_EVENT", Ref: evt.Ref, Hash: evt.Hash, SchemaVersion: req.SchemaVersions["outcome_schema"]})
-	}
-
-	items = append(items,
-		models.EvidenceItem{Type: "FUSION_DECISION", Ref: req.Inputs.FusionDecision.Ref, Hash: req.Inputs.FusionDecision.Hash, SchemaVersion: "v1"},
-		models.EvidenceItem{Type: "FINALITY_CERTIFICATE", Ref: req.Inputs.FinalityCertificate.Ref, Hash: req.Inputs.FinalityCertificate.Hash, SchemaVersion: "v1"},
-		models.EvidenceItem{Type: "FINAL_CONTRACT", Ref: req.Inputs.FinalContract.Ref, Hash: req.Inputs.FinalContract.Hash, SchemaVersion: req.SchemaVersions["contract_schema"]},
-	)
-	if req.Inputs.CanonicalOutputCheck != nil {
-		items = append(items, models.EvidenceItem{Type: "CANONICAL_OUTPUT_CHECK", Ref: req.Inputs.CanonicalOutputCheck.Ref, Hash: req.Inputs.CanonicalOutputCheck.Hash, SchemaVersion: "v1"})
-	}
-	for _, ref := range req.Inputs.PolicyDecisionRefs {
-		items = append(items, models.EvidenceItem{Type: "POLICY_DECISION_REF", Ref: ref, SchemaVersion: "v1"})
-	}
-	for _, it := range req.Inputs.AdditionalItems {
-		items = append(items, models.EvidenceItem{Type: it.Type, Ref: it.Ref, Hash: it.Hash, SchemaVersion: "v1"})
-	}
-
+	// --- Steps 5–6: compute typed leaf hashes, sort deterministically ---
+	items := req.Items
 	leaves := make([]utils.MerkleLeaf, 0, len(items))
 	for i := range items {
+		// Spec §11.1: leaf_hash = SHA256(type || stable_ref || item_hash || version)
 		stableHash := strings.TrimSpace(items[i].Hash)
 		leafInput := strings.Join([]string{items[i].Type, items[i].Ref, stableHash, items[i].SchemaVersion}, "||")
 		items[i].LeafHash = utils.SHA256Hex(leafInput)
 		leaves = append(leaves, utils.MerkleLeaf{Index: i, LeafHash: items[i].LeafHash})
 	}
+
+	// --- Step 7: build Merkle tree ---
 	merkleRoot := utils.BuildMerkleRoot(leaves)
 
-	signPayload := strings.Join([]string{packID, merkleRoot, req.IntentID, req.ContractID, now.Format(time.RFC3339Nano), req.RulesetVersion}, "|")
+	// --- Step 9: sign the pack commitment ---
+	// Spec §9.10: signature binds evidence_pack_id, merkle_root, intent_id, contract_id, created_at, ruleset_version
+	signPayload := strings.Join([]string{
+		packID, merkleRoot, req.IntentID, req.ContractID, now.Format(time.RFC3339Nano), req.RulesetVersion,
+	}, "|")
 	sig := s.signer.Sign(signPayload)
 
 	pack := &models.EvidencePack{
-		EvidencePackID: packID,
-		TenantID:       req.TenantID,
-		IntentID:       req.IntentID,
-		ContractID:     req.ContractID,
-		Items:          items,
-		MerkleRoot:     merkleRoot,
-		RulesetVersion: req.RulesetVersion,
-		SchemaVersions: req.SchemaVersions,
+		EvidencePackID:   packID,
+		TenantID:         req.TenantID,
+		IntentID:         req.IntentID,
+		ContractID:       req.ContractID,
+		Mode:             req.Mode,
+		PackStatus:       "ACTIVE",
+		Items:            items,
+		MerkleRoot:       merkleRoot,
+		RulesetVersion:   req.RulesetVersion,
+		SchemaVersions:   req.SchemaVersions,
+		SupersedesPackID: req.SupersedesPackID,
 		Signatures: []models.Signature{{
 			Signer:   "zord_evidence",
 			Alg:      "ed25519",
@@ -102,6 +112,7 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		CreatedAt: now,
 	}
 
+	// --- Step 10a: encrypt and store archive body (§14.3 / §15.2) ---
 	archive, err := json.Marshal(pack)
 	if err != nil {
 		return nil, fmt.Errorf("marshal evidence pack: %w", err)
@@ -110,18 +121,82 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 	if err != nil {
 		return nil, fmt.Errorf("encrypt evidence archive: %w", err)
 	}
-	objectKey := fmt.Sprintf("%s/%s/%s/%s.json", s.archivePrefix, req.TenantID, req.ContractID, packID)
+
+	// Object key uses intent_id as primary path anchor (contract_id may be absent in pivot mode)
+	anchorID := req.IntentID
+	if req.ContractID != "" {
+		anchorID = req.ContractID
+	}
+	objectKey := fmt.Sprintf("%s/%s/%s/%s.json.enc", s.archivePrefix, req.TenantID, anchorID, packID)
 	objectRef, err := s.s3.PutObject(ctx, objectKey, encryptedArchive)
 	if err != nil {
 		return nil, fmt.Errorf("store archive: %w", err)
 	}
 
+	// --- Step 10b: persist metadata to Postgres ---
 	if err := s.repo.SavePack(ctx, pack, objectRef); err != nil {
 		return nil, fmt.Errorf("save pack metadata: %w", err)
 	}
+
+	// --- Persist §14.3 archive metadata row ---
+	archiveHash := sha256Hex(encryptedArchive)
+	archiveRecord := &models.EvidenceArchive{
+		ArchiveID:      "arc_" + uuid.NewString(),
+		EvidencePackID: packID,
+		TenantID:       req.TenantID,
+		ObjectRef:      objectRef,
+		ArchiveHash:    archiveHash,
+		ArchiveVersion: "v1",
+		CreatedAt:      now,
+	}
+	if err := s.repo.SaveArchive(ctx, archiveRecord); err != nil {
+		// Non-fatal: metadata only, pack is already committed
+		fmt.Printf("warn: save archive record failed: %v\n", err)
+	}
+
+	// --- Persist §14.4 inclusion proofs ---
+	proofPaths := utils.BuildInclusionProofs(leaves)
+	inclusionProofs := make([]models.InclusionProof, 0, len(leaves))
+	for _, leaf := range leaves {
+		inclusionProofs = append(inclusionProofs, models.InclusionProof{
+			EvidencePackID: packID,
+			LeafHash:       leaf.LeafHash,
+			ProofPath:      proofPaths[leaf.LeafHash],
+			CreatedAt:      now,
+		})
+	}
+	if err := s.repo.SaveInclusionProofs(ctx, packID, inclusionProofs); err != nil {
+		fmt.Printf("warn: save inclusion proofs failed: %v\n", err)
+	}
+
+	// --- Mark old pack superseded if this is a lifecycle version update (§23 Phase 5) ---
+	if req.SupersedesPackID != "" {
+		if err := s.repo.MarkPackSuperseded(ctx, req.SupersedesPackID, packID); err != nil {
+			fmt.Printf("warn: mark superseded pack failed: %v\n", err)
+		}
+	}
+
+	// --- Step 11: publish evidence.pack.created event ---
+	eventType := kafka.EventPackCreated
+	if req.SupersedesPackID != "" {
+		eventType = kafka.EventPackReversalSupersed
+	}
+	_ = s.publisher.Publish(ctx, kafka.PackEvent{
+		EventType:      eventType,
+		EvidencePackID: packID,
+		TenantID:       req.TenantID,
+		IntentID:       req.IntentID,
+		ContractID:     req.ContractID,
+		Mode:           req.Mode,
+		MerkleRoot:     merkleRoot,
+		RulesetVersion: req.RulesetVersion,
+		OccurredAt:     now,
+	})
+
 	return pack, nil
 }
 
+// GetPack fetches an evidence pack by ID.
 func (s *EvidenceService) GetPack(ctx context.Context, packID string) (*models.EvidencePack, error) {
 	pack, _, err := s.repo.GetPackByID(ctx, packID)
 	if err != nil {
@@ -130,7 +205,43 @@ func (s *EvidenceService) GetPack(ctx context.Context, packID string) (*models.E
 	return pack, nil
 }
 
+// ListPacksByIntentID returns all packs for a given intent (spec §17).
+func (s *EvidenceService) ListPacksByIntentID(ctx context.Context, tenantID, intentID string) (*models.ListPacksResponse, error) {
+	packs, err := s.repo.ListByIntentID(ctx, tenantID, intentID)
+	if err != nil {
+		return nil, err
+	}
+	return &models.ListPacksResponse{Packs: packs, Total: len(packs)}, nil
+}
+
+// GetInclusionProofs returns all Merkle inclusion proofs for a pack (§14.4).
+func (s *EvidenceService) GetInclusionProofs(ctx context.Context, packID string) ([]models.InclusionProof, error) {
+	return s.repo.GetInclusionProofs(ctx, packID)
+}
+
+// ReplayPack implements §17 replay: rebuild the pack and compare Merkle roots.
+// A §14.5 replay job is created and tracked through PENDING → COMPLETED.
 func (s *EvidenceService) ReplayPack(ctx context.Context, req models.ReplayRequest) (*models.ReplayResponse, error) {
+	now := time.Now().UTC()
+	jobID := "rj_" + uuid.NewString()
+
+	// --- Create replay job in PENDING state ---
+	job := &models.ReplayJob{
+		ReplayJobID:          jobID,
+		TenantID:             req.TenantID,
+		SourceEvidencePackID: req.OriginalPackID,
+		IntentID:             req.IntentID,
+		ContractID:           req.ContractID,
+		RulesetVersion:       req.RulesetVersion,
+		MappingVersions:      req.MappingVersions,
+		RequestedBy:          req.RequestedBy,
+		Status:               "PENDING",
+		CreatedAt:            now,
+	}
+	if err := s.repo.CreateReplayJob(ctx, job); err != nil {
+		return nil, fmt.Errorf("create replay job: %w", err)
+	}
+
 	oldPack, err := s.GetPack(ctx, req.OriginalPackID)
 	if err != nil {
 		return nil, fmt.Errorf("fetch original pack: %w", err)
@@ -140,25 +251,59 @@ func (s *EvidenceService) ReplayPack(ctx context.Context, req models.ReplayReque
 		TenantID:       req.TenantID,
 		IntentID:       req.IntentID,
 		ContractID:     req.ContractID,
+		Mode:           req.Mode,
 		RulesetVersion: req.RulesetVersion,
 		SchemaVersions: req.SchemaVersions,
-		Inputs:         req.DeterministicRef,
+		Items:          req.Items,
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	equivalent := oldPack.MerkleRoot == newPack.MerkleRoot
-	explanation := "same-root"
+	explanation := "same-root: Merkle root reproduced exactly"
 	comparison := "strict-root-match"
+	diffSummary := map[string]any{}
+
 	if !equivalent {
-		explanation = "merkle-root-different: either inputs changed or version pins changed"
+		explanation = "merkle-root-different: inputs, version pins, or artifact hashes have changed"
+		diffSummary["old_root"] = oldPack.MerkleRoot
+		diffSummary["new_root"] = newPack.MerkleRoot
+		diffSummary["old_leaf_count"] = len(oldPack.Items)
+		diffSummary["new_leaf_count"] = len(newPack.Items)
 		if !s.replayCompareStrict {
 			comparison = "loose-mode-enabled"
 		}
 	}
 
+	equivalenceResult := "EQUIVALENT"
+	if !equivalent {
+		equivalenceResult = "DIFFERENT"
+	}
+
+	// --- Complete the replay job ---
+	_ = s.repo.CompleteReplayJob(ctx, jobID, newPack.EvidencePackID, equivalenceResult, diffSummary)
+
+	// --- Publish evidence.pack.replayed event ---
+	_ = s.publisher.Publish(ctx, kafka.PackEvent{
+		EventType:      kafka.EventPackReplayed,
+		EvidencePackID: newPack.EvidencePackID,
+		TenantID:       req.TenantID,
+		IntentID:       req.IntentID,
+		ContractID:     req.ContractID,
+		Mode:           req.Mode,
+		MerkleRoot:     newPack.MerkleRoot,
+		RulesetVersion: req.RulesetVersion,
+		OccurredAt:     time.Now().UTC(),
+		Extra: map[string]any{
+			"replay_job_id":     jobID,
+			"equivalence_result": equivalenceResult,
+			"original_pack_id":  req.OriginalPackID,
+		},
+	})
+
 	return &models.ReplayResponse{
+		ReplayJobID:      jobID,
 		NewPackID:        newPack.EvidencePackID,
 		Equivalent:       equivalent,
 		OldMerkleRoot:    oldPack.MerkleRoot,
@@ -169,6 +314,8 @@ func (s *EvidenceService) ReplayPack(ctx context.Context, req models.ReplayReque
 	}, nil
 }
 
+// GetPackView returns a role-specific projection of the canonical pack (spec §18).
+// One canonical pack → many projections. Same underlying truth, different highlights.
 func (s *EvidenceService) GetPackView(ctx context.Context, packID, viewType string) (*models.EvidenceViewResponse, error) {
 	pack, err := s.GetPack(ctx, packID)
 	if err != nil {
@@ -181,29 +328,41 @@ func (s *EvidenceService) GetPackView(ctx context.Context, packID, viewType stri
 		return nil, fmt.Errorf("unsupported view_type %q", viewType)
 	}
 
+	// Summarize leaf types for the view
 	itemRefs := make([]string, 0, len(pack.Items))
-	outcomeCount := 0
+	typeCount := map[string]int{}
 	for _, it := range pack.Items {
 		itemRefs = append(itemRefs, fmt.Sprintf("%s:%s", it.Type, it.Ref))
-		if it.Type == "OUTCOME_EVENT" {
-			outcomeCount++
-		}
+		typeCount[it.Type]++
 	}
 
 	highlights := map[string]any{
-		"outcome_event_count": outcomeCount,
-		"signature_alg":       pack.Signatures[0].Alg,
-		"item_refs":           itemRefs,
+		"leaf_count":     len(pack.Items),
+		"leaf_types":     typeCount,
+		"signature_alg":  pack.Signatures[0].Alg,
+		"mode":           pack.Mode,
+		"pack_status":    pack.PackStatus,
+		"item_refs":      itemRefs,
 	}
+
+	// §18 view-specific focus
 	switch view {
 	case "merchant":
-		highlights["focus"] = "final status, reasons, and downloadable evidence artifacts"
+		// §18.1: final status, settlement refs, failure reasons
+		highlights["focus"] = "final status, attachment status, settlement refs, downloadable evidence artifacts"
+		highlights["show"] = []string{"FINAL_EVIDENCE_VIEW", "ATTACHMENT_DECISION", "VARIANCE_DECISION", "CANONICAL_SETTLEMENT_OBSERVATION"}
 	case "psp":
-		highlights["focus"] = "full event timeline and webhook/connector correlation traces"
+		// §18.2: event timeline, webhook correlation, mapping versions
+		highlights["focus"] = "full event timeline, webhook/connector correlation traces, retry history, mapping profile versions"
+		highlights["show"] = []string{"RAW_SETTLEMENT_ENVELOPE", "OUTCOME_SIGNAL", "CANONICAL_SETTLEMENT_OBSERVATION"}
 	case "bank":
-		highlights["focus"] = "finality proof, merkle root, and signature verification"
+		// §18.3: finality proof, signature chain, PII tokenization proof
+		highlights["focus"] = "finality proof, merkle root, signature verification, PII tokenized proof, deterministic replay"
+		highlights["show"] = []string{"FINALITY_CERT", "FINAL_CONTRACT", "GOVERNANCE_DECISION_AT_CANONICAL"}
 	case "nbfc":
-		highlights["focus"] = "ledger-truth projection and contract-linked event timeline"
+		// §18.4: contract graph, ledger-truth projection
+		highlights["focus"] = "contract graph, ledger-truth projection, disbursal-repayment-reversal chain"
+		highlights["show"] = []string{"FINAL_CONTRACT", "CANONICAL_INTENT", "ATTACHMENT_DECISION"}
 	}
 
 	return &models.EvidenceViewResponse{
@@ -212,9 +371,16 @@ func (s *EvidenceService) GetPackView(ctx context.Context, packID, viewType stri
 		TenantID:       pack.TenantID,
 		IntentID:       pack.IntentID,
 		ContractID:     pack.ContractID,
+		Mode:           pack.Mode,
 		MerkleRoot:     pack.MerkleRoot,
 		RulesetVersion: pack.RulesetVersion,
 		CreatedAt:      pack.CreatedAt,
 		Highlights:     highlights,
 	}, nil
+}
+
+// sha256Hex is a local helper for non-text bytes (archive body hash).
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }

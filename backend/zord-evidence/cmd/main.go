@@ -55,17 +55,38 @@ func main() {
 		s3store = storage.NewInMemoryS3Store("local-evidence")
 	}
 
+	// --- Kafka publisher for §13 step 11 events (evidence.pack.*) ---
+	var publisher kafka.EventPublisher
+	if len(cfg.KafkaBrokers) > 0 && cfg.KafkaBrokers[0] != "" {
+		pub, err := kafka.NewPublisher(cfg.KafkaBrokers, kafka.TopicEvidencePack)
+		if err != nil {
+			log.Printf("warn: kafka publisher init failed (noop fallback): %v", err)
+			publisher = kafka.NoopPublisher{}
+		} else {
+			publisher = pub
+			defer pub.Close()
+		}
+	} else {
+		log.Printf("Kafka brokers not configured, using noop publisher")
+		publisher = kafka.NoopPublisher{}
+	}
+
 	repo := repositories.NewEvidenceRepository(database)
-	evidenceSvc := services.NewEvidenceService(repo, s3store, signer, archiveCrypto, cfg.ArchivePrefix, cfg.ReplayCompareStrict)
+	evidenceSvc := services.NewEvidenceService(repo, s3store, signer, archiveCrypto, cfg.ArchivePrefix, cfg.ReplayCompareStrict, publisher)
 	h := handlers.NewEvidenceHandler(evidenceSvc)
 
-	if err := kafka.StartConsumer(ctx, cfg.KafkaBrokers, cfg.KafkaConsumerGroup, cfg.KafkaTopic, func(_ context.Context, key string, payload []byte) error {
-		_ = key
-		_ = payload
-		// Intentionally lightweight in v1: consume topic for future enrichment hooks.
-		return nil
-	}); err != nil {
-		log.Fatalf("kafka consumer failed: %v", err)
+	// --- Kafka consumer for inbound enrichment hooks ---
+	if len(cfg.KafkaBrokers) > 0 && cfg.KafkaBrokers[0] != "" {
+		if err := kafka.StartConsumer(ctx, cfg.KafkaBrokers, cfg.KafkaConsumerGroup, cfg.KafkaTopic, func(_ context.Context, key string, payload []byte) error {
+			_ = key
+			_ = payload
+			// Intentionally lightweight in v1: consume topic for future enrichment hooks.
+			return nil
+		}); err != nil {
+			log.Printf("warn: kafka consumer init failed (continuing without consumer): %v", err)
+		}
+	} else {
+		log.Printf("Kafka brokers not configured, skipping consumer")
 	}
 
 	gin.SetMode(gin.ReleaseMode)

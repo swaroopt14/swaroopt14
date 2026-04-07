@@ -6,7 +6,7 @@ func CreateTables(db *sql.DB) error {
 
 	tokenMap := `
 	CREATE TABLE IF NOT EXISTS token_map (
-		token_id UUID PRIMARY KEY,
+		token_id VARCHAR PRIMARY KEY,
 		tenant_id UUID NOT NULL,
 		kind TEXT NOT NULL,
 
@@ -23,7 +23,7 @@ func CreateTables(db *sql.DB) error {
 	tokenAudit := `
 	CREATE TABLE IF NOT EXISTS token_audit (
 		audit_id UUID PRIMARY KEY,
-		token_id UUID,
+		token_id VARCHAR,
 		tenant_id UUID,
 		actor TEXT NOT NULL,
 		action TEXT NOT NULL,

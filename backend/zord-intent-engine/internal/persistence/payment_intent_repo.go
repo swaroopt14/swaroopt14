@@ -24,7 +24,6 @@ func (r *PaymentIntentRepo) Save(
 	intent models.CanonicalIntent, outbox models.OutboxEvent,
 ) (models.CanonicalIntent, error) {
 
-	// intent.IntentID = uuid.NewString()
 	if intent.ContractID == "" {
 		intent.ContractID = uuid.NewString()
 	}
@@ -46,17 +45,20 @@ func (r *PaymentIntentRepo) Save(
 			nir_id, envelope_id, tenant_id,
 			detected_format, profile_id, profile_version,
 			fields_json, field_confidence_summary, unmapped_json, mapping_uncertain_flag,
+			required_field_gap_count, low_confidence_field_count,
 			created_at
 		) VALUES (
 			$1, $2, $3,
 			$4, $5, $6,
 			$7, $8, $9, $10,
-			$11
+			$11, $12,
+			$13
 		)`
 		_, err = tx.ExecContext(ctx, nirQuery,
 			nir.NIRID, nir.EnvelopeID, nir.TenantID,
 			nir.DetectedFormat, nir.ProfileID, nir.ProfileVersion,
 			nir.FieldsJSON, nir.FieldConfidenceSummary, nir.UnmappedJSON, nir.MappingUncertainFlag,
+			nir.RequiredFieldGapCount, nir.LowConfidenceFieldCount,
 			nir.CreatedAt,
 		)
 		if err != nil {
@@ -78,7 +80,10 @@ func (r *PaymentIntentRepo) Save(
     created_at,
     client_payout_ref, request_fingerprint, routing_hints_json,
     governance_state, business_state, duplicate_risk_flag,
-    mapping_profile_version, updated_at
+    mapping_profile_version, updated_at,
+    business_idempotency_key, beneficiary_fingerprint,
+    proof_readiness_score, matchability_score, intent_quality_score,
+    duplicate_reason_code, client_batch_ref
 )
 VALUES (
     $1,$2,$3,$4,
@@ -92,45 +97,40 @@ VALUES (
     $26,
     $27,$28,$29,
     $30,$31,$32,
-    $33
+    $33,
+    $34,$35,
+    $36,$37,$38,
+    $39,$40
 )`
 
 	_, err = tx.ExecContext(
 		ctx,
 		query,
-		intent.IntentID,   // $1
-		intent.EnvelopeID, // $2
-		intent.TenantID,   // $3
-		intent.ContractID, // $4
-
-		intent.TraceID,        // $5
-		intent.IdempotencyKey, // $6
-		intent.SalientHash,    // $7
-		intent.PayloadHash,    // $8
-
-		intent.IntentType,       // $9
-		intent.CanonicalVersion, // $10
-		intent.SchemaVersion,    // $11
-
-		intent.Amount,     // $12
-		intent.Currency,   // $13
-		intent.DeadlineAt, // $14
-
-		intent.Constraints,     // $15
-		intent.BeneficiaryType, // $16
-		intent.PIITokens,       // $17
-		intent.Beneficiary,     // $18
-
-		intent.Status,          // $19
-		intent.ConfidenceScore, // $20
-
+		intent.IntentID,              // $1
+		intent.EnvelopeID,            // $2
+		intent.TenantID,              // $3
+		intent.ContractID,            // $4
+		intent.TraceID,               // $5
+		intent.IdempotencyKey,        // $6
+		intent.SalientHash,           // $7
+		intent.PayloadHash,           // $8
+		intent.IntentType,            // $9
+		intent.CanonicalVersion,      // $10
+		intent.SchemaVersion,         // $11
+		intent.Amount,                // $12
+		intent.Currency,              // $13
+		intent.DeadlineAt,            // $14
+		intent.Constraints,           // $15
+		intent.BeneficiaryType,       // $16
+		intent.PIITokens,             // $17
+		intent.Beneficiary,           // $18
+		intent.Status,                // $19
+		intent.ConfidenceScore,       // $20
 		intent.CanonicalSnapshotRef,  // $21
 		intent.NIRSnapshotRef,        // $22
 		intent.GovernanceSnapshotRef, // $23
 		intent.CanonicalHash,         // $24
-
-		intent.CreatedAt, // $25
-
+		intent.CreatedAt,             // $25
 		intent.ClientPayoutRef,       // $26
 		intent.RequestFingerprint,    // $27
 		intent.RoutingHintsJSON,      // $28
@@ -139,6 +139,13 @@ VALUES (
 		intent.DuplicateRiskFlag,     // $31
 		intent.MappingProfileVersion, // $32
 		intent.UpdatedAt,             // $33
+		intent.BusinessIdempotencyKey, // $34
+		intent.BeneficiaryFingerprint, // $35
+		intent.ProofReadinessScore,    // $36
+		intent.MatchabilityScore,      // $37
+		intent.IntentQualityScore,     // $38
+		intent.DuplicateReasonCode,    // $39
+		intent.ClientBatchRef,         // $40
 	)
 
 	if err != nil {
@@ -236,6 +243,13 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		duplicate_risk_flag,
 		mapping_profile_version,
 		updated_at,
+		business_idempotency_key,
+		beneficiary_fingerprint,
+		proof_readiness_score,
+		matchability_score,
+		intent_quality_score,
+		duplicate_reason_code,
+		client_batch_ref,
 		canonical_snapshot_ref,
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref
@@ -278,6 +292,13 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.DuplicateRiskFlag,
 		&intent.MappingProfileVersion,
 		&intent.UpdatedAt,
+		&intent.BusinessIdempotencyKey,
+		&intent.BeneficiaryFingerprint,
+		&intent.ProofReadinessScore,
+		&intent.MatchabilityScore,
+		&intent.IntentQualityScore,
+		&intent.DuplicateReasonCode,
+		&intent.ClientBatchRef,
 		&intent.CanonicalSnapshotRef,
 		&intent.NIRSnapshotRef,
 		&intent.GovernanceSnapshotRef,
@@ -325,6 +346,7 @@ func (r *PaymentIntentRepo) UpdateSnapshotRefs(
 
 	return err
 }
+
 func (r *PaymentIntentRepo) GetPreviousTenantCanonicalHash(
 	ctx context.Context,
 	tenantID string,
@@ -351,4 +373,108 @@ func (r *PaymentIntentRepo) GetPreviousTenantCanonicalHash(
 	}
 
 	return prevHash, nil
+}
+
+func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
+	ctx context.Context,
+	tenantID string,
+	key string,
+) (*models.CanonicalIntent, error) {
+
+	query := `
+	SELECT
+		intent_id,
+		envelope_id,
+		tenant_id,
+		contract_id,
+		intent_type,
+		canonical_version,
+		schema_version,
+		amount,
+		currency,
+		deadline_at,
+		constraints,
+		beneficiary_type,
+		pii_tokens,
+		beneficiary,
+		status,
+		confidence_score,
+		created_at,
+		client_payout_ref,
+		request_fingerprint,
+		routing_hints_json,
+		governance_state,
+		business_state,
+		duplicate_risk_flag,
+		mapping_profile_version,
+		updated_at,
+		business_idempotency_key,
+		beneficiary_fingerprint,
+		proof_readiness_score,
+		matchability_score,
+		intent_quality_score,
+		duplicate_reason_code,
+		client_batch_ref,
+		canonical_snapshot_ref,
+		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
+		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref
+	FROM payment_intents
+	WHERE tenant_id = $1
+	  AND business_idempotency_key = $2
+	LIMIT 1
+	`
+
+	var intent models.CanonicalIntent
+
+	err := r.db.QueryRowContext(
+		ctx,
+		query,
+		tenantID,
+		key,
+	).Scan(
+		&intent.IntentID,
+		&intent.EnvelopeID,
+		&intent.TenantID,
+		&intent.ContractID,
+		&intent.IntentType,
+		&intent.CanonicalVersion,
+		&intent.SchemaVersion,
+		&intent.Amount,
+		&intent.Currency,
+		&intent.DeadlineAt,
+		&intent.Constraints,
+		&intent.BeneficiaryType,
+		&intent.PIITokens,
+		&intent.Beneficiary,
+		&intent.Status,
+		&intent.ConfidenceScore,
+		&intent.CreatedAt,
+		&intent.ClientPayoutRef,
+		&intent.RequestFingerprint,
+		&intent.RoutingHintsJSON,
+		&intent.GovernanceState,
+		&intent.BusinessState,
+		&intent.DuplicateRiskFlag,
+		&intent.MappingProfileVersion,
+		&intent.UpdatedAt,
+		&intent.BusinessIdempotencyKey,
+		&intent.BeneficiaryFingerprint,
+		&intent.ProofReadinessScore,
+		&intent.MatchabilityScore,
+		&intent.IntentQualityScore,
+		&intent.DuplicateReasonCode,
+		&intent.ClientBatchRef,
+		&intent.CanonicalSnapshotRef,
+		&intent.NIRSnapshotRef,
+		&intent.GovernanceSnapshotRef,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &intent, nil
 }

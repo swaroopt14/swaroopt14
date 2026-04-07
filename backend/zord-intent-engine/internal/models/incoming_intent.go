@@ -35,6 +35,7 @@ type ParsedIncomingIntent struct {
 	Constraints    map[string]any `json:"constraints,omitempty"`
 	PurposeCode    string         `json:"purpose_code"`
 	IdempotencyKey string         `json:"idempotency_key"`
+	ClientBatchRef string         `json:"client_batch_ref,omitempty"`
 }
 
 // type IncomingIntent struct {

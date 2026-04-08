@@ -34,12 +34,30 @@ func main() {
 	cfg := config.Load()
 	log.Printf("main: config loaded (env=%s port=%s)", cfg.Environment, cfg.HTTPPort)
 
-	if err := kafkapkg.EnsureTopics(cfg.KafkaBrokers, []string{
+	// Ensure ALL required topics exist before consumers join the group.
+	// This avoids the "group is stable but has 0 assigned partitions" issue
+	// when input topics are missing at startup.
+	requiredTopics := []string{
+		// Input topics (consumed by zord-intelligence)
+		cfg.TopicIntentCreated,
+		cfg.TopicDispatchCreated,
+		cfg.TopicOutcomeNormalized,
+		cfg.TopicFinalityCert,
+		cfg.TopicFinalContract,
+		cfg.TopicEvidenceReady,
+		cfg.TopicDLQ,
+		cfg.TopicStatementMatch,
+		cfg.TopicCorridorHealthTick,
+		cfg.TopicSLATimerTick,
+
+		// Output topics (published by outbox worker)
 		cfg.TopicActuationAlert,
 		cfg.TopicActuationRetry,
 		cfg.TopicActuationEvidence,
-	}); err != nil {
-		log.Printf("main: kafka topic ensure failed: %v", err)
+	}
+
+	if err := ensureTopicsWithRetry(cfg.KafkaBrokers, requiredTopics, 10, 2*time.Second); err != nil {
+		log.Fatalf("main: kafka topic ensure failed after retries: %v", err)
 	}
 
 	// ── Step 3: Connect to PostgreSQL ──────────────────────────────────────
@@ -199,4 +217,32 @@ func main() {
 
 	log.Println("main: shutdown complete")
 	fmt.Println("zord-intelligence stopped cleanly")
+}
+
+// ensureTopicsWithRetry retries topic creation while Kafka is still booting.
+// Running consumers before required topics exist can lead to a stable group
+// with no assigned partitions, so we treat this as a startup prerequisite.
+func ensureTopicsWithRetry(
+	brokers string,
+	topics []string,
+	maxAttempts int,
+	delay time.Duration,
+) error {
+	var lastErr error
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err := kafkapkg.EnsureTopics(brokers, topics); err == nil {
+			log.Printf("main: kafka topics ensured (%d configured)", len(topics))
+			return nil
+		} else {
+			lastErr = err
+			log.Printf("main: ensure topics attempt %d/%d failed: %v", attempt, maxAttempts, err)
+		}
+
+		if attempt < maxAttempts {
+			time.Sleep(delay)
+		}
+	}
+
+	return fmt.Errorf("ensure topics failed after %d attempts: %w", maxAttempts, lastErr)
 }

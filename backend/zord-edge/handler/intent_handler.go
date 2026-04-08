@@ -70,7 +70,7 @@ func (h *Handler) IntentHandler(context *gin.Context) {
 	}
 
 	//traceID := context.GetString("trace_id")
-	traceID := uuid.New().String()
+	traceID := uuid.Must(uuid.NewV7()).String()
 	payloadSize := len(rawPayload)
 	contentType := context.ContentType()
 	sourceType := context.GetString("source_type")
@@ -80,7 +80,7 @@ func (h *Handler) IntentHandler(context *gin.Context) {
 	}
 	tenantName := context.GetString("tenant_name")
 
-	envelopeID := uuid.New().String()
+	envelopeID := uuid.Must(uuid.NewV7()).String()
 	receivedAt := time.Now().UTC()
 
 	headersBytes, _ := json.Marshal(context.Request.Header)

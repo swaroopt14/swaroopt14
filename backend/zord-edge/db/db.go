@@ -37,6 +37,11 @@ func CreateTable() error {
 	expires_at TIMESTAMPTZ,
 	created_at TIMESTAMPTZ DEFAULT now(),
 	updated_at TIMESTAMPTZ DEFAULT now(),
+	response_snapshot_json TEXT,
+	conflict_count INT DEFAULT 0,
+	last_conflict_at TIMESTAMPTZ,
+	principal_id_first_seen UUID,
+	source_class_first_seen TEXT,
 	PRIMARY KEY (tenant_id, idempotency_key),
 	UNIQUE (tenant_id, idempotency_key)
 );`
@@ -80,7 +85,12 @@ func CreateTable() error {
 	principal_id UUID,
 	auth_method TEXT,
 	received_at TIMESTAMPTZ NOT NULL,
-	status TEXT NOT NULL DEFAULT 'pending'
+	status TEXT NOT NULL DEFAULT 'pending',
+	file_name TEXT,
+	file_size_bytes BIGINT,
+	file_content_hash TEXT,
+	row_count_estimate INT,
+	file_upload_channel TEXT
 	--error_code TEXT,
     --error_detail TEXT
 	);`

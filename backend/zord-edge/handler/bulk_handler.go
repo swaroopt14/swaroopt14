@@ -72,7 +72,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 	tenantID := c.MustGet("tenant_id").(uuid.UUID)
 
-	fileTraceID := uuid.NewString()
+	fileTraceID := uuid.Must(uuid.NewV7()).String()
 
 	log.Printf(
 		"Bulk file stored | filename=%s size=%d hash=%s ",
@@ -101,7 +101,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 	fileMsg := model.RawIntentMessage{
 		TenantID:       tenantID.String(),
 		TraceID:        fileTraceID,
-		IdempotencyKey: uuid.NewString(),
+		IdempotencyKey: uuid.Must(uuid.NewV7()).String(),
 		PayloadSize:    len(payloadBytes),
 		Payload:        payloadBytes,
 		ContentType:    "application/json",
@@ -109,12 +109,18 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		SourceClass:    c.GetString("source_class"),
 		ObjectEncryptionAlg: "AES256",
 		KMSKeyVersion:        "v1",
+		SourceSystemHint:     nil,
 		IngressAPIVersion:    "v1",
 		RetentionPolicyClass: "STANDARD",
 		EventType:            "Envelope.Created",
+		FileName:             &file.Filename,
+		FileSizeBytes:        func(s int64) *int64 { return &s }(int64(len(fileBytes))),
+		FileContentHash:      &fileHash,
+		RowCountEstimate:     func(r int) *int { return &r }(strings.Count(string(fileBytes), "\n") - 1),
+		FileUploadChannel:    func(s string) *string { return &s }("CSV"),
 	}
 
-	_, err = services.ProcessRawIntent(context.Background(), fileMsg, h.S3store, uuid.NewString(), time.Now().UTC())
+	_, err = services.ProcessRawIntent(context.Background(), fileMsg, h.S3store, uuid.Must(uuid.NewV7()).String(), time.Now().UTC())
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": "failed to store bulk file envelope",
@@ -209,9 +215,9 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 			for job := range jobs {
 
-				traceID := uuid.New().String()
-				idempotencyKey := uuid.New().String()
-				envelopeID := uuid.New().String()
+				traceID := uuid.Must(uuid.NewV7()).String()
+				idempotencyKey := uuid.Must(uuid.NewV7()).String()
+				envelopeID := uuid.Must(uuid.NewV7()).String()
 				receivedAt := time.Now().UTC()
 
 				storageAck, duplicateID, err := h.processBulkIntentRow(

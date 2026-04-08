@@ -61,8 +61,8 @@ func (h *Handler) WebhookHandler(c *gin.Context) {
 	rawPayload := rawPayloadAny.([]byte)
 
 	// ── Observability ──
-	traceID := uuid.New().String()
-	envelopeID := uuid.New().String()
+	traceID := uuid.Must(uuid.NewV7()).String()
+	envelopeID := uuid.Must(uuid.NewV7()).String()
 	receivedAt := time.Now().UTC()
 
 	// ── Metadata ──

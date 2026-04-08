@@ -50,6 +50,7 @@ type CanonicalIntentRepository interface {
 		nir *models.NormalizedIngestRecord,
 		intent models.CanonicalIntent,
 		outbox models.OutboxEvent,
+		registry *models.BusinessIdempotencyEntry,
 	) (models.CanonicalIntent, error)
 
 	FindByEnvelope(
@@ -79,6 +80,12 @@ type CanonicalIntentRepository interface {
 		tenantID string,
 		key string,
 	) (*models.CanonicalIntent, error)
+
+	CheckIdempotencyRegistry(
+		ctx context.Context,
+		tenantID string,
+		key string,
+	) (*models.BusinessIdempotencyEntry, error)
 }
 
 func NewIntentService(
@@ -170,37 +177,146 @@ func (s *IntentService) computeBusinessIdempotencyKey(tenantID string, fingerPri
 	return hex.EncodeToString(hash[:])
 }
 
-func (s *IntentService) computeScores(parsed models.ParsedIncomingIntent) (proofScore, matchScore, qualityScore float64) {
-	// matchability_score: base 0.0 to 1.0
-	if parsed.Beneficiary.Name != "" {
-		matchScore += 0.2
+func (s *IntentService) computeScores(
+	intent *models.CanonicalIntent,
+	nir *models.NormalizedIngestRecord,
+) (mappingScore, proofScore, matchScore, qualityScore, schemaScore float64) {
+	// 1. schema_completeness_score
+	totalRequired := 5.0 // intent_type, amount, currency, beneficiary_name, idempotency_key
+	if nir != nil {
+		presentRequired := totalRequired - float64(nir.RequiredFieldGapCount)
+		schemaScore = presentRequired / totalRequired
 	}
-	if parsed.Beneficiary.Instrument.Kind != "" {
-		matchScore += 0.2
+
+	// 2. mapping_confidence_score
+	totalFields := 6.0 // Based on fields added in Step 6
+	if totalFields > 0 && nir != nil {
+		var confSummary struct {
+			AvgConfidence  float64 `json:"avg_confidence"`
+			Overall        float64 `json:"overall"`
+			LowConfCount   int     `json:"low_confidence_field_count"`
+		}
+		
+		avgConf := 1.0
+		lowConfCount := nir.LowConfidenceFieldCount
+		
+		if len(nir.FieldConfidenceSummary) > 0 {
+			_ = json.Unmarshal(nir.FieldConfidenceSummary, &confSummary)
+			if confSummary.AvgConfidence > 0 {
+				avgConf = confSummary.AvgConfidence
+			} else if confSummary.Overall > 0 {
+				avgConf = confSummary.Overall
+			}
+			if confSummary.LowConfCount > 0 {
+				lowConfCount = confSummary.LowConfCount
+			}
+		}
+
+		// Base mapping on average confidence and high-confidence ratio
+		highConfRatio := (totalFields - float64(nir.RequiredFieldGapCount) - float64(lowConfCount)) / totalFields
+		mappingScore = (avgConf * 0.6) + (highConfRatio * 0.4)
+
+		// Penalize low confidence and gaps
+		mappingScore -= float64(lowConfCount) * 0.1
+		mappingScore -= float64(nir.RequiredFieldGapCount) * 0.2
 	}
-	if parsed.Amount.Value != "" && parsed.Amount.Value != "0" {
+
+	// 3. proof_readiness_score
+	if intent.BeneficiaryFingerprint != "" {
+		proofScore += 0.2
+	}
+	if !intent.Amount.IsZero() {
+		proofScore += 0.2
+	}
+	if intent.Currency != "" {
+		proofScore += 0.1
+	}
+	if intent.TraceID != "" && intent.EnvelopeID != "" {
+		proofScore += 0.2
+	}
+	if intent.ClientPayoutRef != "" && intent.ClientPayoutRef != "NA" {
+		proofScore += 0.2
+	}
+	if intent.ClientBatchRef != "" && intent.ClientBatchRef != "NA" {
+		proofScore += 0.1
+	}
+	
+	// Weight by schema completeness
+	proofScore = proofScore * schemaScore
+
+	// 4. matchability_score
+	if intent.BeneficiaryFingerprint != "" {
 		matchScore += 0.3
 	}
-	if parsed.Amount.Currency != "" {
-		matchScore += 0.1
-	}
-	if parsed.IdempotencyKey != "" {
+	if !intent.Amount.IsZero() {
 		matchScore += 0.2
 	}
-
-	// intent_quality_score: base 0.0 to 1.0
-	if parsed.SchemaVersion != "" {
-		qualityScore += 0.2
+	if intent.Currency != "" {
+		matchScore += 0.1
 	}
-	if parsed.IntentType != "" {
-		qualityScore += 0.2
+	if intent.ClientPayoutRef != "" && intent.ClientPayoutRef != "NA" {
+		matchScore += 0.2
 	}
-	qualityScore += matchScore * 0.6
+	// time field (using CreatedAt)
+	if !intent.CreatedAt.IsZero() {
+		matchScore += 0.1
+	}
+	if intent.TraceID != "" {
+		matchScore += 0.1
+	}
 
-	// proof_readiness_score
-	proofScore = qualityScore // For now, linked to quality
+	// source_system signal
+	if intent.SourceSystem != "" {
+		matchScore += 0.1
+		if s.isTrustedSystem(intent.SourceSystem) {
+			matchScore += 0.1
+		}
+	}
+
+	// 5. intent_quality_score
+	// Baseline from mapping and completeness
+	qualityScore = (mappingScore * 0.4) + (schemaScore * 0.6)
+	
+	if intent.DuplicateRiskFlag {
+		qualityScore -= 0.3
+	}
+
+	if nir != nil {
+		// Extract low confidence count again or use the one from NIR directly
+		lowConf := nir.LowConfidenceFieldCount
+		// Penalize intent quality score based on low confidence fields
+		if lowConf > 0 {
+			qualityScore -= float64(lowConf) * 0.05
+		}
+	}
+
+	// Cap all scores between 0 and 1
+	capScore := func(v float64) float64 {
+		if v < 0 {
+			return 0
+		}
+		if v > 1 {
+			return 1
+		}
+		return v
+	}
+
+	mappingScore = capScore(mappingScore)
+	proofScore = capScore(proofScore)
+	matchScore = capScore(matchScore)
+	qualityScore = capScore(qualityScore)
+	schemaScore = capScore(schemaScore)
 
 	return
+}
+
+func (s *IntentService) isTrustedSystem(source string) bool {
+	trusted := map[string]bool{
+		"SAP_ERP":      true,
+		"CORE_BANKING": true,
+		"SWIFT_GPI":    true,
+	}
+	return trusted[source]
 }
 
 /* ---------------- Pipeline ---------------- */
@@ -219,11 +335,13 @@ func (s *IntentService) ProcessIncomingIntent(
 		EnvelopeID:       event.EnvelopeID,
 		TraceID:          event.TraceID,
 		Source:           event.Source,
+		SourceSystem:     event.SourceSystem,
 		ObjectRef:        event.ObjectRef,
 		IdempotencyKey:   event.IdempotencyKey,
 		EncryptedPayload: event.EncryptedPayload,
 		PayloadHash:      event.PayloadHash,
 	}
+
 
 	// -------- STEP 0: Transport guards --------
 
@@ -287,6 +405,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	// -------- STEP 6: Build NIR --------
 	fieldsMap := make(map[string]models.NIRField)
 	gapCount := 0
+	lowConfCount := 0
 	
 	// Helper to add structured field
 	addFields := func(name string, value any, path string, required bool) {
@@ -297,11 +416,16 @@ func (s *IntentService) ProcessIncomingIntent(
 			}
 			conf = 0.0
 		}
+		if conf > 0 && conf < 0.8 {
+			lowConfCount++
+		}
 		fieldsMap[name] = models.NIRField{
-			Value:      value,
-			SourcePath: path,
-			Confidence: conf,
-			Sensitive:  false, // Adjust based on field if needed
+			Value:            value,
+			SourcePath:       path,
+			ConfidenceScore:  conf,
+			SensitiveFlag:    false, // Default
+			TransformApplied: "NONE",  // Default
+			ExtractionNotes:  "",      // Default
 		}
 	}
 
@@ -314,19 +438,24 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	fieldsJSON, _ := json.Marshal(fieldsMap)
 	
+	profileID := "generic_json_profile"
+	if in.SourceSystem != "" {
+		profileID = strings.ToLower(in.SourceSystem) + "_json_profile"
+	}
+
 	nir := &models.NormalizedIngestRecord{
 		NIRID:                  uuid.New(),
 		EnvelopeID:             in.EnvelopeID,
 		TenantID:               in.TenantID,
 		DetectedFormat:         "json",
-		ProfileID:              "default",
+		ProfileID:              profileID,
 		ProfileVersion:         "v1",
 		FieldsJSON:             fieldsJSON,
 		FieldConfidenceSummary: json.RawMessage(`{"overall": 1.0}`),
 		UnmappedJSON:           json.RawMessage(`{}`),
 		MappingUncertainFlag:   false,
 		RequiredFieldGapCount:  gapCount,
-		LowConfidenceFieldCount: 0,
+		LowConfidenceFieldCount: lowConfCount,
 		CreatedAt:              time.Now().UTC(),
 	}
 
@@ -446,32 +575,69 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	// -------- STEP 8.5: COMPUTE SCORES & FINGERPRINT --------
 	
-	pScore, mScore, iScore := s.computeScores(parsed)
 	bFingerprint := s.computeBeneficiaryFingerprint(tokenMap)
 	timeBucket := time.Now().UTC().Format("2006-01-02")
 	bIdemKey := s.computeBusinessIdempotencyKey(in.TenantID.String(), bFingerprint, amount, canonicalInput.Amount.Currency, timeBucket)
 
-	// -------- STEP 8.7: Business Idempotency Check (NEW) --------
-	duplicate, err := s.repo.FindByBusinessIdempotencyKey(ctx, in.TenantID.String(), bIdemKey)
+	// -------- STEP 8.7: Business Idempotency Registry Check (NEW) --------
+	registryDuplicate, err := s.repo.CheckIdempotencyRegistry(ctx, in.TenantID.String(), bIdemKey)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	dupRisk := false
 	dupReason := "NONE"
-	if duplicate != nil {
+	var registryEntry *models.BusinessIdempotencyEntry
+
+	if registryDuplicate != nil {
 		dupRisk = true
-		dupReason = "SAME_BENEFICIARY_AMOUNT_TIME"
+		dupReason = registryDuplicate.DuplicateReasonCode
+		if dupReason == "" {
+			dupReason = "SAME_BENEFICIARY_AMOUNT_TIME"
+		}
+	} else {
+		// Prepare registry entry for new intent
+		registryEntry = &models.BusinessIdempotencyEntry{
+			TenantID:               in.TenantID,
+			BusinessIdempotencyKey: bIdemKey,
+			IntentID:               uuid.Nil, // Will be set after IntentID generated if needed, but here we can use a temp ID or let repo handle it
+			BeneficiaryFingerprint: bFingerprint,
+			AmountMinor:            amount.Mul(decimal.NewFromInt(100)).IntPart(),
+			CurrencyCode:           canonicalInput.Amount.Currency,
+			TimeBucket:             timeBucket,
+			DuplicateReasonCode:    "NONE",
+			CreatedAt:              time.Now().UTC(),
+		}
 	}
+
+	// Score requires partial intent for signals
+	tempIntent := &models.CanonicalIntent{
+		BeneficiaryFingerprint: bFingerprint,
+		Amount:                 amount,
+		Currency:               canonicalInput.Amount.Currency,
+		TraceID:                in.TraceID.String(),
+		EnvelopeID:             in.EnvelopeID.String(),
+		ClientPayoutRef:        canonicalInput.IdempotencyKey, // Map from incoming idempotency if applicable
+		ClientBatchRef:         canonicalInput.ClientBatchRef,
+		CreatedAt:              time.Now().UTC(),
+		DuplicateRiskFlag:      dupRisk,
+	}
+	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir)
 
 	// -------- STEP 9: BUILD CANONICAL INTENT --------
 
+	intentID := uuid.NewString()
+
+	// Link registry entry to intent if it's a new entry
+	if registryEntry != nil {
+		registryEntry.IntentID = uuid.MustParse(intentID)
+	}
+
 	canonical := models.CanonicalIntent{
 		TraceID:    in.TraceID.String(),
-		IntentID:   uuid.NewString(),
+		IntentID:   intentID,
 		EnvelopeID: in.EnvelopeID.String(),
 		TenantID:   in.TenantID.String(),
-
 		IdempotencyKey: in.IdempotencyKey,
 		SalientHash:    "NA",
 		PayloadHash:    in.PayloadHash,
@@ -498,7 +664,9 @@ func (s *IntentService) ProcessIncomingIntent(
 		GovernanceState:       "PENDING",
 		BusinessState:         "NEW",
 		DuplicateRiskFlag:     dupRisk,
+		MappingProfileID:      nir.ProfileID,
 		MappingProfileVersion: nir.ProfileVersion,
+		SourceSystem:          in.SourceSystem,
 		
 		// Service 2 fields
 		BusinessIdempotencyKey: bIdemKey,
@@ -506,10 +674,15 @@ func (s *IntentService) ProcessIncomingIntent(
 		ProofReadinessScore:    pScore,
 		MatchabilityScore:      mScore,
 		IntentQualityScore:     iScore,
+		MappingConfidenceScore: mapScore,
+		SchemaCompletenessScore: schemaScore,
 		DuplicateReasonCode:    dupReason,
 
 		UpdatedAt:             func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 	}
+
+	// -------- STEP 9.1: AGGREGATE GOVERNANCE REASONS --------
+	canonical.GovernanceReasonCodesJSON = s.aggregateGovernanceReasons(&canonical, nir)
 
 	// -------- STEP 10: OUTBOX + PERSISTENCE (ATOMIC DB) --------
 
@@ -517,7 +690,7 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	outbox, _ := CanonicalIntentToOutboxEvent(canonical, canonicalPayload)
 
-	saved, _ := s.repo.Save(ctx, nir, canonical, outbox)
+	saved, _ := s.repo.Save(ctx, nir, canonical, outbox, registryEntry)
 
 	// -------- STEP 11: WORM SNAPSHOT (S3) --------
 
@@ -625,19 +798,24 @@ func (s *IntentService) ProcessTokenizeResult(
 
 	// -------- Build NIR (Reconstructed for async flow) --------
 	fieldsMap := make(map[string]models.NIRField)
-	fieldsMap["intent_type"] = models.NIRField{Value: canonicalInput.IntentType, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
-	fieldsMap["amount"] = models.NIRField{Value: canonicalInput.Amount.Value, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
-	fieldsMap["currency"] = models.NIRField{Value: canonicalInput.Amount.Currency, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
-	fieldsMap["beneficiary_name"] = models.NIRField{Value: canonicalInput.Beneficiary.Name, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
-	fieldsMap["client_batch_ref"] = models.NIRField{Value: canonicalInput.ClientBatchRef, SourcePath: "KAFKA_RECONSTRUCTED", Confidence: 1.0}
+	fieldsMap["intent_type"] = models.NIRField{Value: canonicalInput.IntentType, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
+	fieldsMap["amount"] = models.NIRField{Value: canonicalInput.Amount.Value, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
+	fieldsMap["currency"] = models.NIRField{Value: canonicalInput.Amount.Currency, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
+	fieldsMap["beneficiary_name"] = models.NIRField{Value: canonicalInput.Beneficiary.Name, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
+	fieldsMap["client_batch_ref"] = models.NIRField{Value: canonicalInput.ClientBatchRef, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
 	fieldsJSON, _ := json.Marshal(fieldsMap)
+
+	profileID := "kafka_async_profile"
+	if event.SourceSystem != "" {
+		profileID = strings.ToLower(event.SourceSystem) + "_async_profile"
+	}
 
 	nir := &models.NormalizedIngestRecord{
 		NIRID:                  uuid.New(),
 		EnvelopeID:             uuid.MustParse(event.EnvelopeID),
 		TenantID:               uuid.MustParse(event.TenantID),
 		DetectedFormat:         "json",
-		ProfileID:              "kafka_async",
+		ProfileID:              profileID,
 		ProfileVersion:         "v1",
 		FieldsJSON:             fieldsJSON,
 		FieldConfidenceSummary: json.RawMessage(`{"overall": 0.9}`),
@@ -645,29 +823,66 @@ func (s *IntentService) ProcessTokenizeResult(
 	}
 
 	// -------- COMPUTE SCORES & FINGERPRINT --------
-	pScore, mScore, iScore := s.computeScores(canonicalInput)
 	bFingerprint := s.computeBeneficiaryFingerprint(tokenMap)
 	timeBucket := time.Now().UTC().Format("2006-01-02")
 	bIdemKey := s.computeBusinessIdempotencyKey(event.TenantID, bFingerprint, amount, canonicalInput.Amount.Currency, timeBucket)
 
-	// -------- Business Idempotency Check (NEW) --------
-	duplicate, err := s.repo.FindByBusinessIdempotencyKey(ctx, event.TenantID, bIdemKey)
+	// -------- Business Idempotency Registry Check (NEW) --------
+	registryDuplicate, err := s.repo.CheckIdempotencyRegistry(ctx, event.TenantID, bIdemKey)
 	if err != nil {
 		return nil, err
 	}
 
 	dupRisk := false
 	dupReason := "NONE"
-	if duplicate != nil {
+	var registryEntry *models.BusinessIdempotencyEntry
+
+	if registryDuplicate != nil {
 		dupRisk = true
-		dupReason = "SAME_BENEFICIARY_AMOUNT_TIME"
+		dupReason = registryDuplicate.DuplicateReasonCode
+		if dupReason == "" {
+			dupReason = "SAME_BENEFICIARY_AMOUNT_TIME"
+		}
+	} else {
+		// Prepare registry entry
+		registryEntry = &models.BusinessIdempotencyEntry{
+			TenantID:               uuid.MustParse(event.TenantID),
+			BusinessIdempotencyKey: bIdemKey,
+			IntentID:               uuid.Nil, // Set below
+			BeneficiaryFingerprint: bFingerprint,
+			AmountMinor:            amount.Mul(decimal.NewFromInt(100)).IntPart(),
+			CurrencyCode:           canonicalInput.Amount.Currency,
+			TimeBucket:             timeBucket,
+			DuplicateReasonCode:    "NONE",
+			CreatedAt:              time.Now().UTC(),
+		}
 	}
+
+	// Score requires partial intent for signals
+	tempIntent := &models.CanonicalIntent{
+		BeneficiaryFingerprint: bFingerprint,
+		Amount:                 amount,
+		Currency:               canonicalInput.Amount.Currency,
+		TraceID:                event.TraceID,
+		EnvelopeID:             event.EnvelopeID,
+		ClientPayoutRef:        "KAFKA_ASYNCHRONOUS",
+		ClientBatchRef:         canonicalInput.ClientBatchRef,
+		CreatedAt:              time.Now().UTC(),
+		DuplicateRiskFlag:      dupRisk,
+	}
+	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir)
 
 	// -------- Build CanonicalIntent --------
 
+	intentID := uuid.NewString()
+
+	if registryEntry != nil {
+		registryEntry.IntentID = uuid.MustParse(intentID)
+	}
+
 	intent := models.CanonicalIntent{
 		TraceID:    event.TraceID,
-		IntentID:   uuid.NewString(),
+		IntentID:   intentID,
 		EnvelopeID: event.EnvelopeID,
 		TenantID:   event.TenantID,
 
@@ -693,7 +908,9 @@ func (s *IntentService) ProcessTokenizeResult(
 		GovernanceState:       "PENDING",
 		BusinessState:         "NEW",
 		DuplicateRiskFlag:     dupRisk,
-		MappingProfileVersion: "v1", // Default for async flow
+		MappingProfileID:      nir.ProfileID,
+		MappingProfileVersion: nir.ProfileVersion, // Flowed from async NIR
+		SourceSystem:          event.SourceSystem,
 		
 		// Service 2 fields
 		BusinessIdempotencyKey: bIdemKey,
@@ -701,10 +918,15 @@ func (s *IntentService) ProcessTokenizeResult(
 		ProofReadinessScore:    pScore,
 		MatchabilityScore:      mScore,
 		IntentQualityScore:     iScore,
+		MappingConfidenceScore: mapScore,
+		SchemaCompletenessScore: schemaScore,
 		DuplicateReasonCode:    dupReason,
 
 		UpdatedAt:             func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 	}
+
+	// -------- AGGREGATE GOVERNANCE REASONS --------
+	intent.GovernanceReasonCodesJSON = s.aggregateGovernanceReasons(&intent, nir)
 
 	payload, err := json.Marshal(intent)
 	if err != nil {
@@ -716,7 +938,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		return nil, err
 	}
 
-	saved, err := s.repo.Save(ctx, nir, intent, outbox)
+	saved, err := s.repo.Save(ctx, nir, intent, outbox, registryEntry)
 	if err != nil {
 		return nil, err
 	}
@@ -826,6 +1048,7 @@ func (s *IntentService) processWebhook(
 		GovernanceState:       "WEBHOOK",
 		BusinessState:         "NEW",
 		DuplicateRiskFlag:     false,
+		MappingProfileID:      "WEBHOOK_PROFILE",
 		MappingProfileVersion: "WEBHOOK",
 		UpdatedAt:             func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 	}
@@ -844,10 +1067,55 @@ func (s *IntentService) processWebhook(
 		CreatedAt:     time.Now(),
 	}
 
-	saved, err := s.repo.Save(ctx, nil, canonical, outbox)
+	saved, err := s.repo.Save(ctx, nil, canonical, outbox, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return &saved, nil, nil
+}
+
+func (s *IntentService) aggregateGovernanceReasons(intent *models.CanonicalIntent, nir *models.NormalizedIngestRecord) json.RawMessage {
+	var reasons []map[string]any
+
+	if intent.DuplicateRiskFlag {
+		reasons = append(reasons, map[string]any{
+			"module":   "DUPLICATE_DETECTION",
+			"code":     intent.DuplicateReasonCode,
+			"severity": "WARNING",
+		})
+	}
+
+	if nir != nil {
+		if nir.MappingUncertainFlag {
+			reasons = append(reasons, map[string]any{
+				"module":   "NIR_MAPPING",
+				"code":     "MAPPING_UNCERTAIN",
+				"severity": "WARNING",
+			})
+		}
+		if nir.LowConfidenceFieldCount > 0 {
+			reasons = append(reasons, map[string]any{
+				"module":   "NIR_MAPPING",
+				"code":     "LOW_CONFIDENCE_FIELDS",
+				"count":    nir.LowConfidenceFieldCount,
+				"severity": "INFO",
+			})
+		}
+		if nir.RequiredFieldGapCount > 0 {
+			reasons = append(reasons, map[string]any{
+				"module":   "NIR_MAPPING",
+				"code":     "REQUIRED_FIELD_GAPS",
+				"count":    nir.RequiredFieldGapCount,
+				"severity": "WARNING",
+			})
+		}
+	}
+
+	if len(reasons) == 0 {
+		return json.RawMessage("[]")
+	}
+
+	res, _ := json.Marshal(reasons)
+	return res
 }

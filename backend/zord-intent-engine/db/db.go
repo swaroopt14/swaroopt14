@@ -44,13 +44,18 @@ func CreateTables() error {
     governance_state TEXT,
     business_state TEXT,
     duplicate_risk_flag BOOLEAN,
+    mapping_profile_id TEXT,
     mapping_profile_version TEXT,
+    source_system TEXT,
     -- 🆕 Service 2 fields
     business_idempotency_key TEXT,
     beneficiary_fingerprint TEXT,
     proof_readiness_score NUMERIC(5,2),
     matchability_score NUMERIC(5,2),
     intent_quality_score NUMERIC(5,2),
+    mapping_confidence_score NUMERIC(5,2),
+    schema_completeness_score NUMERIC(5,2),
+    governance_reason_codes_json JSONB,
     duplicate_reason_code TEXT,
     client_batch_ref TEXT,
 
@@ -186,6 +191,29 @@ func CreateTables() error {
 	if _, err := DB.Exec(`CREATE INDEX IF NOT EXISTS idx_nirs_envelope_id ON normalized_ingest_records(envelope_id);`); err != nil {
 		return err
 	}
+
+	businessIdempotencyRegistry := `
+	CREATE TABLE IF NOT EXISTS business_idempotency_registry (
+		tenant_id UUID NOT NULL,
+		business_idempotency_key TEXT NOT NULL,
+		intent_id UUID NOT NULL,
+		beneficiary_fingerprint TEXT NOT NULL,
+		amount_minor BIGINT NOT NULL,
+		currency_code CHAR(3) NOT NULL,
+		time_bucket TEXT NOT NULL,
+		duplicate_reason_code TEXT,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		PRIMARY KEY (tenant_id, business_idempotency_key)
+	);`
+
+	if _, err := DB.Exec(businessIdempotencyRegistry); err != nil {
+		return err
+	}
+
+	if _, err := DB.Exec(`CREATE INDEX IF NOT EXISTS idx_idempotency_registry_intent_id ON business_idempotency_registry(intent_id);`); err != nil {
+		return err
+	}
+
 	intentVersions := `
 CREATE TABLE IF NOT EXISTS intent_versions (
     version_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -8,11 +8,12 @@ import (
 )
 
 type NIRField struct {
-	Value      any    `json:"value"`
-	SourcePath string `json:"source_path"`
-	Confidence float64 `json:"confidence"`
-	Transform  string `json:"transform,omitempty"`
-	Sensitive  bool   `json:"sensitive"`
+	Value            any     `json:"value"`
+	SourcePath       string  `json:"source_path"`
+	TransformApplied string  `json:"transform_applied,omitempty"`
+	ConfidenceScore  float64 `json:"confidence_score"`
+	SensitiveFlag    bool    `json:"sensitive_flag"`
+	ExtractionNotes  string  `json:"extraction_notes,omitempty"`
 }
 
 type NormalizedIngestRecord struct {

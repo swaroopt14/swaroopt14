@@ -22,6 +22,7 @@ func (r *PaymentIntentRepo) Save(
 	ctx context.Context,
 	nir *models.NormalizedIngestRecord,
 	intent models.CanonicalIntent, outbox models.OutboxEvent,
+	registry *models.BusinessIdempotencyEntry,
 ) (models.CanonicalIntent, error) {
 
 	if intent.ContractID == "" {
@@ -70,7 +71,7 @@ func (r *PaymentIntentRepo) Save(
 	query := `
 	INSERT INTO payment_intents (
     intent_id, envelope_id, tenant_id, contract_id,
-    trace_id, idempotency_key, salient_hash,payload_hash,
+    trace_id, idempotency_key, salient_hash, payload_hash,
     intent_type, canonical_version, schema_version,
     amount, currency, deadline_at,
     constraints, beneficiary_type, pii_tokens, beneficiary,
@@ -80,9 +81,12 @@ func (r *PaymentIntentRepo) Save(
     created_at,
     client_payout_ref, request_fingerprint, routing_hints_json,
     governance_state, business_state, duplicate_risk_flag,
-    mapping_profile_version, updated_at,
+    mapping_profile_id, mapping_profile_version, source_system, updated_at,
     business_idempotency_key, beneficiary_fingerprint,
     proof_readiness_score, matchability_score, intent_quality_score,
+    mapping_confidence_score,
+    schema_completeness_score,
+    governance_reason_codes_json,
     duplicate_reason_code, client_batch_ref
 )
 VALUES (
@@ -97,11 +101,14 @@ VALUES (
     $26,
     $27,$28,$29,
     $30,$31,$32,
-    $33,
-    $34,$35,
-    $36,$37,$38,
-    $39,$40
-)`
+    $33,$34,$35,
+    $36,$37,
+    $38,$39,$40,
+    $41,
+    $42,
+    $43,
+    $44,$45
+) `
 
 	_, err = tx.ExecContext(
 		ctx,
@@ -137,15 +144,20 @@ VALUES (
 		intent.GovernanceState,       // $29
 		intent.BusinessState,         // $30
 		intent.DuplicateRiskFlag,     // $31
-		intent.MappingProfileVersion, // $32
-		intent.UpdatedAt,             // $33
-		intent.BusinessIdempotencyKey, // $34
-		intent.BeneficiaryFingerprint, // $35
-		intent.ProofReadinessScore,    // $36
-		intent.MatchabilityScore,      // $37
-		intent.IntentQualityScore,     // $38
-		intent.DuplicateReasonCode,    // $39
-		intent.ClientBatchRef,         // $40
+		intent.MappingProfileID,      // $32
+		intent.MappingProfileVersion, // $33
+		intent.SourceSystem,          // $34
+		intent.UpdatedAt,             // $35
+		intent.BusinessIdempotencyKey, // $36
+		intent.BeneficiaryFingerprint, // $37
+		intent.ProofReadinessScore,    // $38
+		intent.MatchabilityScore,      // $39
+		intent.IntentQualityScore,     // $40
+		intent.MappingConfidenceScore, // $41
+		intent.SchemaCompletenessScore, // $42
+		intent.GovernanceReasonCodesJSON, // $43
+		intent.DuplicateReasonCode,    // $44
+		intent.ClientBatchRef,         // $45
 	)
 
 	if err != nil {
@@ -202,6 +214,26 @@ INSERT INTO outbox (
 		return intent, err
 	}
 
+	if registry != nil {
+		registryQuery := `
+		INSERT INTO business_idempotency_registry (
+			tenant_id, business_idempotency_key, intent_id,
+			beneficiary_fingerprint, amount_minor, currency_code,
+			time_bucket, duplicate_reason_code, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9
+		)`
+		_, err = tx.ExecContext(ctx, registryQuery,
+			registry.TenantID, registry.BusinessIdempotencyKey, registry.IntentID,
+			registry.BeneficiaryFingerprint, registry.AmountMinor, registry.CurrencyCode,
+			registry.TimeBucket, registry.DuplicateReasonCode, registry.CreatedAt,
+		)
+		if err != nil {
+			log.Printf("Repo.Save: INSERT business_idempotency_registry failed: %v", err)
+			return intent, err
+		}
+	}
+
 	err = tx.Commit()
 	if err != nil {
 		return intent, err
@@ -241,13 +273,18 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		governance_state,
 		business_state,
 		duplicate_risk_flag,
+		mapping_profile_id,
 		mapping_profile_version,
+		source_system,
 		updated_at,
 		business_idempotency_key,
 		beneficiary_fingerprint,
 		proof_readiness_score,
 		matchability_score,
 		intent_quality_score,
+		mapping_confidence_score,
+		schema_completeness_score,
+		governance_reason_codes_json,
 		duplicate_reason_code,
 		client_batch_ref,
 		canonical_snapshot_ref,
@@ -290,13 +327,18 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.GovernanceState,
 		&intent.BusinessState,
 		&intent.DuplicateRiskFlag,
+		&intent.MappingProfileID,
 		&intent.MappingProfileVersion,
+		&intent.SourceSystem,
 		&intent.UpdatedAt,
 		&intent.BusinessIdempotencyKey,
 		&intent.BeneficiaryFingerprint,
 		&intent.ProofReadinessScore,
 		&intent.MatchabilityScore,
 		&intent.IntentQualityScore,
+		&intent.MappingConfidenceScore,
+		&intent.SchemaCompletenessScore,
+		&intent.GovernanceReasonCodesJSON,
 		&intent.DuplicateReasonCode,
 		&intent.ClientBatchRef,
 		&intent.CanonicalSnapshotRef,
@@ -406,13 +448,18 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		governance_state,
 		business_state,
 		duplicate_risk_flag,
+		mapping_profile_id,
 		mapping_profile_version,
+		source_system,
 		updated_at,
 		business_idempotency_key,
 		beneficiary_fingerprint,
 		proof_readiness_score,
 		matchability_score,
 		intent_quality_score,
+		mapping_confidence_score,
+		schema_completeness_score,
+		governance_reason_codes_json,
 		duplicate_reason_code,
 		client_batch_ref,
 		canonical_snapshot_ref,
@@ -455,13 +502,18 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.GovernanceState,
 		&intent.BusinessState,
 		&intent.DuplicateRiskFlag,
+		&intent.MappingProfileID,
 		&intent.MappingProfileVersion,
+		&intent.SourceSystem,
 		&intent.UpdatedAt,
 		&intent.BusinessIdempotencyKey,
 		&intent.BeneficiaryFingerprint,
 		&intent.ProofReadinessScore,
 		&intent.MatchabilityScore,
 		&intent.IntentQualityScore,
+		&intent.MappingConfidenceScore,
+		&intent.SchemaCompletenessScore,
+		&intent.GovernanceReasonCodesJSON,
 		&intent.DuplicateReasonCode,
 		&intent.ClientBatchRef,
 		&intent.CanonicalSnapshotRef,
@@ -477,4 +529,56 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 	}
 
 	return &intent, nil
+}
+
+func (r *PaymentIntentRepo) CheckIdempotencyRegistry(
+	ctx context.Context,
+	tenantID string,
+	key string,
+) (*models.BusinessIdempotencyEntry, error) {
+
+	query := `
+	SELECT
+		tenant_id,
+		business_idempotency_key,
+		intent_id,
+		beneficiary_fingerprint,
+		amount_minor,
+		currency_code,
+		time_bucket,
+		duplicate_reason_code,
+		created_at
+	FROM business_idempotency_registry
+	WHERE tenant_id = $1
+	  AND business_idempotency_key = $2
+	LIMIT 1
+	`
+
+	var entry models.BusinessIdempotencyEntry
+
+	err := r.db.QueryRowContext(
+		ctx,
+		query,
+		tenantID,
+		key,
+	).Scan(
+		&entry.TenantID,
+		&entry.BusinessIdempotencyKey,
+		&entry.IntentID,
+		&entry.BeneficiaryFingerprint,
+		&entry.AmountMinor,
+		&entry.CurrencyCode,
+		&entry.TimeBucket,
+		&entry.DuplicateReasonCode,
+		&entry.CreatedAt,
+	)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &entry, nil
 }

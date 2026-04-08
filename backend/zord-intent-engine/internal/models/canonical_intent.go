@@ -51,7 +51,9 @@ type CanonicalIntent struct {
 	GovernanceState       string          `json:"governance_state,omitempty"`
 	BusinessState         string          `json:"business_state,omitempty"`
 	DuplicateRiskFlag     bool            `json:"duplicate_risk_flag,omitempty"`
-	MappingProfileVersion string          `json:"mapping_profile_version,omitempty"`
+	MappingProfileID      string          `json:"mapping_profile_id,omitempty" db:"mapping_profile_id"`
+	MappingProfileVersion string          `json:"mapping_profile_version,omitempty" db:"mapping_profile_version"`
+	SourceSystem          string          `json:"source_system,omitempty" db:"source_system"`
 
 	// Service 2 mandatory fields
 	BusinessIdempotencyKey string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
@@ -59,6 +61,9 @@ type CanonicalIntent struct {
 	ProofReadinessScore    float64         `json:"proof_readiness_score,omitempty" db:"proof_readiness_score"`
 	MatchabilityScore      float64         `json:"matchability_score,omitempty" db:"matchability_score"`
 	IntentQualityScore     float64         `json:"intent_quality_score,omitempty" db:"intent_quality_score"`
+	MappingConfidenceScore float64         `json:"mapping_confidence_score,omitempty" db:"mapping_confidence_score"`
+	SchemaCompletenessScore float64        `json:"schema_completeness_score,omitempty" db:"schema_completeness_score"`
+	GovernanceReasonCodesJSON json.RawMessage `json:"governance_reason_codes_json,omitempty" db:"governance_reason_codes_json"`
 	DuplicateReasonCode    string          `json:"duplicate_reason_code,omitempty" db:"duplicate_reason_code"`
 	ClientBatchRef         string          `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
 

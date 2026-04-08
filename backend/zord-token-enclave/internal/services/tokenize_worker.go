@@ -62,13 +62,14 @@ func (w *TokenizeWorker) ProcessTokenizeEvent(
 
 	// Create result event
 	result := models.TokenizeResultEvent{
-		EventType:  "PII_TOKENIZE_RESULT",
-		TraceID:    event.TraceID,
-		EnvelopeID: event.EnvelopeID,
-		TenantID:   event.TenantID,
-		ObjectRef:  event.ObjectRef,
-		Tokens:     tokens,
-		Canonical:  event.Canonical,
+		EventType:    "PII_TOKENIZE_RESULT",
+		TraceID:      event.TraceID,
+		EnvelopeID:   event.EnvelopeID,
+		TenantID:     event.TenantID,
+		ObjectRef:    event.ObjectRef,
+		SourceSystem: event.SourceSystem,
+		Tokens:       tokens,
+		Canonical:    event.Canonical,
 	}
 
 	topic := os.Getenv("KAFKA_TOPIC_PII_TOKENIZE_RESULT")

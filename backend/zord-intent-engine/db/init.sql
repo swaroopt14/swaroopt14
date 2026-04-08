@@ -47,7 +47,9 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     governance_state TEXT,
     business_state TEXT,
     duplicate_risk_flag BOOLEAN,
+    mapping_profile_id TEXT,
     mapping_profile_version TEXT,
+    source_system TEXT,
 
     -- 🆕 Service 2 fields
     business_idempotency_key TEXT,
@@ -55,12 +57,13 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     proof_readiness_score NUMERIC(5,2),
     matchability_score NUMERIC(5,2),
     intent_quality_score NUMERIC(5,2),
+    mapping_confidence_score NUMERIC(5,2),
+    schema_completeness_score NUMERIC(5,2),
+    governance_reason_codes_json JSONB,
     duplicate_reason_code TEXT,
     client_batch_ref TEXT,
 
     updated_at TIMESTAMPTZ DEFAULT now()
-
-
 );
 
 -- Create indexes for performance
@@ -174,6 +177,26 @@ CREATE TABLE IF NOT EXISTS normalized_ingest_records (
 CREATE INDEX IF NOT EXISTS idx_nirs_tenant_id ON normalized_ingest_records(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_nirs_envelope_id ON normalized_ingest_records(envelope_id);
 
+
+-- ============================================================================
+-- BUSINESS IDEMPOTENCY REGISTRY
+-- Stores business-level idempotency keys to detect duplicates
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS business_idempotency_registry (
+    tenant_id UUID NOT NULL,
+    business_idempotency_key TEXT NOT NULL,
+    intent_id UUID NOT NULL,
+    beneficiary_fingerprint TEXT NOT NULL,
+    amount_minor BIGINT NOT NULL,
+    currency_code CHAR(3) NOT NULL,
+    time_bucket TEXT NOT NULL,
+    duplicate_reason_code TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    PRIMARY KEY (tenant_id, business_idempotency_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_idempotency_registry_intent_id ON business_idempotency_registry(intent_id);
 
 -- ============================================================================
 -- INTENT VERSIONS TABLE

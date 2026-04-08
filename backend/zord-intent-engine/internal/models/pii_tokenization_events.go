@@ -17,6 +17,7 @@ type TokenizeRequestEvent struct {
 	ObjectRef      string    `json:"object_ref"`
 	IdempotencyKey string    `json:"idempotency_key"`
 	Source         string    `json:"source"`
+	SourceSystem   string    `json:"source_system"`
 	ReceivedAt     time.Time `json:"received_at"`
 
 	Canonical ParsedIncomingIntent `json:"canonical"`
@@ -34,6 +35,7 @@ type TokenizeResultEvent struct {
 	TraceID    string `json:"trace_id"`
 	EnvelopeID string `json:"envelope_id"`
 	TenantID   string `json:"tenant_id"`
+	SourceSystem string `json:"source_system"`
 	ObjectRef  string `json:"object_ref"`
 
 	Tokens map[string]string `json:"tokens"`

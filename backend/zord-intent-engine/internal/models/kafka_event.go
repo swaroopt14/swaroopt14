@@ -13,6 +13,7 @@ type Event struct {
 	ObjectRef        string
 	ReceivedAt       time.Time
 	Source           string
+	SourceSystem     string
 	IdempotencyKey   string
 	EncryptedPayload []byte
 	PayloadHash      []byte

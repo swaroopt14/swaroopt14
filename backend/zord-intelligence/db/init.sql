@@ -1,4 +1,3 @@
-
 -- TABLE 1: projection_state
 -- ZPI reads Kafka events and computes KPI numbers from them.
 -- For example: "corridor razorpay.UPI has 97% success rate in last 24h"
@@ -55,6 +54,28 @@ CREATE TABLE IF NOT EXISTS projection_state (
     -- Old version rows stay, new version rows are added alongside.
     -- Prevents confusion when formula changes.
 
+    projection_family  TEXT,
+    -- Which of the 7 intelligence families does this projection serve?
+    -- Values: 'LEAKAGE' | 'AMBIGUITY' | 'DEFENSIBILITY' | 'RCA'
+    --       | 'PATTERN' | 'RELIABILITY' | 'SLA'
+    -- NULL for legacy rows written before Phase 1. New rows set this.
+
+    entity_scope_type  TEXT,
+    -- What kind of entity is being measured?
+    -- Values: 'TENANT' | 'CORRIDOR' | 'BATCH' | 'PSP' | 'SOURCE'
+    -- NULL for legacy rows.
+
+    entity_scope_ref   TEXT,
+    -- The specific entity ID (e.g. 'razorpay_UPI', 'BATCH-2026-04-01-001').
+    -- NULL for TENANT scope (tenant_id is already the identifier).
+
+    source_refs_json   JSONB,
+    -- Array of upstream event/artifact IDs that contributed to this state.
+    -- Allows deep auditability back to Service 5/6.
+
+    freshness_ts       TIMESTAMPTZ,
+    -- The timestamp of the latest upstream event that updated this row.
+
     -- UNIQUE constraint: only one row per tenant+key+window+version
     -- This makes upsert (insert or update) safe to call multiple times
     CONSTRAINT uq_projection
@@ -64,6 +85,11 @@ CREATE TABLE IF NOT EXISTS projection_state (
 -- Index: "give me latest projections for tenant X" — most common query
 CREATE INDEX IF NOT EXISTS idx_proj_tenant_key
     ON projection_state (tenant_id, projection_key, window_end DESC);
+
+-- Index: "give me all LEAKAGE projections for tenant X" — intelligence layer query
+CREATE INDEX IF NOT EXISTS idx_proj_family_scope
+    ON projection_state (tenant_id, projection_family, entity_scope_type, entity_scope_ref)
+    WHERE projection_family IS NOT NULL;
 
 -- TABLE 1B: processed_events
 -- Tracks Kafka event IDs already processed by ZPI handlers.
@@ -148,13 +174,37 @@ CREATE TABLE IF NOT EXISTS policy_registry (
     -- Set this to lock a policy to one specific tenant
 
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- ── NEW COLUMNS (Phase 1) ──────────────────────────────────────────────
+    policy_family             TEXT,
+    -- Which intelligence family does this policy belong to?
+    -- Values: 'LEAKAGE' | 'AMBIGUITY' | 'DEFENSIBILITY' | 'RCA'
+    --       | 'PATTERN' | 'RECOMMENDATION' | 'SLA' | 'BATCH' | 'COMPLIANCE'
+    -- NULL for legacy policies seeded before Phase 1.
+
+    severity                  TEXT        DEFAULT 'MEDIUM',
+    -- Promoted from DSL text to a real queryable column.
+    -- Values: 'HIGH' | 'MEDIUM' | 'LOW'
+    -- The DSL parser still reads severity= from the DSL text as a fallback.
+    -- This column is authoritative when set.
+
+    requires_manual_approval  BOOLEAN     NOT NULL DEFAULT false
+    -- When TRUE: the ActionContract is created with contract_status = 'PENDING_APPROVAL'.
+    -- A human must approve it before the outbox worker delivers it to Kafka.
+    -- Use for money-impacting decisions (HOLD, REVIEW_AMBIGUOUS_BATCH).
+    -- Default FALSE = all existing policies continue auto-executing normally.
 );
 
 -- Index: "give me all enabled policies for this trigger" — policy engine's main query
 CREATE INDEX IF NOT EXISTS idx_policy_enabled_trigger
     ON policy_registry (trigger_type, trigger_value)
     WHERE enabled = true;
+
+-- Index: "give me all enabled LEAKAGE policies" — intelligence recommendation engine
+CREATE INDEX IF NOT EXISTS idx_policy_family
+    ON policy_registry (policy_family, enabled)
+    WHERE policy_family IS NOT NULL;
 
 
 -- TABLE 3: action_contracts
@@ -204,14 +254,22 @@ CREATE TABLE IF NOT EXISTS action_contracts (
     decision         TEXT         NOT NULL,
     -- What ZPI decided to do:
     CHECK (decision IN (
-        'ALLOW',                    -- explicit allow, audit only
-        'ESCALATE',                 -- create ops incident
+        -- ── ORIGINAL DECISIONS ───────────────────────────────────────────────
+        'ALLOW',                    -- explicit allow, audit trail only
+        'ESCALATE',                 -- create ops incident and alert on-call
         'NOTIFY',                   -- send notification
-        'HOLD',                     -- pause the payout (needs tenant approval)
-        'RETRY',                    -- retry via Service 4 (needs tenant config)
+        'HOLD',                     -- pause payout (requires tenant approval)
+        'RETRY',                    -- retry via Service 4 (requires tenant config)
         'GENERATE_EVIDENCE',        -- trigger Service 6 to build evidence pack
         'OPEN_OPS_INCIDENT',        -- open a structured ops ticket
-        'ADVISORY_RECOMMENDATION'   -- suggestion only, no auto-action
+        'ADVISORY_RECOMMENDATION',  -- suggestion only, zero auto-action
+        -- ── NEW DECISIONS (Phase 1) ──────────────────────────────────────────
+        'PREPARE_AND_SIGN_RECOMMENDED',      -- commercial upsell signal
+        'DISPATCH_MODE_RECOMMENDED',         -- deeper control mode suggestion
+        'REQUEST_SOURCE_PATCH',              -- fix source system carrier fields
+        'REVIEW_AMBIGUOUS_BATCH',            -- human review of high-ambiguity batch
+        'REGENERATE_EVIDENCE',               -- rebuild weak evidence pack
+        'REQUEST_STRONGER_CARRIER_CONTRACT'  -- ops: renegotiate PSP reference fields
     )),
 
     confidence       NUMERIC(4,3) NOT NULL,
@@ -225,6 +283,10 @@ CREATE TABLE IF NOT EXISTS action_contracts (
     -- Example for ESCALATE: {"severity": "HIGH", "notify": ["OPS"], "message": "..."}
     -- MUST NOT contain PII
 
+    reason_codes_json JSONB,
+    -- Structured taxonomy of reasons why this action was taken.
+    -- Example: ["MISSING_CLIENT_REF", "VALUE_DATE_MISMATCH"]
+
     signature        TEXT         NOT NULL,
     -- Cryptographic signature proving this record was not tampered with.
     -- In development: a simple hash. In production: ed25519 signature via KMS.
@@ -233,6 +295,23 @@ CREATE TABLE IF NOT EXISTS action_contracts (
     -- Prevents creating duplicate action contracts for the same event.
     -- Built from: hash(policy_id + scope_refs + trigger_event_id)
     -- If the same event arrives twice, the second insert is silently ignored.
+
+    -- ── NEW COLUMNS (Phase 1) ──────────────────────────────────────────────
+    expires_at       TIMESTAMPTZ,
+    -- Optional expiry time for time-sensitive decisions.
+    -- Example: a HOLD action should expire after 24h if not reviewed.
+    -- NULL = never expires (correct default for all existing and most new rows).
+
+    contract_status  TEXT         NOT NULL DEFAULT 'ACTIVE'
+                     CHECK (contract_status IN (
+                         'ACTIVE',            -- normal flow, outbox processes it
+                         'PENDING_APPROVAL',  -- waiting for human sign-off
+                         'APPROVED',          -- human approved, ready for outbox
+                         'DISMISSED',         -- human dismissed, no actuation
+                         'EXPIRED'            -- approval window passed without action
+                     )),
+    -- The approval lifecycle of this ActionContract.
+    -- DEFAULT 'ACTIVE' = all existing rows get ACTIVE, which is correct.
 
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
     -- Set once, never changed. Matches IMMUTABILITY RULE.
@@ -250,6 +329,17 @@ CREATE INDEX IF NOT EXISTS idx_ac_scope_refs
 -- Index: "how many times did P_SLA_BREACH_RISK fire today?"
 CREATE INDEX IF NOT EXISTS idx_ac_policy
     ON action_contracts (policy_id, tenant_id, created_at DESC);
+
+-- Index: "show me all actions pending approval" — ops approval dashboard
+CREATE INDEX IF NOT EXISTS idx_ac_pending_approval
+    ON action_contracts (tenant_id, created_at DESC)
+    WHERE contract_status = 'PENDING_APPROVAL';
+
+-- Index: "find expired approval windows" — background cleanup job
+CREATE INDEX IF NOT EXISTS idx_ac_expired
+    ON action_contracts (expires_at ASC)
+    WHERE contract_status = 'PENDING_APPROVAL'
+    AND   expires_at IS NOT NULL;
 
 
 -- TABLE 4: actuation_outbox 
@@ -284,8 +374,27 @@ CREATE TABLE IF NOT EXISTS actuation_outbox (
     -- Links to the ActionContract that created this outbox entry
 
     event_type     TEXT         NOT NULL,
-    -- Mirrors the decision from action_contracts:
-    -- "ESCALATE", "RETRY", "GENERATE_EVIDENCE", "NOTIFY" etc.
+    -- Mirrors the decision from action_contracts.
+    -- Routes to the correct Kafka topic in outbox_worker.go.
+    CHECK (event_type IN (
+        -- ── ORIGINAL EVENT TYPES ─────────────────────────────────────────────
+        'ESCALATE',
+        'RETRY',
+        'GENERATE_EVIDENCE',
+        'NOTIFY',
+        'OPEN_OPS_INCIDENT',
+        'HOLD',
+        'ADVISORY_RECOMMENDATION',
+        -- ── NEW EVENT TYPES (Phase 1) ─────────────────────────────────────────
+        'BATCH_PATCH_REQUEST',               -- → zpi.actuation.batch_patch (Phase 5)
+        'OPS_WEBHOOK',                       -- → tenant-configured webhook (Phase 5)
+        'PREPARE_AND_SIGN_RECOMMENDED',      -- → zpi.actuation.alert (advisory)
+        'DISPATCH_MODE_RECOMMENDED',         -- → zpi.actuation.alert (advisory)
+        'REQUEST_SOURCE_PATCH',              -- → zpi.actuation.alert
+        'REVIEW_AMBIGUOUS_BATCH',            -- → zpi.actuation.alert
+        'REGENERATE_EVIDENCE',               -- → zpi.actuation.evidence
+        'REQUEST_STRONGER_CARRIER_CONTRACT'  -- → zpi.actuation.alert
+    )),
 
     payload        JSONB        NOT NULL,
     -- JSON to publish to Kafka. Built from the ActionContract payload.
@@ -375,7 +484,7 @@ CREATE INDEX IF NOT EXISTS idx_sla_active_deadline
     ON sla_timers (tenant_id, sla_deadline ASC)
     WHERE status = 'ACTIVE';
 
--- ── SEED: Pilot policies ─────────────────────────────────────────────────────
+-- SEED: Pilot policies
 --
 -- These are the 8 policies required for pilot 
 -- All start DISABLED (enabled = false) for safety.
@@ -478,4 +587,317 @@ false),
 'WHEN tenant.sla_breach_rate > 0.00
 THEN ACTION ESCALATE severity=HIGH',
 false)
+ON CONFLICT (policy_id) DO NOTHING;
+
+
+-- PHASE 1 ADDITIONS: 4 New Tables + New Policy Seeds
+-- These are added to init.sql so fresh databases (dev/CI/Docker) get the
+-- complete schema from the start.
+-- For existing databases, run db/migrate_phase1.sql instead.
+
+
+-- TABLE 6: intelligence_snapshots
+-- Materialised, explainable intelligence bundles per tenant/scope/window.
+-- One snapshot = one complete "answer" to an intelligence question.
+-- Example: "What was the leakage for tenant tnt_A in the last 24 hours?"
+
+CREATE TABLE IF NOT EXISTS intelligence_snapshots (
+
+    snapshot_id         TEXT         PRIMARY KEY,
+    -- UUID: "snap_" + uuid. Referenced by intelligence_explanations.
+
+    tenant_id           TEXT         NOT NULL,
+
+    snapshot_type       TEXT         NOT NULL,
+    -- Which intelligence family produced this snapshot?
+    CHECK (snapshot_type IN (
+        'LEAKAGE',       -- money-loss analysis (Section 10.1 of new spec)
+        'AMBIGUITY',     -- attachment confidence quality (Section 10.2)
+        'DEFENSIBILITY', -- evidence and proof strength (Section 10.3)
+        'RCA',           -- root cause analysis (Section 10.4)
+        'PATTERN',       -- pre-dispatch quality patterns (Section 10.5)
+        'RECOMMENDATION' -- actionable next steps (Section 10.6)
+    )),
+
+    scope_type          TEXT         NOT NULL,
+    -- What level of scope does this snapshot cover?
+    CHECK (scope_type IN (
+        'TENANT',   -- entire tenant
+        'BATCH',    -- one batch of payouts
+        'CORRIDOR', -- one payment corridor
+        'PSP',      -- one payment provider
+        'SOURCE',   -- one source system
+        'INTENT'    -- one individual payout intent
+    )),
+
+    scope_ref           TEXT,
+    -- The specific entity ID for the scope_type.
+    -- NULL when scope_type = 'TENANT'.
+
+    window_start        TIMESTAMPTZ  NOT NULL,
+    window_end          TIMESTAMPTZ  NOT NULL,
+    -- Time window this snapshot covers.
+
+    projection_refs_json JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    -- Array of projection_state IDs used to compute this snapshot.
+    -- Audit trail: which raw metrics fed this intelligence view?
+
+    snapshot_json       JSONB        NOT NULL,
+    -- The full intelligence output. Shape varies by snapshot_type.
+    -- See migrate_phase1.sql for documented examples per type.
+
+    model_version       TEXT,
+    -- NULL = deterministic. 'ml_v1.0' = ML-assisted.
+
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_snap_tenant_type_window
+    ON intelligence_snapshots (tenant_id, snapshot_type, window_end DESC);
+
+CREATE INDEX IF NOT EXISTS idx_snap_scope
+    ON intelligence_snapshots (tenant_id, scope_type, scope_ref, window_end DESC)
+    WHERE scope_ref IS NOT NULL;
+
+
+-- TABLE 7: batch_contracts
+-- Pre-aggregated status and intelligence for each batch of payouts.
+-- Updated incrementally as batch events arrive — avoids expensive aggregations
+-- on every dashboard load.
+
+CREATE TABLE IF NOT EXISTS batch_contracts (
+
+    batch_id                    TEXT         PRIMARY KEY,
+    -- The batch identifier from the client's source system.
+
+    tenant_id                   TEXT         NOT NULL,
+
+    source_reference            TEXT,
+    -- File path or source system reference. NULL for API-submitted batches.
+
+    total_count                 INT          NOT NULL DEFAULT 0,
+    success_count               INT          NOT NULL DEFAULT 0,
+    failed_count                INT          NOT NULL DEFAULT 0,
+    pending_count               INT          NOT NULL DEFAULT 0,
+    reversed_count              INT          NOT NULL DEFAULT 0,
+    -- Reversed after initially settling — tracked separately.
+
+    partial_recon_count         INT          NOT NULL DEFAULT 0,
+    -- Attached to a settlement but with variance (under/over payment).
+
+    total_intended_amount_minor BIGINT       NOT NULL DEFAULT 0,
+    -- All money amounts stored as integers in MINOR units (paise, cents).
+    -- FINTECH RULE: Never use FLOAT for money. Always use integers.
+
+    total_confirmed_amount_minor BIGINT      NOT NULL DEFAULT 0,
+    -- Amount confirmed settled so far.
+
+    total_variance_minor        BIGINT       NOT NULL DEFAULT 0,
+    -- intended - confirmed. Positive = leakage. Negative = overpayment.
+
+    batch_finality_status       TEXT         NOT NULL DEFAULT 'PROCESSING',
+    CHECK (batch_finality_status IN (
+        'PROCESSING',
+        'FULLY_SETTLED',
+        'PARTIALLY_SETTLED',
+        'FAILED',
+        'REQUIRES_REVIEW',
+        'CLOSED'
+    )),
+
+    ambiguity_score             NUMERIC(4,3),
+    -- 0.000–1.000 from Ambiguity Intelligence. NULL until computed.
+
+    defensibility_tier          TEXT,
+    CHECK (defensibility_tier IN ('STRONG', 'GOOD', 'WEAK', 'FRAGILE', NULL)),
+
+    last_updated_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    created_at                  TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_batch_tenant_updated
+    ON batch_contracts (tenant_id, last_updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_batch_status
+    ON batch_contracts (tenant_id, batch_finality_status)
+    WHERE batch_finality_status IN ('REQUIRES_REVIEW', 'PARTIALLY_SETTLED', 'FAILED');
+
+CREATE INDEX IF NOT EXISTS idx_batch_ambiguity
+    ON batch_contracts (tenant_id, ambiguity_score DESC)
+    WHERE ambiguity_score IS NOT NULL;
+
+
+-- TABLE 8: ml_feature_store
+-- Persists engineered ML features per entity+window for training and scoring.
+-- Separates ML concerns from the deterministic projection layer.
+
+CREATE TABLE IF NOT EXISTS ml_feature_store (
+
+    feature_row_id      TEXT         PRIMARY KEY,
+    -- UUID: "feat_" + uuid.
+
+    tenant_id           TEXT         NOT NULL,
+
+    scope_type          TEXT         NOT NULL,
+    CHECK (scope_type IN ('INTENT', 'BATCH', 'CORRIDOR', 'TENANT', 'PSP')),
+
+    scope_ref           TEXT         NOT NULL,
+    -- The entity ID (intent ID, batch ID, corridor ID, etc.).
+
+    feature_family      TEXT         NOT NULL,
+    -- Which ML model family uses these features?
+    CHECK (feature_family IN (
+        'LEAKAGE',   -- leakage anomaly / forecasting
+        'AMBIGUITY', -- ambiguity propensity prediction
+        'RCA',       -- root cause classification
+        'PATTERN',   -- batch quality / duplicate risk
+        'SLA'        -- SLA breach prediction
+    )),
+
+    window_start        TIMESTAMPTZ  NOT NULL,
+    window_end          TIMESTAMPTZ  NOT NULL,
+
+    features_json       JSONB        NOT NULL,
+    -- The feature vector. See migrate_phase1.sql for example shapes.
+
+    label_json          JSONB,
+    -- Ground truth outcome. NULL until observed. Used for supervised training.
+
+    model_version       TEXT,
+    -- NULL for deterministic features. 'feat_v1.0' for ML-computed.
+
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feat_scope
+    ON ml_feature_store (tenant_id, scope_type, scope_ref, feature_family, window_end DESC);
+
+CREATE INDEX IF NOT EXISTS idx_feat_unlabeled
+    ON ml_feature_store (tenant_id, feature_family, created_at DESC)
+    WHERE label_json IS NULL;
+
+
+-- TABLE 9: intelligence_explanations
+
+-- Natural-language or structured explanations generated per snapshot.
+-- LLM output is stored here, separate from deterministic truth.
+-- Every explanation is traceable: which snapshot, which model, which inputs.
+
+CREATE TABLE IF NOT EXISTS intelligence_explanations (
+
+    explanation_id      TEXT         PRIMARY KEY,
+    -- UUID: "expl_" + uuid.
+
+    tenant_id           TEXT         NOT NULL,
+
+    snapshot_id         TEXT         NOT NULL
+                                     REFERENCES intelligence_snapshots(snapshot_id)
+                                     ON DELETE CASCADE,
+    -- Links to the intelligence snapshot this explains.
+
+    explanation_type    TEXT         NOT NULL,
+    CHECK (explanation_type IN (
+        'RCA_SUMMARY',
+        'LEAKAGE_NARRATIVE',
+        'AMBIGUITY_SUMMARY',
+        'ACTION_JUSTIFICATION',
+        'DEFENSIBILITY_REPORT',
+        'BATCH_RISK_EXPLANATION'
+    )),
+
+    input_refs_json     JSONB        NOT NULL DEFAULT '[]'::jsonb,
+    -- IDs of snapshots, projections, or actions used as context.
+    -- Audit requirement: always know what the explanation was based on.
+
+    explanation_text    TEXT         NOT NULL,
+    -- The explanation in natural language or structured markdown.
+
+    model_version       TEXT         NOT NULL DEFAULT 'deterministic_v1',
+    -- 'deterministic_v1' = rule-based template.
+    -- 'claude-sonnet-4-6' = LLM-generated (Phase 7+).
+
+    created_at          TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_expl_snapshot
+    ON intelligence_explanations (snapshot_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_expl_tenant_type
+    ON intelligence_explanations (tenant_id, explanation_type, created_at DESC);
+
+
+-- SEED: New policies for the 4 new intelligence families
+-- All start DISABLED. Enable one-by-one after validating thresholds.
+-- The DSL metric names (leakage.total_amount_minor etc.) will be wired
+-- into policy_service.go's buildEvalContext() in Phase 5.
+
+INSERT INTO policy_registry
+    (policy_id, version, scope_type, trigger_type, trigger_value, dsl,
+     policy_family, severity, requires_manual_approval, enabled)
+VALUES
+
+-- LEAKAGE policies
+('P_LEAKAGE_ALERT', 1, 'tenant', 'cron', '*/15 * * * *',
+'WHEN leakage.total_amount_minor > 500000 AND leakage.percentage > 0.025
+THEN ACTION ESCALATE severity=HIGH',
+'LEAKAGE', 'HIGH', false, false),
+
+('P_LEAKAGE_UNMATCHED', 1, 'tenant', 'event', 'attachment.decision.created',
+'WHEN leakage.unmatched_intent_count > 20
+THEN ACTION NOTIFY severity=MEDIUM',
+'LEAKAGE', 'MEDIUM', false, false),
+
+('P_LEAKAGE_UNDER_SETTLEMENT', 1, 'tenant', 'cron', '*/15 * * * *',
+'WHEN leakage.under_settlement_amount_minor > 50000
+THEN ACTION OPEN_OPS_INCIDENT severity=MEDIUM',
+'LEAKAGE', 'MEDIUM', false, false),
+
+('P_LEAKAGE_PREPARE_AND_SIGN', 1, 'tenant', 'cron', '0 * * * *',
+'WHEN leakage.percentage > 0.05
+THEN ACTION PREPARE_AND_SIGN_RECOMMENDED severity=HIGH',
+'LEAKAGE', 'HIGH', false, false),
+
+-- AMBIGUITY policies
+('P_AMBIGUITY_VALUE_AT_RISK', 1, 'tenant', 'cron', '*/15 * * * *',
+'WHEN ambiguity.value_at_risk_minor > 1000000
+THEN ACTION ESCALATE severity=HIGH',
+'AMBIGUITY', 'HIGH', false, false),
+
+('P_AMBIGUITY_RATE_HIGH', 1, 'tenant', 'event', 'attachment.decision.created',
+'WHEN ambiguity.rate > 0.05
+THEN ACTION REQUEST_SOURCE_PATCH severity=MEDIUM',
+'AMBIGUITY', 'MEDIUM', false, false),
+
+('P_AMBIGUITY_BATCH_REVIEW', 1, 'corridor', 'event', 'batch.summary.updated',
+'WHEN batch.ambiguity_score > 0.70
+THEN ACTION REVIEW_AMBIGUOUS_BATCH severity=HIGH',
+'AMBIGUITY', 'HIGH', true, false),
+
+-- DEFENSIBILITY policies
+('P_DEFENSIBILITY_EVIDENCE_WEAK', 1, 'tenant', 'cron', '*/30 * * * *',
+'WHEN defensibility.governance_coverage_pct < 0.70
+THEN ACTION REGENERATE_EVIDENCE severity=MEDIUM',
+'DEFENSIBILITY', 'MEDIUM', false, false),
+
+('P_DEFENSIBILITY_AUDIT_RISK', 1, 'tenant', 'cron', '*/30 * * * *',
+'WHEN defensibility.audit_ready_pct < 0.80
+THEN ACTION ESCALATE severity=HIGH',
+'DEFENSIBILITY', 'HIGH', false, false),
+
+-- PATTERN policies
+('P_PATTERN_BATCH_RISK', 1, 'corridor', 'event', 'batch.summary.updated',
+'WHEN batch.risk_score > 0.65
+THEN ACTION NOTIFY severity=MEDIUM',
+'PATTERN', 'MEDIUM', false, false),
+
+('P_PATTERN_DUPLICATE_RISK', 1, 'tenant', 'event', 'canonical.intent.created',
+'WHEN pattern.duplicate_cluster_count > 5
+THEN ACTION HOLD severity=HIGH',
+'PATTERN', 'HIGH', true, false),
+
+('P_PATTERN_CARRIER_WEAKNESS', 1, 'tenant', 'cron', '0 */6 * * *',
+'WHEN pattern.proof_readiness_score < 0.75
+THEN ACTION REQUEST_STRONGER_CARRIER_CONTRACT severity=MEDIUM',
+'PATTERN', 'MEDIUM', false, false)
+
 ON CONFLICT (policy_id) DO NOTHING;

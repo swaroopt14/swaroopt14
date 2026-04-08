@@ -75,6 +75,11 @@ func RawIntent(ctx context.Context,
 		Status:                       "RECEIVED",
 		ReceivedAt:                   storageAck.ReceivedAt,
 		Payload:                      rawIntent.Payload,
+		FileName:                     rawIntent.FileName,
+		FileSizeBytes:                rawIntent.FileSizeBytes,
+		FileContentHash:              rawIntent.FileContentHash,
+		RowCountEstimate:             rawIntent.RowCountEstimate,
+		FileUploadChannel:            rawIntent.FileUploadChannel,
 	}
 
 	// Envolope.SaveRawIntent()

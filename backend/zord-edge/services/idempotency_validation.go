@@ -3,6 +3,10 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log"
 
@@ -60,35 +64,81 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 
 	// --- Conflict: fetch stored record ---
 	var storedFingerprint []byte
-	var firstEnvelopeID uuid.UUID
+	var firstEnvelopeID uuid.NullUUID
+	var conflictCount int
+	var principalID uuid.NullUUID
+	var sourceClass sql.NullString
 
 	selectQuery := `
-		SELECT request_fingerprint, first_envelope_id
+		SELECT request_fingerprint, first_envelope_id, conflict_count, principal_id_first_seen, source_class_first_seen
 		FROM idempotency_keys
 		WHERE tenant_id = $1 AND idempotency_key = $2
 	`
 	err = db.DB.QueryRowContext(ctx, selectQuery, msg.TenantID, msg.IdempotencyKey).
-		Scan(&storedFingerprint, &firstEnvelopeID)
+		Scan(&storedFingerprint, &firstEnvelopeID, &conflictCount, &principalID, &sourceClass)
 	if err != nil {
 		log.Printf("Error fetching stored idempotency record: %v", err)
 		return uuid.Nil, err
 	}
 
-	// --- Fingerprint comparison ---
-	if bytes.Equal(storedFingerprint, msg.RequestFingerprint) {
-		// Exact duplicate — update last_seen_at and resolution_type, then return the original envelope.
-		_, _ = db.DB.ExecContext(ctx, `
-			UPDATE idempotency_keys
-			SET last_seen_at = now(), resolution_type = 'REUSED'
-			WHERE tenant_id = $1 AND idempotency_key = $2
-		`, msg.TenantID, msg.IdempotencyKey)
+	// --- Track the conflict ---
+	newConflictCount := conflictCount + 1
+	// Hash the fingerprint as requested before storing as JSON.
+	fingerprintHash := sha256.Sum256(msg.RequestFingerprint)
+	snapshot := map[string]interface{}{
+		"fingerprint": hex.EncodeToString(fingerprintHash[:]),
+	}
+	snapshotJSON, _ := json.Marshal(snapshot)
 
-		log.Printf("Duplicate idempotency key with same fingerprint: tenant_id=%s key=%s envelope_id=%s",
-			msg.TenantID, msg.IdempotencyKey, firstEnvelopeID)
-		return firstEnvelopeID, nil
+	updateFields := `
+		conflict_count = $1,
+		last_conflict_at = now(),
+		response_snapshot_json = $2
+	`
+	updateArgs := []interface{}{newConflictCount, string(snapshotJSON), msg.TenantID, msg.IdempotencyKey}
+
+	// --- Metadata Retrieval (First Seen) ---
+	// If first_envelope_id is present but metadata is not, fetch it from ingress_envelopes.
+	if firstEnvelopeID.Valid && !principalID.Valid {
+		var pID uuid.UUID
+		var sc string
+		metaQuery := `SELECT principal_id, source_class FROM ingress_envelopes WHERE envelope_id = $1`
+		err = db.DB.QueryRowContext(ctx, metaQuery, firstEnvelopeID.UUID).Scan(&pID, &sc)
+		if err == nil {
+			updateFields += ", principal_id_first_seen = $5, source_class_first_seen = $6"
+			updateArgs = append(updateArgs, pID, sc)
+		} else {
+			log.Printf("Warning: Failed to fetch metadata for envelope %s: %v", firstEnvelopeID.UUID.String(), err)
+		}
+	}
+
+	// --- Fingerprint comparison and final update ---
+	if bytes.Equal(storedFingerprint, msg.RequestFingerprint) {
+		// Exact duplicate — update last_seen_at and resolution_type.
+		finalUpdateQuery := `
+			UPDATE idempotency_keys
+			SET last_seen_at = now(), resolution_type = 'REUSED', ` + updateFields + `
+			WHERE tenant_id = $3 AND idempotency_key = $4
+		`
+		_, _ = db.DB.ExecContext(ctx, finalUpdateQuery, updateArgs...)
+
+		log.Printf("Duplicate idempotency key with same fingerprint: tenant_id=%s key=%s envelope_id=%v",
+			msg.TenantID, msg.IdempotencyKey, firstEnvelopeID.UUID.String())
+
+		if firstEnvelopeID.Valid {
+			return firstEnvelopeID.UUID, nil
+		}
+		return uuid.Nil, nil
 	}
 
 	// Different payload with same key — hard reject.
+	finalUpdateQuery := `
+		UPDATE idempotency_keys
+		SET ` + updateFields + `
+		WHERE tenant_id = $3 AND idempotency_key = $4
+	`
+	_, _ = db.DB.ExecContext(ctx, finalUpdateQuery, updateArgs...)
+
 	log.Printf("Idempotency key reused with different payload: tenant_id=%s key=%s",
 		msg.TenantID, msg.IdempotencyKey)
 	return uuid.Nil, ErrFingerprintMismatch

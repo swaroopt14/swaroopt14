@@ -12,7 +12,7 @@ func GetIdempotencyKey() gin.HandlerFunc {
 		{
 			idempotencyKey := context.GetHeader("X-Idempotency-Key")
 			if idempotencyKey == "" {
-				idempotencyKey = uuid.New().String()
+				idempotencyKey = uuid.Must(uuid.NewV7()).String()
 				log.Printf("Generated idempotency key: %s", idempotencyKey)
 			}
 			log.Printf("Received idempotency key: %s", idempotencyKey)

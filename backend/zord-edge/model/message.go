@@ -27,4 +27,9 @@ type RawIntentMessage struct {
 	ConnectorBindingID   *string
 	EventType            string
 	RequestFingerprint   []byte
+	FileName             *string
+	FileSizeBytes        *int64
+	FileContentHash      *string
+	RowCountEstimate     *int
+	FileUploadChannel    *string
 }

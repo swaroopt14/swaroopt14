@@ -1,0 +1,59 @@
+relay:
+  # instance_id is auto-detected from hostname (pod name in Kubernetes).
+  # Override here for local development.
+  # instance_id: relay-dev-1
+
+  poll_interval: 2s          # Sleep between empty lease cycles
+  lease_limit: 500            # Events per lease call
+  lease_ttl_seconds: 120      # How long upstream holds the lock
+  max_publish_concurrency: 10 # Semaphore: max in-flight Kafka publishes per worker
+  shutdown_timeout: 30s       # SIGTERM drain window
+
+kafka:
+  brokers: "kafka-broker-1:9092,kafka-broker-2:9092,kafka-broker-3:9092"
+
+  # SASL/SCRAM-SHA-512 — recommended for fintech production.
+  # Inject via env: RELAY_KAFKA_SASL_USERNAME / RELAY_KAFKA_SASL_PASSWORD
+  sasl_mechanism: SCRAM-SHA-512
+  sasl_username: ""
+  sasl_password: ""
+  tls_enabled: false
+
+  # Producer durability settings — do not relax these in production.
+  acks: "all"
+  linger_ms: 5
+  compression_type: snappy
+  message_max_bytes: 1048576  # 1 MiB hard cap
+  delivery_timeout: 30s
+
+  # DLQ topics — must be pre-created with appropriate retention.
+  dlq_publish_failure_topic: relay.dlq.publish_failure
+  dlq_poison_topic: relay.dlq.poison
+
+# One entry per upstream service relay polls.
+services:
+  - name: intent-engine
+    base_url: http://zord-intent-engine-service:8083
+    auth_token: "dev-dummy-token-123"
+    http_timeout: 15s
+    default_topic: payments.intent.events.v1
+    # Per-service retry overrides (optional — defaults are production-safe).
+    # max_retry_attempts: 20
+    # retry_base_delay: 1s
+    # retry_max_delay: 5m
+
+  - name: ledger-service
+    base_url: http://zord-edge-service:8080
+    auth_token: "dev-dummy-token-123"
+    http_timeout: 15s
+    default_topic: payments.ledger.events.v1
+
+tracing:
+  enabled: true
+  otlp_endpoint: "http://tempo.observability.svc.cluster.local:4318"
+  service_name: relay-service
+  environment: production
+
+metrics:
+  enabled: true
+  addr: ":9090"  # Prometheus scrapes /metrics on this port

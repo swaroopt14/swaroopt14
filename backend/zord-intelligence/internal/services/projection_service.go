@@ -584,3 +584,217 @@ func (s *ProjectionService) HandleSLATimerResolved(
 	return nil
 }
 
+// =============================================================================
+// PHASE 2 — Grade A stub handlers
+// =============================================================================
+//
+// WHAT ARE THESE?
+// These are skeleton implementations of the 5 new EventHandler interface methods
+// required by kafka/consumer.go after Phase 2.
+//
+// WHY STUBS NOW?
+// Go is a COMPILED language. Every method in the EventHandler interface MUST
+// have an implementation on ProjectionService before the code compiles.
+// If we left them out, "go build" would fail with:
+//   "ProjectionService does not implement EventHandler (missing HandleSettlementCreated)"
+//
+// The stubs do just enough to be safe and correct:
+//   1. Validate required fields (reject bad events)
+//   2. Check idempotency (skip already-processed events)
+//   3. Log receipt of the event
+//   4. Mark as processed (so we never process it twice)
+//
+// WHAT HAPPENS IN PHASE 4?
+// Phase 4 replaces the "log only" body with full intelligence computation:
+//   - HandleSettlementCreated  → updates leakage projection, feeds 5B stats
+//   - HandleAttachmentDecision → computes ambiguity score, updates leakage
+//   - HandleVarianceRecord     → updates leakage amount directly
+//   - HandleBatchSummaryUpdated → writes to batch_contracts table
+//   - HandleGovernanceDecision → updates defensibility score
+//
+// FINTECH PRINCIPLE: Always mark events as processed even in stubs.
+// If you skip MarkProcessed in a stub, then when Phase 4 adds real logic,
+// the service will reprocess ALL historical events from Kafka — potentially
+// millions of rows — causing incorrect aggregate counts.
+// By marking processed NOW, we ensure clean state when Phase 4 goes live.
+// =============================================================================
+
+// HandleSettlementCreated is the Phase 2 stub for canonical.settlement.created.
+// Full leakage and reconciliation logic will be added in Phase 4.
+func (s *ProjectionService) HandleSettlementCreated(
+	ctx context.Context,
+	e models.CanonicalSettlementCreatedEvent,
+) error {
+	// Validate required fields.
+	// TenantID and EventID are mandatory on every event — without them
+	// we cannot store idempotency records or attribute projections correctly.
+	if e.TenantID == "" || e.EventID == "" {
+		log.Printf("HandleSettlementCreated: missing required fields tenant=%s event_id=%s",
+			e.TenantID, e.EventID)
+		return nil // return nil (not error) so Kafka commits the offset
+		// Returning an error would cause infinite redelivery of this bad message.
+		// Returning nil commits the offset and moves past the bad message.
+		// The log line above creates an observable signal for ops to investigate.
+	}
+
+	// Idempotency check: have we already processed this exact event?
+	// This protects against Kafka redelivery (at-least-once delivery guarantee).
+	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
+	if err != nil {
+		return fmt.Errorf("HandleSettlementCreated IsProcessed event_id=%s: %w", e.EventID, err)
+	}
+	if processed {
+		return nil // already processed — safe to skip
+	}
+
+	// Phase 4 will add: leakage calculation, settlement observation tracking,
+	// ambiguity seed data, source strength projection updates.
+	log.Printf("HandleSettlementCreated: received settlement_id=%s tenant=%s source=%s confidence=%.2f",
+		e.SettlementID, e.TenantID, e.SourceSystemID, e.ParseConfidence)
+
+	// Mark as processed so we never compute this event's contribution twice.
+	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
+		return fmt.Errorf("HandleSettlementCreated MarkProcessed event_id=%s: %w", e.EventID, err)
+	}
+	return nil
+}
+
+// HandleAttachmentDecision is the Phase 2 stub for attachment.decision.created.
+// This is the MOST IMPORTANT new event — it feeds leakage AND ambiguity layers.
+// Full computation logic will be added in Phase 4.
+func (s *ProjectionService) HandleAttachmentDecision(
+	ctx context.Context,
+	e models.AttachmentDecisionCreatedEvent,
+) error {
+	if e.TenantID == "" || e.EventID == "" {
+		log.Printf("HandleAttachmentDecision: missing required fields tenant=%s event_id=%s",
+			e.TenantID, e.EventID)
+		return nil
+	}
+
+	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
+	if err != nil {
+		return fmt.Errorf("HandleAttachmentDecision IsProcessed event_id=%s: %w", e.EventID, err)
+	}
+	if processed {
+		return nil
+	}
+
+	// Phase 4 will add:
+	//   - Increment ambiguous_count if DecisionType == MATCH_AMBIGUOUS
+	//   - Add to unmatched_count if DecisionType == MATCH_UNRESOLVED
+	//   - Update leakage projection for MATCH_UNRESOLVED events
+	//   - Trigger policy evaluation for P_AMBIGUITY_RATE_HIGH, P_LEAKAGE_UNMATCHED
+	log.Printf("HandleAttachmentDecision: decision_id=%s type=%s confidence=%.2f ambiguity=%.2f tenant=%s",
+		e.DecisionID, e.DecisionType, e.ConfidenceScore, e.AmbiguityScore, e.TenantID)
+
+	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
+		return fmt.Errorf("HandleAttachmentDecision MarkProcessed event_id=%s: %w", e.EventID, err)
+	}
+	return nil
+}
+
+// HandleVarianceRecord is the Phase 2 stub for variance.record.created.
+// Variance records are the direct source of under/over-settlement amounts.
+// Full leakage amount computation will be added in Phase 4.
+func (s *ProjectionService) HandleVarianceRecord(
+	ctx context.Context,
+	e models.VarianceRecordCreatedEvent,
+) error {
+	if e.TenantID == "" || e.EventID == "" {
+		log.Printf("HandleVarianceRecord: missing required fields tenant=%s event_id=%s",
+			e.TenantID, e.EventID)
+		return nil
+	}
+
+	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
+	if err != nil {
+		return fmt.Errorf("HandleVarianceRecord IsProcessed event_id=%s: %w", e.EventID, err)
+	}
+	if processed {
+		return nil
+	}
+
+	// Phase 4 will add:
+	//   - Add variance_amount_minor to leakage.under_settlement_amount_minor
+	//   - Update batch_contracts.total_variance_minor for the batch
+	//   - Trigger P_LEAKAGE_UNDER_SETTLEMENT policy evaluation
+	//   - Flag cross-period variances for compliance intelligence
+	log.Printf("HandleVarianceRecord: variance_id=%s type=%s amount=%d cross_period=%v tenant=%s",
+		e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.CrossPeriodFlag, e.TenantID)
+
+	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
+		return fmt.Errorf("HandleVarianceRecord MarkProcessed event_id=%s: %w", e.EventID, err)
+	}
+	return nil
+}
+
+// HandleBatchSummaryUpdated is the Phase 2 stub for batch.summary.updated.
+// Full batch_contracts upsert and Pattern intelligence logic will be added in Phase 4.
+func (s *ProjectionService) HandleBatchSummaryUpdated(
+	ctx context.Context,
+	e models.BatchSummaryUpdatedEvent,
+) error {
+	if e.TenantID == "" || e.EventID == "" || e.BatchID == "" {
+		log.Printf("HandleBatchSummaryUpdated: missing required fields tenant=%s event_id=%s batch_id=%s",
+			e.TenantID, e.EventID, e.BatchID)
+		return nil
+	}
+
+	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
+	if err != nil {
+		return fmt.Errorf("HandleBatchSummaryUpdated IsProcessed event_id=%s: %w", e.EventID, err)
+	}
+	if processed {
+		return nil
+	}
+
+	// Phase 4 will add:
+	//   - Upsert batch_contracts row with all aggregate counts and amounts
+	//   - Trigger P_AMBIGUITY_BATCH_REVIEW if ambiguity_score > 0.70
+	//   - Trigger P_PATTERN_BATCH_RISK if batch risk score is high
+	//   - Update batch-scoped projection_state rows
+	log.Printf("HandleBatchSummaryUpdated: batch_id=%s status=%s total=%d pending=%d variance=%d tenant=%s",
+		e.BatchID, e.BatchFinalityStatus, e.TotalCount, e.PendingCount, e.TotalVarianceMinor, e.TenantID)
+
+	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
+		return fmt.Errorf("HandleBatchSummaryUpdated MarkProcessed event_id=%s: %w", e.EventID, err)
+	}
+	return nil
+}
+
+// HandleGovernanceDecision is the Phase 2 stub for governance.decision.created.
+// Full defensibility score update will be added in Phase 4.
+func (s *ProjectionService) HandleGovernanceDecision(
+	ctx context.Context,
+	e models.GovernanceDecisionCreatedEvent,
+) error {
+	if e.TenantID == "" || e.EventID == "" || e.IntentID == "" {
+		log.Printf("HandleGovernanceDecision: missing required fields tenant=%s event_id=%s intent_id=%s",
+			e.TenantID, e.EventID, e.IntentID)
+		return nil
+	}
+
+	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
+	if err != nil {
+		return fmt.Errorf("HandleGovernanceDecision IsProcessed event_id=%s: %w", e.EventID, err)
+	}
+	if processed {
+		return nil
+	}
+
+	// Phase 4 will add:
+	//   - Increment tenant.governance_coverage_count projection
+	//   - Update defensibility score for this intent's evidence pack
+	//   - Trigger P_DEFENSIBILITY_AUDIT_RISK policy evaluation
+	//   - Flag if governance decision is REJECTED or ESCALATED (compliance risk)
+	log.Printf("HandleGovernanceDecision: gdec_id=%s intent=%s outcome=%s kyc=%v aml=%v replay=%v tenant=%s",
+		e.GovernanceDecisionID, e.IntentID, e.DecisionOutcome,
+		e.KYCChecked, e.AMLChecked, e.ReplayEquivalent, e.TenantID)
+
+	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
+		return fmt.Errorf("HandleGovernanceDecision MarkProcessed event_id=%s: %w", e.EventID, err)
+	}
+	return nil
+}
+

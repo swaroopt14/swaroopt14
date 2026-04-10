@@ -102,3 +102,73 @@ func (h *KafkaIngestionHandler) HandleSLATimerTick(
 	}
 	return h.slaTimerHandler.HandleSLATimerTick(ctx, e)
 }
+
+// =============================================================================
+// Grade A stub handlers — Phase 2
+// =============================================================================
+//
+// WHAT IS A STUB?
+// A stub is a method that has the correct signature but does minimal work.
+// We need stubs here because:
+//
+//   1. kafka/consumer.go's EventHandler interface NOW requires these 5 methods.
+//   2. KafkaIngestionHandler embeds *services.ProjectionService, which means
+//      it inherits all methods of ProjectionService.
+//   3. We are adding the 5 new methods to ProjectionService in this Phase 2
+//      step so the interface is satisfied.
+//
+// These stubs simply delegate to the embedded ProjectionService.
+// The actual computation logic (leakage formulas, ambiguity scoring, etc.)
+// is added to ProjectionService in Phase 4.
+//
+// WHY DELEGATE INSTEAD OF COMPUTING HERE?
+// KafkaIngestionHandler is in the "handlers" package — it should only route
+// events, not compute business logic. Business logic belongs in "services".
+// This separation is called "separation of concerns" — a core design principle.
+// =============================================================================
+
+// HandleSettlementCreated delegates to ProjectionService.
+// ProjectionService.HandleSettlementCreated stub logs the event and marks
+// it as processed (idempotency). Full leakage logic added in Phase 4.
+func (h *KafkaIngestionHandler) HandleSettlementCreated(
+	ctx context.Context,
+	e models.CanonicalSettlementCreatedEvent,
+) error {
+	return h.ProjectionService.HandleSettlementCreated(ctx, e)
+}
+
+// HandleAttachmentDecision delegates to ProjectionService.
+// This is the most important new event for leakage and ambiguity intelligence.
+func (h *KafkaIngestionHandler) HandleAttachmentDecision(
+	ctx context.Context,
+	e models.AttachmentDecisionCreatedEvent,
+) error {
+	return h.ProjectionService.HandleAttachmentDecision(ctx, e)
+}
+
+// HandleVarianceRecord delegates to ProjectionService.
+// Variance records are the direct source of leakage amount data.
+func (h *KafkaIngestionHandler) HandleVarianceRecord(
+	ctx context.Context,
+	e models.VarianceRecordCreatedEvent,
+) error {
+	return h.ProjectionService.HandleVarianceRecord(ctx, e)
+}
+
+// HandleBatchSummaryUpdated delegates to ProjectionService.
+// Batch summaries feed batch_contracts table and Pattern intelligence.
+func (h *KafkaIngestionHandler) HandleBatchSummaryUpdated(
+	ctx context.Context,
+	e models.BatchSummaryUpdatedEvent,
+) error {
+	return h.ProjectionService.HandleBatchSummaryUpdated(ctx, e)
+}
+
+// HandleGovernanceDecision delegates to ProjectionService.
+// Governance decisions feed the defensibility score calculation.
+func (h *KafkaIngestionHandler) HandleGovernanceDecision(
+	ctx context.Context,
+	e models.GovernanceDecisionCreatedEvent,
+) error {
+	return h.ProjectionService.HandleGovernanceDecision(ctx, e)
+}

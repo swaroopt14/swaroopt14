@@ -147,23 +147,53 @@ func (w *OutboxWorker) deliver(ctx context.Context, entry models.ActuationOutbox
 }
 
 // topicForEventType maps an event type to the correct Kafka output topic.
-// Only 3 actuation topics exist — ZPI does not publish KPI data to Kafka.
+// Called by deliver() for every outbox entry.
+//
+// ADDING A NEW EVENT TYPE:
+// 1. Add the new Decision constant to internal/models/policy.go
+// 2. Add the new Kafka topic field to config/config.go
+// 3. Add a new case here mapping decision → topic
+// 4. Add the topic to the requiredTopics list in cmd/main.go
+//
+// ROUTING LOGIC:
+// Three output topics exist:
+//   TopicActuationAlert      → ops team alerts, notifications, incidents, holds
+//   TopicActuationRetry      → Service 4 (retry a payout)
+//   TopicActuationEvidence   → Service 6 (generate/regenerate evidence pack)
+//   TopicActuationBatchPatch → client-facing API (patch request to source system)
 func (w *OutboxWorker) topicForEventType(eventType string) (string, error) {
 	switch eventType {
+
+	// ── Retry → Service 4 ─────────────────────────────────────────────────────
 	case string(models.DecisionRetry):
-		// → Service 4 (Relay) — retry the payout
 		return w.cfg.TopicActuationRetry, nil
 
-	case string(models.DecisionGenerateEvidence):
-		// → Service 6 (Contracts) — build an evidence pack
+	// ── Evidence generation → Service 6 ─────────────────────────────────────
+	case string(models.DecisionGenerateEvidence),
+		string(models.DecisionRegenerateEvidence): // NEW: also routes to evidence topic
+		// REGENERATE_EVIDENCE is a more targeted version of GENERATE_EVIDENCE.
+		// Both go to the same Service 6 topic — Service 6 decides how to handle
+		// each based on the payload (new pack vs rebuild existing pack).
 		return w.cfg.TopicActuationEvidence, nil
 
+	// ── Batch patch request → client-facing API ───────────────────────────────
+	// NEW Phase 2: BATCH_PATCH_REQUEST goes to a dedicated topic.
+	// The client-facing API service reads this and sends the patch request
+	// to the tenant's configured endpoint or webhook.
+	case string(models.DecisionRequestSourcePatch):
+		return w.cfg.TopicActuationBatchPatch, nil
+
+	// ── All other ops-facing decisions → alert topic ──────────────────────────
+	// The notification service downstream reads this topic and routes
+	// each alert to the right channel (Slack, email, PagerDuty, webhook).
 	case string(models.DecisionEscalate),
 		string(models.DecisionNotify),
 		string(models.DecisionOpenOpsIncident),
-		string(models.DecisionHold):
-		// All ops-facing decisions go to the alert topic
-		// The notification service downstream decides how to route them
+		string(models.DecisionHold),
+		string(models.DecisionReviewAmbiguousBatch),           // NEW Phase 2
+		string(models.DecisionPrepareAndSignRecommended),      // NEW Phase 2
+		string(models.DecisionDispatchModeRecommended),        // NEW Phase 2
+		string(models.DecisionRequestStrongerCarrierContract): // NEW Phase 2
 		return w.cfg.TopicActuationAlert, nil
 	}
 

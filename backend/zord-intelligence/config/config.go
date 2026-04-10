@@ -45,12 +45,44 @@ type Config struct {
 	TopicCorridorHealthTick string // corridor.health.tick             ← operational heartbeat
 	TopicSLATimerTick       string // sla.timer.tick                   ← operational heartbeat
 
+	// ── NEW INPUT TOPICS ( Grade A Attachment Intelligence Mode) ────
+	//
+	// These 5 topics are the new upstream inputs from the pivoted spec.
+	// They are consumed in Grade A mode (attachment-based intelligence).
+	// In Grade B mode (dispatch/control), all original topics above are also used.
+	//
+	// All use getWithDefault so:
+	//   - Service runs immediately without these set (no crash)
+	//   - If topic is empty string, consumer.go skips wiring it
+	//   - Production sets real values via environment variables
+
+	TopicSettlementCreated string // canonical.settlement.created    ← Service 5B
+	// Emitted when Service 5B parses a settlement file line.
+	// ZPI uses to track settlement observations and feed leakage calculation.
+
+	TopicAttachmentDecision string // attachment.decision.created     ← Service 5C
+	// Emitted when Service 5C makes a match/ambiguous/unresolved decision.
+	// MOST IMPORTANT new topic for leakage and ambiguity intelligence.
+
+	TopicVarianceRecord string // variance.record.created         ← Service 5C
+	// Emitted when Service 5C detects amount/date mismatch between
+	// intent and settlement. Feeds leakage amount calculation directly.
+
+	TopicBatchSummary string // batch.summary.updated           ← Service 5C
+	// Emitted when batch-level aggregate state changes.
+	// Feeds batch_contracts table and Pattern intelligence layer.
+
+	TopicGovernanceDecision string // governance.decision.created     ← Service 6
+	// Emitted when Service 6 creates a governance record for a payment.
+	// Feeds defensibility score (governance coverage component).
+
 	// ── Kafka Output Topics (ZPI publishes TO these) ──────────────
 	// ONLY for actuation — triggering other services
 	// KPI data does NOT go to Kafka. It goes to DB → REST API → frontend
-	TopicActuationRetry    string // → Service 4 (retry a payout)
-	TopicActuationEvidence string // → Service 6 (generate evidence pack)
-	TopicActuationAlert    string // → Notification service (ops alert)
+	TopicActuationRetry      string // → Service 4 (retry a payout)
+	TopicActuationEvidence   string // → Service 6 (generate evidence pack)
+	TopicActuationAlert      string // → Notification service (ops alert)
+	TopicActuationBatchPatch string // → Client-facing API (batch patch request) NEW Phase 2
 }
 
 // Load reads all environment variables and returns a filled Config struct.
@@ -76,21 +108,32 @@ func Load() *Config {
 		KafkaGroupID: getWithDefault("KAFKA_GROUP_ID", "zord-intelligence-group"),
 
 		// ── Kafka Input Topics ───────────────────────────────────
-		TopicIntentCreated:     getWithDefault("TOPIC_INTENT_CREATED", "canonical.intent.created"),
-		TopicDispatchCreated:   getWithDefault("TOPIC_DISPATCH_CREATED", "dispatch.attempt.created"),
-		TopicOutcomeNormalized: getWithDefault("TOPIC_OUTCOME_NORMALIZED", "outcome.event.normalized"),
-		TopicFinalityCert:      getWithDefault("TOPIC_FINALITY_CERT", "finality.certificate.issued"),
-		TopicFinalContract:     getWithDefault("TOPIC_FINAL_CONTRACT", "final.contract.updated"),
-		TopicEvidenceReady:     getWithDefault("TOPIC_EVIDENCE_READY", "evidence.pack.ready"),
-		TopicDLQ:               getWithDefault("TOPIC_DLQ", "dlq.event"),
+		TopicIntentCreated:      getWithDefault("TOPIC_INTENT_CREATED", "canonical.intent.created"),
+		TopicDispatchCreated:    getWithDefault("TOPIC_DISPATCH_CREATED", "dispatch.attempt.created"),
+		TopicOutcomeNormalized:  getWithDefault("TOPIC_OUTCOME_NORMALIZED", "outcome.event.normalized"),
+		TopicFinalityCert:       getWithDefault("TOPIC_FINALITY_CERT", "finality.certificate.issued"),
+		TopicFinalContract:      getWithDefault("TOPIC_FINAL_CONTRACT", "final.contract.updated"),
+		TopicEvidenceReady:      getWithDefault("TOPIC_EVIDENCE_READY", "evidence.pack.ready"),
+		TopicDLQ:                getWithDefault("TOPIC_DLQ", "dlq.event"),
 		TopicStatementMatch:     getWithDefault("TOPIC_STATEMENT_MATCH", "statement.match.event"),
 		TopicCorridorHealthTick: getWithDefault("TOPIC_CORRIDOR_HEALTH_TICK", "corridor.health.tick"),
 		TopicSLATimerTick:       getWithDefault("TOPIC_SLA_TIMER_TICK", "sla.timer.tick"),
 
-		// ── Kafka Output Topics ──────────────────────────────────
-		TopicActuationRetry:    getWithDefault("TOPIC_ACTUATION_RETRY", "zpi.actuation.retry"),
-		TopicActuationEvidence: getWithDefault("TOPIC_ACTUATION_EVIDENCE", "zpi.actuation.evidence"),
-		TopicActuationAlert:    getWithDefault("TOPIC_ACTUATION_ALERT", "zpi.actuation.alert"),
+		// ── NEW INPUT TOPICS ( Grade A) ─────────────────────────────
+		// All use getWithDefault so the service starts cleanly even when
+		// upstream services have not deployed these topics yet.
+		// consumer.go skips any topic whose config value is empty string.
+		TopicSettlementCreated:  getWithDefault("TOPIC_SETTLEMENT_CREATED", "canonical.settlement.created"),
+		TopicAttachmentDecision: getWithDefault("TOPIC_ATTACHMENT_DECISION", "attachment.decision.created"),
+		TopicVarianceRecord:     getWithDefault("TOPIC_VARIANCE_RECORD", "variance.record.created"),
+		TopicBatchSummary:       getWithDefault("TOPIC_BATCH_SUMMARY", "batch.summary.updated"),
+		TopicGovernanceDecision: getWithDefault("TOPIC_GOVERNANCE_DECISION", "governance.decision.created"),
+
+		// ── Kafka Output Topics ──────────────────────────────────────
+		TopicActuationRetry:      getWithDefault("TOPIC_ACTUATION_RETRY", "zpi.actuation.retry"),
+		TopicActuationEvidence:   getWithDefault("TOPIC_ACTUATION_EVIDENCE", "zpi.actuation.evidence"),
+		TopicActuationAlert:      getWithDefault("TOPIC_ACTUATION_ALERT", "zpi.actuation.alert"),
+		TopicActuationBatchPatch: getWithDefault("TOPIC_ACTUATION_BATCH_PATCH", "zpi.actuation.batch_patch"),
 	}
 }
 

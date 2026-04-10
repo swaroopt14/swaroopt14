@@ -96,11 +96,11 @@ type PendingBacklogValue struct {
 //   - recovered:      55 (retried AND reached SETTLED)
 //   - recovery_rate:  0.6875 (55/80)
 type RetryRecoveryRateValue struct {
-	TotalAttempts  int       `json:"total_attempts"`  // all dispatch attempts (including first)
-	RetryAttempts  int       `json:"retry_attempts"`  // dispatches with attempt_no > 1
-	Recovered      int       `json:"recovered"`       // retried intents that reached SETTLED
-	RecoveryRate   float64   `json:"recovery_rate"`   // recovered / retry_attempts (0 if no retries)
-	UpdatedAt      time.Time `json:"updated_at"`
+	TotalAttempts int       `json:"total_attempts"` // all dispatch attempts (including first)
+	RetryAttempts int       `json:"retry_attempts"` // dispatches with attempt_no > 1
+	Recovered     int       `json:"recovered"`      // retried intents that reached SETTLED
+	RecoveryRate  float64   `json:"recovery_rate"`  // recovered / retry_attempts (0 if no retries)
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // StatementMatchRateValue is stored in ProjectionState.ValueJSON
@@ -121,11 +121,11 @@ type RetryRecoveryRateValue struct {
 //   - match_rate:          0.97
 //   - avg_match_age_secs: 1200 (avg delay between finality and statement appearance)
 type StatementMatchRateValue struct {
-	TotalSettled      int       `json:"total_settled"`       // payouts that reached SETTLED
-	Matched           int       `json:"matched"`             // found in settlement statement
-	Unmatched         int       `json:"unmatched"`           // NOT found after 24h
-	MatchRate         float64   `json:"match_rate"`          // matched / total_settled
-	AvgMatchAgeSecs   float64   `json:"avg_match_age_secs"`  // avg aged_seconds across MATCHED events
+	TotalSettled      int       `json:"total_settled"`        // payouts that reached SETTLED
+	Matched           int       `json:"matched"`              // found in settlement statement
+	Unmatched         int       `json:"unmatched"`            // NOT found after 24h
+	MatchRate         float64   `json:"match_rate"`           // matched / total_settled
+	AvgMatchAgeSecs   float64   `json:"avg_match_age_secs"`   // avg aged_seconds across MATCHED events
 	TotalMatchAgeSecs int64     `json:"total_match_age_secs"` // running sum for incremental avg
 	UpdatedAt         time.Time `json:"updated_at"`
 }

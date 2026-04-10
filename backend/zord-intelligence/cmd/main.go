@@ -38,7 +38,7 @@ func main() {
 	// This avoids the "group is stable but has 0 assigned partitions" issue
 	// when input topics are missing at startup.
 	requiredTopics := []string{
-		// Input topics (consumed by zord-intelligence)
+		// ── Input topics (Grade B — original dispatch/finality mode) ──────────
 		cfg.TopicIntentCreated,
 		cfg.TopicDispatchCreated,
 		cfg.TopicOutcomeNormalized,
@@ -50,10 +50,23 @@ func main() {
 		cfg.TopicCorridorHealthTick,
 		cfg.TopicSLATimerTick,
 
-		// Output topics (published by outbox worker)
+		// ── Input topics (Grade A — Phase 2 attachment intelligence mode) ─────
+		// These are only added to the ensure list if they are configured.
+		// If the env var is not set, getWithDefault returns the default topic name,
+		// so these will always be non-empty and will be created in Kafka on startup.
+		// This is intentional: Kafka topics are cheap to create. Creating them
+		// ahead of time means the service is ready the moment upstream deploys.
+		cfg.TopicSettlementCreated,
+		cfg.TopicAttachmentDecision,
+		cfg.TopicVarianceRecord,
+		cfg.TopicBatchSummary,
+		cfg.TopicGovernanceDecision,
+
+		// ── Output topics (actuation — ZPI publishes TO these) ────────────────
 		cfg.TopicActuationAlert,
 		cfg.TopicActuationRetry,
 		cfg.TopicActuationEvidence,
+		cfg.TopicActuationBatchPatch, // NEW Phase 2 — for batch patch requests
 	}
 
 	if err := ensureTopicsWithRetry(cfg.KafkaBrokers, requiredTopics, 10, 2*time.Second); err != nil {

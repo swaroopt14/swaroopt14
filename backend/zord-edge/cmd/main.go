@@ -15,7 +15,7 @@ import (
 	"zord-edge/routes"
 	"zord-edge/storage"
 	"zord-edge/vault"
-
+	"zord-edge/services"
 	"zord-edge/tracing"
 
 	"github.com/gin-gonic/gin"
@@ -60,9 +60,8 @@ func main() {
 	defer cleanup()
 
 	gin.SetMode(gin.ReleaseMode)
-	server := gin.New()
+	server := gin.Default()
 	server.Use(
-		gin.Recovery(),
 		otelgin.Middleware("zord-edge"),
 		prometheusMiddleware(),
 	)
@@ -124,6 +123,12 @@ func main() {
 			"time":    time.Now().UTC(),
 		})
 	})
+
+	outboxPullRepo := services.NewOutboxPullRepo(db.DB)
+	outboxHandler := handler.NewOutboxHandler(outboxPullRepo)
+	server.GET("/internal/outbox/lease", outboxHandler.Lease)
+	server.POST("/internal/outbox/ack", outboxHandler.Ack)
+	server.POST("/internal/outbox/nack", outboxHandler.Nack)
 
 	log.Println("Starting Zord Edge service on port 8080 with observability enabled")
 	srv := &http.Server{

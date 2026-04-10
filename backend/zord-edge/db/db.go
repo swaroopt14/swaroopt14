@@ -130,7 +130,8 @@ func CreateTable() error {
 	status TEXT NOT NULL DEFAULT 'PENDING',
 	attempts INT NOT NULL DEFAULT 0,
 	next_retry_at TIMESTAMPTZ,
-	lease_id TEXT,
+	lease_id UUID,
+	leased_by TEXT,
 	event_type TEXT NOT NULL,
 	lease_until TIMESTAMPTZ,
 	created_at TIMESTAMPTZ NOT NULL,
@@ -142,6 +143,21 @@ func CreateTable() error {
 	_, err = DB.Exec(ingress_outbox)
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	// Indexes for lease scanning and ack/nack operations
+	if _, err := DB.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_outbox_pending_lease
+		ON ingress_outbox (status, lease_until, created_at);
+	`); err != nil {
+		return err
+	}
+
+	if _, err := DB.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_outbox_lease_id
+		ON ingress_outbox (lease_id);
+	`); err != nil {
+		return err
 	}
 
 	connectors := `

@@ -96,10 +96,10 @@ func SaveRawIntent(
 	// --- Insert into ingress_outbox ---
 	outboxQuery := `
 		INSERT INTO ingress_outbox
-		(trace_id, envelope_id, tenant_id, object_ref, received_at, source, idempotency_key, encrypted_payload, payload_hash, envelope_hash, envelope_signature, topic, lease_id, event_type, lease_until, created_at, updated_at, published_at, failure_reason_code)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		(trace_id, envelope_id, tenant_id, object_ref, received_at, source, idempotency_key, encrypted_payload, payload_hash, envelope_hash, envelope_signature, topic, status, lease_id, event_type, lease_until, created_at, updated_at, published_at, failure_reason_code)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`
-	topic := "vault.envelope.accepted.v1"
+	topic := "payments.ledger.events.v1"
 	_, err = tx.ExecContext(ctx, outboxQuery,
 		envelope.TraceID,
 		envelope.EnvelopeID,
@@ -113,6 +113,7 @@ func SaveRawIntent(
 		envelope.EnvelopeHash,
 		envelope.EnvelopeSignature,
 		topic,
+		"PENDING",
 		envelope.LeaseID,
 		envelope.EventType,
 		envelope.LeaseUntil,

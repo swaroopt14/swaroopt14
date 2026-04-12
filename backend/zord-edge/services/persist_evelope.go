@@ -80,6 +80,7 @@ func RawIntent(ctx context.Context,
 		FileContentHash:              rawIntent.FileContentHash,
 		RowCountEstimate:             rawIntent.RowCountEstimate,
 		FileUploadChannel:            rawIntent.FileUploadChannel,
+		BatchID:                      rawIntent.BatchID,
 	}
 
 	// Envolope.SaveRawIntent()
@@ -92,5 +93,3 @@ func RawIntent(ctx context.Context,
 	}
 	return nil
 }
-
-

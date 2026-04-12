@@ -6,7 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
 	"zord-edge/config"
@@ -52,8 +54,8 @@ func init() {
 
 func main() {
 	// Shutdown context — cancelled on SIGTERM/SIGINT.
-	// ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	// defer stop()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
 	// Initialize tracing
 	cleanup := tracing.InitTracing("zord-edge")
@@ -88,9 +90,6 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to init S3", err)
 	}
-
-	// Start outbox poller — durability guarantee for PENDING rows.
-	// go services.StartOutboxPoller(ctx, kafkaProducer, 100*time.Millisecond) // Removed Kafka publishing
 
 	h := &handler.Handler{
 		S3store: s3store,
@@ -139,9 +138,31 @@ func main() {
 		WriteTimeout:      20 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal("Server failed to start:", err)
+
+	// Start server in a goroutine so it doesn't block.
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("Server failed to start: %v", err)
+		}
+	}()
+
+	// Wait for interruption signal.
+	<-ctx.Done()
+
+	// Restore default behavior on the interrupt signal and notify user of shutdown.
+	stop()
+	log.Println("Shutting down gracefully, press Ctrl+C again to force")
+
+	// The context is used to inform the server it has 10 seconds to finish
+	// the request it is currently handling
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Fatalf("Server forced to shutdown: %v", err)
 	}
+
+	log.Println("Server exiting")
 }
 
 // prometheusMiddleware adds Prometheus metrics collection

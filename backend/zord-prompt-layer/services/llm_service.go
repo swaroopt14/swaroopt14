@@ -86,15 +86,14 @@ func (s *LLMService) GenerateFromContextScoped(userQuery string, context string,
 	prompt := "" +
 		"You are Zord Prompt Layer assistant.\n" +
 		"Rules:\n" +
-		"1) Use only CONTEXT.\n" +
-		"2) Never show raw IDs or sensitive fields.\n" +
-		"3) Do NOT include any recommendations, action items, next steps, or mitigation instructions in the answer.\n" +
-		"4) Keep answer explanatory only: summary, status, evidence reasoning.\n" +
-		"4.1) Refuse any request asking for sensitive identifiers/secrets and do not reveal values.\n" +
-		"4.2) If user asks whether an intent was 'received', map lifecycle correctly: ingress_envelopes can be RECEIVED; payment_intents are typically CREATED/FAILED/etc. Explain this clearly using context.\n" +
-		"4.3) If evidence exists for related lifecycle stages, do not return 'no evidence'; answer with stage-accurate explanation.\n" +
+		"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
+		"2) If CONTEXT is insufficient, clearly say: \"I don't have enough information in current data to answer that confidently.\"\n" +
+		"3) Write in plain, simple, non-technical language for business users.\n" +
+		"4) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
+		"5) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, api keys, tokens, secrets).\n" +
+		"6) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
 
-		"5) " + visRule + "\n\n" +
+		"7) " + visRule + "\n\n" +
 		"CONTEXT:\n" + context + "\n\n" +
 		"USER QUERY:\n" + userQuery + "\n\n" +
 		"Return concise operational answer."
@@ -121,21 +120,17 @@ func (s *LLMService) GenerateFromContextScopedWithConfidence(userQuery string, c
 	prompt := "" +
 		"You are Zord Prompt Layer assistant.\n" +
 		"Rules:\n" +
-		"1) Use only CONTEXT.\n" +
-		"2) Never show raw IDs or sensitive fields.\n" +
-		"3) Do NOT include any recommendations, action items, next steps, or mitigation instructions in the answer.\n" +
-		"4) Keep answer explanatory only: summary, status, evidence reasoning.\n" +
-		"4.1) If USER QUERY asks for sensitive identifiers/secrets (tenant_id, intent_id, trace_id, envelope_id, idempotency_key, account_number, account_id, iban, ifsc, swift, pan, api keys, tokens), refuse and do not reveal values.\n" +
-		"4.2) For refusal cases, set answer to a safe policy message, confidence=\"low\", confidence_score<=0.20, evidence_coverage<=0.20, scope_adherence=1.0, contradiction_risk=0.0, ambiguity<=0.20.\n" +
-		"4.3) If query includes a time scope, answer only from records in that scope; do not mention outside-time records.\n" +
-		"4.4) If user asks whether an intent was 'received', map lifecycle correctly: ingress_envelopes can be RECEIVED; payment_intents are typically CREATED/FAILED/etc. Explain this clearly using context.\n" +
-		"4.5) If evidence exists for related lifecycle stages, do not return 'no evidence'; answer with stage-accurate explanation.\n" +
-
-		"5) " + visRule + "\n" +
-		"6) Return strict JSON only with keys: answer, confidence, confidence_score, evidence_coverage, scope_adherence, contradiction_risk, ambiguity.\n" +
-		"7) confidence must be one of high|medium|low.\n" +
-		"8) All numeric scores must be between 0 and 1.\n" +
-		"9) confidence_score must reflect how reliable the answer is based only on the provided context.\n\n" +
+		"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
+		"2) If CONTEXT is insufficient, clearly say: \"I don't have enough information in current data to answer that confidently.\"\n" +
+		"3) Write in plain, simple, non-technical language for business users.\n" +
+		"4) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
+		"5) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, api keys, tokens, secrets).\n" +
+		"6) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
+		"7) " + visRule + "\n" +
+		"8) Return strict JSON only with keys: answer, confidence, confidence_score, evidence_coverage, scope_adherence, contradiction_risk, ambiguity.\n" +
+		"9) confidence must be one of high|medium|low.\n" +
+		"10) All numeric scores must be between 0 and 1.\n" +
+		"11) confidence_score must reflect how reliable the answer is based only on the provided context.\n\n" +
 
 		"CONTEXT:\n" + context + "\n\n" +
 		"USER QUERY:\n" + userQuery

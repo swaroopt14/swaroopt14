@@ -90,7 +90,8 @@ func CreateTable() error {
 	file_size_bytes BIGINT,
 	file_content_hash TEXT,
 	row_count_estimate INT,
-	file_upload_channel TEXT
+	file_upload_channel TEXT,
+	batchid TEXT
 	--error_code TEXT,
     --error_detail TEXT
 	);`
@@ -137,7 +138,8 @@ func CreateTable() error {
 	created_at TIMESTAMPTZ NOT NULL,
 	updated_at TIMESTAMPTZ,
 	published_at TIMESTAMPTZ,
-	failure_reason_code TEXT
+	failure_reason_code TEXT,
+	batchid TEXT
 	);`
 
 	_, err = DB.Exec(ingress_outbox)

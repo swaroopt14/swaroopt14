@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -58,10 +59,11 @@ type IngressEnvelope struct {
 	Status                       Status     `json:"status" db:"status"`
 	ObjectRef                    string     `json:"object_ref" db:"object_ref"`
 	ReceivedAt                   time.Time  `json:"received_at" db:"received_at"`
-	Payload                      []byte     `json:"payload" db:"payload"`
-	FileName                     *string    `json:"file_name" db:"file_name"`
-	FileSizeBytes                *int64     `json:"file_size_bytes" db:"file_size_bytes"`
-	FileContentHash              *string    `json:"file_content_hash" db:"file_content_hash"`
-	RowCountEstimate             *int       `json:"row_count_estimate" db:"row_count_estimate"`
-	FileUploadChannel            *string    `json:"file_upload_channel" db:"file_upload_channel"`
+	Payload                      json.RawMessage
+	FileName                     *string `json:"file_name" db:"file_name"`
+	FileSizeBytes                *int64  `json:"file_size_bytes" db:"file_size_bytes"`
+	FileContentHash              *string `json:"file_content_hash" db:"file_content_hash"`
+	RowCountEstimate             *int    `json:"row_count_estimate" db:"row_count_estimate"`
+	FileUploadChannel            *string `json:"file_upload_channel" db:"file_upload_channel"`
+	BatchID                      *string `json:"batchid" db:"batchid"`
 }

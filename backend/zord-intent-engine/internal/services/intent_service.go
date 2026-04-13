@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,14 +14,13 @@ import (
 	"os"
 	"strings"
 	"time"
-	"encoding/hex"
 
 	"github.com/google/uuid"
 
 	"zord-intent-engine/internal/canonicalizer"
 	"zord-intent-engine/internal/models"
 
-	//"zord-intent-engine/internal/pii"
+	// "zord-intent-engine/internal/pii"
 	"zord-intent-engine/internal/guards"
 	"zord-intent-engine/internal/validator"
 	"zord-intent-engine/internal/vault"
@@ -168,10 +168,10 @@ func (s *IntentService) computeBeneficiaryFingerprint(tokens map[string]string) 
 func (s *IntentService) computeBusinessIdempotencyKey(tenantID string, fingerPrint string, amount decimal.Decimal, currency string, timeBucket string) string {
 	// FIX: deterministic business idempotency key
 	// business_idempotency_key = SHA256(tenant_id + beneficiary_fingerprint + amount_minor + currency + time_bucket)
-	
+
 	// Normalize amount to string (fixed precision)
 	amountStr := amount.String()
-	
+
 	raw := tenantID + fingerPrint + amountStr + strings.ToUpper(currency) + timeBucket
 	hash := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(hash[:])
@@ -192,14 +192,14 @@ func (s *IntentService) computeScores(
 	totalFields := 6.0 // Based on fields added in Step 6
 	if totalFields > 0 && nir != nil {
 		var confSummary struct {
-			AvgConfidence  float64 `json:"avg_confidence"`
-			Overall        float64 `json:"overall"`
-			LowConfCount   int     `json:"low_confidence_field_count"`
+			AvgConfidence float64 `json:"avg_confidence"`
+			Overall       float64 `json:"overall"`
+			LowConfCount  int     `json:"low_confidence_field_count"`
 		}
-		
+
 		avgConf := 1.0
 		lowConfCount := nir.LowConfidenceFieldCount
-		
+
 		if len(nir.FieldConfidenceSummary) > 0 {
 			_ = json.Unmarshal(nir.FieldConfidenceSummary, &confSummary)
 			if confSummary.AvgConfidence > 0 {
@@ -240,7 +240,7 @@ func (s *IntentService) computeScores(
 	if intent.ClientBatchRef != "" && intent.ClientBatchRef != "NA" {
 		proofScore += 0.1
 	}
-	
+
 	// Weight by schema completeness
 	proofScore = proofScore * schemaScore
 
@@ -276,7 +276,7 @@ func (s *IntentService) computeScores(
 	// 5. intent_quality_score
 	// Baseline from mapping and completeness
 	qualityScore = (mappingScore * 0.4) + (schemaScore * 0.6)
-	
+
 	if intent.DuplicateRiskFlag {
 		qualityScore -= 0.3
 	}
@@ -338,10 +338,10 @@ func (s *IntentService) ProcessIncomingIntent(
 		SourceSystem:     event.SourceSystem,
 		ObjectRef:        event.ObjectRef,
 		IdempotencyKey:   event.IdempotencyKey,
-		EncryptedPayload: event.EncryptedPayload,
+		EncryptedPayload: event.Payload,
 		PayloadHash:      event.PayloadHash,
+		ReceivedAt:       event.ReceivedAt,
 	}
-
 
 	// -------- STEP 0: Transport guards --------
 
@@ -406,7 +406,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	fieldsMap := make(map[string]models.NIRField)
 	gapCount := 0
 	lowConfCount := 0
-	
+
 	// Helper to add structured field
 	addFields := func(name string, value any, path string, required bool) {
 		conf := 1.0 // default for direct parse
@@ -423,9 +423,9 @@ func (s *IntentService) ProcessIncomingIntent(
 			Value:            value,
 			SourcePath:       path,
 			ConfidenceScore:  conf,
-			SensitiveFlag:    false, // Default
-			TransformApplied: "NONE",  // Default
-			ExtractionNotes:  "",      // Default
+			SensitiveFlag:    false,  // Default
+			TransformApplied: "NONE", // Default
+			ExtractionNotes:  "",     // Default
 		}
 	}
 
@@ -437,26 +437,26 @@ func (s *IntentService) ProcessIncomingIntent(
 	addFields("client_batch_ref", parsed.ClientBatchRef, "$.client_batch_ref", false)
 
 	fieldsJSON, _ := json.Marshal(fieldsMap)
-	
+
 	profileID := "generic_json_profile"
 	if in.SourceSystem != "" {
 		profileID = strings.ToLower(in.SourceSystem) + "_json_profile"
 	}
 
 	nir := &models.NormalizedIngestRecord{
-		NIRID:                  uuid.New(),
-		EnvelopeID:             in.EnvelopeID,
-		TenantID:               in.TenantID,
-		DetectedFormat:         "json",
-		ProfileID:              profileID,
-		ProfileVersion:         "v1",
-		FieldsJSON:             fieldsJSON,
-		FieldConfidenceSummary: json.RawMessage(`{"overall": 1.0}`),
-		UnmappedJSON:           json.RawMessage(`{}`),
-		MappingUncertainFlag:   false,
-		RequiredFieldGapCount:  gapCount,
+		NIRID:                   uuid.New(),
+		EnvelopeID:              in.EnvelopeID,
+		TenantID:                in.TenantID,
+		DetectedFormat:          "json",
+		ProfileID:               profileID,
+		ProfileVersion:          "v1",
+		FieldsJSON:              fieldsJSON,
+		FieldConfidenceSummary:  json.RawMessage(`{"overall": 1.0}`),
+		UnmappedJSON:            json.RawMessage(`{}`),
+		MappingUncertainFlag:    false,
+		RequiredFieldGapCount:   gapCount,
 		LowConfidenceFieldCount: lowConfCount,
-		CreatedAt:              time.Now().UTC(),
+		CreatedAt:               time.Now().UTC(),
 	}
 
 	// -------- STEP 5.5: Idempotency guard --------
@@ -574,7 +574,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	amount, _ := parseAmount(canonicalInput.Amount.Value)
 
 	// -------- STEP 8.5: COMPUTE SCORES & FINGERPRINT --------
-	
+
 	bFingerprint := s.computeBeneficiaryFingerprint(tokenMap)
 	timeBucket := time.Now().UTC().Format("2006-01-02")
 	bIdemKey := s.computeBusinessIdempotencyKey(in.TenantID.String(), bFingerprint, amount, canonicalInput.Amount.Currency, timeBucket)
@@ -634,10 +634,10 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 
 	canonical := models.CanonicalIntent{
-		TraceID:    in.TraceID.String(),
-		IntentID:   intentID,
-		EnvelopeID: in.EnvelopeID.String(),
-		TenantID:   in.TenantID.String(),
+		TraceID:        in.TraceID.String(),
+		IntentID:       intentID,
+		EnvelopeID:     in.EnvelopeID.String(),
+		TenantID:       in.TenantID.String(),
 		IdempotencyKey: in.IdempotencyKey,
 		SalientHash:    "NA",
 		PayloadHash:    in.PayloadHash,
@@ -667,18 +667,18 @@ func (s *IntentService) ProcessIncomingIntent(
 		MappingProfileID:      nir.ProfileID,
 		MappingProfileVersion: nir.ProfileVersion,
 		SourceSystem:          in.SourceSystem,
-		
-		// Service 2 fields
-		BusinessIdempotencyKey: bIdemKey,
-		BeneficiaryFingerprint: bFingerprint,
-		ProofReadinessScore:    pScore,
-		MatchabilityScore:      mScore,
-		IntentQualityScore:     iScore,
-		MappingConfidenceScore: mapScore,
-		SchemaCompletenessScore: schemaScore,
-		DuplicateReasonCode:    dupReason,
 
-		UpdatedAt:             func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		// Service 2 fields
+		BusinessIdempotencyKey:  bIdemKey,
+		BeneficiaryFingerprint:  bFingerprint,
+		ProofReadinessScore:     pScore,
+		MatchabilityScore:       mScore,
+		IntentQualityScore:      iScore,
+		MappingConfidenceScore:  mapScore,
+		SchemaCompletenessScore: schemaScore,
+		DuplicateReasonCode:     dupReason,
+
+		UpdatedAt: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 	}
 
 	// -------- STEP 9.1: AGGREGATE GOVERNANCE REASONS --------
@@ -686,11 +686,23 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	// -------- STEP 10: OUTBOX + PERSISTENCE (ATOMIC DB) --------
 
-	canonicalPayload, _ := json.Marshal(canonical)
+	canonicalPayload, err := json.Marshal(canonical)
+	if err != nil {
+		log.Printf("⚠️ Failed to marshal canonical intent for EnvelopeID=%s: %v", in.EnvelopeID, err)
+		return nil, nil, err
+	}
 
-	outbox, _ := CanonicalIntentToOutboxEvent(canonical, canonicalPayload)
+	outbox, err := CanonicalIntentToOutboxEvent(canonical, canonicalPayload, "intent.created.v1")
+	if err != nil {
+		log.Printf("⚠️ Failed to create outbox event for EnvelopeID=%s: %v", in.EnvelopeID, err)
+		return nil, nil, err
+	}
 
-	saved, _ := s.repo.Save(ctx, nir, canonical, outbox, registryEntry)
+	saved, err := s.repo.Save(ctx, nir, canonical, outbox, registryEntry)
+	if err != nil {
+		log.Printf("⚠️ Repo.Save failed for EnvelopeID=%s: %v", in.EnvelopeID, err)
+		return nil, nil, err
+	}
 
 	// -------- STEP 11: WORM SNAPSHOT (S3) --------
 
@@ -911,18 +923,18 @@ func (s *IntentService) ProcessTokenizeResult(
 		MappingProfileID:      nir.ProfileID,
 		MappingProfileVersion: nir.ProfileVersion, // Flowed from async NIR
 		SourceSystem:          event.SourceSystem,
-		
-		// Service 2 fields
-		BusinessIdempotencyKey: bIdemKey,
-		BeneficiaryFingerprint: bFingerprint,
-		ProofReadinessScore:    pScore,
-		MatchabilityScore:      mScore,
-		IntentQualityScore:     iScore,
-		MappingConfidenceScore: mapScore,
-		SchemaCompletenessScore: schemaScore,
-		DuplicateReasonCode:    dupReason,
 
-		UpdatedAt:             func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		// Service 2 fields
+		BusinessIdempotencyKey:  bIdemKey,
+		BeneficiaryFingerprint:  bFingerprint,
+		ProofReadinessScore:     pScore,
+		MatchabilityScore:       mScore,
+		IntentQualityScore:      iScore,
+		MappingConfidenceScore:  mapScore,
+		SchemaCompletenessScore: schemaScore,
+		DuplicateReasonCode:     dupReason,
+
+		UpdatedAt: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 	}
 
 	// -------- AGGREGATE GOVERNANCE REASONS --------
@@ -933,7 +945,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		return nil, err
 	}
 
-	outbox, err := CanonicalIntentToOutboxEvent(intent, payload)
+	outbox, err := CanonicalIntentToOutboxEvent(intent, payload, "intent.created.v1")
 	if err != nil {
 		return nil, err
 	}

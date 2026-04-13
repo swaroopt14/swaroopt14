@@ -13,7 +13,7 @@ services:
       - ./.env
     environment:
       - KAFKA_BROKERS=broker1:9092,broker2:9093,broker3:9094
-      - KAFKA_TOPIC=vault.envelope.accepted.v1
+      - KAFKA_TOPIC=payments.ledger.events.v1
       - KAFKA_TOPIC_PII_TOKENIZE_REQUEST=pii.tokenize.request
       - KAFKA_TOPIC_PII_TOKENIZE_RESULT=pii.tokenize.result
       - ZORD_PII_ENCLAVE_URL=http://host.docker.internal:8087

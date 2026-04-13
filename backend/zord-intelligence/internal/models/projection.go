@@ -210,3 +210,256 @@ type SLABreachRateValue struct {
 	TotalBreachSeconds int64     `json:"total_breach_seconds"` // running sum (for incremental avg)
 	UpdatedAt          time.Time `json:"updated_at"`
 }
+
+// ── PHASE 3: New Intelligence Projection Value Types ──────────────────────────
+//
+// These four types are stored in projection_state.value_json for the new
+// Grade A intelligence families introduced by the pivoted ZPI spec.
+//
+// Each type maps 1-to-1 with an atomic repo method in projection_repo.go:
+//   LeakageValue        ← AtomicRecordLeakage / AtomicRecordVariance
+//   AmbiguityValue      ← AtomicRecordAttachmentDecision
+//   DefensibilityValue  ← AtomicRecordGovernanceCoverage
+//   BatchHealthValue    ← AtomicUpdateBatchHealth
+//
+// ALL MONEY IS STORED AS int64 IN MINOR UNITS (paise, cents).
+// NEVER use float64 for money. This is a fintech hard rule.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// LeakageValue is stored in ProjectionState.ValueJSON
+// for projection_key "leakage.total" at TENANT scope.
+//
+// Captures every dimension of money exposure as defined in spec Section 10.1.
+//
+// The breakdown map allows any call-site to increment an arbitrary leakage
+// bucket (e.g. "REVERSAL", "UNDER_SETTLEMENT") without requiring a schema
+// migration. This is critical for a multi-tenant fintech system where new
+// PSP-specific variance types emerge without warning.
+//
+// Projection key pattern: "leakage.total"
+// Entity scope type:      TENANT
+// Projection family:      LEAKAGE
+//
+// Example value:
+//
+//	{
+//	  "total_amount_minor": 785000,
+//	  "unmatched_amount_minor": 750000,
+//	  "under_settlement_amount_minor": 35000,
+//	  "orphan_amount_minor": 0,
+//	  "reversal_exposure_minor": 37000,
+//	  "unmatched_intent_count": 5,
+//	  "under_settlement_count": 2,
+//	  "orphan_settlement_count": 0,
+//	  "reversal_count": 1,
+//	  "total_intended_amount_minor": 10000000,
+//	  "leakage_percentage": 0.0785,
+//	  "breakdown_by_type": {"UNDER_SETTLEMENT": 35000, "REVERSAL": 37000},
+//	  "updated_at": "2026-04-13T10:00:00Z"
+//	}
+type LeakageValue struct {
+	// ── Running money totals (all in minor currency units) ────────────────
+	TotalAmountMinor           int64 `json:"total_amount_minor"`            // sum of all leakage types
+	UnmatchedAmountMinor       int64 `json:"unmatched_amount_minor"`        // intents with no settlement
+	UnderSettlementAmountMinor int64 `json:"under_settlement_amount_minor"` // intended - settled (> 0 = leakage)
+	OrphanAmountMinor          int64 `json:"orphan_amount_minor"`           // settlements with no intent
+	ReversalExposureMinor      int64 `json:"reversal_exposure_minor"`       // reversed after success
+
+	// ── Running event counts ─────────────────────────────────────────────
+	UnmatchedIntentCount  int `json:"unmatched_intent_count"`  // MATCH_UNRESOLVED decisions
+	UnderSettlementCount  int `json:"under_settlement_count"`  // UNDER_SETTLEMENT variances
+	OrphanSettlementCount int `json:"orphan_settlement_count"` // settlements without intent
+	ReversalCount         int `json:"reversal_count"`          // REVERSAL variance events
+
+	// ── Denominator for percentage ────────────────────────────────────────
+	// We track total intended so we can compute leakage_percentage without
+	// reading a second projection. Keeping both numerator and denominator
+	// in the same row is the atomic SQL pattern used throughout this codebase.
+	TotalIntendedAmountMinor int64 `json:"total_intended_amount_minor"` // sum of all intent amounts
+
+	// ── Derived rate (recomputed after every increment) ───────────────────
+	LeakagePercentage float64 `json:"leakage_percentage"` // total_amount_minor / total_intended_amount_minor
+
+	// ── Per-type breakdown ────────────────────────────────────────────────
+	// Key: variance_type string (e.g. "UNDER_SETTLEMENT", "REVERSAL", "DEDUCTION")
+	// Value: cumulative minor-unit amount for that type
+	// This map is updated atomically in Postgres via jsonb_set ARRAY path.
+	BreakdownByType map[string]int64 `json:"breakdown_by_type"`
+
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// AmbiguityValue is stored in ProjectionState.ValueJSON
+// for projection_key "ambiguity.summary" at TENANT scope.
+//
+// Captures the full ambiguity picture as defined in spec Section 10.2.
+// Fuelled directly by AttachmentDecisionCreatedEvent from Service 5C.
+//
+// WHY TRACK avg_attachment_confidence INCREMENTALLY?
+// Running average maintained via Welford's online algorithm in SQL:
+//   new_count = old_count + 1
+//   new_sum   = old_sum + new_value
+//   new_avg   = new_sum / new_count
+// This avoids storing all historical confidence scores and remains
+// accurate through millions of events.
+//
+// Projection key pattern: "ambiguity.summary"
+// Entity scope type:      TENANT
+// Projection family:      AMBIGUITY
+//
+// Example value:
+//
+//	{
+//	  "ambiguous_intent_count": 78,
+//	  "ambiguous_amount_minor": 1100000,
+//	  "unresolved_settlement_count": 20,
+//	  "value_at_risk_minor": 1850000,
+//	  "avg_attachment_confidence": 0.83,
+//	  "confidence_sum": 831.4,
+//	  "confidence_count": 1001,
+//	  "provider_ref_missing_count": 45,
+//	  "total_decisions": 1000,
+//	  "provider_ref_missing_rate": 0.045,
+//	  "ambiguity_rate": 0.078,
+//	  "updated_at": "2026-04-13T10:00:00Z"
+//	}
+type AmbiguityValue struct {
+	// ── Ambiguous attachment counts ───────────────────────────────────────
+	AmbiguousIntentCount      int   `json:"ambiguous_intent_count"`      // MATCH_AMBIGUOUS decisions
+	AmbiguousAmountMinor      int64 `json:"ambiguous_amount_minor"`      // sum of intended amounts for ambiguous
+	UnresolvedSettlementCount int   `json:"unresolved_settlement_count"` // MATCH_UNRESOLVED decisions
+
+	// ── Value at risk ─────────────────────────────────────────────────────
+	// Spec Section 10.2: "Ambiguous Value-at-Risk =
+	//   sum(intended_amount_minor for MATCH_AMBIGUOUS or MATCH_UNRESOLVED)"
+	// This is the headline number finance cares about.
+	ValueAtRiskMinor int64 `json:"value_at_risk_minor"`
+
+	// ── Running average confidence (incremental sum / count) ──────────────
+	AvgAttachmentConfidence float64 `json:"avg_attachment_confidence"` // 0.0–1.0
+	ConfidenceSum           float64 `json:"confidence_sum"`            // running sum for incremental avg
+	ConfidenceCount         int     `json:"confidence_count"`          // total decisions counted
+
+	// ── Provider ref quality ──────────────────────────────────────────────
+	// A zero-carrier attachment (candidate_set_size > 1, no carriers matched)
+	// is a strong signal of source-system hygiene problems.
+	ProviderRefMissingCount int `json:"provider_ref_missing_count"` // decisions with no carrier refs
+	TotalDecisions          int `json:"total_decisions"`            // all attachment decisions seen
+
+	// ── Derived rates (recomputed after every increment) ─────────────────
+	ProviderRefMissingRate float64 `json:"provider_ref_missing_rate"` // missing_count / total_decisions
+	AmbiguityRate          float64 `json:"ambiguity_rate"`            // ambiguous_count / total_decisions
+
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// DefensibilityValue is stored in ProjectionState.ValueJSON
+// for projection_key "defensibility.summary" at TENANT scope.
+//
+// Captures evidence and governance coverage as defined in spec Section 10.3.
+// Fuelled by EvidencePackReadyEvent (Service 6) and GovernanceDecisionCreatedEvent.
+//
+// SCORING RUBRIC from spec Section 10.3 (total possible = 100 points):
+//   pack exists?                    +20
+//   canonical intent leaf present?  +10
+//   settlement proof leaf present?  +10
+//   governance decision present?    +15
+//   attachment decision present?    +15
+//   supporting carriers > threshold?+10
+//   ambiguity low?                  +10
+//   replay equivalence confirmed?   +10
+//
+// We track numerators and denominators separately so the defensibility tier
+// (STRONG/GOOD/WEAK/FRAGILE) can be recomputed without re-reading raw events.
+//
+// Projection key pattern: "defensibility.summary"
+// Entity scope type:      TENANT
+// Projection family:      DEFENSIBILITY
+type DefensibilityValue struct {
+	// ── Coverage counts ───────────────────────────────────────────────────
+	TotalIntents             int `json:"total_intents"`               // total intents seen in window
+	WithEvidencePack         int `json:"with_evidence_pack"`          // have a Service 6 evidence pack
+	WithGovernanceDecision   int `json:"with_governance_decision"`    // have a governance decision
+	WithReplayEquivalence    int `json:"with_replay_equivalence"`     // replay_equivalent = true in governance
+	WithKYCChecked           int `json:"with_kyc_checked"`            // KYC was performed
+	WithAMLChecked           int `json:"with_aml_checked"`            // AML screening was performed
+	GovernanceApprovedCount  int `json:"governance_approved_count"`   // outcome = APPROVED
+	GovernanceRejectedCount  int `json:"governance_rejected_count"`   // outcome = REJECTED (compliance risk flag)
+	GovernanceEscalatedCount int `json:"governance_escalated_count"`  // outcome = ESCALATED
+
+	// ── Derived coverage rates (recomputed after every increment) ─────────
+	// These are the headline numbers for the Defensibility intelligence view.
+	// Spec Section 10.3: "audit-ready %", "dispute-ready %", "governance-covered %"
+	EvidencePackRate      float64 `json:"evidence_pack_rate"`       // with_evidence_pack / total_intents
+	GovernanceCoveragePct float64 `json:"governance_coverage_pct"`  // with_governance_decision / total_intents
+	ReplayabilityPct      float64 `json:"replayability_pct"`        // with_replay_equivalence / total_intents
+	AuditReadyPct         float64 `json:"audit_ready_pct"`          // (with_evidence_pack + with_governance_decision) / (2 * total_intents)
+	DisputeReadyPct       float64 `json:"dispute_ready_pct"`        // all three: pack + governance + replay
+
+	// ── Weakest-proof reference ───────────────────────────────────────────
+	// Updated by Phase 4 services when they identify the worst-performing
+	// corridor or source system for evidence quality.
+	// Stored as a free-form string to avoid a schema migration per Phase 4.
+	// Format: "corridor:{corridor_id}" or "source:{source_system_id}"
+	WeakestProofRef string `json:"weakest_proof_ref,omitempty"`
+
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// BatchHealthValue is stored in ProjectionState.ValueJSON
+// for projection_key pattern "batch.health.{batch_id}" at BATCH scope.
+//
+// Captures the real-time financial and operational health of one batch.
+// Fuelled by BatchSummaryUpdatedEvent from Service 5C.
+//
+// WHY A PROJECTION AS WELL AS batch_contracts TABLE?
+// batch_contracts = authoritative full-replacement upsert of current state.
+// batch.health.*  = time-windowed projection history queryable via standard
+//                   projection API. They are complementary, not redundant.
+// The projection enables trend queries ("how did this batch's ambiguity
+// change over the last 6 hours?") that batch_contracts cannot serve.
+//
+// Projection key pattern: "batch.health.{batch_id}"
+// Entity scope type:      BATCH
+// Entity scope ref:       batch_id
+// Projection family:      PATTERN
+//
+// Example value:
+//
+//	{
+//	  "total_count": 500,
+//	  "success_count": 430,
+//	  "failed_count": 12,
+//	  "pending_count": 50,
+//	  "reversed_count": 8,
+//	  "partial_recon_count": 0,
+//	  "total_intended_amount_minor": 50000000,
+//	  "total_confirmed_amount_minor": 43000000,
+//	  "total_variance_minor": 7000000,
+//	  "ambiguity_score": 0.12,
+//	  "finality_status": "PARTIALLY_SETTLED",
+//	  "updated_at": "2026-04-13T10:00:00Z"
+//	}
+type BatchHealthValue struct {
+	// ── Counts ───────────────────────────────────────────────────────────
+	TotalCount        int `json:"total_count"`
+	SuccessCount      int `json:"success_count"`
+	FailedCount       int `json:"failed_count"`
+	PendingCount      int `json:"pending_count"`
+	ReversedCount     int `json:"reversed_count"`
+	PartialReconCount int `json:"partial_recon_count"` // attached but with variance
+
+	// ── Money totals (all in minor currency units — fintech hard rule) ────
+	TotalIntendedAmountMinor  int64 `json:"total_intended_amount_minor"`
+	TotalConfirmedAmountMinor int64 `json:"total_confirmed_amount_minor"`
+	TotalVarianceMinor        int64 `json:"total_variance_minor"` // positive = leakage, negative = overpayment
+
+	// ── Intelligence scores ───────────────────────────────────────────────
+	AmbiguityScore float64 `json:"ambiguity_score"` // 0.0–1.0 from Service 5C
+
+	// ── Status ───────────────────────────────────────────────────────────
+	// Mirrors batch_contracts.batch_finality_status for API consistency.
+	FinalityStatus string `json:"finality_status"` // "PROCESSING" | "FULLY_SETTLED" | "PARTIALLY_SETTLED" | etc.
+
+	UpdatedAt time.Time `json:"updated_at"`
+}

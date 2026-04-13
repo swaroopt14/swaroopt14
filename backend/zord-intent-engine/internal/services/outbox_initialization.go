@@ -12,11 +12,13 @@ import (
 func CanonicalIntentToOutboxEvent(
 	intent models.CanonicalIntent,
 	payload []byte,
+	eventType string,
 ) (models.OutboxEvent, error) {
 
 	intId, err := uuid.Parse(intent.IntentID)
 	if err != nil {
-		log.Fatal("Invalid Intent ID", intId)
+		log.Printf("Invalid Intent ID: %s", intent.IntentID)
+		return models.OutboxEvent{}, err
 	}
 
 	return models.OutboxEvent{
@@ -25,14 +27,14 @@ func CanonicalIntentToOutboxEvent(
 		TenantID:      intent.TenantID,
 		AggregateType: "intent",
 		AggregateID:   intId,
-		EventType:     "eventTypePlaceholder",
+		EventType:     eventType,
 
 		SchemaVersion: "v1",
 		Amount:        intent.Amount,
 		Currency:      intent.Currency,
 		Payload:       payload,
 		Status:        "PENDING",
-		CreatedAt:     time.Now(),
+		CreatedAt:     time.Now().UTC(),
 		PayloadHash:   intent.PayloadHash,
 	}, nil
 }

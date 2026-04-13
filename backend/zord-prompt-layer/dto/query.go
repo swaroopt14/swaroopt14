@@ -23,9 +23,21 @@ type EntitiesFound struct {
 }
 
 type QueryResponse struct {
-	Answer        string        `json:"answer"`
-	Confidence    string        `json:"confidence"`
-	EntitiesFound EntitiesFound `json:"entities_found"`
-	Citations     []Citation    `json:"citations"`
-	NextActions   []string      `json:"next_actions"`
+	Answer        string         `json:"answer"`
+	Confidence    string         `json:"confidence"`
+	EntitiesFound EntitiesFound  `json:"entities_found"`
+	Citations     []Citation     `json:"citations"`
+	NextActions   []string       `json:"next_actions"`
+	Visualization *Visualization `json:"visualization,omitempty"`
+}
+type VisualizationPoint struct {
+	Label string  `json:"label"`
+	Value float64 `json:"value"`
+}
+
+type Visualization struct {
+	Title  string               `json:"title"`
+	XAxis  string               `json:"x_axis"`
+	YAxis  string               `json:"y_axis"`
+	Series []VisualizationPoint `json:"series"`
 }

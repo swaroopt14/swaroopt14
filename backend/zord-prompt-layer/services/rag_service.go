@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"zord-prompt-layer/client"
@@ -16,7 +17,10 @@ type RAGService interface {
 	Query(req dto.QueryRequest) (dto.QueryResponse, error)
 }
 
+var uuidLeakRe = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b`)
+
 var sensitiveQueryRe = regexp.MustCompile(`(?i)\b(tenant[_\s]?id|intent[_\s]?id|trace[_\s]?id|envelope[_\s]?id|idempotency[_\s]?key|account[_\s]?(id|number)|iban|ifsc|swift|pan|api[_\s-]?key|token|secret|password)\b`)
+var statusCaptureRe = regexp.MustCompile(`(?i)\bstatus=([A-Za-z0-9_ -]+)`)
 
 type DefaultRAGService struct {
 	model        string
@@ -130,11 +134,24 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 
 	answer := utils.SanitizeAnswerText(llmOut.Answer)
 	answer = utils.StripActionLikeSections(answer)
+	if uuidLeakRe.MatchString(answer) {
+		return dto.QueryResponse{
+			Answer:        "I can provide a safe summary, but I cannot show identifiers. Based on current evidence, the status is available without exposing IDs.",
+			Confidence:    "low",
+			EntitiesFound: dto.EntitiesFound{},
+			Citations:     []dto.Citation{},
+			NextActions:   []string{},
+		}, nil
+	}
 
 	conf, confScore = calibrateConfidence(llmOut, chunks)
 	rounded := round2(confScore)
 	for i := range citations {
 		citations[i].Score = rounded
+	}
+	var viz *dto.Visualization
+	if scope.WantsVisualization && len(chunks) > 0 {
+		viz = buildVisualization(chunks, req.Query)
 	}
 
 	return dto.QueryResponse{
@@ -143,6 +160,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		EntitiesFound: entities,
 		Citations:     citations,
 		NextActions:   nextActions,
+		Visualization: viz,
 	}, nil
 
 }
@@ -150,7 +168,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 func buildContext(chunks []model.RetrievedChunk) string {
 	var b strings.Builder
 	for i, c := range chunks {
-		b.WriteString(fmt.Sprintf("[%d] source=%s record=%s score=%.4f\n%s\n\n", i+1, c.SourceType, c.RecordID, c.Score, c.Text))
+		b.WriteString(fmt.Sprintf("[%d] source=%s score=%.4f\n%s\n\n", i+1, c.SourceType, c.Score, c.Text))
 	}
 	return b.String()
 }
@@ -235,4 +253,55 @@ func sourceDiversity(chunks []model.RetrievedChunk) float64 {
 }
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
+}
+func buildVisualization(chunks []model.RetrievedChunk, _ string) *dto.Visualization {
+	counts := map[string]int{}
+
+	for _, c := range chunks {
+		m := statusCaptureRe.FindStringSubmatch(c.Text)
+		if len(m) < 2 {
+			continue
+		}
+		label := strings.ToUpper(strings.TrimSpace(m[1]))
+		if label == "" || label == "-" {
+			continue
+		}
+		// keep short stable label
+		label = strings.Fields(label)[0]
+		counts[label]++
+	}
+
+	if len(counts) == 0 {
+		return nil
+	}
+
+	type kv struct {
+		k string
+		v int
+	}
+	items := make([]kv, 0, len(counts))
+	for k, v := range counts {
+		items = append(items, kv{k: k, v: v})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].v == items[j].v {
+			return items[i].k < items[j].k
+		}
+		return items[i].v > items[j].v
+	})
+
+	series := make([]dto.VisualizationPoint, 0, len(items))
+	for _, it := range items {
+		series = append(series, dto.VisualizationPoint{
+			Label: it.k,
+			Value: float64(it.v),
+		})
+	}
+
+	return &dto.Visualization{
+		Title:  "Current Status Breakdown",
+		XAxis:  "Status",
+		YAxis:  "Count",
+		Series: series,
+	}
 }

@@ -1,4 +1,3 @@
-// Standard internal shape for anything coming from Chroma.
 package model
 
 type RetrievedChunk struct {

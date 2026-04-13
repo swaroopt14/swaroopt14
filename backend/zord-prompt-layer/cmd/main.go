@@ -50,7 +50,7 @@ func main() {
 
 	edgeDB := mustOpenReadOnlyDB("edge", cfg.EdgeReadDSN)
 	intentDB := mustOpenReadOnlyDB("intent-engine", cfg.IntentReadDSN)
-	relayDB := mustOpenReadOnlyDB("relay", cfg.RelayReadDSN)
+	relayDB := (*sql.DB)(nil)
 
 	retriever := repositories.NewLiveSQLRetriever(edgeDB, intentDB, relayDB)
 	ragService := services.NewDefaultRAGService(cfg.GeminiModel, cfg.DefaultTopK, retriever, llmService, intelligenceClient)

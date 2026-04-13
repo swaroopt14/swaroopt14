@@ -77,13 +77,6 @@ func (r *LiveSQLRetriever) Retrieve(req dto.QueryRequest, intentID, traceID stri
 		}
 		chunks = append(chunks, d...)
 	}
-	if r.relayDB != nil {
-		c, err := r.fetchFromRelay(tenantID, intentID, traceID, topK, failureOnly, scope)
-		if err != nil {
-			return nil, err
-		}
-		chunks = append(chunks, c...)
-	}
 
 	if len(chunks) > topK {
 		chunks = chunks[:topK]

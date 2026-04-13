@@ -1291,3 +1291,1012 @@ func (r *ProjectionRepo) GetActiveTenantCorridorPairs(ctx context.Context) ([]Te
 	}
 	return result, nil
 }
+
+// ── PHASE 3: New Atomic Repo Methods for Intelligence Projections ─────────────
+//
+// Four new atomic SQL methods that maintain the four new projection families:
+//   AtomicRecordLeakage            → leakage.total           (LEAKAGE family)
+//   AtomicRecordAttachmentDecision → ambiguity.summary       (AMBIGUITY family)
+//   AtomicRecordVariance           → leakage.total + batch   (LEAKAGE + PATTERN)
+//   AtomicUpdateBatchHealth        → batch.health.{batch_id} (PATTERN family)
+//   AtomicRecordGovernanceCoverage → defensibility.summary   (DEFENSIBILITY family)
+//
+// DESIGN PRINCIPLES (same as existing methods above):
+//   1. ALL arithmetic happens inside Postgres — zero race conditions.
+//   2. INSERT ... ON CONFLICT DO UPDATE — single atomic operation, no read-modify-write.
+//   3. Money is always int64 in minor units — never float64.
+//   4. Derived rates are recomputed in a second UPDATE immediately after the
+//      counter increment — same two-step pattern as recomputeRate() above.
+//   5. No PII ever enters these methods — only IDs and amounts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── LEAKAGE ───────────────────────────────────────────────────────────────────
+
+// AtomicRecordLeakage records one unmatched intent into the LEAKAGE projection.
+//
+// Called when HandleAttachmentDecision receives a MATCH_UNRESOLVED decision —
+// i.e. Service 5C could not find any matching intent for a settlement, or
+// a settlement exists but no intent was ever created for it (orphan).
+//
+// Parameters:
+//   tenantID        — owner of this leakage event
+//   leakageType     — "UNMATCHED_INTENT" | "ORPHAN_SETTLEMENT"
+//   intendedMinor   — intended_amount_minor from the attachment decision (0 for orphan)
+//   orphanMinor     — settled_amount_minor from the settlement observation (0 for unmatched)
+//   windowStart/End — the rolling 24h window
+//
+// ATOMIC OPERATION:
+//  1. Increment the correct counter (unmatched_intent_count or orphan_settlement_count)
+//  2. Add the money to the correct bucket
+//  3. Add to total_intended_amount_minor (for percentage denominator)
+//  4. Recompute total_amount_minor = unmatched + under_settlement + orphan + reversal
+//  5. Recompute leakage_percentage = total / total_intended
+func (r *ProjectionRepo) AtomicRecordLeakage(
+	ctx context.Context,
+	tenantID string,
+	leakageType string, // "UNMATCHED_INTENT" | "ORPHAN_SETTLEMENT"
+	intendedMinor int64,
+	orphanMinor int64,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "leakage.total"
+
+	// Determine which counters to increment based on the leakage type.
+	// Both branches use the same two-step SQL pattern:
+	//   Step 1 — atomic upsert of counters
+	//   Step 2 — recompute derived totals (total_amount_minor, leakage_percentage)
+	var upsertSQL string
+	var args []any
+
+	switch leakageType {
+	case "UNMATCHED_INTENT":
+		// An intent exists but no settlement was found for it.
+		// The full intended amount is at risk.
+		upsertSQL = `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version,
+				 projection_family, entity_scope_type)
+			VALUES ($1, $2, $3, $4,
+				jsonb_build_object(
+					'total_amount_minor',             $5::bigint,
+					'unmatched_amount_minor',         $5::bigint,
+					'under_settlement_amount_minor',  0::bigint,
+					'orphan_amount_minor',            0::bigint,
+					'reversal_exposure_minor',        0::bigint,
+					'unmatched_intent_count',         1,
+					'under_settlement_count',         0,
+					'orphan_settlement_count',        0,
+					'reversal_count',                 0,
+					'total_intended_amount_minor',    $5::bigint,
+					'leakage_percentage',             1.0,
+					'breakdown_by_type',              jsonb_build_object('UNMATCHED_INTENT', $5::bigint)
+				),
+				now(), 1, 'LEAKAGE', 'TENANT')
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET
+				value_json = jsonb_set(
+					jsonb_set(
+						jsonb_set(
+							jsonb_set(
+								projection_state.value_json,
+								'{unmatched_amount_minor}',
+								to_jsonb(COALESCE((projection_state.value_json->>'unmatched_amount_minor')::bigint, 0) + $5::bigint)
+							),
+							'{unmatched_intent_count}',
+							to_jsonb(COALESCE((projection_state.value_json->>'unmatched_intent_count')::int, 0) + 1)
+						),
+						'{total_intended_amount_minor}',
+						to_jsonb(COALESCE((projection_state.value_json->>'total_intended_amount_minor')::bigint, 0) + $5::bigint)
+					),
+					ARRAY['breakdown_by_type', 'UNMATCHED_INTENT'],
+					to_jsonb(COALESCE((projection_state.value_json->'breakdown_by_type'->>'UNMATCHED_INTENT')::bigint, 0) + $5::bigint)
+				),
+				computed_at = now()
+		`
+		args = []any{tenantID, key, windowStart, windowEnd, intendedMinor}
+
+	case "ORPHAN_SETTLEMENT":
+		// A settlement arrived but we have no matching intent in the system.
+		// The settled amount is in the system but unaccounted for.
+		upsertSQL = `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version,
+				 projection_family, entity_scope_type)
+			VALUES ($1, $2, $3, $4,
+				jsonb_build_object(
+					'total_amount_minor',             $5::bigint,
+					'unmatched_amount_minor',         0::bigint,
+					'under_settlement_amount_minor',  0::bigint,
+					'orphan_amount_minor',            $5::bigint,
+					'reversal_exposure_minor',        0::bigint,
+					'unmatched_intent_count',         0,
+					'under_settlement_count',         0,
+					'orphan_settlement_count',        1,
+					'reversal_count',                 0,
+					'total_intended_amount_minor',    0::bigint,
+					'leakage_percentage',             0.0,
+					'breakdown_by_type',              jsonb_build_object('ORPHAN_SETTLEMENT', $5::bigint)
+				),
+				now(), 1, 'LEAKAGE', 'TENANT')
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET
+				value_json = jsonb_set(
+					jsonb_set(
+						projection_state.value_json,
+						'{orphan_amount_minor}',
+						to_jsonb(COALESCE((projection_state.value_json->>'orphan_amount_minor')::bigint, 0) + $5::bigint)
+					),
+					'{orphan_settlement_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'orphan_settlement_count')::int, 0) + 1)
+				),
+				computed_at = now()
+		`
+		args = []any{tenantID, key, windowStart, windowEnd, orphanMinor}
+
+	default:
+		return fmt.Errorf("projection_repo.AtomicRecordLeakage: unknown leakage_type=%s", leakageType)
+	}
+
+	if _, err := r.pool.Exec(ctx, upsertSQL, args...); err != nil {
+		return fmt.Errorf("projection_repo.AtomicRecordLeakage type=%s tenant=%s: %w",
+			leakageType, tenantID, err)
+	}
+
+	// Step 2: recompute total_amount_minor and leakage_percentage from all buckets
+	return r.recomputeLeakageTotals(ctx, tenantID, key, windowStart)
+}
+
+// AtomicRecordVariance adds a confirmed financial variance to the LEAKAGE projection.
+//
+// Called when HandleVarianceRecord receives a VarianceRecordCreatedEvent.
+// Unlike AtomicRecordLeakage (which records "no match found"), this records
+// variances where a match WAS found but the amounts don't agree.
+//
+// Parameters:
+//   tenantID          — owner
+//   varianceType      — "UNDER_SETTLEMENT" | "OVER_SETTLEMENT" | "REVERSAL" | "DEDUCTION" etc.
+//   varianceMinor     — the absolute variance amount (always positive, direction from type)
+//   intendedMinor     — the original intended amount (for % denominator)
+//   isWhitelisted     — if true this deduction was pre-agreed; do not count as leakage
+//   windowStart/End   — rolling 24h window
+//
+// FINTECH RULE: Whitelisted deductions (pre-agreed TDS, PSP fees) must NOT
+// be counted as leakage. We still record them for audit purposes but only
+// the non-whitelisted variance flows into the leakage amount.
+func (r *ProjectionRepo) AtomicRecordVariance(
+	ctx context.Context,
+	tenantID string,
+	varianceType string,
+	varianceMinor int64,
+	intendedMinor int64,
+	isWhitelisted bool,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "leakage.total"
+
+	// Whitelisted deductions: record for audit but do NOT add to leakage amounts.
+	// We still increment total_intended so the denominator is accurate.
+	if isWhitelisted {
+		upsertSQL := `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version,
+				 projection_family, entity_scope_type)
+			VALUES ($1, $2, $3, $4,
+				jsonb_build_object(
+					'total_amount_minor',             0::bigint,
+					'unmatched_amount_minor',         0::bigint,
+					'under_settlement_amount_minor',  0::bigint,
+					'orphan_amount_minor',            0::bigint,
+					'reversal_exposure_minor',        0::bigint,
+					'unmatched_intent_count',         0,
+					'under_settlement_count',         0,
+					'orphan_settlement_count',        0,
+					'reversal_count',                 0,
+					'total_intended_amount_minor',    $5::bigint,
+					'leakage_percentage',             0.0,
+					'breakdown_by_type',              '{}'::jsonb
+				),
+				now(), 1, 'LEAKAGE', 'TENANT')
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET
+				value_json = jsonb_set(
+					projection_state.value_json,
+					'{total_intended_amount_minor}',
+					to_jsonb(COALESCE((projection_state.value_json->>'total_intended_amount_minor')::bigint, 0) + $5::bigint)
+				),
+				computed_at = now()
+		`
+		if _, err := r.pool.Exec(ctx, upsertSQL, tenantID, key, windowStart, windowEnd, intendedMinor); err != nil {
+			return fmt.Errorf("projection_repo.AtomicRecordVariance whitelisted tenant=%s: %w", tenantID, err)
+		}
+		return nil // no leakage recomputation needed for whitelisted deductions
+	}
+
+	// Non-whitelisted variance: full leakage accounting.
+	// Determine which bucket to increment based on variance type.
+	// REVERSAL is tracked in its own bucket (reversal_exposure_minor)
+	// because it represents money already paid out then clawed back —
+	// a distinct financial risk from under-settlement.
+	isReversal := varianceType == "REVERSAL"
+
+	var upsertSQL string
+	if isReversal {
+		upsertSQL = `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version,
+				 projection_family, entity_scope_type)
+			VALUES ($1, $2, $3, $4,
+				jsonb_build_object(
+					'total_amount_minor',             $5::bigint,
+					'unmatched_amount_minor',         0::bigint,
+					'under_settlement_amount_minor',  0::bigint,
+					'orphan_amount_minor',            0::bigint,
+					'reversal_exposure_minor',        $5::bigint,
+					'unmatched_intent_count',         0,
+					'under_settlement_count',         0,
+					'orphan_settlement_count',        0,
+					'reversal_count',                 1,
+					'total_intended_amount_minor',    $6::bigint,
+					'leakage_percentage',             0.0,
+					'breakdown_by_type',              jsonb_build_object($7::text, $5::bigint)
+				),
+				now(), 1, 'LEAKAGE', 'TENANT')
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET
+				value_json = jsonb_set(
+					jsonb_set(
+						jsonb_set(
+							jsonb_set(
+								projection_state.value_json,
+								'{reversal_exposure_minor}',
+								to_jsonb(COALESCE((projection_state.value_json->>'reversal_exposure_minor')::bigint, 0) + $5::bigint)
+							),
+							'{reversal_count}',
+							to_jsonb(COALESCE((projection_state.value_json->>'reversal_count')::int, 0) + 1)
+						),
+						'{total_intended_amount_minor}',
+						to_jsonb(COALESCE((projection_state.value_json->>'total_intended_amount_minor')::bigint, 0) + $6::bigint)
+					),
+					ARRAY['breakdown_by_type', $7::text],
+					to_jsonb(COALESCE((projection_state.value_json->'breakdown_by_type'->>$7::text)::bigint, 0) + $5::bigint)
+				),
+				computed_at = now()
+		`
+	} else {
+		// UNDER_SETTLEMENT, DEDUCTION, and other non-reversal types all flow
+		// into under_settlement_amount_minor for leakage calculation.
+		upsertSQL = `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version,
+				 projection_family, entity_scope_type)
+			VALUES ($1, $2, $3, $4,
+				jsonb_build_object(
+					'total_amount_minor',             $5::bigint,
+					'unmatched_amount_minor',         0::bigint,
+					'under_settlement_amount_minor',  $5::bigint,
+					'orphan_amount_minor',            0::bigint,
+					'reversal_exposure_minor',        0::bigint,
+					'unmatched_intent_count',         0,
+					'under_settlement_count',         1,
+					'orphan_settlement_count',        0,
+					'reversal_count',                 0,
+					'total_intended_amount_minor',    $6::bigint,
+					'leakage_percentage',             0.0,
+					'breakdown_by_type',              jsonb_build_object($7::text, $5::bigint)
+				),
+				now(), 1, 'LEAKAGE', 'TENANT')
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET
+				value_json = jsonb_set(
+					jsonb_set(
+						jsonb_set(
+							jsonb_set(
+								projection_state.value_json,
+								'{under_settlement_amount_minor}',
+								to_jsonb(COALESCE((projection_state.value_json->>'under_settlement_amount_minor')::bigint, 0) + $5::bigint)
+							),
+							'{under_settlement_count}',
+							to_jsonb(COALESCE((projection_state.value_json->>'under_settlement_count')::int, 0) + 1)
+						),
+						'{total_intended_amount_minor}',
+						to_jsonb(COALESCE((projection_state.value_json->>'total_intended_amount_minor')::bigint, 0) + $6::bigint)
+					),
+					ARRAY['breakdown_by_type', $7::text],
+					to_jsonb(COALESCE((projection_state.value_json->'breakdown_by_type'->>$7::text)::bigint, 0) + $5::bigint)
+				),
+				computed_at = now()
+		`
+	}
+
+	if _, err := r.pool.Exec(ctx, upsertSQL,
+		tenantID, key, windowStart, windowEnd,
+		varianceMinor, intendedMinor, varianceType,
+	); err != nil {
+		return fmt.Errorf("projection_repo.AtomicRecordVariance type=%s tenant=%s: %w",
+			varianceType, tenantID, err)
+	}
+
+	return r.recomputeLeakageTotals(ctx, tenantID, key, windowStart)
+}
+
+// recomputeLeakageTotals recalculates total_amount_minor and leakage_percentage
+// from the four bucket columns. Called after every leakage increment.
+//
+// total_amount_minor = unmatched + under_settlement + orphan + reversal_exposure
+// leakage_percentage = total_amount_minor / total_intended_amount_minor
+//
+// NULLIF prevents divide-by-zero when no intents have been seen yet.
+func (r *ProjectionRepo) recomputeLeakageTotals(
+	ctx context.Context,
+	tenantID, key string,
+	windowStart time.Time,
+) error {
+	sql := `
+		UPDATE projection_state
+		SET value_json = jsonb_set(
+			jsonb_set(
+				value_json,
+				'{total_amount_minor}',
+				to_jsonb(
+					COALESCE((value_json->>'unmatched_amount_minor')::bigint, 0) +
+					COALESCE((value_json->>'under_settlement_amount_minor')::bigint, 0) +
+					COALESCE((value_json->>'orphan_amount_minor')::bigint, 0) +
+					COALESCE((value_json->>'reversal_exposure_minor')::bigint, 0)
+				)
+			),
+			'{leakage_percentage}',
+			to_jsonb(
+				COALESCE(
+					(
+						COALESCE((value_json->>'unmatched_amount_minor')::numeric, 0) +
+						COALESCE((value_json->>'under_settlement_amount_minor')::numeric, 0) +
+						COALESCE((value_json->>'orphan_amount_minor')::numeric, 0) +
+						COALESCE((value_json->>'reversal_exposure_minor')::numeric, 0)
+					) /
+					NULLIF((value_json->>'total_intended_amount_minor')::numeric, 0),
+					0
+				)
+			)
+		),
+		computed_at = now()
+		WHERE tenant_id          = $1
+		  AND projection_key     = $2
+		  AND window_start       = $3
+		  AND projection_version = 1
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart); err != nil {
+		return fmt.Errorf("projection_repo.recomputeLeakageTotals key=%s: %w", key, err)
+	}
+	return nil
+}
+
+// ── AMBIGUITY ─────────────────────────────────────────────────────────────────
+
+// AtomicRecordAttachmentDecision updates the AMBIGUITY projection from one
+// attachment decision event (Service 5C: attachment.decision.created).
+//
+// Called for every decision type. The method selectively increments counters
+// based on decision_type — only MATCH_AMBIGUOUS and MATCH_UNRESOLVED feed
+// the ambiguity counts; all decisions update the running confidence average.
+//
+// Parameters:
+//   tenantID          — owner
+//   decisionType      — "MATCH_EXACT" | "MATCH_HIGH" | "MATCH_AMBIGUOUS" |
+//                       "MATCH_UNRESOLVED" | "MATCH_DUPLICATE"
+//   confidenceScore   — 0.0–1.0 from Service 5C
+//   intendedMinor     — intended amount (used for value_at_risk on ambiguous/unresolved)
+//   supportingCarriers — carrier fields that matched (empty slice = no carriers)
+//   windowStart/End   — rolling 24h window
+//
+// RUNNING AVERAGE ALGORITHM:
+//   Using incremental sum/count (simpler than Welford, same accuracy for floats):
+//     new_sum   = old_sum + confidence_score
+//     new_count = old_count + 1
+//     new_avg   = new_sum / new_count
+//   All arithmetic in Postgres — no read-modify-write in Go.
+func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
+	ctx context.Context,
+	tenantID string,
+	decisionType string,
+	confidenceScore float64,
+	intendedMinor int64,
+	supportingCarriers []string,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "ambiguity.summary"
+
+	// Determine which ambiguity counters to increment.
+	isAmbiguous := decisionType == "MATCH_AMBIGUOUS"
+	isUnresolved := decisionType == "MATCH_UNRESOLVED"
+	// Value-at-risk applies to both ambiguous and unresolved decisions.
+	isAtRisk := isAmbiguous || isUnresolved
+	// Provider ref missing = no supporting carriers at all.
+	hasNoCarriers := len(supportingCarriers) == 0
+
+	ambiguousIncr := 0
+	if isAmbiguous {
+		ambiguousIncr = 1
+	}
+	unresolvedIncr := 0
+	if isUnresolved {
+		unresolvedIncr = 1
+	}
+	atRiskAmount := int64(0)
+	if isAtRisk {
+		atRiskAmount = intendedMinor
+	}
+	ambiguousAmount := int64(0)
+	if isAmbiguous {
+		ambiguousAmount = intendedMinor
+	}
+	missingCarrierIncr := 0
+	if hasNoCarriers {
+		missingCarrierIncr = 1
+	}
+
+	upsertSQL := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'ambiguous_intent_count',       $5::int,
+				'ambiguous_amount_minor',       $6::bigint,
+				'unresolved_settlement_count',  $7::int,
+				'value_at_risk_minor',          $8::bigint,
+				'avg_attachment_confidence',    $9::float8,
+				'confidence_sum',               $9::float8,
+				'confidence_count',             1,
+				'provider_ref_missing_count',   $10::int,
+				'total_decisions',              1,
+				'provider_ref_missing_rate',    $10::float8,
+				'ambiguity_rate',               $5::float8
+			),
+			now(), 1, 'AMBIGUITY', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					jsonb_set(
+						jsonb_set(
+							jsonb_set(
+								jsonb_set(
+									jsonb_set(
+										jsonb_set(
+											projection_state.value_json,
+											'{ambiguous_intent_count}',
+											to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_intent_count')::int, 0) + $5::int)
+										),
+										'{ambiguous_amount_minor}',
+										to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_amount_minor')::bigint, 0) + $6::bigint)
+									),
+									'{unresolved_settlement_count}',
+									to_jsonb(COALESCE((projection_state.value_json->>'unresolved_settlement_count')::int, 0) + $7::int)
+								),
+								'{value_at_risk_minor}',
+								to_jsonb(COALESCE((projection_state.value_json->>'value_at_risk_minor')::bigint, 0) + $8::bigint)
+							),
+							'{confidence_sum}',
+							to_jsonb(COALESCE((projection_state.value_json->>'confidence_sum')::float8, 0.0) + $9::float8)
+						),
+						'{confidence_count}',
+						to_jsonb(COALESCE((projection_state.value_json->>'confidence_count')::int, 0) + 1)
+					),
+					'{provider_ref_missing_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'provider_ref_missing_count')::int, 0) + $10::int)
+				),
+				'{total_decisions}',
+				to_jsonb(COALESCE((projection_state.value_json->>'total_decisions')::int, 0) + 1)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, upsertSQL,
+		tenantID, key, windowStart, windowEnd,
+		ambiguousIncr,   // $5
+		ambiguousAmount, // $6
+		unresolvedIncr,  // $7
+		atRiskAmount,    // $8
+		confidenceScore, // $9
+		missingCarrierIncr, // $10
+	); err != nil {
+		return fmt.Errorf("projection_repo.AtomicRecordAttachmentDecision tenant=%s decision=%s: %w",
+			tenantID, decisionType, err)
+	}
+
+	return r.recomputeAmbiguityRates(ctx, tenantID, key, windowStart)
+}
+
+// recomputeAmbiguityRates recalculates the three derived rates:
+//   avg_attachment_confidence = confidence_sum / confidence_count
+//   provider_ref_missing_rate = provider_ref_missing_count / total_decisions
+//   ambiguity_rate            = ambiguous_intent_count / total_decisions
+func (r *ProjectionRepo) recomputeAmbiguityRates(
+	ctx context.Context,
+	tenantID, key string,
+	windowStart time.Time,
+) error {
+	sql := `
+		UPDATE projection_state
+		SET value_json = jsonb_set(
+			jsonb_set(
+				jsonb_set(
+					value_json,
+					'{avg_attachment_confidence}',
+					to_jsonb(
+						COALESCE(
+							(value_json->>'confidence_sum')::numeric /
+							NULLIF((value_json->>'confidence_count')::numeric, 0),
+							0
+						)
+					)
+				),
+				'{provider_ref_missing_rate}',
+				to_jsonb(
+					COALESCE(
+						(value_json->>'provider_ref_missing_count')::numeric /
+						NULLIF((value_json->>'total_decisions')::numeric, 0),
+						0
+					)
+				)
+			),
+			'{ambiguity_rate}',
+			to_jsonb(
+				COALESCE(
+					(value_json->>'ambiguous_intent_count')::numeric /
+					NULLIF((value_json->>'total_decisions')::numeric, 0),
+					0
+				)
+			)
+		),
+		computed_at = now()
+		WHERE tenant_id          = $1
+		  AND projection_key     = $2
+		  AND window_start       = $3
+		  AND projection_version = 1
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart); err != nil {
+		return fmt.Errorf("projection_repo.recomputeAmbiguityRates: %w", err)
+	}
+	return nil
+}
+
+// ── DEFENSIBILITY ─────────────────────────────────────────────────────────────
+
+// AtomicRecordGovernanceCoverage updates the DEFENSIBILITY projection when a
+// governance decision arrives from Service 6.
+//
+// Called by HandleGovernanceDecision in projection_service.go.
+//
+// The method increments coverage counts for each governance check that was
+// performed and recomputes all four coverage rates.
+//
+// Parameters:
+//   tenantID         — owner
+//   decisionOutcome  — "APPROVED" | "REJECTED" | "ESCALATED" | "PENDING"
+//   kycChecked       — KYC verification was performed
+//   amlChecked       — AML screening was performed
+//   replayEquivalent — evidence is sufficient to replay the decision
+//   windowStart/End  — rolling 24h window
+//
+// NOTE: We do NOT increment total_intents here. total_intents is incremented
+// separately by AtomicIncrementDefensibilityIntent (called on intent.created).
+// This separation keeps denominators accurate even when governance decisions
+// arrive out-of-order relative to intent creation.
+func (r *ProjectionRepo) AtomicRecordGovernanceCoverage(
+	ctx context.Context,
+	tenantID string,
+	decisionOutcome string,
+	kycChecked bool,
+	amlChecked bool,
+	replayEquivalent bool,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "defensibility.summary"
+
+	// Convert booleans to int increments for SQL arithmetic.
+	kycIncr := 0
+	if kycChecked {
+		kycIncr = 1
+	}
+	amlIncr := 0
+	if amlChecked {
+		amlIncr = 1
+	}
+	replayIncr := 0
+	if replayEquivalent {
+		replayIncr = 1
+	}
+	approvedIncr := 0
+	rejectedIncr := 0
+	escalatedIncr := 0
+	switch decisionOutcome {
+	case "APPROVED":
+		approvedIncr = 1
+	case "REJECTED":
+		rejectedIncr = 1
+	case "ESCALATED":
+		escalatedIncr = 1
+	}
+
+	upsertSQL := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_intents',              0,
+				'with_evidence_pack',         0,
+				'with_governance_decision',   1,
+				'with_replay_equivalence',    $5::int,
+				'with_kyc_checked',           $6::int,
+				'with_aml_checked',           $7::int,
+				'governance_approved_count',  $8::int,
+				'governance_rejected_count',  $9::int,
+				'governance_escalated_count', $10::int,
+				'evidence_pack_rate',         0.0,
+				'governance_coverage_pct',    0.0,
+				'replayability_pct',          0.0,
+				'audit_ready_pct',            0.0,
+				'dispute_ready_pct',          0.0
+			),
+			now(), 1, 'DEFENSIBILITY', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					jsonb_set(
+						jsonb_set(
+							jsonb_set(
+								jsonb_set(
+									jsonb_set(
+										projection_state.value_json,
+										'{with_governance_decision}',
+										to_jsonb(COALESCE((projection_state.value_json->>'with_governance_decision')::int, 0) + 1)
+									),
+									'{with_replay_equivalence}',
+									to_jsonb(COALESCE((projection_state.value_json->>'with_replay_equivalence')::int, 0) + $5::int)
+								),
+								'{with_kyc_checked}',
+								to_jsonb(COALESCE((projection_state.value_json->>'with_kyc_checked')::int, 0) + $6::int)
+							),
+							'{with_aml_checked}',
+							to_jsonb(COALESCE((projection_state.value_json->>'with_aml_checked')::int, 0) + $7::int)
+						),
+						'{governance_approved_count}',
+						to_jsonb(COALESCE((projection_state.value_json->>'governance_approved_count')::int, 0) + $8::int)
+					),
+					'{governance_rejected_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'governance_rejected_count')::int, 0) + $9::int)
+				),
+				'{governance_escalated_count}',
+				to_jsonb(COALESCE((projection_state.value_json->>'governance_escalated_count')::int, 0) + $10::int)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, upsertSQL,
+		tenantID, key, windowStart, windowEnd,
+		replayIncr,    // $5
+		kycIncr,       // $6
+		amlIncr,       // $7
+		approvedIncr,  // $8
+		rejectedIncr,  // $9
+		escalatedIncr, // $10
+	); err != nil {
+		return fmt.Errorf("projection_repo.AtomicRecordGovernanceCoverage tenant=%s: %w", tenantID, err)
+	}
+
+	return r.recomputeDefensibilityRates(ctx, tenantID, key, windowStart)
+}
+
+// AtomicIncrementDefensibilityIntent increments total_intents and with_evidence_pack
+// in the DEFENSIBILITY projection.
+//
+// Called when an EvidencePackReadyEvent arrives (Service 6).
+// Also called without the evidence increment when a new intent is seen
+// (to keep the denominator accurate).
+//
+// hasEvidencePack — true when called from HandleEvidencePackReady,
+//                   false when called from HandleIntentCreated
+func (r *ProjectionRepo) AtomicIncrementDefensibilityIntent(
+	ctx context.Context,
+	tenantID string,
+	hasEvidencePack bool,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "defensibility.summary"
+
+	packIncr := 0
+	if hasEvidencePack {
+		packIncr = 1
+	}
+
+	upsertSQL := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_intents',              1,
+				'with_evidence_pack',         $5::int,
+				'with_governance_decision',   0,
+				'with_replay_equivalence',    0,
+				'with_kyc_checked',           0,
+				'with_aml_checked',           0,
+				'governance_approved_count',  0,
+				'governance_rejected_count',  0,
+				'governance_escalated_count', 0,
+				'evidence_pack_rate',         $5::float8,
+				'governance_coverage_pct',    0.0,
+				'replayability_pct',          0.0,
+				'audit_ready_pct',            0.0,
+				'dispute_ready_pct',          0.0
+			),
+			now(), 1, 'DEFENSIBILITY', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					projection_state.value_json,
+					'{total_intents}',
+					to_jsonb(COALESCE((projection_state.value_json->>'total_intents')::int, 0) + 1)
+				),
+				'{with_evidence_pack}',
+				to_jsonb(COALESCE((projection_state.value_json->>'with_evidence_pack')::int, 0) + $5::int)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, upsertSQL, tenantID, key, windowStart, windowEnd, packIncr); err != nil {
+		return fmt.Errorf("projection_repo.AtomicIncrementDefensibilityIntent tenant=%s: %w", tenantID, err)
+	}
+
+	return r.recomputeDefensibilityRates(ctx, tenantID, key, windowStart)
+}
+
+// recomputeDefensibilityRates recalculates the five derived defensibility rates
+// from their respective numerators and the shared total_intents denominator.
+//
+// audit_ready_pct   = (with_evidence_pack + with_governance_decision) / (2 * total_intents)
+//                     — requires BOTH pack AND governance to be considered audit-ready
+// dispute_ready_pct = (with_evidence_pack + with_governance_decision + with_replay) / (3 * total_intents)
+//                     — requires all three
+//
+// NULLIF prevents divide-by-zero during startup before any intents arrive.
+func (r *ProjectionRepo) recomputeDefensibilityRates(
+	ctx context.Context,
+	tenantID, key string,
+	windowStart time.Time,
+) error {
+	sql := `
+		UPDATE projection_state
+		SET value_json = jsonb_set(
+			jsonb_set(
+				jsonb_set(
+					jsonb_set(
+						jsonb_set(
+							value_json,
+							'{evidence_pack_rate}',
+							to_jsonb(
+								COALESCE(
+									(value_json->>'with_evidence_pack')::numeric /
+									NULLIF((value_json->>'total_intents')::numeric, 0),
+									0
+								)
+							)
+						),
+						'{governance_coverage_pct}',
+						to_jsonb(
+							COALESCE(
+								(value_json->>'with_governance_decision')::numeric /
+								NULLIF((value_json->>'total_intents')::numeric, 0),
+								0
+							)
+						)
+					),
+					'{replayability_pct}',
+					to_jsonb(
+						COALESCE(
+							(value_json->>'with_replay_equivalence')::numeric /
+							NULLIF((value_json->>'total_intents')::numeric, 0),
+							0
+						)
+					)
+				),
+				'{audit_ready_pct}',
+				to_jsonb(
+					COALESCE(
+						(
+							(value_json->>'with_evidence_pack')::numeric +
+							(value_json->>'with_governance_decision')::numeric
+						) /
+						NULLIF((value_json->>'total_intents')::numeric * 2, 0),
+						0
+					)
+				)
+			),
+			'{dispute_ready_pct}',
+			to_jsonb(
+				COALESCE(
+					(
+						(value_json->>'with_evidence_pack')::numeric +
+						(value_json->>'with_governance_decision')::numeric +
+						(value_json->>'with_replay_equivalence')::numeric
+					) /
+					NULLIF((value_json->>'total_intents')::numeric * 3, 0),
+					0
+				)
+			)
+		),
+		computed_at = now()
+		WHERE tenant_id          = $1
+		  AND projection_key     = $2
+		  AND window_start       = $3
+		  AND projection_version = 1
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart); err != nil {
+		return fmt.Errorf("projection_repo.recomputeDefensibilityRates: %w", err)
+	}
+	return nil
+}
+
+// ── BATCH HEALTH ──────────────────────────────────────────────────────────────
+
+// AtomicUpdateBatchHealth writes (or replaces) the PATTERN projection for a batch.
+//
+// Called by HandleBatchSummaryUpdated when a BatchSummaryUpdatedEvent arrives.
+//
+// WHY REPLACE INSTEAD OF INCREMENT?
+// BatchSummaryUpdatedEvent from Service 5C is a FULL SNAPSHOT of the batch's
+// current state — it already contains the correct aggregate counts.
+// Attempting to increment on top of a snapshot would double-count.
+// Instead we replace the value_json entirely with the new snapshot.
+// This is safe because:
+//   - The event is already idempotency-checked by HandleBatchSummaryUpdated
+//   - The batch_id is the entity_scope_ref, making each batch row unique
+//   - The source of truth for batch state is Service 5C, not ZPI
+//
+// Parameters:
+//   tenantID          — owner
+//   batchID           — e.g. "PAYROLL-2026-04-01"
+//   totalCount        — total intents in this batch
+//   successCount      — fully settled
+//   failedCount       — failed or reversed
+//   pendingCount      — not yet resolved
+//   reversedCount     — reversed after settling
+//   partialReconCount — attached but with variance
+//   intendedMinor     — total_intended_amount_minor
+//   confirmedMinor    — total_confirmed_amount_minor
+//   varianceMinor     — total_variance_minor (positive = leakage)
+//   ambiguityScore    — 0.0–1.0 from Service 5C
+//   finalityStatus    — "PROCESSING" | "FULLY_SETTLED" | "PARTIALLY_SETTLED" | etc.
+//   windowStart/End   — rolling 24h window
+func (r *ProjectionRepo) AtomicUpdateBatchHealth(
+	ctx context.Context,
+	tenantID string,
+	batchID string,
+	totalCount, successCount, failedCount, pendingCount, reversedCount, partialReconCount int,
+	intendedMinor, confirmedMinor, varianceMinor int64,
+	ambiguityScore float64,
+	finalityStatus string,
+	windowStart, windowEnd time.Time,
+) error {
+	key := fmt.Sprintf("batch.health.%s", batchID)
+
+	// Full replace — see WHY REPLACE comment above.
+	upsertSQL := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type, entity_scope_ref)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_count',                    $5::int,
+				'success_count',                  $6::int,
+				'failed_count',                   $7::int,
+				'pending_count',                  $8::int,
+				'reversed_count',                 $9::int,
+				'partial_recon_count',            $10::int,
+				'total_intended_amount_minor',    $11::bigint,
+				'total_confirmed_amount_minor',   $12::bigint,
+				'total_variance_minor',           $13::bigint,
+				'ambiguity_score',                $14::float8,
+				'finality_status',                $15::text,
+				'updated_at',                     now()
+			),
+			now(), 1, 'PATTERN', 'BATCH', $16)
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_build_object(
+				'total_count',                    $5::int,
+				'success_count',                  $6::int,
+				'failed_count',                   $7::int,
+				'pending_count',                  $8::int,
+				'reversed_count',                 $9::int,
+				'partial_recon_count',            $10::int,
+				'total_intended_amount_minor',    $11::bigint,
+				'total_confirmed_amount_minor',   $12::bigint,
+				'total_variance_minor',           $13::bigint,
+				'ambiguity_score',                $14::float8,
+				'finality_status',                $15::text,
+				'updated_at',                     now()
+			),
+			entity_scope_ref = $16,
+			computed_at      = now()
+	`
+	if _, err := r.pool.Exec(ctx, upsertSQL,
+		tenantID, key, windowStart, windowEnd,
+		totalCount,      // $5
+		successCount,    // $6
+		failedCount,     // $7
+		pendingCount,    // $8
+		reversedCount,   // $9
+		partialReconCount, // $10
+		intendedMinor,   // $11
+		confirmedMinor,  // $12
+		varianceMinor,   // $13
+		ambiguityScore,  // $14
+		finalityStatus,  // $15
+		batchID,         // $16 — entity_scope_ref
+	); err != nil {
+		return fmt.Errorf("projection_repo.AtomicUpdateBatchHealth batch=%s tenant=%s: %w",
+			batchID, tenantID, err)
+	}
+	return nil
+}
+
+// GetLeakageSummary is a convenience read method for the Leakage intelligence layer.
+// Returns the latest leakage projection for a tenant, or nil if none exists yet.
+func (r *ProjectionRepo) GetLeakageSummary(
+	ctx context.Context,
+	tenantID string,
+) (*models.LeakageValue, error) {
+	var v models.LeakageValue
+	if err := r.GetValueAs(ctx, tenantID, "leakage.total", &v); err != nil {
+		return nil, fmt.Errorf("projection_repo.GetLeakageSummary: %w", err)
+	}
+	return &v, nil
+}
+
+// GetAmbiguitySummary is a convenience read method for the Ambiguity intelligence layer.
+func (r *ProjectionRepo) GetAmbiguitySummary(
+	ctx context.Context,
+	tenantID string,
+) (*models.AmbiguityValue, error) {
+	var v models.AmbiguityValue
+	if err := r.GetValueAs(ctx, tenantID, "ambiguity.summary", &v); err != nil {
+		return nil, fmt.Errorf("projection_repo.GetAmbiguitySummary: %w", err)
+	}
+	return &v, nil
+}
+
+// GetDefensibilitySummary is a convenience read method for the Defensibility intelligence layer.
+func (r *ProjectionRepo) GetDefensibilitySummary(
+	ctx context.Context,
+	tenantID string,
+) (*models.DefensibilityValue, error) {
+	var v models.DefensibilityValue
+	if err := r.GetValueAs(ctx, tenantID, "defensibility.summary", &v); err != nil {
+		return nil, fmt.Errorf("projection_repo.GetDefensibilitySummary: %w", err)
+	}
+	return &v, nil
+}
+
+// GetBatchHealth is a convenience read method for one batch's health projection.
+func (r *ProjectionRepo) GetBatchHealth(
+	ctx context.Context,
+	tenantID, batchID string,
+) (*models.BatchHealthValue, error) {
+	key := fmt.Sprintf("batch.health.%s", batchID)
+	var v models.BatchHealthValue
+	if err := r.GetValueAs(ctx, tenantID, key, &v); err != nil {
+		return nil, fmt.Errorf("projection_repo.GetBatchHealth batch=%s: %w", batchID, err)
+	}
+	return &v, nil
+}

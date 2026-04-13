@@ -121,6 +121,7 @@ func CreateTable() error {
 	tenant_id UUID NOT NULL,
 	object_ref TEXT NOT NULL,
 	received_at TIMESTAMPTZ NOT NULL,
+	ingress_channel TEXT NOT NULL,
 	source TEXT NOT NULL,
 	idempotency_key TEXT NOT NULL,
 	encrypted_payload BYTEA NOT NULL,

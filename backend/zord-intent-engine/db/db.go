@@ -59,7 +59,9 @@ func CreateTables() error {
     duplicate_reason_code TEXT,
     client_batch_ref TEXT,
 
-    updated_at TIMESTAMPTZ DEFAULT now()
+    updated_at TIMESTAMPTZ DEFAULT now(),
+	batchid TEXT,
+
 );`
 
 	if _, err := DB.Exec(paymentIntents); err != nil {
@@ -105,6 +107,8 @@ func CreateTables() error {
     next_attempt_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     sent_at TIMESTAMPTZ,
+	batchid TEXT,
+
     CONSTRAINT fk_outbox_intent
         FOREIGN KEY (aggregate_id)
         REFERENCES payment_intents(intent_id)

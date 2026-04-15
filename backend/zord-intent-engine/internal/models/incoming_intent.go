@@ -22,7 +22,8 @@ type IncomingIntent struct {
 	AmountCurrency   string    `json:"amount_currency" db:"amount_currency"`
 	ReceivedAt       time.Time `json:"received_at" db:"received_at"`
 	Payload          json.RawMessage
-	EncryptedPayload []byte `json:"encrypted_payload,omitempty" db:"encrypted_payload"`
+	EncryptedPayload []byte  `json:"encrypted_payload,omitempty" db:"encrypted_payload"`
+	BatchID          *string `json:"batchid,omitempty" db:"batchid"`
 }
 
 type ParsedIncomingIntent struct {

@@ -47,7 +47,8 @@ type OutboxEvent struct {
 	SentAt    *time.Time `json:"sent_at,omitempty"`
 
 	// --- Status ---
-	Status string `json:"status"`
+	Status  string  `json:"status"`
+	BatchID *string `json:"batchid,omitempty"`
 }
 
 // LeaseResponse is what the upstream /lease endpoint returns.

@@ -341,6 +341,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		EncryptedPayload: event.Payload,
 		PayloadHash:      event.PayloadHash,
 		ReceivedAt:       event.ReceivedAt,
+		BatchID:          event.BatchID,
 	}
 
 	// -------- STEP 0: Transport guards --------
@@ -541,6 +542,7 @@ func (s *IntentService) ProcessIncomingIntent(
 			Source:         in.Source,
 			ReceivedAt:     time.Now().UTC(),
 			Canonical:      canonicalInput,
+			BatchID:        in.BatchID,
 		}
 
 		err = s.tokenizeQueue.PublishTokenizeRequest(ctx, req)
@@ -679,6 +681,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		DuplicateReasonCode:     dupReason,
 
 		UpdatedAt: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		BatchID:   in.BatchID,
 	}
 
 	// -------- STEP 9.1: AGGREGATE GOVERNANCE REASONS --------
@@ -935,6 +938,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		DuplicateReasonCode:     dupReason,
 
 		UpdatedAt: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		BatchID:   event.BatchID,
 	}
 
 	// -------- AGGREGATE GOVERNANCE REASONS --------
@@ -1071,6 +1075,7 @@ func (s *IntentService) processWebhook(
 		TraceID:       canonical.TraceID,
 		EnvelopeID:    canonical.EnvelopeID,
 		TenantID:      canonical.TenantID,
+		BatchID:       canonical.BatchID,
 		AggregateType: "intent",
 		AggregateID:   uuid.MustParse(canonical.IntentID),
 		EventType:     "WEBHOOK_RECEIVED",

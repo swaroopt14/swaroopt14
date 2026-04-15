@@ -86,6 +86,11 @@ func main() {
 	outboxRepo := persistence.NewOutboxRepo(pool)
 	slaRepo := persistence.NewSLATimerRepo(pool)
 
+	// ── PHASE 4: New intelligence repos ───────────────────────────────────
+	snapshotRepo := persistence.NewIntelligenceSnapshotRepo(pool)
+	batchRepo := persistence.NewBatchContractRepo(pool)
+	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
+
 	// ── Step 5: Create services ────────────────────────────────────────────
 	// Services need repos. But there is a circular dependency:
 	//   projectionService needs policyService
@@ -95,13 +100,34 @@ func main() {
 	// Solution: create in reverse order.
 	// actionService first (no service dependencies)
 	// policyService second (needs actionService)
-	// projectionService last (needs policyService)
+	// intelligence services third (need proj + snapshot + batch + ml repos)
+	// projectionService last (needs policyService + all 6 intelligence services)
 
 	actionService := services.NewActionService(actionRepo, outboxRepo, pool)
 
 	policyService := services.NewPolicyService(policyRepo, projRepo, actionService)
 
-	projectionService := services.NewProjectionService(projRepo, policyService, slaRepo)
+	// ── PHASE 4: Six intelligence layer services ───────────────────────────
+	// These are created before projectionService because projectionService
+	// takes them as constructor arguments (see NewProjectionService signature).
+	leakageSvc := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo)
+	ambiguitySvc := services.NewAmbiguityIntelligenceService(projRepo, snapshotRepo, mlRepo)
+	defensibilitySvc := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
+	rcaSvc := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
+	patternSvc := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo)
+	recommendationSvc := services.NewRecommendationIntelligenceService(snapshotRepo)
+
+	projectionService := services.NewProjectionService(
+		projRepo,
+		policyService,
+		slaRepo,
+		leakageSvc,
+		ambiguitySvc,
+		defensibilitySvc,
+		rcaSvc,
+		patternSvc,
+		recommendationSvc,
+	)
 	corridorHealthIngestionHandler := handlers.NewCorridorHealthHandler(projRepo)
 	slaTimerIngestionHandler := handlers.NewSLATimerHandler(projRepo)
 	kafkaIngestionHandler := handlers.NewKafkaIngestionHandler(

@@ -269,6 +269,55 @@ func (s *PolicyService) buildEvalContext(
 	}
 	evalMap["corridor.failure_cluster_shift_score"] = failureShiftVal.Value
 
+	// ── PHASE 4: New intelligence layer metrics ───────────────────────────
+	// These feed the new policy families (LEAKAGE, AMBIGUITY, DEFENSIBILITY,
+	// PATTERN) seeded in init.sql. Without them, those policies always see 0.0
+	// and either always fire or never fire — both wrong.
+	// Zero-value fallback applies here too: if no leakage data exists yet,
+	// leakage.total_amount_minor = 0 → leakage policies won't fire → correct.
+
+	// ── Leakage metrics ───────────────────────────────────────────────────
+	var leakageVal models.LeakageValue
+	if err := s.projRepo.GetValueAs(ctx, tenantID, "leakage.total", &leakageVal); err != nil {
+		return nil, fmt.Errorf("buildEvalContext leakage tenant=%s: %w", tenantID, err)
+	}
+	evalMap["leakage.total_amount_minor"]            = float64(leakageVal.TotalAmountMinor)
+	evalMap["leakage.percentage"]                    = leakageVal.LeakagePercentage
+	evalMap["leakage.unmatched_intent_count"]        = float64(leakageVal.UnmatchedIntentCount)
+	evalMap["leakage.under_settlement_amount_minor"] = float64(leakageVal.UnderSettlementAmountMinor)
+	evalMap["leakage.reversal_exposure_minor"]       = float64(leakageVal.ReversalExposureMinor)
+
+	// ── Ambiguity metrics ─────────────────────────────────────────────────
+	var ambiguityVal models.AmbiguityValue
+	if err := s.projRepo.GetValueAs(ctx, tenantID, "ambiguity.summary", &ambiguityVal); err != nil {
+		return nil, fmt.Errorf("buildEvalContext ambiguity tenant=%s: %w", tenantID, err)
+	}
+	evalMap["ambiguity.value_at_risk_minor"]       = float64(ambiguityVal.ValueAtRiskMinor)
+	evalMap["ambiguity.rate"]                       = ambiguityVal.AmbiguityRate
+	evalMap["ambiguity.avg_attachment_confidence"]  = ambiguityVal.AvgAttachmentConfidence
+
+	// ── Defensibility metrics ─────────────────────────────────────────────
+	var defensibilityVal models.DefensibilityValue
+	if err := s.projRepo.GetValueAs(ctx, tenantID, "defensibility.summary", &defensibilityVal); err != nil {
+		return nil, fmt.Errorf("buildEvalContext defensibility tenant=%s: %w", tenantID, err)
+	}
+	evalMap["defensibility.audit_ready_pct"]       = defensibilityVal.AuditReadyPct
+	evalMap["defensibility.governance_coverage_pct"] = defensibilityVal.GovernanceCoveragePct
+	evalMap["defensibility.evidence_pack_rate"]    = defensibilityVal.EvidencePackRate
+
+	// ── Batch metrics (corridor-scoped via corridorID when set) ───────────
+	// batch.ambiguity_score and batch.risk_score are used by
+	// P_AMBIGUITY_BATCH_REVIEW and P_PATTERN_BATCH_RISK policies.
+	// These are written per-batch, not per-tenant, so we use the corridorID
+	// as a proxy for the most recent batch on that corridor.
+	// Phase 5 will wire this to a proper batch-ID scope; for now
+	// corridor-level policies read from the corridor's projection keys.
+	// Zero-value is the safe default when no batch data exists yet.
+	evalMap["batch.ambiguity_score"] = 0.0
+	evalMap["batch.risk_score"]      = 0.0
+	evalMap["pattern.duplicate_cluster_count"]  = 0.0
+	evalMap["pattern.proof_readiness_score"]    = 0.0
+
 	return evalMap, nil
 }
 

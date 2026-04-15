@@ -11,25 +11,54 @@ import (
 )
 
 // ProjectionService computes and stores KPI projections from Kafka events.
+//
+// PHASE 4 ADDITIONS:
+// The six intelligence layer services are injected here so that the five
+// Grade A stub handlers (HandleSettlementCreated, HandleAttachmentDecision,
+// HandleVarianceRecord, HandleBatchSummaryUpdated, HandleGovernanceDecision)
+// can call them after updating their respective projection_state counters.
+//
+// Dependency injection pattern: main.go creates all repos and services,
+// then passes them into NewProjectionService. This keeps the struct testable
+// and avoids hidden global state.
 type ProjectionService struct {
 	projRepo      *persistence.ProjectionRepo
 	policyService *PolicyService
 	slaRepo       *persistence.SLATimerRepo
+
+	// ── Phase 4: Six intelligence layer services ──────────────────────────
+	leakageSvc        *LeakageIntelligenceService
+	ambiguitySvc      *AmbiguityIntelligenceService
+	defensibilitySvc  *DefensibilityIntelligenceService
+	rcaSvc            *RCAIntelligenceService
+	patternSvc        *PatternIntelligenceService
+	recommendationSvc *RecommendationIntelligenceService
 }
 
-// NewProjectionService creates a ProjectionService.
+// NewProjectionService creates a ProjectionService with all Phase 4 intelligence services.
 //
-// slaRepo is passed in rather than created here — this is dependency injection.
-// main.go creates all repos and wires them together, keeping this struct simple.
+// All six intelligence services are required. main.go constructs them and injects.
 func NewProjectionService(
 	projRepo *persistence.ProjectionRepo,
 	policyService *PolicyService,
 	slaRepo *persistence.SLATimerRepo,
+	leakageSvc *LeakageIntelligenceService,
+	ambiguitySvc *AmbiguityIntelligenceService,
+	defensibilitySvc *DefensibilityIntelligenceService,
+	rcaSvc *RCAIntelligenceService,
+	patternSvc *PatternIntelligenceService,
+	recommendationSvc *RecommendationIntelligenceService,
 ) *ProjectionService {
 	return &ProjectionService{
-		projRepo:      projRepo,
-		policyService: policyService,
-		slaRepo:       slaRepo,
+		projRepo:          projRepo,
+		policyService:     policyService,
+		slaRepo:           slaRepo,
+		leakageSvc:        leakageSvc,
+		ambiguitySvc:      ambiguitySvc,
+		defensibilitySvc:  defensibilitySvc,
+		rcaSvc:            rcaSvc,
+		patternSvc:        patternSvc,
+		recommendationSvc: recommendationSvc,
 	}
 }
 
@@ -188,6 +217,12 @@ func (s *ProjectionService) HandleOutcomeNormalized(
 	); err != nil {
 		return fmt.Errorf("HandleOutcomeNormalized taxonomy corridor=%s reason=%s: %w",
 			e.CorridorID, e.ReasonCode, err)
+	}
+
+	// PHASE 4: Recompute RCA snapshot after failure taxonomy is updated.
+	// rcaSvc reads the failure taxonomy projection we just incremented.
+	if err := s.rcaSvc.ComputeAndSave(ctx, e.TenantID, e.CorridorID, window.start, window.end); err != nil {
+		log.Printf("HandleOutcomeNormalized: rcaSvc failed corridor=%s: %v", e.CorridorID, err)
 	}
 
 	// Did this failure spike trigger any policy rules?
@@ -463,10 +498,29 @@ func (s *ProjectionService) HandleEvidencePackReady(
 	}
 
 	window := todayWindow(e.CreatedAt)
+
+	// Update legacy evidence_readiness projection (existing behaviour)
 	if err := s.projRepo.AtomicIncrementEvidence(
 		ctx, e.TenantID, window.start, window.end,
 	); err != nil {
 		return fmt.Errorf("HandleEvidencePackReady tenant=%s: %w", e.TenantID, err)
+	}
+
+	// PHASE 4: Update DEFENSIBILITY projection — this intent now has an evidence pack.
+	// AtomicIncrementDefensibilityIntent increments both total_intents (denominator)
+	// AND with_evidence_pack (numerator), so evidence_pack_rate is always correct.
+	if err := s.projRepo.AtomicIncrementDefensibilityIntent(
+		ctx, e.TenantID, true /* hasEvidencePack */, window.start, window.end,
+	); err != nil {
+		// Log but don't fail — legacy evidence_readiness was already updated
+		log.Printf("HandleEvidencePackReady: AtomicIncrementDefensibilityIntent failed tenant=%s: %v",
+			e.TenantID, err)
+	} else {
+		// Recompute defensibility snapshot now that evidence pack rate changed
+		if err := s.defensibilitySvc.ComputeAndSave(ctx, e.TenantID, "", window.start, window.end); err != nil {
+			log.Printf("HandleEvidencePackReady: defensibilitySvc failed tenant=%s: %v",
+				e.TenantID, err)
+		}
 	}
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
@@ -585,83 +639,111 @@ func (s *ProjectionService) HandleSLATimerResolved(
 }
 
 // =============================================================================
-// PHASE 2 — Grade A stub handlers
+// PHASE 4 — Grade A intelligence handlers
 // =============================================================================
 //
-// WHAT ARE THESE?
-// These are skeleton implementations of the 5 new EventHandler interface methods
-// required by kafka/consumer.go after Phase 2.
+// These five handlers implement the full Grade A intelligence computation for
+// the pivoted ZPI spec. They replace the Phase 2 stubs.
 //
-// WHY STUBS NOW?
-// Go is a COMPILED language. Every method in the EventHandler interface MUST
-// have an implementation on ProjectionService before the code compiles.
-// If we left them out, "go build" would fail with:
-//   "ProjectionService does not implement EventHandler (missing HandleSettlementCreated)"
+// Each handler follows the same pattern:
+//   1. Validate required fields
+//   2. Idempotency check (skip already-processed events)
+//   3. Atomic projection update (race-safe SQL)
+//   4. Intelligence snapshot recomputation (non-fatal)
+//   5. Policy evaluation (non-fatal)
+//   6. MarkProcessed
 //
-// The stubs do just enough to be safe and correct:
-//   1. Validate required fields (reject bad events)
-//   2. Check idempotency (skip already-processed events)
-//   3. Log receipt of the event
-//   4. Mark as processed (so we never process it twice)
-//
-// WHAT HAPPENS IN PHASE 4?
-// Phase 4 replaces the "log only" body with full intelligence computation:
-//   - HandleSettlementCreated  → updates leakage projection, feeds 5B stats
-//   - HandleAttachmentDecision → computes ambiguity score, updates leakage
-//   - HandleVarianceRecord     → updates leakage amount directly
-//   - HandleBatchSummaryUpdated → writes to batch_contracts table
-//   - HandleGovernanceDecision → updates defensibility score
-//
-// FINTECH PRINCIPLE: Always mark events as processed even in stubs.
-// If you skip MarkProcessed in a stub, then when Phase 4 adds real logic,
-// the service will reprocess ALL historical events from Kafka — potentially
-// millions of rows — causing incorrect aggregate counts.
-// By marking processed NOW, we ensure clean state when Phase 4 goes live.
+// FINTECH PRINCIPLE: steps 3–5 are ordered so that the atomic projection
+// write (step 3) always succeeds before snapshot computation (step 4).
+// If snapshot computation fails, the raw projection data is still correct
+// and the next event will trigger another snapshot computation attempt.
 // =============================================================================
 
-// HandleSettlementCreated is the Phase 2 stub for canonical.settlement.created.
-// Full leakage and reconciliation logic will be added in Phase 4.
+// HandleSettlementCreated processes a canonical settlement observation from Service 5B.
+//
+// PHASE 4 LOGIC:
+// A settlement observation arriving with POOR attachment readiness and no
+// matching intent is the earliest signal of an ORPHAN_SETTLEMENT leakage event.
+// We record it into the LEAKAGE projection here, then trigger the leakage
+// intelligence service to recompute the snapshot.
+//
+// IMPORTANT: We do NOT record a leakage event for every settlement — only for
+// those with StatusObservation = "SETTLED" AND AttachmentReadiness = "POOR"
+// (meaning Service 5B could not find a candidate intent at all).
+// The definitive MATCH_UNRESOLVED signal comes from Service 5C via
+// HandleAttachmentDecision. This handler only catches the earliest orphan signal.
 func (s *ProjectionService) HandleSettlementCreated(
 	ctx context.Context,
 	e models.CanonicalSettlementCreatedEvent,
 ) error {
-	// Validate required fields.
-	// TenantID and EventID are mandatory on every event — without them
-	// we cannot store idempotency records or attribute projections correctly.
 	if e.TenantID == "" || e.EventID == "" {
 		log.Printf("HandleSettlementCreated: missing required fields tenant=%s event_id=%s",
 			e.TenantID, e.EventID)
-		return nil // return nil (not error) so Kafka commits the offset
-		// Returning an error would cause infinite redelivery of this bad message.
-		// Returning nil commits the offset and moves past the bad message.
-		// The log line above creates an observable signal for ops to investigate.
+		return nil
 	}
 
-	// Idempotency check: have we already processed this exact event?
-	// This protects against Kafka redelivery (at-least-once delivery guarantee).
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
 	if err != nil {
 		return fmt.Errorf("HandleSettlementCreated IsProcessed event_id=%s: %w", e.EventID, err)
 	}
 	if processed {
-		return nil // already processed — safe to skip
+		return nil
 	}
 
-	// Phase 4 will add: leakage calculation, settlement observation tracking,
-	// ambiguity seed data, source strength projection updates.
-	log.Printf("HandleSettlementCreated: received settlement_id=%s tenant=%s source=%s confidence=%.2f",
-		e.SettlementID, e.TenantID, e.SourceSystemID, e.ParseConfidence)
+	window := todayWindow(e.OccurredAt)
 
-	// Mark as processed so we never compute this event's contribution twice.
+	// Record ORPHAN_SETTLEMENT leakage signal when a settled observation
+	// has no attachment candidates at all.
+	// AttachmentReadiness = "POOR" means Service 5B found zero candidate intents.
+	if e.StatusObservation == "SETTLED" && e.AttachmentReadiness == "POOR" {
+		if err := s.projRepo.AtomicRecordLeakage(
+			ctx,
+			e.TenantID,
+			"ORPHAN_SETTLEMENT",
+			0,                      // intendedMinor = 0 (no intent found)
+			e.SettledAmountMinor,   // orphanMinor = settled amount
+			window.start, window.end,
+		); err != nil {
+			// Log but don't fail — the event is still marked processed below.
+			// A transient DB error here must not cause infinite Kafka redelivery.
+			log.Printf("HandleSettlementCreated: AtomicRecordLeakage failed settlement=%s: %v",
+				e.SettlementID, err)
+		} else {
+			// Recompute leakage intelligence snapshot
+			if err := s.leakageSvc.ComputeAndSave(ctx, e.TenantID, window.start, window.end); err != nil {
+				log.Printf("HandleSettlementCreated: leakageSvc.ComputeAndSave failed tenant=%s: %v",
+					e.TenantID, err)
+			}
+		}
+	}
+
+	log.Printf("HandleSettlementCreated: settlement_id=%s tenant=%s source=%s readiness=%s confidence=%.2f",
+		e.SettlementID, e.TenantID, e.SourceSystemID, e.AttachmentReadiness, e.ParseConfidence)
+
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleSettlementCreated MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
 	return nil
 }
 
-// HandleAttachmentDecision is the Phase 2 stub for attachment.decision.created.
-// This is the MOST IMPORTANT new event — it feeds leakage AND ambiguity layers.
-// Full computation logic will be added in Phase 4.
+// HandleAttachmentDecision processes an attachment decision from Service 5C.
+//
+// PHASE 4 LOGIC — This is the most important Grade A handler.
+// Every attachment decision feeds TWO intelligence layers:
+//
+// 1. LEAKAGE:   MATCH_UNRESOLVED → intent exists but no settlement found
+//               → record UNMATCHED_INTENT leakage
+//
+// 2. AMBIGUITY: ALL decisions → update ambiguity projection
+//               → MATCH_AMBIGUOUS / MATCH_UNRESOLVED → increment ambiguity counters
+//               → ALL decisions → update running confidence average
+//
+// After both projections are updated, we recompute both intelligence snapshots
+// and then recompute the RECOMMENDATION snapshot which reads from both.
+//
+// ORDERING: projections are updated atomically first, then snapshots are computed.
+// If snapshot computation fails (non-fatal), the projection data is still correct
+// and the next event will trigger another snapshot computation attempt.
 func (s *ProjectionService) HandleAttachmentDecision(
 	ctx context.Context,
 	e models.AttachmentDecisionCreatedEvent,
@@ -680,13 +762,71 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		return nil
 	}
 
-	// Phase 4 will add:
-	//   - Increment ambiguous_count if DecisionType == MATCH_AMBIGUOUS
-	//   - Add to unmatched_count if DecisionType == MATCH_UNRESOLVED
-	//   - Update leakage projection for MATCH_UNRESOLVED events
-	//   - Trigger policy evaluation for P_AMBIGUITY_RATE_HIGH, P_LEAKAGE_UNMATCHED
-	log.Printf("HandleAttachmentDecision: decision_id=%s type=%s confidence=%.2f ambiguity=%.2f tenant=%s",
-		e.DecisionID, e.DecisionType, e.ConfidenceScore, e.AmbiguityScore, e.TenantID)
+	window := todayWindow(e.OccurredAt)
+
+	// ── Step 1: Update LEAKAGE projection for MATCH_UNRESOLVED ───────────
+	// A MATCH_UNRESOLVED decision means a settlement observation exists but
+	// Service 5C could not find any matching intent for it — or an intent
+	// exists with no matching settlement. The full intended amount is at risk.
+	if e.DecisionType == "MATCH_UNRESOLVED" {
+		if err := s.projRepo.AtomicRecordLeakage(
+			ctx,
+			e.TenantID,
+			"UNMATCHED_INTENT",
+			e.IntendedAmountMinor,  // intended amount at risk
+			0,                     // no orphan amount (that comes from HandleSettlementCreated)
+			window.start, window.end,
+		); err != nil {
+			return fmt.Errorf("HandleAttachmentDecision AtomicRecordLeakage decision=%s: %w",
+				e.DecisionID, err)
+		}
+	}
+
+	// ── Step 2: Update AMBIGUITY projection for ALL decisions ─────────────
+	// Every attachment decision contributes to the running confidence average
+	// and the total_decisions denominator, regardless of decision type.
+	if err := s.projRepo.AtomicRecordAttachmentDecision(
+		ctx,
+		e.TenantID,
+		e.DecisionType,
+		e.ConfidenceScore,
+		e.IntendedAmountMinor,
+		e.SupportingCarriers,
+		window.start, window.end,
+	); err != nil {
+		return fmt.Errorf("HandleAttachmentDecision AtomicRecordAttachmentDecision decision=%s: %w",
+			e.DecisionID, err)
+	}
+
+	// ── Step 3: Recompute intelligence snapshots ──────────────────────────
+	// These are non-fatal — a failure to write a snapshot does not corrupt
+	// the projection data written above. The next event will retry.
+
+	if err := s.leakageSvc.ComputeAndSave(ctx, e.TenantID, window.start, window.end); err != nil {
+		log.Printf("HandleAttachmentDecision: leakageSvc failed decision=%s: %v",
+			e.DecisionID, err)
+	}
+
+	if err := s.ambiguitySvc.ComputeAndSave(ctx, e.TenantID, window.start, window.end); err != nil {
+		log.Printf("HandleAttachmentDecision: ambiguitySvc failed decision=%s: %v",
+			e.DecisionID, err)
+	}
+
+	// Recompute recommendation snapshot after both upstream layers updated
+	if err := s.recommendationSvc.ComputeAndSave(ctx, e.TenantID, window.start, window.end); err != nil {
+		log.Printf("HandleAttachmentDecision: recommendationSvc failed decision=%s: %v",
+			e.DecisionID, err)
+	}
+
+	// ── Step 4: Trigger policy evaluation ────────────────────────────────
+	// Policies P_LEAKAGE_UNMATCHED and P_AMBIGUITY_RATE_HIGH fire here.
+	// corridorID may be empty for tenant-scoped policies — pass it through.
+	if err := s.policyService.EvaluateForEvent(
+		ctx, e.TenantID, e.CorridorID, "attachment.decision.created", e.EventID,
+	); err != nil {
+		log.Printf("HandleAttachmentDecision: EvaluateForEvent failed decision=%s: %v",
+			e.DecisionID, err)
+	}
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleAttachmentDecision MarkProcessed event_id=%s: %w", e.EventID, err)
@@ -694,9 +834,29 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	return nil
 }
 
-// HandleVarianceRecord is the Phase 2 stub for variance.record.created.
-// Variance records are the direct source of under/over-settlement amounts.
-// Full leakage amount computation will be added in Phase 4.
+// HandleVarianceRecord processes a financial variance record from Service 5C.
+//
+// PHASE 4 LOGIC:
+// A variance record is the definitive signal of a financial discrepancy —
+// a settlement WAS matched to an intent, but the amounts or dates don't agree.
+//
+// UNDER_SETTLEMENT: the most common type. PSP settled less than intended.
+//   → add variance_amount_minor to leakage.under_settlement_amount_minor
+//
+// REVERSAL: settled then reversed — money paid out then clawed back.
+//   → add to leakage.reversal_exposure_minor (tracked separately — different risk)
+//
+// DEDUCTION: PSP deducted a fee.
+//   → whitelisted (pre-agreed) deductions: record for audit, don't count as leakage
+//   → non-whitelisted: count as leakage in UNDER_SETTLEMENT bucket
+//
+// VALUE_DATE_MISMATCH / CROSS_PERIOD: date discrepancies.
+//   → these affect accounting periods, not money amounts.
+//   → we record them as UNDER_SETTLEMENT with varianceAmountMinor=0 for count tracking.
+//
+// OVER_SETTLEMENT: received MORE than intended.
+//   → not leakage — but track separately for audit / financial reconciliation.
+//   → we skip over-settlement from the leakage projection (spec §10.1).
 func (s *ProjectionService) HandleVarianceRecord(
 	ctx context.Context,
 	e models.VarianceRecordCreatedEvent,
@@ -715,13 +875,54 @@ func (s *ProjectionService) HandleVarianceRecord(
 		return nil
 	}
 
-	// Phase 4 will add:
-	//   - Add variance_amount_minor to leakage.under_settlement_amount_minor
-	//   - Update batch_contracts.total_variance_minor for the batch
-	//   - Trigger P_LEAKAGE_UNDER_SETTLEMENT policy evaluation
-	//   - Flag cross-period variances for compliance intelligence
-	log.Printf("HandleVarianceRecord: variance_id=%s type=%s amount=%d cross_period=%v tenant=%s",
-		e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.CrossPeriodFlag, e.TenantID)
+	window := todayWindow(e.OccurredAt)
+
+	// Skip OVER_SETTLEMENT — it's not leakage (we received more, not less).
+	// Also skip OVER_SETTLEMENT in the ML features to avoid label contamination.
+	if e.VarianceType != "OVER_SETTLEMENT" {
+		// Use the absolute variance amount. VarianceAmountMinor from Service 5C
+		// is already the absolute difference (intended - settled).
+		varianceMinor := e.VarianceAmountMinor
+		if varianceMinor < 0 {
+			varianceMinor = -varianceMinor // ensure positive for leakage calculation
+		}
+
+		if err := s.projRepo.AtomicRecordVariance(
+			ctx,
+			e.TenantID,
+			e.VarianceType,
+			varianceMinor,
+			e.IntendedAmountMinor,
+			e.IsWhitelisted,
+			window.start, window.end,
+		); err != nil {
+			return fmt.Errorf("HandleVarianceRecord AtomicRecordVariance variance=%s: %w",
+				e.VarianceID, err)
+		}
+
+		// Recompute leakage intelligence snapshot
+		if err := s.leakageSvc.ComputeAndSave(ctx, e.TenantID, window.start, window.end); err != nil {
+			log.Printf("HandleVarianceRecord: leakageSvc failed variance=%s: %v",
+				e.VarianceID, err)
+		}
+
+		// Recompute recommendations (leakage changed)
+		if err := s.recommendationSvc.ComputeAndSave(ctx, e.TenantID, window.start, window.end); err != nil {
+			log.Printf("HandleVarianceRecord: recommendationSvc failed variance=%s: %v",
+				e.VarianceID, err)
+		}
+	}
+
+	// Trigger policy evaluation for P_LEAKAGE_UNDER_SETTLEMENT
+	if err := s.policyService.EvaluateForEvent(
+		ctx, e.TenantID, e.CorridorID, "variance.record.created", e.EventID,
+	); err != nil {
+		log.Printf("HandleVarianceRecord: EvaluateForEvent failed variance=%s: %v",
+			e.VarianceID, err)
+	}
+
+	log.Printf("HandleVarianceRecord: variance_id=%s type=%s amount=%d whitelisted=%v cross_period=%v tenant=%s",
+		e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.IsWhitelisted, e.CrossPeriodFlag, e.TenantID)
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleVarianceRecord MarkProcessed event_id=%s: %w", e.EventID, err)
@@ -729,8 +930,12 @@ func (s *ProjectionService) HandleVarianceRecord(
 	return nil
 }
 
-// HandleBatchSummaryUpdated is the Phase 2 stub for batch.summary.updated.
-// Full batch_contracts upsert and Pattern intelligence logic will be added in Phase 4.
+// HandleBatchSummaryUpdated processes a batch summary event from Service 5C.
+//
+// PHASE 4 LOGIC:
+// 1. Update batch.health.{batch_id} projection — time-series history for trend queries.
+// 2. Compute PATTERN intelligence snapshot (batch risk score, signals, tier).
+// 3. Trigger policy evaluation for P_AMBIGUITY_BATCH_REVIEW and P_PATTERN_BATCH_RISK.
 func (s *ProjectionService) HandleBatchSummaryUpdated(
 	ctx context.Context,
 	e models.BatchSummaryUpdatedEvent,
@@ -749,13 +954,45 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		return nil
 	}
 
-	// Phase 4 will add:
-	//   - Upsert batch_contracts row with all aggregate counts and amounts
-	//   - Trigger P_AMBIGUITY_BATCH_REVIEW if ambiguity_score > 0.70
-	//   - Trigger P_PATTERN_BATCH_RISK if batch risk score is high
-	//   - Update batch-scoped projection_state rows
-	log.Printf("HandleBatchSummaryUpdated: batch_id=%s status=%s total=%d pending=%d variance=%d tenant=%s",
-		e.BatchID, e.BatchFinalityStatus, e.TotalCount, e.PendingCount, e.TotalVarianceMinor, e.TenantID)
+	window := todayWindow(e.OccurredAt)
+
+	// Step 1: Update batch.health projection (full snapshot replacement)
+	if err := s.projRepo.AtomicUpdateBatchHealth(
+		ctx,
+		e.TenantID,
+		e.BatchID,
+		e.TotalCount,
+		e.SuccessCount,
+		e.FailedCount,
+		e.PendingCount,
+		e.ReversedCount,
+		e.PartialReconCount,
+		e.TotalIntendedAmountMinor,
+		e.TotalConfirmedAmountMinor,
+		e.TotalVarianceMinor,
+		e.AmbiguityScore,
+		e.BatchFinalityStatus,
+		window.start, window.end,
+	); err != nil {
+		return fmt.Errorf("HandleBatchSummaryUpdated AtomicUpdateBatchHealth batch=%s: %w",
+			e.BatchID, err)
+	}
+
+	// Step 2: Compute PATTERN intelligence snapshot
+	if err := s.patternSvc.ComputeAndSave(ctx, e.TenantID, e.BatchID, window.start, window.end); err != nil {
+		log.Printf("HandleBatchSummaryUpdated: patternSvc failed batch=%s: %v", e.BatchID, err)
+	}
+
+	// Step 3: Trigger policy evaluation
+	if err := s.policyService.EvaluateForEvent(
+		ctx, e.TenantID, e.CorridorID, "batch.summary.updated", e.EventID,
+	); err != nil {
+		log.Printf("HandleBatchSummaryUpdated: EvaluateForEvent failed batch=%s: %v", e.BatchID, err)
+	}
+
+	log.Printf("HandleBatchSummaryUpdated: batch_id=%s status=%s total=%d pending=%d variance=%d ambiguity=%.2f tenant=%s",
+		e.BatchID, e.BatchFinalityStatus, e.TotalCount, e.PendingCount,
+		e.TotalVarianceMinor, e.AmbiguityScore, e.TenantID)
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleBatchSummaryUpdated MarkProcessed event_id=%s: %w", e.EventID, err)
@@ -763,8 +1000,28 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 	return nil
 }
 
-// HandleGovernanceDecision is the Phase 2 stub for governance.decision.created.
-// Full defensibility score update will be added in Phase 4.
+// HandleGovernanceDecision processes a governance decision from Service 6.
+//
+// PHASE 4 LOGIC:
+// Every governance decision updates the DEFENSIBILITY intelligence layer.
+// This is the critical audit-grade signal: "did a human or system approve
+// this payment with full KYC/AML checks, and is the evidence replayable?"
+//
+// Steps:
+//  1. AtomicRecordGovernanceCoverage → increments governance coverage counters
+//     (with_governance_decision, with_kyc_checked, with_aml_checked,
+//      with_replay_equivalence, governance_approved/rejected/escalated counts)
+//
+//  2. Recompute DEFENSIBILITY snapshot → updated audit_ready_pct,
+//     defensibility_tier, compliance alerts
+//
+//  3. Recompute RECOMMENDATION snapshot → compliance alerts surface as cards
+//
+//  4. Trigger policy evaluation → P_DEFENSIBILITY_AUDIT_RISK may fire
+//     if audit_ready_pct drops below 80%
+//
+// REJECTED governance decisions are the most critical compliance signal.
+// They are flagged in both the defensibility snapshot AND the policy engine.
 func (s *ProjectionService) HandleGovernanceDecision(
 	ctx context.Context,
 	e models.GovernanceDecisionCreatedEvent,
@@ -783,11 +1040,53 @@ func (s *ProjectionService) HandleGovernanceDecision(
 		return nil
 	}
 
-	// Phase 4 will add:
-	//   - Increment tenant.governance_coverage_count projection
-	//   - Update defensibility score for this intent's evidence pack
-	//   - Trigger P_DEFENSIBILITY_AUDIT_RISK policy evaluation
-	//   - Flag if governance decision is REJECTED or ESCALATED (compliance risk)
+	window := todayWindow(e.OccurredAt)
+
+	// Step 1: Update DEFENSIBILITY projection with this governance decision.
+	// This is the primary atomic write — must succeed before snapshot computation.
+	if err := s.projRepo.AtomicRecordGovernanceCoverage(
+		ctx,
+		e.TenantID,
+		e.DecisionOutcome,
+		e.KYCChecked,
+		e.AMLChecked,
+		e.ReplayEquivalent,
+		window.start, window.end,
+	); err != nil {
+		return fmt.Errorf("HandleGovernanceDecision AtomicRecordGovernanceCoverage gdec=%s: %w",
+			e.GovernanceDecisionID, err)
+	}
+
+	// Step 2: Recompute DEFENSIBILITY snapshot.
+	// Pass batchID from the evidence pack context if available.
+	// GovernanceDecisionCreatedEvent doesn't carry a batch_id directly,
+	// so we pass empty string (tenant-scoped snapshot only).
+	if err := s.defensibilitySvc.ComputeAndSave(
+		ctx, e.TenantID, "", window.start, window.end,
+	); err != nil {
+		log.Printf("HandleGovernanceDecision: defensibilitySvc failed gdec=%s: %v",
+			e.GovernanceDecisionID, err)
+	}
+
+	// Step 3: Recompute RECOMMENDATION snapshot.
+	if err := s.recommendationSvc.ComputeAndSave(
+		ctx, e.TenantID, window.start, window.end,
+	); err != nil {
+		log.Printf("HandleGovernanceDecision: recommendationSvc failed gdec=%s: %v",
+			e.GovernanceDecisionID, err)
+	}
+
+	// Step 4: Trigger policy evaluation.
+	// Topic "governance.decision.created" fires P_DEFENSIBILITY_AUDIT_RISK
+	// and P_DEFENSIBILITY_EVIDENCE_WEAK.
+	// corridorID is not applicable for governance decisions (tenant-scoped).
+	if err := s.policyService.EvaluateForEvent(
+		ctx, e.TenantID, "", "governance.decision.created", e.EventID,
+	); err != nil {
+		log.Printf("HandleGovernanceDecision: EvaluateForEvent failed gdec=%s: %v",
+			e.GovernanceDecisionID, err)
+	}
+
 	log.Printf("HandleGovernanceDecision: gdec_id=%s intent=%s outcome=%s kyc=%v aml=%v replay=%v tenant=%s",
 		e.GovernanceDecisionID, e.IntentID, e.DecisionOutcome,
 		e.KYCChecked, e.AMLChecked, e.ReplayEquivalent, e.TenantID)

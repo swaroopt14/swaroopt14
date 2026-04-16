@@ -60,7 +60,7 @@ func CreateTables() error {
     client_batch_ref TEXT,
 
     updated_at TIMESTAMPTZ DEFAULT now(),
-	batchid TEXT,
+	batchid TEXT
 
 );`
 

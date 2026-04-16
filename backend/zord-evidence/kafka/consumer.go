@@ -56,6 +56,32 @@ func StartConsumer(ctx context.Context, brokers []string, groupID, topic string,
 	}()
 	return nil
 }
+func StartConsumerForTopics(ctx context.Context, brokers []string, groupID string, topics []string, handler MessageHandler) error {
+	cfg := sarama.NewConfig()
+	cfg.Version = sarama.V2_6_0_0
+	cfg.Consumer.Offsets.Initial = sarama.OffsetNewest
+	cfg.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRoundRobin()
+
+	consumerGroup, err := sarama.NewConsumerGroup(brokers, groupID, cfg)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		defer consumerGroup.Close()
+		consumer := NewConsumer(handler)
+		for {
+			if err := consumerGroup.Consume(ctx, topics, consumer); err != nil {
+				log.Printf("evidence.kafka.consume_loop_error topics=%v err=%v", topics, err)
+			}
+			if ctx.Err() != nil {
+				return
+			}
+		}
+	}()
+
+	return nil
+}
 
 // ParsePayloadMap is useful for event-based enrichment hooks.
 func ParsePayloadMap(raw []byte) (map[string]any, error) {

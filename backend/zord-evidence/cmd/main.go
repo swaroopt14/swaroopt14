@@ -77,11 +77,26 @@ func main() {
 
 	// --- Kafka consumer for inbound enrichment hooks ---
 	if len(cfg.KafkaBrokers) > 0 && cfg.KafkaBrokers[0] != "" {
-		if err := kafka.StartConsumer(ctx, cfg.KafkaBrokers, cfg.KafkaConsumerGroup, cfg.KafkaTopic, func(_ context.Context, key string, payload []byte) error {
-			_ = key
-			_ = payload
-			// Intentionally lightweight in v1: consume topic for future enrichment hooks.
+
+		topics := []string{
+			"payments.intent.events.v1",
+			"payments.ledger.events.v1",
+		}
+		log.Printf("evidence.main.consumer_bootstrap group=%s topics=%v brokers=%v", cfg.KafkaConsumerGroup, topics, cfg.KafkaBrokers)
+
+		if err := kafka.StartConsumerForTopics(ctx, cfg.KafkaBrokers, cfg.KafkaConsumerGroup, topics, func(_ context.Context, key string, payload []byte) error {
+			log.Printf("evidence.main.message_handler_invoked key=%s payload_bytes=%d", key, len(payload))
+
+			m, err := kafka.ParsePayloadMap(payload)
+			if err != nil {
+				log.Printf("evidence.main.payload_parse_failed key=%s err=%v", key, err)
+				return nil
+			}
+			log.Printf("evidence.main.payload_parse_ok key=%s fields=%d", key, len(m))
+
+			// v1: consume both topics for enrichment pipeline hooks.
 			return nil
+
 		}); err != nil {
 			log.Printf("warn: kafka consumer init failed (continuing without consumer): %v", err)
 		}

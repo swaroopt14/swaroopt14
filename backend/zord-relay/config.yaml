@@ -57,3 +57,67 @@ tracing:
 metrics:
   enabled: true
   addr: ":9090"  # Prometheus scrapes /metrics on this port
+
+# ── Service 4 own database ──────────────────────────────────────────────────
+# Connection string is injected via env: RELAY_DB_URL (overrides this value).
+db:
+  url: "postgres://relay_user:relay_password@postgres:5432/zord_relay_db?sslmode=disable"
+  max_open_conns: 20
+  max_idle_conns: 5
+
+# ── PSP (Payment Service Provider) client ───────────────────────────────────
+# Use RELAY_PSP_BASE_URL / RELAY_PSP_TIMEOUT_SECONDS env overrides in production.
+psp:
+  base_url: "http://localhost:8099"
+  timeout_seconds: 30
+
+# ── Token Enclave (Service 3) ────────────────────────────────────────────────
+# Use RELAY_TOKEN_ENCLAVE_BASE_URL env override in production.
+token_enclave:
+  base_url: ""          # Required — set via RELAY_TOKEN_ENCLAVE_BASE_URL
+  timeout_seconds: 10
+
+# ── Dispatch loop (Step 0–5 lifecycle) ──────────────────────────────────────
+dispatch:
+  # Kafka consumer configuration for consuming payments.intent.events.v1.
+  consumer_group_id: "dispatch-loop-group"
+  topic: "payments.intent.events.v1"
+  poll_timeout: 200ms
+
+  # PSP connector identity — determines which corridor to use by default.
+  # Overridden per-event by payload.beneficiary.instrument.kind.
+  connector_id: "razorpayx-v1"
+  default_corridor_id: "IMPS"
+
+  # Dispatch worker pool — concurrent PSP calls (Gap 14 fix).
+  # Each worker handles one message at a time. Controls max concurrent PSP calls.
+  # Must not exceed DB max_open_conns minus relay_loop workers.
+  worker_count: 4
+
+  # Circuit breaker: pause new dispatches after this many consecutive PSP failures.
+  psp_circuit_breaker_threshold: 5
+  psp_circuit_reset_seconds: 60
+
+# ── Relay outbox Kafka publisher loop ───────────────────────────────────────
+relay_loop:
+  worker_count: 2
+  batch_size: 50
+  poll_interval: 2s
+  # Topics dispatched dispatch-lifecycle events to (consumed by Service 5).
+  dispatch_events_topic: "payments.dispatch.events.v1"
+  publish_failure_dlq_topic: "relay.dlq.publish_failure"
+  poison_event_dlq_topic: "relay.dlq.poison"
+
+# ── Retry sweeper (FAILED_RETRYABLE) ────────────────────────────────────────
+retry_sweeper:
+  interval: 30s
+  batch_size: 20
+
+# ── Recovery sweeper (SENT + AWAITING_PROVIDER_SIGNAL) ───────────────────────
+# Fixes Gaps 1, 2, 3: queries PSP to resolve stuck dispatches.
+# sent_timeout_seconds must be > psp.timeout_seconds to avoid false positives.
+recovery_sweeper:
+  interval: 60s
+  sent_timeout_seconds: 120     # psp.timeout_seconds * 2
+  awaiting_timeout_seconds: 300 # 5 minutes
+  batch_size: 50

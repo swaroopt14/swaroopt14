@@ -121,7 +121,8 @@ func (r *DispatchRepo) InsertTx(ctx context.Context, tx *sql.Tx, d *model.Dispat
 }
 
 // MarkGovernanceDecisionTx records the governance evaluation result (Step 1.5).
-// Updates status if governance blocked dispatch (HELD, TERMINAL, MANUAL_REVIEW).
+// Only updates rows in PENDING status — prevents overwriting a row that has
+// already advanced (e.g. a concurrent retry that reached SENT).
 func (r *DispatchRepo) MarkGovernanceDecisionTx(ctx context.Context, tx *sql.Tx, dispatchID string, decision model.GovernanceDecision, reasonCodes []string) error {
 	reasonJSON, err := json.Marshal(reasonCodes)
 	if err != nil {
@@ -136,16 +137,22 @@ func (r *DispatchRepo) MarkGovernanceDecisionTx(ctx context.Context, tx *sql.Tx,
 	case model.GovernanceManualReview:
 		newStatus = model.DispatchStatusRequiresManualReview
 	}
-	_, err = tx.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		UPDATE dispatches
 		SET dispatch_governance_decision = $1,
 		    dispatch_governance_reason_codes = $2,
 		    status = $3,
 		    updated_at = now()
 		WHERE dispatch_id = $4
+		  AND status = 'PENDING'
 	`, string(decision), reasonJSON, string(newStatus), dispatchID)
 	if err != nil {
 		return fmt.Errorf("dispatch_repo: mark governance decision: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		// Row was not in PENDING — likely already advanced by a concurrent path.
+		// This is safe to ignore — the more recent status takes precedence.
+		return nil
 	}
 	return nil
 }

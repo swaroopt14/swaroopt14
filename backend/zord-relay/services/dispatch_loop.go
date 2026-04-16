@@ -5,10 +5,12 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 	"zord-relay/logger"
+	"zord-relay/metrics"
 	"zord-relay/model"
 	"zord-relay/psp"
 
@@ -91,13 +93,21 @@ func NewDispatchLoop(
 // Once true is returned, all subsequent failures (Steps 2–5) are owned entirely
 // by Service 4's retry sweeper — the Kafka message is no longer relevant.
 func (l *DispatchLoop) processEvent(ctx context.Context, workerID int, e model.OutboxEvent) bool {
-	// ── Derive contractID ────────────────────────────────────────────────────
-	// ContractID may not be present in early-stage intent events.
-	// Fall back to AggregateID (= IntentID) so idempotency still works.
-	contractID := e.ContractID
-	if contractID == "" {
-		contractID = e.AggregateID
+	// ── Validate ContractID — hard failure, not silent fallback ──────────────
+	// A missing ContractID is a poison event. The unique index on
+	// (contract_id, attempt_count) would incorrectly use intent_id if we
+	// fell back silently, causing contract collisions.
+	if e.ContractID == "" {
+		logger.Logger.Error("dispatch_loop: poison event — contract_id is empty, skipping",
+			zap.String("event_id", e.EventID),
+			zap.String("aggregate_id", e.AggregateID),
+			zap.String("tenant_id", e.TenantID),
+		)
+		metrics.DispatchTotal.WithLabelValues("poison_no_contract_id").Inc()
+		// Return true to commit the Kafka offset — this message is permanently unusable.
+		return true
 	}
+	contractID := e.ContractID
 
 	log := logger.Logger.With(
 		zap.Int("worker_id", workerID),
@@ -505,40 +515,78 @@ func (l *DispatchLoop) evaluateGovernance(_ context.Context, dispatchID, connect
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PSP error classification
+//
+// classifyPSPError must receive a structured PSPError from the PSP client,
+// NOT do substring matching on error message strings. Substring matching is
+// fragile — port numbers, error descriptions, and log prefixes can all
+// accidentally trigger false matches.
+//
+// The PSP client (psp.Client) must return *psp.PSPError with a populated
+// HTTPStatusCode when the PSP returns a non-2xx response, or set
+// IsTimeout=true on network/context deadline errors.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// classifyPSPError returns (retryClass, isFatal, isUncertain).
+// isUncertain = true means the call may have succeeded (timeout/network drop).
+// isFatal     = true means the PSP explicitly rejected — do not retry.
 func classifyPSPError(err error) (retryClass string, isFatal bool, isUncertain bool) {
-	msg := err.Error()
-
-	for _, s := range []string{"context deadline", "timeout", "deadline exceeded", "i/o timeout"} {
-		if containsCI(msg, s) {
+	var pspErr *psp.PSPError
+	if errors.As(err, &pspErr) {
+		// Structured PSP error — classify by HTTP status code, not string.
+		if pspErr.IsTimeout || pspErr.IsNetworkDrop {
+			// Network-level uncertain: money may have moved.
 			return string(model.RetryClassWaitForSignal), false, true
 		}
-	}
-
-	for _, s := range []string{"HTTP 4", "400", "422", "404", "403", "401"} {
-		if containsCI(msg, s) {
+		switch {
+		case pspErr.HTTPStatusCode >= 400 && pspErr.HTTPStatusCode < 500:
+			// 4xx: PSP explicitly rejected the request — fatal, do not retry.
+			// 429 (rate limit) is retryable but we treat it conservatively here.
+			// Add explicit handling for 429 if your PSP uses it.
 			return string(model.RetryClassNeverRetry), true, false
+		case pspErr.HTTPStatusCode >= 500:
+			// 5xx: PSP-side transient error — retryable.
+			return string(model.RetryClassRetryableAfterBackoff), false, false
 		}
 	}
 
-	return string(model.RetryClassRetryableAfterBackoff), false, false
-}
+	// Context cancellation or deadline — uncertain.
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return string(model.RetryClassWaitForSignal), false, true
+	}
 
-func containsCI(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || func() bool {
-		for i := 0; i <= len(s)-len(sub); i++ {
-			if s[i:i+len(sub)] == sub {
-				return true
-			}
-		}
-		return false
-	}())
+	// Unknown / network error — treat as retryable transient.
+	return string(model.RetryClassRetryableAfterBackoff), false, false
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Failure helpers — all owned by Service 4 after Step 1
 // ─────────────────────────────────────────────────────────────────────────────
+
+// retryBackoff computes the next retry delay using exponential backoff with jitter.
+// Formula: min(baseSecs * 2^(attempt-1), maxSecs) ± 20% jitter.
+// attempt=1 → ~30s, attempt=2 → ~60s, attempt=3 → ~120s ... capped at 1 hour.
+func retryBackoff(attemptCount int) time.Duration {
+	const baseSecs = 30
+	const maxSecs = 3600
+	exp := 1
+	for i := 1; i < attemptCount; i++ {
+		exp *= 2
+		if exp > maxSecs/baseSecs {
+			exp = maxSecs / baseSecs
+			break
+		}
+	}
+	secs := baseSecs * exp
+	if secs > maxSecs {
+		secs = maxSecs
+	}
+	// ±20% jitter to prevent thundering herd across concurrent retries.
+	jitter := float64(secs) * 0.2
+	// Use attempt count as a deterministic seed offset to spread retries.
+	offset := int(jitter) - (attemptCount % int(jitter+1))
+	secs += offset
+	return time.Duration(secs) * time.Second
+}
 
 func (l *DispatchLoop) markFailedRetryable(
 	ctx context.Context,
@@ -546,7 +594,13 @@ func (l *DispatchLoop) markFailedRetryable(
 	retryClass, failureCode, reason string,
 	log *zap.Logger,
 ) {
-	nextAttempt := time.Now().UTC().Add(30 * time.Second)
+	// Use actual attempt count from dispatch row if available for correct backoff.
+	// Default to 1 if not retrievable.
+	attemptCount := 1
+	if d, err := l.dispatchRepo.FindByContractAndAttempt(ctx, contractID, 1); err == nil && d != nil {
+		attemptCount = d.AttemptCount
+	}
+	nextAttempt := time.Now().UTC().Add(retryBackoff(attemptCount))
 	failedAt := time.Now().UTC()
 
 	dfEvent := model.DispatchFailedEvent{
@@ -555,7 +609,7 @@ func (l *DispatchLoop) markFailedRetryable(
 		DispatchID: dispatchID, TraceID: traceID, SchemaVersion: "v1",
 		CreatedAt: failedAt,
 		Payload: model.DispatchFailedPayload{
-			DispatchID: dispatchID, AttemptCount: 1,
+			DispatchID: dispatchID, AttemptCount: attemptCount,
 			Reason: fmt.Sprintf("%s: %s", failureCode, reason), FailedAt: failedAt,
 		},
 	}
@@ -572,6 +626,13 @@ func (l *DispatchLoop) markFailedRetryable(
 		log.Error("dispatch_loop: mark failed retryable write error",
 			zap.String("dispatch_id", dispatchID), zap.Error(err))
 	}
+	metrics.DispatchTotal.WithLabelValues("failed_retryable").Inc()
+	log.Warn("dispatch_loop: dispatch marked FAILED_RETRYABLE",
+		zap.String("dispatch_id", dispatchID),
+		zap.String("retry_class", retryClass),
+		zap.String("failure_code", failureCode),
+		zap.Time("next_attempt_at", nextAttempt),
+	)
 }
 
 func (l *DispatchLoop) markFailedTerminal(
@@ -603,6 +664,11 @@ func (l *DispatchLoop) markFailedTerminal(
 		log.Error("dispatch_loop: mark failed terminal write error",
 			zap.String("dispatch_id", dispatchID), zap.Error(err))
 	}
+	metrics.DispatchTotal.WithLabelValues("failed_terminal").Inc()
+	log.Error("dispatch_loop: dispatch marked FAILED_TERMINAL",
+		zap.String("dispatch_id", dispatchID),
+		zap.String("reason", reason),
+	)
 }
 
 func (l *DispatchLoop) markAwaitingProviderSignal(
@@ -635,6 +701,11 @@ func (l *DispatchLoop) markAwaitingProviderSignal(
 		log.Error("dispatch_loop: mark awaiting signal write error",
 			zap.String("dispatch_id", dispatchID), zap.Error(err))
 	}
+	metrics.DispatchTotal.WithLabelValues("awaiting_signal").Inc()
+	log.Warn("dispatch_loop: dispatch marked AWAITING_PROVIDER_SIGNAL — PSP call uncertain",
+		zap.String("dispatch_id", dispatchID),
+		zap.String("reason", reason),
+	)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -691,6 +762,7 @@ func (l *DispatchLoop) recordPSPSuccess() {
 	defer l.cbMu.Unlock()
 	l.cbFailures = 0
 	l.cbOpenAt = time.Time{}
+	metrics.PSPCircuitBreakerState.Set(0)
 }
 
 func (l *DispatchLoop) recordPSPFailure() {
@@ -703,6 +775,7 @@ func (l *DispatchLoop) recordPSPFailure() {
 	l.cbFailures++
 	if l.cbFailures >= threshold && l.cbOpenAt.IsZero() {
 		l.cbOpenAt = time.Now()
+		metrics.PSPCircuitBreakerState.Set(1)
 		logger.Logger.Error("dispatch_loop: circuit breaker OPENED",
 			zap.Int("consecutive_failures", l.cbFailures))
 	}
@@ -722,6 +795,7 @@ func (l *DispatchLoop) circuitOpen() bool {
 		logger.Logger.Info("dispatch_loop: circuit breaker RESET")
 		l.cbFailures = 0
 		l.cbOpenAt = time.Time{}
+		metrics.PSPCircuitBreakerState.Set(0)
 		return false
 	}
 	return true

@@ -10,11 +10,18 @@ import (
 
 // Config is the root configuration for the relay service.
 type Config struct {
-	Relay    RelayConfig     `mapstructure:"relay"`
-	Kafka    KafkaConfig     `mapstructure:"kafka"`
-	Services []ServiceConfig `mapstructure:"services"`
-	Tracing  TracingConfig   `mapstructure:"tracing"`
-	Metrics  MetricsConfig   `mapstructure:"metrics"`
+	Relay           RelayConfig           `mapstructure:"relay"`
+	Kafka           KafkaConfig           `mapstructure:"kafka"`
+	Services        []ServiceConfig       `mapstructure:"services"`
+	Tracing         TracingConfig         `mapstructure:"tracing"`
+	Metrics         MetricsConfig         `mapstructure:"metrics"`
+	DB              DBConfig              `mapstructure:"db"`
+	PSP             PSPConfig             `mapstructure:"psp"`
+	TokenEnclave    TokenEnclaveConfig    `mapstructure:"token_enclave"`
+	Dispatch        DispatchConfig        `mapstructure:"dispatch"`
+	RelayLoop       RelayLoopConfig       `mapstructure:"relay_loop"`
+	RetrySweeper    RetrySweeperConfig    `mapstructure:"retry_sweeper"`
+	RecoverySweeper RecoverySweeperConfig `mapstructure:"recovery_sweeper"`
 }
 
 // RelayConfig holds global relay behaviour settings.
@@ -67,24 +74,21 @@ type KafkaConfig struct {
 	DLQPoisonTopic         string `mapstructure:"dlq_poison_topic"`
 }
 
-// ServiceConfig describes one upstream service that relay polls.
+// ServiceConfig describes one upstream service that relay polls (Kafka relay path).
 type ServiceConfig struct {
 	// Name is a short identifier used in logs and metrics labels.
 	Name string `mapstructure:"name"`
 
 	// BaseURL is the root URL of the upstream service.
-	// e.g. http://intent-engine.payments.svc.cluster.local
 	BaseURL string `mapstructure:"base_url"`
 
 	// AuthToken is the shared secret sent as X-Relay-Token header.
-	// Each service should have its own token.
 	AuthToken string `mapstructure:"auth_token"`
 
 	// HTTPTimeout for lease/ack/nack calls to this service.
 	HTTPTimeout time.Duration `mapstructure:"http_timeout"`
 
-	// Topic is the default Kafka topic to publish to.
-	// Individual events override this if the outbox row carries a topic field.
+	// DefaultTopic is the Kafka topic to publish to.
 	DefaultTopic string `mapstructure:"default_topic"`
 
 	// Retry settings (Kafka-side) — override global if set.
@@ -93,33 +97,106 @@ type ServiceConfig struct {
 	RetryMaxDelay    time.Duration `mapstructure:"retry_max_delay"`
 }
 
+// DBConfig holds connection settings for Service 4's own Postgres database.
+type DBConfig struct {
+	// URL is the full postgres DSN. Override with RELAY_DB_URL env var.
+	URL         string `mapstructure:"url"`
+	MaxOpenConns int   `mapstructure:"max_open_conns"`
+	MaxIdleConns int   `mapstructure:"max_idle_conns"`
+}
+
+// PSPConfig holds settings for the external Payment Service Provider client.
+type PSPConfig struct {
+	// BaseURL is the PSP API base URL. Override with RELAY_PSP_BASE_URL env var.
+	BaseURL        string `mapstructure:"base_url"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
+}
+
+// TokenEnclaveConfig holds settings for Service 3 (token enclave / detokenizer).
+type TokenEnclaveConfig struct {
+	// BaseURL is the token enclave API base URL.
+	// Override with RELAY_TOKEN_ENCLAVE_BASE_URL env var.
+	BaseURL        string `mapstructure:"base_url"`
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"`
+}
+
+// DispatchConfig holds all settings for the Kafka-triggered dispatch loop.
+type DispatchConfig struct {
+	ConsumerGroupID string        `mapstructure:"consumer_group_id"`
+	Topic           string        `mapstructure:"topic"`
+	PollTimeout     time.Duration `mapstructure:"poll_timeout"`
+	ConnectorID     string        `mapstructure:"connector_id"`
+	DefaultCorridorID string      `mapstructure:"default_corridor_id"`
+
+	// WorkerCount is the size of the dispatch worker pool (Gap 14).
+	// Controls max concurrent PSP calls. Default: 4.
+	// Must not exceed DB max_open_conns minus relay loop workers.
+	WorkerCount int `mapstructure:"worker_count"`
+
+	// Circuit breaker settings.
+	PSPCircuitBreakerThreshold int `mapstructure:"psp_circuit_breaker_threshold"`
+	PSPCircuitResetSeconds     int `mapstructure:"psp_circuit_reset_seconds"`
+}
+
+// RecoverySweeperConfig holds settings for the SENT + AWAITING_PROVIDER_SIGNAL sweeper.
+// This is separate from RetrySweeperConfig which handles FAILED_RETRYABLE only.
+type RecoverySweeperConfig struct {
+	// Interval between full sweep cycles. Default: 60s.
+	Interval time.Duration `mapstructure:"interval"`
+	// SentTimeoutSeconds: SENT rows older than this are treated as crash victims.
+	// Must be > PSP timeout seconds. Default: PSP timeout * 2.
+	SentTimeoutSeconds int `mapstructure:"sent_timeout_seconds"`
+	// AwaitingTimeoutSeconds: how long to wait before re-querying PSP for
+	// AWAITING_PROVIDER_SIGNAL rows. Default: 300s (5 min).
+	AwaitingTimeoutSeconds int `mapstructure:"awaiting_timeout_seconds"`
+	// BatchSize limits rows processed per sweep. Default: 50.
+	BatchSize int `mapstructure:"batch_size"`
+}
+
+// RelayLoopConfig holds settings for the relay_outbox → Kafka publisher loop.
+type RelayLoopConfig struct {
+	WorkerCount            int           `mapstructure:"worker_count"`
+	BatchSize              int           `mapstructure:"batch_size"`
+	PollInterval           time.Duration `mapstructure:"poll_interval"`
+	DispatchEventsTopic    string        `mapstructure:"dispatch_events_topic"`
+	PublishFailureDLQTopic string        `mapstructure:"publish_failure_dlq_topic"`
+	PoisonEventDLQTopic    string        `mapstructure:"poison_event_dlq_topic"`
+}
+
+// RetrySweeperConfig holds settings for the FAILED_RETRYABLE dispatch sweeper.
+type RetrySweeperConfig struct {
+	Interval  time.Duration `mapstructure:"interval"`
+	BatchSize int           `mapstructure:"batch_size"`
+}
+
 // TracingConfig holds OpenTelemetry settings.
 type TracingConfig struct {
 	Enabled      bool   `mapstructure:"enabled"`
-	OTLPEndpoint string `mapstructure:"otlp_endpoint"` // e.g. http://tempo:4318
+	OTLPEndpoint string `mapstructure:"otlp_endpoint"`
 	ServiceName  string `mapstructure:"service_name"`
-	Environment  string `mapstructure:"environment"` // production / staging
+	Environment  string `mapstructure:"environment"`
 }
 
 // MetricsConfig holds Prometheus settings.
 type MetricsConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
-	Addr    string `mapstructure:"addr"` // e.g. :9090
+	Addr    string `mapstructure:"addr"`
 }
 
 // Load reads configuration from file + env vars.
 // Environment variables override file values.
-// Prefix: RELAY_ (e.g. RELAY_KAFKA_SASL_PASSWORD)
+// Prefix: RELAY_ (e.g. RELAY_PSP_BASE_URL, RELAY_TOKEN_ENCLAVE_BASE_URL)
 func Load() (*Config, error) {
 	v := viper.New()
 
-	// --- Defaults ---
+	// ── Relay defaults ──────────────────────────────────────────────────────
 	v.SetDefault("relay.poll_interval", "2s")
 	v.SetDefault("relay.lease_limit", 500)
 	v.SetDefault("relay.lease_ttl_seconds", 120)
 	v.SetDefault("relay.max_publish_concurrency", 10)
 	v.SetDefault("relay.shutdown_timeout", "30s")
 
+	// ── Kafka defaults ──────────────────────────────────────────────────────
 	v.SetDefault("kafka.sasl_mechanism", "SCRAM-SHA-512")
 	v.SetDefault("kafka.tls_enabled", true)
 	v.SetDefault("kafka.acks", "all")
@@ -130,14 +207,53 @@ func Load() (*Config, error) {
 	v.SetDefault("kafka.dlq_publish_failure_topic", "relay.dlq.publish_failure")
 	v.SetDefault("kafka.dlq_poison_topic", "relay.dlq.poison")
 
+	// ── DB defaults ─────────────────────────────────────────────────────────
+	v.SetDefault("db.max_open_conns", 20)
+	v.SetDefault("db.max_idle_conns", 5)
+
+	// ── PSP defaults ────────────────────────────────────────────────────────
+	v.SetDefault("psp.base_url", "http://localhost:8099")
+	v.SetDefault("psp.timeout_seconds", 30)
+
+	// ── Token enclave defaults ──────────────────────────────────────────────
+	v.SetDefault("token_enclave.timeout_seconds", 10)
+
+	// ── Dispatch defaults ───────────────────────────────────────────────────
+	v.SetDefault("dispatch.consumer_group_id", "dispatch-loop-group")
+	v.SetDefault("dispatch.topic", "payments.intent.events.v1")
+	v.SetDefault("dispatch.poll_timeout", "200ms")
+	v.SetDefault("dispatch.connector_id", "razorpayx-v1")
+	v.SetDefault("dispatch.default_corridor_id", "IMPS")
+	v.SetDefault("dispatch.worker_count", 4)
+	v.SetDefault("dispatch.psp_circuit_breaker_threshold", 5)
+	v.SetDefault("dispatch.psp_circuit_reset_seconds", 60)
+
+	// ── Recovery sweeper defaults (Gaps 1, 2, 3) ─────────────────────────────
+	v.SetDefault("recovery_sweeper.interval", "60s")
+	v.SetDefault("recovery_sweeper.sent_timeout_seconds", 120) // psp.timeout_seconds * 2
+	v.SetDefault("recovery_sweeper.awaiting_timeout_seconds", 300)
+	v.SetDefault("recovery_sweeper.batch_size", 50)
+
+	// ── Relay loop defaults ─────────────────────────────────────────────────
+	v.SetDefault("relay_loop.worker_count", 2)
+	v.SetDefault("relay_loop.batch_size", 50)
+	v.SetDefault("relay_loop.poll_interval", "2s")
+	v.SetDefault("relay_loop.dispatch_events_topic", "payments.dispatch.events.v1")
+	v.SetDefault("relay_loop.publish_failure_dlq_topic", "relay.dlq.publish_failure")
+	v.SetDefault("relay_loop.poison_event_dlq_topic", "relay.dlq.poison")
+
+	// ── Retry sweeper defaults ──────────────────────────────────────────────
+	v.SetDefault("retry_sweeper.interval", "30s")
+	v.SetDefault("retry_sweeper.batch_size", 20)
+
+	// ── Tracing/Metrics defaults ────────────────────────────────────────────
 	v.SetDefault("tracing.enabled", true)
 	v.SetDefault("tracing.service_name", "relay-service")
 	v.SetDefault("tracing.environment", "production")
-
 	v.SetDefault("metrics.enabled", true)
 	v.SetDefault("metrics.addr", ":9090")
 
-	// --- File ---
+	// ── File ────────────────────────────────────────────────────────────────
 	v.SetConfigName("config")
 	v.SetConfigType("yaml")
 	v.AddConfigPath(".")
@@ -151,7 +267,13 @@ func Load() (*Config, error) {
 		// Config file is optional; env vars alone are valid.
 	}
 
-	// --- Environment variable overrides ---
+	// ── Environment variable overrides ──────────────────────────────────────
+	// All env vars are prefixed RELAY_ with dots replaced by underscores.
+	// Examples:
+	//   RELAY_DB_URL                    → db.url
+	//   RELAY_PSP_BASE_URL              → psp.base_url
+	//   RELAY_TOKEN_ENCLAVE_BASE_URL    → token_enclave.base_url
+	//   RELAY_KAFKA_SASL_PASSWORD       → kafka.sasl_password
 	v.SetEnvPrefix("RELAY")
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
@@ -188,6 +310,15 @@ func (c *Config) validate() error {
 		if svc.DefaultTopic == "" {
 			return fmt.Errorf("services[%d].default_topic is required (service: %s)", i, svc.Name)
 		}
+	}
+	if c.DB.URL == "" {
+		return fmt.Errorf("db.url is required (set RELAY_DB_URL env var)")
+	}
+	if c.Dispatch.ConsumerGroupID == "" {
+		return fmt.Errorf("dispatch.consumer_group_id is required")
+	}
+	if c.Dispatch.Topic == "" {
+		return fmt.Errorf("dispatch.topic is required")
 	}
 	if c.Tracing.Enabled && c.Tracing.OTLPEndpoint == "" {
 		return fmt.Errorf("tracing.otlp_endpoint is required when tracing is enabled")

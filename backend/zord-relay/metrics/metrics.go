@@ -96,4 +96,65 @@ var (
 		Name:      "in_flight_publishes",
 		Help:      "Current number of in-flight Kafka publish goroutines.",
 	}, []string{"service"})
+
+	// ── Dispatch loop metrics ────────────────────────────────────────────────
+
+	// DispatchTotal counts dispatch lifecycle outcomes.
+	DispatchTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "relay",
+		Name:      "dispatch_total",
+		Help:      "Total dispatch attempts by outcome.",
+	}, []string{"outcome"}) // outcome: provider_acked | failed_retryable | failed_terminal | awaiting_signal | held
+
+	// DispatchDuration tracks end-to-end dispatch latency (Step 1 → Step 5).
+	DispatchDuration = promauto.NewHistogram(prometheus.HistogramOpts{
+		Namespace: "relay",
+		Name:      "dispatch_duration_seconds",
+		Help:      "End-to-end dispatch latency from Step 1 commit to Step 5 commit.",
+		Buckets:   []float64{0.1, 0.5, 1, 2, 5, 10, 30, 60},
+	})
+
+	// PSPCallDuration tracks PSP HTTP call latency.
+	PSPCallDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "relay",
+		Name:      "psp_call_duration_seconds",
+		Help:      "PSP HTTP call latency.",
+		Buckets:   []float64{0.1, 0.5, 1, 2, 5, 10, 30},
+	}, []string{"outcome"}) // outcome: success | timeout | fatal | retryable
+
+	// PSPCircuitBreakerState tracks the circuit breaker state.
+	PSPCircuitBreakerState = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "relay",
+		Name:      "psp_circuit_breaker_open",
+		Help:      "1 if PSP circuit breaker is open (pausing dispatches), 0 if closed.",
+	})
+
+	// DetokenizeDuration tracks Service 3 call latency.
+	DetokenizeDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "relay",
+		Name:      "detokenize_duration_seconds",
+		Help:      "Service 3 detokenize call latency.",
+		Buckets:   []float64{0.01, 0.05, 0.1, 0.5, 1, 2},
+	}, []string{"outcome"}) // outcome: success | error
+
+	// DispatchStatusGauge tracks count of dispatches by status for operational visibility.
+	DispatchStatusGauge = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "relay",
+		Name:      "dispatch_status_count",
+		Help:      "Current count of dispatch rows by status. Updated by sweeper.",
+	}, []string{"status"})
+
+	// SweeperRunTotal counts sweeper executions.
+	SweeperRunTotal = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "relay",
+		Name:      "sweeper_run_total",
+		Help:      "Total sweeper runs by type.",
+	}, []string{"sweeper_type", "outcome"}) // sweeper_type: retry | awaiting_signal | sent_recovery
+
+	// RelayOutboxPendingGauge tracks PENDING rows in relay_outbox.
+	RelayOutboxPendingGauge = promauto.NewGauge(prometheus.GaugeOpts{
+		Namespace: "relay",
+		Name:      "relay_outbox_pending",
+		Help:      "Current count of PENDING rows in relay_outbox.",
+	})
 )

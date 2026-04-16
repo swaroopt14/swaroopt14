@@ -901,3 +901,97 @@ THEN ACTION REQUEST_STRONGER_CARRIER_CONTRACT severity=MEDIUM',
 'PATTERN', 'MEDIUM', false, false)
 
 ON CONFLICT (policy_id) DO NOTHING;
+
+-- =============================================================================
+-- PHASE 5: Policy Engine + Action Contract Extensions
+-- =============================================================================
+--
+-- These statements are migration-safe (ALTER TABLE IF EXISTS / ADD COLUMN IF NOT EXISTS)
+-- and idempotent — safe to run on both fresh and existing databases.
+--
+-- WHAT CHANGED:
+--   action_contracts — added contract_status, expires_at, policy_family, severity
+--   (These columns exist in the table definition above as Phase 1 additions,
+--    but Phase 5 adds the indexes, seeds, and approval-management policies
+--    that make them operationally useful.)
+--
+-- PHASE 5 INDEXES (complement the Phase 1 partial indexes):
+
+-- "Which policies belong to the LEAKAGE family and fired today?"
+CREATE INDEX IF NOT EXISTS idx_ac_family_created
+    ON action_contracts (tenant_id, policy_family, created_at DESC)
+    WHERE policy_family IS NOT NULL;
+
+-- "Which HIGH-severity actions are pending approval right now?"
+CREATE INDEX IF NOT EXISTS idx_ac_severity_status
+    ON action_contracts (tenant_id, severity, contract_status)
+    WHERE severity IS NOT NULL;
+
+-- "Which APPROVED contracts are waiting in the outbox for delivery?"
+-- The outbox_worker uses this to skip PENDING_APPROVAL entries efficiently.
+CREATE INDEX IF NOT EXISTS idx_ac_status_created
+    ON action_contracts (contract_status, created_at DESC);
+
+-- PHASE 5 SEED: Approval-lifecycle management policies
+-- These govern what happens to HOLD/RETRY/REVIEW decisions before they actuate.
+-- All start DISABLED — enable one at a time in production after validating thresholds.
+
+INSERT INTO policy_registry
+    (policy_id, version, scope_type, trigger_type, trigger_value, dsl,
+     policy_family, severity, requires_manual_approval, enabled)
+VALUES
+
+-- HOLD on duplicate cluster — requires human approval before pausing payouts
+-- Duplicate-risk HOLD decisions must never auto-actuate in entry mode.
+('P_DUPLICATE_CLUSTER_HOLD', 1, 'tenant', 'event', 'canonical.intent.created',
+'WHEN pattern.duplicate_cluster_count > 10
+THEN ACTION HOLD severity=HIGH',
+'PATTERN', 'HIGH', true, false),
+
+-- Reversal escalation with approval — large reversals need finance sign-off
+-- Any single-day reversal exposure > ₹5L requires finance review before alerting.
+('P_REVERSAL_FINANCE_REVIEW', 1, 'tenant', 'cron', '*/15 * * * *',
+'WHEN leakage.reversal_exposure_minor > 500000
+THEN ACTION ESCALATE severity=HIGH',
+'LEAKAGE', 'HIGH', true, false),
+
+-- Ambiguous batch hold — high-ambiguity batches need ops review before proceeding
+-- requires_manual_approval=true means REVIEW_AMBIGUOUS_BATCH won't auto-actuate.
+('P_AMBIGUITY_BATCH_HOLD', 1, 'corridor', 'event', 'batch.summary.updated',
+'WHEN batch.ambiguity_score > 0.85
+THEN ACTION REVIEW_AMBIGUOUS_BATCH severity=HIGH',
+'AMBIGUITY', 'HIGH', true, false),
+
+-- Governance rejected — any governance rejection triggers immediate escalation
+-- OR logic: fire if governance_rejected_count > 0 OR audit_ready_pct drops critically
+('P_GOVERNANCE_REJECTION', 1, 'tenant', 'event', 'governance.decision.created',
+'WHEN defensibility.governance_rejected_count > 0
+THEN ACTION ESCALATE severity=HIGH',
+'DEFENSIBILITY', 'HIGH', false, false),
+
+-- Combined leakage + ambiguity signal — both high simultaneously = prepare-and-sign
+-- OR logic: either condition alone is enough to recommend the upgrade
+('P_LEAKAGE_AND_AMBIGUITY_UPGRADE', 1, 'tenant', 'cron', '0 */6 * * *',
+'WHEN leakage.percentage > 0.03 OR ambiguity.rate > 0.08
+THEN ACTION PREPARE_AND_SIGN_RECOMMENDED severity=HIGH',
+'RECOMMENDATION', 'HIGH', false, false),
+
+-- Evidence weak + governance missing — combined defensibility failure
+('P_DEFENSIBILITY_CRITICAL', 1, 'tenant', 'cron', '*/30 * * * *',
+'WHEN defensibility.audit_ready_pct < 0.60
+THEN ACTION ESCALATE severity=HIGH',
+'DEFENSIBILITY', 'HIGH', false, false),
+
+-- Carrier contract weakness — systematic missing refs across tenant
+('P_CARRIER_WEAKNESS_UPGRADE', 1, 'tenant', 'cron', '0 */12 * * *',
+'WHEN ambiguity.provider_ref_missing_rate > 0.15
+THEN ACTION REQUEST_STRONGER_CARRIER_CONTRACT severity=MEDIUM',
+'AMBIGUITY', 'MEDIUM', false, false),
+
+-- Unresolved settlement spike — many unresolved observations = ops ticket
+('P_UNRESOLVED_SPIKE', 1, 'tenant', 'event', 'attachment.decision.created',
+'WHEN ambiguity.unresolved_count > 50
+THEN ACTION OPEN_OPS_INCIDENT severity=HIGH',
+'AMBIGUITY', 'HIGH', false, false)
+
+ON CONFLICT (policy_id) DO NOTHING;

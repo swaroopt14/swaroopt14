@@ -1,23 +1,33 @@
 package worker
 
-// What is this file?
+// outbox_worker.go
+//
 // The outbox worker delivers pending actuation events to Kafka.
 // It runs in the background, waking up every 5 seconds.
 //
-// WHY DOES THIS EXIST?
-// When ZPI creates an ActionContract that needs to trigger another service,
-// it writes to the actuation_outbox table (not Kafka directly).
-// This worker reads those entries and delivers them to Kafka.
-// If delivery fails, it retries with exponential backoff.
+// PHASE 5 ADDITIONS:
 //
-// WHAT IT DOES EVERY 5 SECONDS:
-//   1. SELECT up to 50 PENDING/FAILED entries WHERE next_retry_at <= now
-//   2. For each entry: publish to the right Kafka topic
-//   3. On success: mark as SENT
-//   4. On failure: mark as FAILED (increments attempt, schedules retry)
+// 1. EXPIRY SWEEP
+//    On every tick, BEFORE fetching outbox entries, the worker calls
+//    actionRepo.MarkExpiredContracts() to transition PENDING_APPROVAL
+//    contracts whose expires_at has passed to EXPIRED status.
+//    This prevents stale approval requests from lingering indefinitely.
 //
-// WHO STARTS THIS?
-// cmd/main.go calls outboxWorker.Start(ctx) in a goroutine.
+// 2. APPROVED CONTRACT DELIVERY GATE
+//    The outbox table is joined with action_contracts so that entries
+//    for PENDING_APPROVAL contracts are skipped by the FetchPending query.
+//    Only entries whose contract has contract_status IN ('ACTIVE', 'APPROVED')
+//    are fetched. This is enforced at the SQL level in outbox_repo.FetchPending.
+//
+// 3. BATCH_PATCH_REQUEST and OPS_WEBHOOK routing
+//    Two new event type cases added to topicForEventType.
+//
+// WHY OUTBOX PATTERN?
+//    When ZPI creates an ActionContract that needs to trigger another service,
+//    it writes to actuation_outbox in the SAME DB transaction as the contract.
+//    This worker reads those entries and delivers them to Kafka.
+//    If delivery fails, it retries with exponential backoff.
+//    Guaranteed delivery, zero message loss.
 
 import (
 	"context"
@@ -31,21 +41,27 @@ import (
 	kafkapkg "github.com/zord/zord-intelligence/kafka"
 )
 
-// OutboxWorker delivers pending actuation events to Kafka.
+// OutboxWorker delivers pending actuation events to Kafka and
+// sweeps expired approval windows on every tick.
 type OutboxWorker struct {
 	outboxRepo *persistence.OutboxRepo
+	actionRepo *persistence.ActionContractRepo // PHASE 5: for expiry sweep
 	producer   *kafkapkg.Producer
 	cfg        *config.Config
 }
 
 // NewOutboxWorker creates an OutboxWorker with its dependencies.
+//
+// PHASE 5: actionRepo is now required for the expiry sweep.
 func NewOutboxWorker(
 	outboxRepo *persistence.OutboxRepo,
+	actionRepo *persistence.ActionContractRepo,
 	producer *kafkapkg.Producer,
 	cfg *config.Config,
 ) *OutboxWorker {
 	return &OutboxWorker{
 		outboxRepo: outboxRepo,
+		actionRepo: actionRepo,
 		producer:   producer,
 		cfg:        cfg,
 	}
@@ -56,90 +72,82 @@ func NewOutboxWorker(
 //
 //	go outboxWorker.Start(ctx)
 func (w *OutboxWorker) Start(ctx context.Context) {
-	// time.NewTicker returns a ticker that fires every interval
-	// ticker.C is a channel — it receives the current time every 5 seconds
 	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop() // always stop the ticker when done — frees resources
+	defer ticker.Stop()
 
 	log.Println("outbox_worker: started (interval=5s)")
 
-	// Run once immediately before the first tick
-	// Without this, we would wait 5 seconds before first delivery on startup
+	// Run once immediately before the first tick so startup isn't delayed.
 	w.runOnce(ctx)
 
 	for {
-		// select waits until ONE of the cases is ready
 		select {
 		case <-ticker.C:
-			// Ticker fired — time to check for pending entries
 			w.runOnce(ctx)
-
 		case <-ctx.Done():
-			// Context cancelled — service is shutting down
 			log.Println("outbox_worker: shutting down")
 			return
 		}
 	}
 }
 
-// runOnce fetches and delivers one batch of pending outbox entries.
-// Called every 5 seconds by the Start loop.
+// runOnce performs one complete outbox cycle:
+//   1. Sweep expired PENDING_APPROVAL contracts → EXPIRED (PHASE 5)
+//   2. Fetch ready outbox entries and deliver them to Kafka
 func (w *OutboxWorker) runOnce(ctx context.Context) {
-	// Fetch up to 50 entries ready for delivery
-	// FOR UPDATE SKIP LOCKED means multiple ZPI instances won't double-deliver
+	// PHASE 5: Expire stale approval windows FIRST.
+	// We do this before fetching deliverable entries so that any entries
+	// whose contract just expired are cleanly excluded from delivery.
+	if expired, err := w.actionRepo.MarkExpiredContracts(ctx); err != nil {
+		log.Printf("outbox_worker: expiry sweep error: %v", err)
+	} else if expired > 0 {
+		log.Printf("outbox_worker: expired %d stale approval contracts", expired)
+	}
+
+	// Fetch up to 50 entries ready for delivery.
+	// FetchPending only returns entries for ACTIVE or APPROVED contracts
+	// (the SQL join enforces this — see outbox_repo.go).
 	entries, err := w.outboxRepo.FetchPending(ctx, 50)
 	if err != nil {
 		log.Printf("outbox_worker: fetch error: %v", err)
 		return
 	}
-
 	if len(entries) == 0 {
-		return // nothing to do
+		return
 	}
 
 	log.Printf("outbox_worker: processing %d entries", len(entries))
-
 	for _, entry := range entries {
 		w.deliver(ctx, entry)
 	}
 }
 
 // deliver sends one outbox entry to the correct Kafka topic.
-// Decides which topic to use based on the entry's EventType (ESCALATE, RETRY etc.)
 func (w *OutboxWorker) deliver(ctx context.Context, entry models.ActuationOutbox) {
-	// Decide which Kafka topic this goes to based on event type
 	topic, err := w.topicForEventType(entry.EventType)
 	if err != nil {
-		log.Printf("outbox_worker: unknown event_type=%s for event=%s",
+		log.Printf("outbox_worker: unknown event_type=%s for event=%s — marking failed",
 			entry.EventType, entry.EventID)
-		// Mark as failed — needs manual investigation
 		_ = w.outboxRepo.MarkFailed(ctx, entry.EventID)
 		return
 	}
 
-	// Publish to Kafka
-	// Key = entry.ActionID — ensures ordering: all events for same action
-	// go to the same partition
+	// Key = entry.ActionID ensures ordering: all events for the same action
+	// go to the same Kafka partition.
 	publishErr := w.producer.Publish(ctx, topic, entry.ActionID, entry.Payload)
-
 	if publishErr != nil {
-		// Delivery failed — log and schedule retry
 		log.Printf("outbox_worker: publish failed event=%s topic=%s attempt=%d: %v",
 			entry.EventID, topic, entry.Attempts+1, publishErr)
-
 		if err := w.outboxRepo.MarkFailed(ctx, entry.EventID); err != nil {
-			log.Printf("outbox_worker: mark_failed error event=%s: %v",
-				entry.EventID, err)
+			log.Printf("outbox_worker: mark_failed error event=%s: %v", entry.EventID, err)
 		}
 		return
 	}
 
-	// Delivery succeeded — mark as SENT
+	// Delivery succeeded — mark as SENT.
+	// ON CONFLICT DO NOTHING in MarkSent means a retry after a crash is harmless.
 	if err := w.outboxRepo.MarkSent(ctx, entry.EventID); err != nil {
-		log.Printf("outbox_worker: mark_sent error event=%s: %v",
-			entry.EventID, err)
-		// The Kafka message was sent — even if we fail to mark it,
-		// ON CONFLICT DO NOTHING means a retry is harmless (idempotent)
+		log.Printf("outbox_worker: mark_sent error event=%s: %v", entry.EventID, err)
 	}
 
 	log.Printf("outbox_worker: delivered event=%s action=%s topic=%s",
@@ -147,53 +155,61 @@ func (w *OutboxWorker) deliver(ctx context.Context, entry models.ActuationOutbox
 }
 
 // topicForEventType maps an event type to the correct Kafka output topic.
-// Called by deliver() for every outbox entry.
-//
-// ADDING A NEW EVENT TYPE:
-// 1. Add the new Decision constant to internal/models/policy.go
-// 2. Add the new Kafka topic field to config/config.go
-// 3. Add a new case here mapping decision → topic
-// 4. Add the topic to the requiredTopics list in cmd/main.go
 //
 // ROUTING LOGIC:
-// Three output topics exist:
-//   TopicActuationAlert      → ops team alerts, notifications, incidents, holds
 //   TopicActuationRetry      → Service 4 (retry a payout)
 //   TopicActuationEvidence   → Service 6 (generate/regenerate evidence pack)
-//   TopicActuationBatchPatch → client-facing API (patch request to source system)
+//   TopicActuationBatchPatch → client-facing API (batch patch request)
+//   TopicActuationAlert      → notification service (ops alerts, advisories)
+//
+// PHASE 5: Added BATCH_PATCH_REQUEST and OPS_WEBHOOK cases.
+//
+// HOW TO ADD A NEW EVENT TYPE:
+//   1. Add the Decision constant to internal/models/policy.go
+//   2. Add the Kafka topic field to config/config.go (if a new topic is needed)
+//   3. Add a case here mapping decision → topic
+//   4. Add the topic to requiredTopics in cmd/main.go
 func (w *OutboxWorker) topicForEventType(eventType string) (string, error) {
 	switch eventType {
 
-	// ── Retry → Service 4 ─────────────────────────────────────────────────────
+	// ── RETRY → Service 4 ─────────────────────────────────────────────────
 	case string(models.DecisionRetry):
 		return w.cfg.TopicActuationRetry, nil
 
-	// ── Evidence generation → Service 6 ─────────────────────────────────────
+	// ── EVIDENCE → Service 6 ─────────────────────────────────────────────
 	case string(models.DecisionGenerateEvidence),
-		string(models.DecisionRegenerateEvidence): // NEW: also routes to evidence topic
-		// REGENERATE_EVIDENCE is a more targeted version of GENERATE_EVIDENCE.
-		// Both go to the same Service 6 topic — Service 6 decides how to handle
-		// each based on the payload (new pack vs rebuild existing pack).
+		string(models.DecisionRegenerateEvidence):
+		// REGENERATE_EVIDENCE is a more targeted rebuild of an existing pack.
+		// Both go to the same Service 6 topic; Service 6 distinguishes via payload.
 		return w.cfg.TopicActuationEvidence, nil
 
-	// ── Batch patch request → client-facing API ───────────────────────────────
-	// NEW Phase 2: BATCH_PATCH_REQUEST goes to a dedicated topic.
-	// The client-facing API service reads this and sends the patch request
-	// to the tenant's configured endpoint or webhook.
+	// ── BATCH PATCH → client-facing API ──────────────────────────────────
 	case string(models.DecisionRequestSourcePatch):
+		// A structured request to the tenant's source system ops team.
+		// The client-facing API service reads this and routes to the tenant webhook.
 		return w.cfg.TopicActuationBatchPatch, nil
 
-	// ── All other ops-facing decisions → alert topic ──────────────────────────
-	// The notification service downstream reads this topic and routes
-	// each alert to the right channel (Slack, email, PagerDuty, webhook).
+	// ── PHASE 5: OPS_WEBHOOK → tenant-configured webhook ─────────────────
+	// OPS_WEBHOOK is a generic outbox event type for tenant-configured webhooks.
+	// It routes to the batch patch topic because that topic is consumed by the
+	// client-facing API service which handles all tenant-directed notifications.
+	// In a future phase this will get its own dedicated topic.
+	case "OPS_WEBHOOK",
+		"BATCH_PATCH_REQUEST":
+		return w.cfg.TopicActuationBatchPatch, nil
+
+	// ── ALERT → notification service ─────────────────────────────────────
+	// All ops-facing advisory and alerting decisions route here.
+	// The notification service reads this and routes to Slack / email / PagerDuty.
 	case string(models.DecisionEscalate),
 		string(models.DecisionNotify),
 		string(models.DecisionOpenOpsIncident),
 		string(models.DecisionHold),
-		string(models.DecisionReviewAmbiguousBatch),           // NEW Phase 2
-		string(models.DecisionPrepareAndSignRecommended),      // NEW Phase 2
-		string(models.DecisionDispatchModeRecommended),        // NEW Phase 2
-		string(models.DecisionRequestStrongerCarrierContract): // NEW Phase 2
+		string(models.DecisionAdvisoryRecommendation),
+		string(models.DecisionReviewAmbiguousBatch),
+		string(models.DecisionPrepareAndSignRecommended),
+		string(models.DecisionDispatchModeRecommended),
+		string(models.DecisionRequestStrongerCarrierContract):
 		return w.cfg.TopicActuationAlert, nil
 	}
 

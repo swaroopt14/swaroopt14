@@ -1,14 +1,26 @@
 package persistence
 
-// What is this file?
+// action_contract_repo.go
+//
 // Reads and writes the action_contracts table.
-// IMPORTANT: This table is IMMUTABLE — we only INSERT, never UPDATE or DELETE.
+// IMPORTANT: This table is IMMUTABLE — we only INSERT rows, never UPDATE data fields.
+//            The ONLY allowed UPDATEs are to contract_status (approval lifecycle).
+//
+// PHASE 5 ADDITIONS:
+//   - InsertIfNewTx now writes contract_status, expires_at, policy_family, severity
+//   - UpdateStatus:           approve / dismiss a PENDING_APPROVAL contract
+//   - ListPendingApproval:    ops dashboard — "what needs human review?"
+//   - MarkExpiredContracts:   background job — expire stale approval windows
+//   - ListByDecision:         "show all HOLD decisions for tenant X"
+//   - ListByPolicyFamily:     "show all LEAKAGE-family actions"
 //
 // WHO WRITES TO THIS FILE?
-//   action_service.go → InsertIfNew() when a policy fires
+//   action_service.go → InsertIfNewTx()  when a policy fires
+//   action_handler.go → UpdateStatus()   when ops approves/dismisses
+//   outbox_worker.go  → MarkExpiredContracts() on every tick
 //
 // WHO READS FROM THIS FILE?
-//   action_handler.go → List(), GetByID() for the frontend dashboard
+//   action_handler.go → List, GetByID, ListPendingApproval for the frontend
 
 import (
 	"context"
@@ -21,84 +33,184 @@ import (
 	"github.com/zord/zord-intelligence/internal/models"
 )
 
+// ActionContractRepo reads and writes action_contracts.
 type ActionContractRepo struct {
 	pool *pgxpool.Pool
 }
 
+// NewActionContractRepo creates an ActionContractRepo.
 func NewActionContractRepo(pool *pgxpool.Pool) *ActionContractRepo {
 	return &ActionContractRepo{pool: pool}
 }
 
-// InsertIfNew inserts an ActionContract only if the idempotency_key is new.
-// If the same key already exists (duplicate event), it silently does nothing
-// and returns the existing contract.
-//
-// WHY IDEMPOTENCY?
-// Kafka delivers messages "at least once" — the same message can arrive twice
-// if the service restarts mid-processing. Without idempotency, we would create
-// two identical ActionContracts for the same event. With it, the second insert
-// is ignored automatically by the UNIQUE constraint on idempotency_key.
-//
-// ON CONFLICT DO NOTHING = "if the unique constraint fires, don't error — just skip"
-func (r *ActionContractRepo) InsertIfNew(ctx context.Context, ac models.ActionContract) error {
-	// Marshal scope_refs struct to JSON string for storage
+// ── INSERT ────────────────────────────────────────────────────────────────────
+
+// insertSQL is the shared INSERT statement used by all insert paths.
+// PHASE 5: Includes contract_status, expires_at, policy_family, severity.
+const insertSQL = `
+	INSERT INTO action_contracts
+		(action_id, tenant_id, policy_id, policy_version,
+		 scope_refs, input_refs_json, decision, confidence,
+		 payload_json, signature, idempotency_key,
+		 contract_status, expires_at, policy_family, severity,
+		 created_at)
+	VALUES
+		($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+		 $12, $13, $14, $15,
+		 $16)
+	ON CONFLICT (idempotency_key) DO NOTHING
+`
+
+// buildInsertArgs constructs the $1..$16 argument list for insertSQL.
+// Handles nil-ification of nullable string fields (policy_family, severity).
+func buildInsertArgs(ac models.ActionContract) ([]any, error) {
 	scopeJSON, err := json.Marshal(ac.ScopeRefs)
 	if err != nil {
-		return fmt.Errorf("action_repo.InsertIfNew marshal scope_refs: %w", err)
+		return nil, fmt.Errorf("marshal scope_refs: %w", err)
 	}
 
-	sql := `
-		INSERT INTO action_contracts
-			(action_id, tenant_id, policy_id, policy_version,
-			 scope_refs, input_refs_json, decision, confidence,
-			 payload_json, signature, idempotency_key, created_at)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		ON CONFLICT (idempotency_key) DO NOTHING
-	`
-	_, err = r.pool.Exec(ctx, sql,
+	var policyFamily *string
+	if ac.PolicyFamily != "" {
+		s := string(ac.PolicyFamily)
+		policyFamily = &s
+	}
+	var severity *string
+	if ac.Severity != "" {
+		s := ac.Severity
+		severity = &s
+	}
+
+	return []any{
 		ac.ActionID,
 		ac.TenantID,
 		ac.PolicyID,
 		ac.PolicyVersion,
-		string(scopeJSON),   // JSONB column — pass as string
-		ac.InputRefsJSON,    // already a JSON string
-		string(ac.Decision), // Decision type → string for DB
+		string(scopeJSON),
+		ac.InputRefsJSON,
+		string(ac.Decision),
 		ac.Confidence,
-		ac.PayloadJSON, // already a JSON string
+		ac.PayloadJSON,
 		ac.Signature,
 		ac.IdempotencyKey,
+		string(ac.ContractStatus), // PHASE 5
+		ac.ExpiresAt,              // PHASE 5 — *time.Time, nil → NULL
+		policyFamily,              // PHASE 5 — *string, nil → NULL
+		severity,                  // PHASE 5 — *string, nil → NULL
 		ac.CreatedAt,
-	)
+	}, nil
+}
+
+// InsertIfNew inserts an ActionContract only if the idempotency_key is new.
+// Non-transactional — for use outside of transactions.
+func (r *ActionContractRepo) InsertIfNew(ctx context.Context, ac models.ActionContract) error {
+	args, err := buildInsertArgs(ac)
+	if err != nil {
+		return fmt.Errorf("action_repo.InsertIfNew id=%s: %w", ac.ActionID, err)
+	}
+	_, err = r.pool.Exec(ctx, insertSQL, args...)
 	if err != nil {
 		return fmt.Errorf("action_repo.InsertIfNew id=%s: %w", ac.ActionID, err)
 	}
 	return nil
 }
 
-// GetByID returns a single ActionContract by its action_id.
-// Used by action_handler.go for the detail page.
-func (r *ActionContractRepo) GetByID(ctx context.Context, actionID string) (*models.ActionContract, error) {
-	sql := `
-		SELECT action_id, tenant_id, policy_id, policy_version,
-		       scope_refs::text, input_refs_json::text, decision, confidence,
-		       payload_json::text, signature, idempotency_key, created_at
-		FROM   action_contracts
-		WHERE  action_id = $1
-	`
-	// ::text casts JSONB column to text string so we can scan it into a Go string
+// InsertIfNewTx inserts an ActionContract inside an existing pgx.Tx transaction.
+//
+// PHASE 5: Writes contract_status, expires_at, policy_family, severity.
+//
+// Returns (true, nil)  → row was inserted (new contract)
+// Returns (false, nil) → idempotency_key already existed (duplicate, silently skipped)
+// Returns (false, err) → database error
+func (r *ActionContractRepo) InsertIfNewTx(
+	ctx context.Context,
+	tx pgx.Tx,
+	ac models.ActionContract,
+) (bool, error) {
+	args, err := buildInsertArgs(ac)
+	if err != nil {
+		return false, fmt.Errorf("action_repo.InsertIfNewTx id=%s: %w", ac.ActionID, err)
+	}
+	tag, err := tx.Exec(ctx, insertSQL, args...)
+	if err != nil {
+		return false, fmt.Errorf("action_repo.InsertIfNewTx id=%s: %w", ac.ActionID, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
 
+// ── STATUS LIFECYCLE (PHASE 5) ────────────────────────────────────────────────
+
+// UpdateStatus transitions a PENDING_APPROVAL contract to APPROVED or DISMISSED.
+//
+// GUARD: only contracts currently in PENDING_APPROVAL can be transitioned.
+// If the contract is already APPROVED, DISMISSED, or EXPIRED, this returns
+// (false, nil) — caller should respond 409 Conflict.
+//
+// FINTECH RULE: We never update any data field (decision, confidence, payload).
+// Only the lifecycle status changes. The audit signature over the data fields
+// remains valid forever — proving the decision was not tampered with.
+func (r *ActionContractRepo) UpdateStatus(
+	ctx context.Context,
+	actionID string,
+	newStatus models.ContractStatus,
+) (updated bool, err error) {
+	sql := `
+		UPDATE action_contracts
+		SET    contract_status = $1
+		WHERE  action_id       = $2
+		  AND  contract_status = 'PENDING_APPROVAL'
+	`
+	tag, err := r.pool.Exec(ctx, sql, string(newStatus), actionID)
+	if err != nil {
+		return false, fmt.Errorf("action_repo.UpdateStatus action=%s status=%s: %w",
+			actionID, newStatus, err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// MarkExpiredContracts sweeps all PENDING_APPROVAL contracts whose expires_at
+// has passed and transitions them to EXPIRED.
+//
+// Called by outbox_worker on every tick to keep approval windows clean.
+// Using a single bulk UPDATE is more efficient than row-by-row scanning.
+//
+// Returns the number of contracts expired (for logging).
+func (r *ActionContractRepo) MarkExpiredContracts(ctx context.Context) (int64, error) {
+	sql := `
+		UPDATE action_contracts
+		SET    contract_status = 'EXPIRED'
+		WHERE  contract_status = 'PENDING_APPROVAL'
+		  AND  expires_at      IS NOT NULL
+		  AND  expires_at      < now()
+	`
+	tag, err := r.pool.Exec(ctx, sql)
+	if err != nil {
+		return 0, fmt.Errorf("action_repo.MarkExpiredContracts: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// ── READS ─────────────────────────────────────────────────────────────────────
+
+// selectCols is the shared column list for all SELECT queries.
+// Keeping it in one place ensures all scan calls stay in sync.
+const selectCols = `
+	action_id, tenant_id, policy_id, policy_version,
+	scope_refs::text, input_refs_json::text, decision, confidence,
+	payload_json::text, signature, idempotency_key,
+	contract_status, expires_at, policy_family, severity,
+	created_at
+`
+
+// GetByID returns a single ActionContract by its action_id.
+// Returns (nil, nil) if not found.
+func (r *ActionContractRepo) GetByID(ctx context.Context, actionID string) (*models.ActionContract, error) {
+	sql := `SELECT ` + selectCols + ` FROM action_contracts WHERE action_id = $1`
 	row := r.pool.QueryRow(ctx, sql, actionID)
 	return scanActionContract(row.Scan)
 }
 
 // List returns recent ActionContracts for a tenant, newest first.
-// The frontend uses this for the action dashboard.
-//
-// limit controls page size (default 50)
-// before allows cursor-based pagination: "give me actions before this time"
-// Cursor pagination is better than OFFSET for large tables —
-// OFFSET gets slower as you go deeper into pages, cursor stays fast.
+// Supports cursor-based pagination via the `before` timestamp.
 func (r *ActionContractRepo) List(
 	ctx context.Context,
 	tenantID string,
@@ -106,95 +218,152 @@ func (r *ActionContractRepo) List(
 	before time.Time,
 ) ([]models.ActionContract, error) {
 	if limit <= 0 || limit > 100 {
-		limit = 50 // safe default
+		limit = 50
 	}
-
-	sql := `
-		SELECT action_id, tenant_id, policy_id, policy_version,
-		       scope_refs::text, input_refs_json::text, decision, confidence,
-		       payload_json::text, signature, idempotency_key, created_at
+	sql := `SELECT ` + selectCols + `
 		FROM   action_contracts
 		WHERE  tenant_id  = $1
 		  AND  created_at < $2
 		ORDER  BY created_at DESC
-		LIMIT  $3
-	`
+		LIMIT  $3`
 	rows, err := r.pool.Query(ctx, sql, tenantID, before, limit)
 	if err != nil {
 		return nil, fmt.Errorf("action_repo.List tenant=%s: %w", tenantID, err)
 	}
 	defer rows.Close()
-
-	var result []models.ActionContract
-	for rows.Next() {
-		ac, err := scanActionContract(rows.Scan)
-		if err != nil {
-			return nil, fmt.Errorf("action_repo.List scan: %w", err)
-		}
-		result = append(result, *ac)
-	}
-	return result, nil
+	return scanActionContractRows(rows)
 }
 
-// ListByScope returns actions related to a specific contract, intent, or corridor.
+// ListByScope returns actions related to a specific entity (contract, intent, corridor, batch).
 // Uses the GIN index on scope_refs JSONB for fast lookup.
-//
-// Example calls from action_handler.go:
-//
-//	repo.ListByScope(ctx, tenantID, "contract_id", "ctr_01")
-//	repo.ListByScope(ctx, tenantID, "corridor_id", "razorpay_UPI")
 func (r *ActionContractRepo) ListByScope(
 	ctx context.Context,
 	tenantID, scopeField, scopeValue string,
 ) ([]models.ActionContract, error) {
-	// Build a JSONB filter: {"contract_id": "ctr_01"}
-	// @> is PostgreSQL's "contains" operator for JSONB
 	filter := fmt.Sprintf(`{"%s": "%s"}`, scopeField, scopeValue)
-
-	sql := `
-		SELECT action_id, tenant_id, policy_id, policy_version,
-		       scope_refs::text, input_refs_json::text, decision, confidence,
-		       payload_json::text, signature, idempotency_key, created_at
+	sql := `SELECT ` + selectCols + `
 		FROM   action_contracts
 		WHERE  tenant_id  = $1
 		  AND  scope_refs @> $2::jsonb
 		ORDER  BY created_at DESC
-		LIMIT  100
-	`
+		LIMIT  100`
 	rows, err := r.pool.Query(ctx, sql, tenantID, filter)
 	if err != nil {
 		return nil, fmt.Errorf("action_repo.ListByScope: %w", err)
 	}
 	defer rows.Close()
+	return scanActionContractRows(rows)
+}
 
+// ListPendingApproval returns all PENDING_APPROVAL contracts for a tenant.
+//
+// PHASE 5: Powers the ops approval dashboard.
+// Ordered by expires_at ASC (most urgent first) — contracts about to expire
+// appear at the top so ops handles time-sensitive decisions before auto-expiry.
+// Contracts with no expires_at (NULL) appear last.
+func (r *ActionContractRepo) ListPendingApproval(
+	ctx context.Context,
+	tenantID string,
+) ([]models.ActionContract, error) {
+	sql := `SELECT ` + selectCols + `
+		FROM   action_contracts
+		WHERE  tenant_id       = $1
+		  AND  contract_status = 'PENDING_APPROVAL'
+		ORDER  BY expires_at ASC NULLS LAST, created_at ASC
+		LIMIT  200`
+	rows, err := r.pool.Query(ctx, sql, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("action_repo.ListPendingApproval tenant=%s: %w", tenantID, err)
+	}
+	defer rows.Close()
+	return scanActionContractRows(rows)
+}
+
+// ListByDecision returns actions filtered by decision type, newest first.
+//
+// PHASE 5: Enables intelligence-layer dashboards to show
+// "all HOLD decisions" or "all REVIEW_AMBIGUOUS_BATCH decisions" for a tenant.
+func (r *ActionContractRepo) ListByDecision(
+	ctx context.Context,
+	tenantID string,
+	decision models.Decision,
+	limit int,
+) ([]models.ActionContract, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	sql := `SELECT ` + selectCols + `
+		FROM   action_contracts
+		WHERE  tenant_id = $1
+		  AND  decision  = $2
+		ORDER  BY created_at DESC
+		LIMIT  $3`
+	rows, err := r.pool.Query(ctx, sql, tenantID, string(decision), limit)
+	if err != nil {
+		return nil, fmt.Errorf("action_repo.ListByDecision tenant=%s decision=%s: %w",
+			tenantID, decision, err)
+	}
+	defer rows.Close()
+	return scanActionContractRows(rows)
+}
+
+// ListByPolicyFamily returns actions filtered by policy family, newest first.
+//
+// PHASE 5: Powers family-scoped dashboards such as
+// "All LEAKAGE actions this week" or "All AMBIGUITY actions pending review".
+func (r *ActionContractRepo) ListByPolicyFamily(
+	ctx context.Context,
+	tenantID string,
+	family models.PolicyFamily,
+	limit int,
+) ([]models.ActionContract, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	sql := `SELECT ` + selectCols + `
+		FROM   action_contracts
+		WHERE  tenant_id     = $1
+		  AND  policy_family = $2
+		ORDER  BY created_at DESC
+		LIMIT  $3`
+	rows, err := r.pool.Query(ctx, sql, tenantID, string(family), limit)
+	if err != nil {
+		return nil, fmt.Errorf("action_repo.ListByPolicyFamily tenant=%s family=%s: %w",
+			tenantID, family, err)
+	}
+	defer rows.Close()
+	return scanActionContractRows(rows)
+}
+
+// ── SCAN HELPERS ──────────────────────────────────────────────────────────────
+
+// scanActionContractRows scans a pgx.Rows result set into a slice of ActionContracts.
+func scanActionContractRows(rows pgx.Rows) ([]models.ActionContract, error) {
 	var result []models.ActionContract
 	for rows.Next() {
 		ac, err := scanActionContract(rows.Scan)
 		if err != nil {
-			return nil, fmt.Errorf("action_repo.ListByScope scan: %w", err)
+			return nil, fmt.Errorf("action_repo scan: %w", err)
 		}
 		result = append(result, *ac)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("action_repo rows.Err: %w", err)
 	}
 	return result, nil
 }
 
-// scanActionContract is a private helper that converts one DB row
-// into an ActionContract struct. Used by GetByID and List above.
+// scanActionContract converts one DB row into an ActionContract struct.
+// Accepts both row.Scan (QueryRow) and rows.Scan (Query loop).
 //
-// WHY A SEPARATE FUNCTION?
-// Both GetByID and List have the exact same column list and scan logic.
-// Putting it here avoids copy-pasting the same 15 lines twice.
-//
-// The parameter type "func(...any) error" accepts both:
-//
-//	row.Scan   (single row from QueryRow)
-//	rows.Scan  (row from Query loop)
-//
-// This works because both have the same function signature.
+// PHASE 5: Scans contract_status, expires_at, policy_family, severity.
 func scanActionContract(scan func(...any) error) (*models.ActionContract, error) {
 	var ac models.ActionContract
 	var decision string
+	var contractStatus string
 	var scopeRefsJSON string
+	var policyFamily *string // nullable — *string handles NULL cleanly
+	var severity *string     // nullable
 
 	err := scan(
 		&ac.ActionID,
@@ -208,77 +377,32 @@ func scanActionContract(scan func(...any) error) (*models.ActionContract, error)
 		&ac.PayloadJSON,
 		&ac.Signature,
 		&ac.IdempotencyKey,
+		&contractStatus, // PHASE 5
+		&ac.ExpiresAt,   // PHASE 5 — *time.Time, pgx sets nil for NULL
+		&policyFamily,   // PHASE 5
+		&severity,       // PHASE 5
 		&ac.CreatedAt,
 	)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("scanActionContract: %w", err)
 	}
 
-	// Convert string back to typed Decision
 	ac.Decision = models.Decision(decision)
+	ac.ContractStatus = models.ContractStatus(contractStatus)
 
-	// Unmarshal scope_refs JSON back into the ScopeRefs struct
+	if policyFamily != nil {
+		ac.PolicyFamily = models.PolicyFamily(*policyFamily)
+	}
+	if severity != nil {
+		ac.Severity = *severity
+	}
+
 	if err := json.Unmarshal([]byte(scopeRefsJSON), &ac.ScopeRefs); err != nil {
-		return nil, fmt.Errorf("unmarshal scope_refs: %w", err)
+		return nil, fmt.Errorf("scanActionContract unmarshal scope_refs: %w", err)
 	}
 
 	return &ac, nil
-}
-
-// ── Transaction-aware method (Gap #3) ────────────────────────────────────────
-
-// InsertIfNewTx is identical to InsertIfNew but runs inside a pgx.Tx transaction.
-//
-// WHY pgx.Tx INSTEAD OF A CUSTOM INTERFACE?
-// ───────────────────────────────────────────
-// A previous version defined a custom interface for the tx parameter:
-//
-//   interface{ Exec(...) (interface{RowsAffected() int64}, error) }
-//
-// This caused a compile error because pgx.Tx.Exec actually returns:
-//
-//   (pgconn.CommandTag, error)
-//
-// NOT (interface{RowsAffected() int64}, error).
-// So pgx.Tx did NOT satisfy that custom interface → compile error.
-//
-// THE FIX: accept pgx.Tx directly.
-// pgx.Tx is the real transaction type. No interface gymnastics needed.
-// We import "github.com/jackc/pgx/v5" to get it.
-//
-// HOW TO CALL THIS:
-//   tx, _ := pool.Begin(ctx)             // pool returns a pgx.Tx
-//   actionRepo.InsertIfNewTx(ctx, tx, contract)
-//   tx.Commit(ctx)
-func (r *ActionContractRepo) InsertIfNewTx(
-	ctx context.Context,
-	tx pgx.Tx,
-	ac models.ActionContract,
-) (bool, error) {
-	scopeJSON, err := json.Marshal(ac.ScopeRefs)
-	if err != nil {
-		return false, fmt.Errorf("action_repo.InsertIfNewTx marshal scope_refs: %w", err)
-	}
-
-	sql := `
-		INSERT INTO action_contracts
-			(action_id, tenant_id, policy_id, policy_version,
-			 scope_refs, input_refs_json, decision, confidence,
-			 payload_json, signature, idempotency_key, created_at)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-		ON CONFLICT (idempotency_key) DO NOTHING
-	`
-	tag, err := tx.Exec(ctx, sql,
-		ac.ActionID, ac.TenantID, ac.PolicyID, ac.PolicyVersion,
-		string(scopeJSON), ac.InputRefsJSON, string(ac.Decision), ac.Confidence,
-		ac.PayloadJSON, ac.Signature, ac.IdempotencyKey, ac.CreatedAt,
-	)
-	if err != nil {
-		return false, fmt.Errorf("action_repo.InsertIfNewTx id=%s: %w", ac.ActionID, err)
-	}
-	return tag.RowsAffected() > 0, nil
 }

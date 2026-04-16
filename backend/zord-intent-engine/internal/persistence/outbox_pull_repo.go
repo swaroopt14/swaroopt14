@@ -78,7 +78,8 @@ leased AS (
 		o.created_at,
 		o.lease_id::text,
 		o.leased_by,
-		o.lease_until
+		o.lease_until,
+		o.batchid
 )
 SELECT
 	event_id,
@@ -96,7 +97,8 @@ SELECT
 	created_at,
 	lease_id,
 	leased_by,
-	lease_until
+	lease_until,
+	batchid
 FROM leased
 ORDER BY created_at ASC;
 `
@@ -132,6 +134,7 @@ ORDER BY created_at ASC;
 			&evt.LeaseID,
 			&evt.LeasedBy,
 			&lu,
+			&evt.BatchID,
 		); err != nil {
 			return "", nil, nil, err
 		}

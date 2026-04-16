@@ -87,7 +87,8 @@ func (r *PaymentIntentRepo) Save(
     mapping_confidence_score,
     schema_completeness_score,
     governance_reason_codes_json,
-    duplicate_reason_code, client_batch_ref
+    duplicate_reason_code, client_batch_ref,
+	batchid
 )
 VALUES (
     $1,$2,$3,$4,
@@ -107,57 +108,58 @@ VALUES (
     $41,
     $42,
     $43,
-    $44,$45
+    $44,$45,$46
 ) `
 
 	_, err = tx.ExecContext(
 		ctx,
 		query,
-		intent.IntentID,              // $1
-		intent.EnvelopeID,            // $2
-		intent.TenantID,              // $3
-		intent.ContractID,            // $4
-		intent.TraceID,               // $5
-		intent.IdempotencyKey,        // $6
-		intent.SalientHash,           // $7
-		intent.PayloadHash,           // $8
-		intent.IntentType,            // $9
-		intent.CanonicalVersion,      // $10
-		intent.SchemaVersion,         // $11
-		intent.Amount,                // $12
-		intent.Currency,              // $13
-		intent.DeadlineAt,            // $14
-		intent.Constraints,           // $15
-		intent.BeneficiaryType,       // $16
-		intent.PIITokens,             // $17
-		intent.Beneficiary,           // $18
-		intent.Status,                // $19
-		intent.ConfidenceScore,       // $20
-		intent.CanonicalSnapshotRef,  // $21
-		intent.NIRSnapshotRef,        // $22
-		intent.GovernanceSnapshotRef, // $23
-		intent.CanonicalHash,         // $24
-		intent.CreatedAt,             // $25
-		intent.ClientPayoutRef,       // $26
-		intent.RequestFingerprint,    // $27
-		intent.RoutingHintsJSON,      // $28
-		intent.GovernanceState,       // $29
-		intent.BusinessState,         // $30
-		intent.DuplicateRiskFlag,     // $31
-		intent.MappingProfileID,      // $32
-		intent.MappingProfileVersion, // $33
-		intent.SourceSystem,          // $34
-		intent.UpdatedAt,             // $35
-		intent.BusinessIdempotencyKey, // $36
-		intent.BeneficiaryFingerprint, // $37
-		intent.ProofReadinessScore,    // $38
-		intent.MatchabilityScore,      // $39
-		intent.IntentQualityScore,     // $40
-		intent.MappingConfidenceScore, // $41
-		intent.SchemaCompletenessScore, // $42
+		intent.IntentID,                  // $1
+		intent.EnvelopeID,                // $2
+		intent.TenantID,                  // $3
+		intent.ContractID,                // $4
+		intent.TraceID,                   // $5
+		intent.IdempotencyKey,            // $6
+		intent.SalientHash,               // $7
+		intent.PayloadHash,               // $8
+		intent.IntentType,                // $9
+		intent.CanonicalVersion,          // $10
+		intent.SchemaVersion,             // $11
+		intent.Amount,                    // $12
+		intent.Currency,                  // $13
+		intent.DeadlineAt,                // $14
+		intent.Constraints,               // $15
+		intent.BeneficiaryType,           // $16
+		intent.PIITokens,                 // $17
+		intent.Beneficiary,               // $18
+		intent.Status,                    // $19
+		intent.ConfidenceScore,           // $20
+		intent.CanonicalSnapshotRef,      // $21
+		intent.NIRSnapshotRef,            // $22
+		intent.GovernanceSnapshotRef,     // $23
+		intent.CanonicalHash,             // $24
+		intent.CreatedAt,                 // $25
+		intent.ClientPayoutRef,           // $26
+		intent.RequestFingerprint,        // $27
+		intent.RoutingHintsJSON,          // $28
+		intent.GovernanceState,           // $29
+		intent.BusinessState,             // $30
+		intent.DuplicateRiskFlag,         // $31
+		intent.MappingProfileID,          // $32
+		intent.MappingProfileVersion,     // $33
+		intent.SourceSystem,              // $34
+		intent.UpdatedAt,                 // $35
+		intent.BusinessIdempotencyKey,    // $36
+		intent.BeneficiaryFingerprint,    // $37
+		intent.ProofReadinessScore,       // $38
+		intent.MatchabilityScore,         // $39
+		intent.IntentQualityScore,        // $40
+		intent.MappingConfidenceScore,    // $41
+		intent.SchemaCompletenessScore,   // $42
 		intent.GovernanceReasonCodesJSON, // $43
-		intent.DuplicateReasonCode,    // $44
-		intent.ClientBatchRef,         // $45
+		intent.DuplicateReasonCode,       // $44
+		intent.ClientBatchRef,            // $45
+		intent.BatchID,                   //$46
 	)
 
 	if err != nil {
@@ -182,9 +184,10 @@ INSERT INTO outbox (
     status,
     retry_count,
     next_attempt_at,
-    created_at
+    created_at,
+	batchid
 ) VALUES (
-    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
 )`
 
 	outbox.ContractID = intent.ContractID
@@ -208,6 +211,7 @@ INSERT INTO outbox (
 		outbox.RetryCount,
 		outbox.NextRetryAt,
 		outbox.CreatedAt,
+		outbox.BatchID,
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)
@@ -289,7 +293,8 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		client_batch_ref,
 		canonical_snapshot_ref,
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
-		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref
+		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
+		batchid
 	FROM payment_intents
 	WHERE tenant_id = $1
 	  AND envelope_id = $2
@@ -344,6 +349,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.CanonicalSnapshotRef,
 		&intent.NIRSnapshotRef,
 		&intent.GovernanceSnapshotRef,
+		&intent.BatchID,
 	)
 
 	if err == sql.ErrNoRows {
@@ -464,7 +470,8 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		client_batch_ref,
 		canonical_snapshot_ref,
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
-		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref
+		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
+		batchid
 	FROM payment_intents
 	WHERE tenant_id = $1
 	  AND business_idempotency_key = $2
@@ -519,6 +526,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.CanonicalSnapshotRef,
 		&intent.NIRSnapshotRef,
 		&intent.GovernanceSnapshotRef,
+		&intent.BatchID,
 	)
 
 	if err == sql.ErrNoRows {

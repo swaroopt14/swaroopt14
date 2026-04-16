@@ -87,7 +87,8 @@ leased AS (
 		o.created_at,
 		o.updated_at,
 		o.published_at,
-		o.failure_reason_code
+		o.failure_reason_code,
+		o.batchid
 )
 SELECT
 	outbox_id,
@@ -113,7 +114,8 @@ SELECT
 	created_at,
 	updated_at,
 	published_at,
-	failure_reason_code
+	failure_reason_code,
+	batchid
 FROM leased
 ORDER BY created_at ASC;
 `
@@ -154,6 +156,7 @@ ORDER BY created_at ASC;
 			&evt.UpdatedAt,
 			&evt.PublishedAt,
 			&evt.FailureReasonCode,
+			&evt.BatchID,
 		); err != nil {
 			return "", nil, nil, err
 		}

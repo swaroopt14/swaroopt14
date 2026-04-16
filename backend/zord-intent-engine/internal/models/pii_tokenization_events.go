@@ -21,6 +21,7 @@ type TokenizeRequestEvent struct {
 	ReceivedAt     time.Time `json:"received_at"`
 
 	Canonical ParsedIncomingIntent `json:"canonical"`
+	BatchID   *string              `json:"batchid,omitempty"`
 }
 
 /*
@@ -31,14 +32,15 @@ Return generated tokens
 */
 
 type TokenizeResultEvent struct {
-	EventType  string `json:"event_type"`
-	TraceID    string `json:"trace_id"`
-	EnvelopeID string `json:"envelope_id"`
-	TenantID   string `json:"tenant_id"`
+	EventType    string `json:"event_type"`
+	TraceID      string `json:"trace_id"`
+	EnvelopeID   string `json:"envelope_id"`
+	TenantID     string `json:"tenant_id"`
 	SourceSystem string `json:"source_system"`
-	ObjectRef  string `json:"object_ref"`
+	ObjectRef    string `json:"object_ref"`
 
 	Tokens map[string]string `json:"tokens"`
 
 	Canonical ParsedIncomingIntent `json:"canonical"`
+	BatchID   *string              `json:"batchid,omitempty"`
 }

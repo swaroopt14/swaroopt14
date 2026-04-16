@@ -56,16 +56,17 @@ type CanonicalIntent struct {
 	SourceSystem          string          `json:"source_system,omitempty" db:"source_system"`
 
 	// Service 2 mandatory fields
-	BusinessIdempotencyKey string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
-	BeneficiaryFingerprint string          `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
-	ProofReadinessScore    float64         `json:"proof_readiness_score,omitempty" db:"proof_readiness_score"`
-	MatchabilityScore      float64         `json:"matchability_score,omitempty" db:"matchability_score"`
-	IntentQualityScore     float64         `json:"intent_quality_score,omitempty" db:"intent_quality_score"`
-	MappingConfidenceScore float64         `json:"mapping_confidence_score,omitempty" db:"mapping_confidence_score"`
-	SchemaCompletenessScore float64        `json:"schema_completeness_score,omitempty" db:"schema_completeness_score"`
+	BusinessIdempotencyKey    string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
+	BeneficiaryFingerprint    string          `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
+	ProofReadinessScore       float64         `json:"proof_readiness_score,omitempty" db:"proof_readiness_score"`
+	MatchabilityScore         float64         `json:"matchability_score,omitempty" db:"matchability_score"`
+	IntentQualityScore        float64         `json:"intent_quality_score,omitempty" db:"intent_quality_score"`
+	MappingConfidenceScore    float64         `json:"mapping_confidence_score,omitempty" db:"mapping_confidence_score"`
+	SchemaCompletenessScore   float64         `json:"schema_completeness_score,omitempty" db:"schema_completeness_score"`
 	GovernanceReasonCodesJSON json.RawMessage `json:"governance_reason_codes_json,omitempty" db:"governance_reason_codes_json"`
-	DuplicateReasonCode    string          `json:"duplicate_reason_code,omitempty" db:"duplicate_reason_code"`
-	ClientBatchRef         string          `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
+	DuplicateReasonCode       string          `json:"duplicate_reason_code,omitempty" db:"duplicate_reason_code"`
+	ClientBatchRef            string          `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
 
-	UpdatedAt             *time.Time      `json:"updated_at,omitempty"`
+	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	BatchID   *string    `json:"batchid,omitempty" db:"batchid"`
 }

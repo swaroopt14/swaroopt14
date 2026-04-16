@@ -63,7 +63,9 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     duplicate_reason_code TEXT,
     client_batch_ref TEXT,
 
-    updated_at TIMESTAMPTZ DEFAULT now()
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    batchid TEXT,
+
 );
 
 -- Create indexes for performance
@@ -108,6 +110,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     -- tracing / observability
     trace_id UUID NOT NULL,  
     envelope_id UUID NOT NULL,
+    batchid TEXT,
 
     CONSTRAINT fk_outbox_intent
         FOREIGN KEY (aggregate_id)

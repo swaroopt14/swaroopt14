@@ -31,4 +31,5 @@ type OutboxEvent struct {
 	UpdatedAt         *time.Time `json:"updated_at" db:"updated_at"`
 	PublishedAt       *time.Time `json:"published_at" db:"published_at"`
 	FailureReasonCode *string    `json:"failure_reason_code" db:"failure_reason_code"`
+	BatchID           *string    `json:"batchid,omitempty" db:"batchid"`
 }

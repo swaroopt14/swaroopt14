@@ -23,11 +23,15 @@ func (c *Consumer) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
 
 func (c *Consumer) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
+		log.Printf("evidence.kafka.message_received topic=%s partition=%d offset=%d key=%s payload_bytes=%d", msg.Topic, msg.Partition, msg.Offset, string(msg.Key), len(msg.Value))
+
 		if err := c.handler(sess.Context(), string(msg.Key), msg.Value); err != nil {
 			log.Printf("evidence.kafka.consume_error topic=%s partition=%d offset=%d err=%v", msg.Topic, msg.Partition, msg.Offset, err)
 			continue
 		}
 		sess.MarkMessage(msg, "")
+		log.Printf("evidence.kafka.message_committed topic=%s partition=%d offset=%d key=%s", msg.Topic, msg.Partition, msg.Offset, string(msg.Key))
+
 	}
 	return nil
 }
@@ -35,7 +39,7 @@ func (c *Consumer) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.C
 func StartConsumer(ctx context.Context, brokers []string, groupID, topic string, handler MessageHandler) error {
 	cfg := sarama.NewConfig()
 	cfg.Version = sarama.V2_6_0_0
-	cfg.Consumer.Offsets.Initial = sarama.OffsetNewest
+	cfg.Consumer.Offsets.Initial = sarama.OffsetOldest
 	cfg.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRoundRobin()
 
 	consumerGroup, err := sarama.NewConsumerGroup(brokers, groupID, cfg)
@@ -68,6 +72,8 @@ func StartConsumerForTopics(ctx context.Context, brokers []string, groupID strin
 	}
 
 	go func() {
+		log.Printf("evidence.kafka.consumer_started group=%s topics=%v brokers=%v", groupID, topics, brokers)
+
 		defer consumerGroup.Close()
 		consumer := NewConsumer(handler)
 		for {

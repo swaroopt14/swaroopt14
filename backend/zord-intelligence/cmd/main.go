@@ -27,8 +27,11 @@ func main() {
 	}
 
 	// ── Step 2: Load config ────────────────────────────────────────────────
+	// PHASE 6: config.Load() now reads INTELLIGENCE_MODE and logs it at startup.
+	// Default is GRADE_A — safe for all new deployments.
 	cfg := config.Load()
-	log.Printf("main: config loaded (env=%s port=%s)", cfg.Environment, cfg.HTTPPort)
+	log.Printf("main: config loaded (env=%s port=%s mode=%s)",
+		cfg.Environment, cfg.HTTPPort, cfg.IntelligenceMode.String())
 
 	requiredTopics := []string{
 		// ── Input topics (Grade B — original dispatch/finality mode) ──────────
@@ -78,24 +81,21 @@ func main() {
 	mlRepo       := persistence.NewMLFeatureStoreRepo(pool)
 
 	// ── Step 5: Create services ────────────────────────────────────────────
-	// Creation order matters (reverse dependency order):
-	//   actionService    → no service dependencies
-	//   policyService    → needs actionService
-	//   intelligence svcs → need proj + snapshot + batch + ml repos
-	//   projectionService → needs policyService + all 6 intelligence services
-
 	actionService := services.NewActionService(actionRepo, outboxRepo, pool)
-
 	policyService := services.NewPolicyService(policyRepo, projRepo, actionService)
 
 	// ── PHASE 4: Six intelligence layer services ───────────────────────────
-	leakageSvc       := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo)
-	ambiguitySvc     := services.NewAmbiguityIntelligenceService(projRepo, snapshotRepo, mlRepo)
-	defensibilitySvc := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
-	rcaSvc           := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
-	patternSvc       := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo)
+	leakageSvc        := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo)
+	ambiguitySvc      := services.NewAmbiguityIntelligenceService(projRepo, snapshotRepo, mlRepo)
+	defensibilitySvc  := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
+	rcaSvc            := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
+	patternSvc        := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo)
 	recommendationSvc := services.NewRecommendationIntelligenceService(snapshotRepo)
 
+	// PHASE 6: NewProjectionService now receives cfg.IntelligenceMode.
+	// This controls which intelligence computation runs inside the Grade B handlers.
+	// Grade A mode: finality-grade projections are skipped (safe default).
+	// Grade B mode: all projections computed (requires dispatch + finality certs).
 	projectionService := services.NewProjectionService(
 		projRepo,
 		policyService,
@@ -106,6 +106,7 @@ func main() {
 		rcaSvc,
 		patternSvc,
 		recommendationSvc,
+		cfg.IntelligenceMode, // PHASE 6: inject mode
 	)
 
 	corridorHealthIngestionHandler := handlers.NewCorridorHealthHandler(projRepo)
@@ -125,30 +126,39 @@ func main() {
 	}()
 
 	// ── Step 7: Create background workers ─────────────────────────────────
-	//
-	// PHASE 5: OutboxWorker now receives actionRepo so it can run the
-	// expiry sweep (MarkExpiredContracts) on every tick. This automatically
-	// transitions PENDING_APPROVAL contracts to EXPIRED after 24 hours,
-	// keeping the approval queue clean without a separate cron job.
 	outboxWorker := worker.NewOutboxWorker(outboxRepo, actionRepo, producer, cfg)
-
-	// SLAWorker calls HandleSLATimerBreached when a deadline is missed,
-	// updating the tenant.sla_breach_rate projection.
-	slaWorker := worker.NewSLAWorker(slaRepo, actionService, projectionService)
-
-	// PolicyCronWorker evaluates all cron-triggered policies every 5 minutes.
-	cronWorker := worker.NewPolicyCronWorker(projRepo, policyService)
+	slaWorker    := worker.NewSLAWorker(slaRepo, actionService, projectionService)
+	cronWorker   := worker.NewPolicyCronWorker(projRepo, policyService)
 
 	// ── Step 8: Create HTTP handlers ──────────────────────────────────────
-	// PHASE 5: ActionHandler now receives actionService so it can handle
-	// approve / dismiss / list-pending-approval requests.
 	healthHandler := handlers.NewHealthHandler()
-	kpiHandler    := handlers.NewKPIHandler(projRepo)
+
+	// PHASE 6: KPIHandler now receives mode so it can annotate responses
+	// and enforce Grade B guards on finality-grade endpoints.
+	kpiHandler := handlers.NewKPIHandler(projRepo, cfg.IntelligenceMode)
+
 	policyHandler := handlers.NewPolicyHandler(policyRepo)
 	actionHandler := handlers.NewActionHandler(actionRepo, actionService)
 
+	// PHASE 6: New handlers for dual-mode architecture
+	modeHandler := handlers.NewIntelligenceModeHandler(projectionService, projRepo)
+	surfaceHandler := handlers.NewIntelligenceSurfaceHandler(
+		projectionService,
+		snapshotRepo,
+		batchRepo,
+		projRepo,
+	)
+
 	// ── Step 9: Build the HTTP router ─────────────────────────────────────
-	router := handlers.NewRouter(healthHandler, kpiHandler, policyHandler, actionHandler)
+	// PHASE 6: NewRouter now accepts modeHandler and surfaceHandler.
+	router := handlers.NewRouter(
+		healthHandler,
+		kpiHandler,
+		policyHandler,
+		actionHandler,
+		modeHandler,
+		surfaceHandler,
+	)
 
 	// ── Step 10: Create the HTTP server ───────────────────────────────────
 	server := &http.Server{
@@ -161,7 +171,7 @@ func main() {
 
 	// ── Step 11: Create a cancellable context ─────────────────────────────
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // ensure cancel is always called when main() exits
+	defer cancel()
 
 	// ── Step 12: Start background workers ─────────────────────────────────
 	go outboxWorker.Start(ctx)

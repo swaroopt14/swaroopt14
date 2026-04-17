@@ -69,7 +69,7 @@ services:
     volumes:
       - postgres_evidence_data:/var/lib/postgresql/data
     ports:
-      - "5437:5432"   # 5433=edge, 5436=intent-engine → 5437 for evidence
+      - "5438:5432"   # 5433=edge, 5436=intent-engine → 5437 for evidence
     networks:
       - zord-network
     restart: unless-stopped

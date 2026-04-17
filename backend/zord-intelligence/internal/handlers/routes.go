@@ -5,26 +5,49 @@ package handlers
 // Wires every URL route to the right handler function.
 // This is the ONLY file that knows the full URL map of ZPI.
 //
-// PHASE 5 ADDITIONS:
+// PHASE 6 ADDITIONS:
 //
-//   GET  /v1/intelligence/actions/pending-approval
-//        → ops approval dashboard (most urgent first)
+//   GET  /v1/intelligence/mode
+//        → Current operating mode (GRADE_A/GRADE_B), full capability catalogue,
+//          upgrade path guidance. No tenant_id required.
 //
-//   POST /v1/intelligence/actions/{action_id}/approve
-//        → human approves a PENDING_APPROVAL contract
+//   GET  /v1/intelligence/mode/status?tenant_id=X
+//        → Per-signal health check: which upstream Kafka topics are active.
+//          Powers the "data health" panel in the ops dashboard.
 //
-//   POST /v1/intelligence/actions/{action_id}/dismiss
-//        → human dismisses a PENDING_APPROVAL contract
+//   GET  /v1/intelligence/leakage?tenant_id=X
+//        → Leakage & Value-at-Risk intelligence snapshot. Grade A + B.
 //
-//   GET  /v1/intelligence/actions?policy_family=LEAKAGE
-//        → filter actions by intelligence family (handled in ListActions)
+//   GET  /v1/intelligence/ambiguity?tenant_id=X
+//        → Ambiguity / Confidence intelligence snapshot. Grade A + B.
 //
-//   GET  /v1/intelligence/actions?decision=HOLD
-//        → filter actions by decision type (handled in ListActions)
+//   GET  /v1/intelligence/defensibility?tenant_id=X
+//        → Evidence & Defensibility intelligence snapshot. Grade A + B.
 //
-// NOTE: The route order inside the /actions group matters in chi.
-// Static paths (/pending-approval) MUST be registered BEFORE parameterised
-// paths (/{action_id}) so chi matches them correctly.
+//   GET  /v1/intelligence/rca?tenant_id=X[&corridor_id=Y]
+//        → Root Cause Analysis intelligence snapshot. Grade A + B.
+//
+//   GET  /v1/intelligence/pattern?tenant_id=X
+//        → Pattern & Pre-Dispatch Quality intelligence snapshot. Grade A + B.
+//
+//   GET  /v1/intelligence/recommendation?tenant_id=X
+//        → Recommendation intelligence snapshot. Grade A + B.
+//
+//   GET  /v1/intelligence/batches/{batch_id}?tenant_id=X
+//        → Full batch intelligence for one batch. Grade A + B.
+//
+//   GET  /v1/intelligence/batches?tenant_id=X[&status=REQUIRES_REVIEW]
+//        → List of all batches for tenant. Grade A + B.
+//
+//   GET  /v1/intelligence/{type}/history?tenant_id=X&limit=N
+//        → Snapshot history for a given intelligence type. Grade A + B.
+//        Valid types: leakage, ambiguity, defensibility, rca, pattern, recommendation.
+//
+// ROUTE ORDER RULES:
+//   1. Static paths before parameterised paths (chi requirement)
+//   2. /mode/status before /mode (both static, but /mode/status is more specific)
+//   3. /batches (list) before /batches/{batch_id} (parameterised)
+//   4. /actions/pending-approval before /actions/{action_id}
 
 import (
 	"net/http"
@@ -39,6 +62,8 @@ func NewRouter(
 	kpiH *KPIHandler,
 	policyH *PolicyHandler,
 	actionH *ActionHandler,
+	modeH *IntelligenceModeHandler,       // PHASE 6
+	surfaceH *IntelligenceSurfaceHandler, // PHASE 6
 ) http.Handler {
 
 	r := chi.NewRouter()
@@ -55,7 +80,8 @@ func NewRouter(
 	// ── API v1 routes ──────────────────────────────────────────────────────
 	r.Route("/v1/intelligence", func(r chi.Router) {
 
-		// ── KPI / Projection endpoints ─────────────────────────────────
+		// ── KPI / Projection endpoints (Grade B gated in kpi_handler.go) ───
+
 		r.Get("/kpis", kpiH.GetKPIs)
 		r.Get("/corridors/health", kpiH.GetCorridorHealth)
 		r.Get("/failures/top", kpiH.GetTopFailures)
@@ -72,7 +98,58 @@ func NewRouter(
 			r.Get("/failure-shift", kpiH.GetMLFailureShift)
 		})
 
-		// ── Policy endpoints ───────────────────────────────────────────
+		// ── PHASE 6: Intelligence Mode endpoints ──────────────────────────
+		//
+		// /mode/status must be registered BEFORE /mode in chi.
+		// If /mode is registered first as r.Get("/mode", ...), chi will also
+		// match GET /mode/status (chi does prefix matching for sub-routes).
+		// Using r.Route keeps them explicit and order-safe.
+
+		r.Route("/mode", func(r chi.Router) {
+			// GET /v1/intelligence/mode/status?tenant_id=X
+			// Per-signal health check for a specific tenant.
+			r.Get("/status", modeH.GetModeStatus)
+
+			// GET /v1/intelligence/mode
+			// Service-level mode declaration + capability catalogue.
+			r.Get("/", modeH.GetMode)
+		})
+
+		// ── PHASE 6: Intelligence Surface endpoints (Grade A + B) ─────────
+		//
+		// These are the six intelligence layer APIs that expose the commercial
+		// intelligence surfaces computed by Phase 4 services.
+		// All six are available in both Grade A and Grade B.
+		// Grade B-only data is exposed only through KPI endpoints above.
+
+		r.Get("/leakage", surfaceH.GetLeakage)
+		r.Get("/ambiguity", surfaceH.GetAmbiguity)
+		r.Get("/defensibility", surfaceH.GetDefensibility)
+		r.Get("/rca", surfaceH.GetRCA)
+		r.Get("/pattern", surfaceH.GetPattern)
+		r.Get("/recommendation", surfaceH.GetRecommendation)
+
+		// ── PHASE 6: Batch intelligence endpoints ─────────────────────────
+		//
+		// Route order: list (/batches) before detail (/batches/{batch_id}).
+		// chi matches routes in registration order for routes at the same depth.
+
+		r.Route("/batches", func(r chi.Router) {
+			// GET /v1/intelligence/batches?tenant_id=X[&status=REQUIRES_REVIEW]
+			r.Get("/", surfaceH.ListBatches)
+
+			// GET /v1/intelligence/batches/{batch_id}?tenant_id=X
+			r.Get("/{batch_id}", surfaceH.GetBatch)
+		})
+
+		// ── PHASE 6: Snapshot history endpoint ───────────────────────────
+		//
+		// GET /v1/intelligence/{type}/history?tenant_id=X&limit=N
+		// Valid types: leakage, ambiguity, defensibility, rca, pattern, recommendation
+		// Uses {type} URL param to keep one handler serving all snapshot types.
+		r.Get("/{type}/history", surfaceH.GetSnapshotHistory)
+
+		// ── Policy endpoints ───────────────────────────────────────────────
 		r.Route("/policies", func(r chi.Router) {
 			r.Get("/", policyH.ListPolicies)
 			r.Post("/", policyH.CreatePolicy)
@@ -83,51 +160,27 @@ func NewRouter(
 			})
 		})
 
-		// ── Action Contract endpoints ──────────────────────────────────
+		// ── Action Contract endpoints ──────────────────────────────────────
 		//
-		// IMPORTANT: Static paths MUST come before parameterised paths
-		// in chi so they are matched first. If /{action_id} is registered
-		// before /pending-approval, chi will match "pending-approval" as
-		// the action_id value instead of routing to the static handler.
-		//
-		// Correct order:
-		//   1. GET  /actions/pending-approval   (static — registered first)
-		//   2. GET  /actions                    (no path param)
-		//   3. GET  /actions/{action_id}         (parameterised — registered last)
+		// ROUTE ORDER (critical for chi):
+		//   1. /actions/pending-approval  (static — registered first)
+		//   2. /actions                   (no path param)
+		//   3. /actions/{action_id}       (parameterised — registered last)
 		//   4. POST /actions/{action_id}/approve
 		//   5. POST /actions/{action_id}/dismiss
 
 		r.Route("/actions", func(r chi.Router) {
-
-			// ── Static paths (must precede /{action_id}) ───────────────
-
 			// GET /v1/intelligence/actions/pending-approval?tenant_id=X
-			// Returns all PENDING_APPROVAL contracts ordered by urgency.
-			// Powers the ops approval dashboard. (PHASE 5)
 			r.Get("/pending-approval", actionH.ListPendingApproval)
 
 			// GET /v1/intelligence/actions?tenant_id=X[&limit=50][&before=RFC3339]
-			// GET /v1/intelligence/actions?tenant_id=X&scope_field=batch_id&scope_value=B1
-			// GET /v1/intelligence/actions?tenant_id=X&decision=HOLD         (PHASE 5)
-			// GET /v1/intelligence/actions?tenant_id=X&policy_family=LEAKAGE (PHASE 5)
+			// GET /v1/intelligence/actions?tenant_id=X&decision=HOLD
+			// GET /v1/intelligence/actions?tenant_id=X&policy_family=LEAKAGE
 			r.Get("/", actionH.ListActions)
 
-			// ── Parameterised paths ────────────────────────────────────
-
 			r.Route("/{action_id}", func(r chi.Router) {
-
-				// GET /v1/intelligence/actions/{action_id}
-				// Full detail of one ActionContract including signature.
 				r.Get("/", actionH.GetAction)
-
-				// POST /v1/intelligence/actions/{action_id}/approve?tenant_id=X
-				// Human approves a PENDING_APPROVAL contract.
-				// Transitions to APPROVED, inserts outbox entry atomically. (PHASE 5)
 				r.Post("/approve", actionH.ApproveAction)
-
-				// POST /v1/intelligence/actions/{action_id}/dismiss?tenant_id=X
-				// Human dismisses a PENDING_APPROVAL contract.
-				// Transitions to DISMISSED. No outbox entry ever created. (PHASE 5)
 				r.Post("/dismiss", actionH.DismissAction)
 			})
 		})

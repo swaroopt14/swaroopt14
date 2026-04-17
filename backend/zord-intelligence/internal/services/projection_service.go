@@ -18,9 +18,25 @@ import (
 // HandleVarianceRecord, HandleBatchSummaryUpdated, HandleGovernanceDecision)
 // can call them after updating their respective projection_state counters.
 //
+// PHASE 6 ADDITIONS:
+// IntelligenceMode is injected at construction time and consulted inside
+// the three Grade B-only handlers to gate finality-grade intelligence computation.
+//
+// GRADE B GATING DESIGN:
+//   All Kafka events are ALWAYS ingested and idempotency-checked regardless of mode.
+//   This is critical: stopping event ingestion in Grade A would cause missed events
+//   that could never be replayed once the tenant upgrades to Grade B.
+//
+//   What the mode gates is INTELLIGENCE COMPUTATION:
+//     Grade A: leakage, ambiguity, defensibility, RCA, pattern, recommendation
+//     Grade B: additionally computes finality-grade projections (success_rate,
+//              finality_latency, SLA compliance, retry recovery, fusion conflict)
+//
+//   In Grade A, the Grade B computation blocks are skipped with a log trace.
+//   The raw event counters (MarkProcessed, idempotency) still run.
+//
 // Dependency injection pattern: main.go creates all repos and services,
-// then passes them into NewProjectionService. This keeps the struct testable
-// and avoids hidden global state.
+// then passes them into NewProjectionService.
 type ProjectionService struct {
 	projRepo      *persistence.ProjectionRepo
 	policyService *PolicyService
@@ -33,10 +49,17 @@ type ProjectionService struct {
 	rcaSvc            *RCAIntelligenceService
 	patternSvc        *PatternIntelligenceService
 	recommendationSvc *RecommendationIntelligenceService
+
+	// ── Phase 6: Intelligence mode ────────────────────────────────────────
+	// Controls whether Grade B-only intelligence computation runs.
+	// Set from config.IntelligenceMode at construction time.
+	// Use s.isGradeB() throughout handlers — never read this field directly.
+	mode models.IntelligenceMode
 }
 
 // NewProjectionService creates a ProjectionService with all Phase 4 intelligence services.
 //
+// PHASE 6: mode parameter added. Pass cfg.IntelligenceMode from main.go.
 // All six intelligence services are required. main.go constructs them and injects.
 func NewProjectionService(
 	projRepo *persistence.ProjectionRepo,
@@ -48,7 +71,12 @@ func NewProjectionService(
 	rcaSvc *RCAIntelligenceService,
 	patternSvc *PatternIntelligenceService,
 	recommendationSvc *RecommendationIntelligenceService,
+	mode models.IntelligenceMode, // PHASE 6
 ) *ProjectionService {
+	// Normalise empty string to GRADE_A so handlers can safely call IsGradeB()
+	if !mode.Valid() {
+		mode = models.IntelligenceModeGradeA
+	}
 	return &ProjectionService{
 		projRepo:          projRepo,
 		policyService:     policyService,
@@ -59,7 +87,20 @@ func NewProjectionService(
 		rcaSvc:            rcaSvc,
 		patternSvc:        patternSvc,
 		recommendationSvc: recommendationSvc,
+		mode:              mode, // PHASE 6
 	}
+}
+
+// isGradeB returns true when running in Full Finality / Control Mode.
+// Use this to gate Grade B-only intelligence computation inside handlers.
+func (s *ProjectionService) isGradeB() bool {
+	return s.mode.IsGradeB()
+}
+
+// Mode returns the current IntelligenceMode.
+// Used by the intelligence mode handler to serve GET /v1/intelligence/mode.
+func (s *ProjectionService) Mode() models.IntelligenceMode {
+	return s.mode
 }
 
 // ── EventHandler interface methods ────────────────────────────────────────────
@@ -129,7 +170,12 @@ func (s *ProjectionService) HandleIntentCreated(
 }
 
 // HandleDispatchCreated tracks payout dispatch attempts.
-// Computes retry_recovery_rate: separates first attempts from retries.
+//
+// PHASE 6 MODE GATING:
+// Retry recovery rate computation is Grade B only — it requires ZPI to own
+// dispatch so that attempt counts are authoritative.
+// In Grade A, the event is ingested and marked processed (idempotency preserved),
+// but no retry_recovery projections are updated.
 func (s *ProjectionService) HandleDispatchCreated(
 	ctx context.Context,
 	e models.DispatchAttemptCreatedEvent,
@@ -151,22 +197,27 @@ func (s *ProjectionService) HandleDispatchCreated(
 	log.Printf("HandleDispatchCreated: attempt=%s intent=%s corridor=%s attempt_no=%d",
 		e.AttemptID, e.IntentID, e.CorridorID, e.AttemptNo)
 
-	window := todayWindow(e.DispatchAt)
+	// PHASE 6: retry recovery projections are Grade B only.
+	// In Grade A we ingest and mark processed, but do not compute retry metrics.
+	if s.isGradeB() {
+		window := todayWindow(e.DispatchAt)
 
-	if e.AttemptNo > 1 {
-		// This is a retry — count both total_attempts AND retry_attempts
-		if err := s.projRepo.AtomicIncrementRetryAttempt(
-			ctx, e.TenantID, e.CorridorID, window.start, window.end,
-		); err != nil {
-			return err
+		if e.AttemptNo > 1 {
+			if err := s.projRepo.AtomicIncrementRetryAttempt(
+				ctx, e.TenantID, e.CorridorID, window.start, window.end,
+			); err != nil {
+				return err
+			}
+		} else {
+			if err := s.projRepo.AtomicIncrementFirstAttempt(
+				ctx, e.TenantID, e.CorridorID, window.start, window.end,
+			); err != nil {
+				return err
+			}
 		}
 	} else {
-		// First attempt — count only total_attempts
-		if err := s.projRepo.AtomicIncrementFirstAttempt(
-			ctx, e.TenantID, e.CorridorID, window.start, window.end,
-		); err != nil {
-			return err
-		}
+		log.Printf("HandleDispatchCreated: Grade A mode — skipping retry recovery computation attempt=%s",
+			e.AttemptID)
 	}
 
 	if err := s.policyService.EvaluateForEvent(
@@ -239,15 +290,31 @@ func (s *ProjectionService) HandleOutcomeNormalized(
 	return nil
 }
 
-// HandleFinalityCertIssued is the most critical handler in ZPI.
-// A finality certificate means a payout reached a terminal state.
+// HandleFinalityCertIssued processes a finality certificate from Service 5.
+// A finality certificate means a payout reached a terminal state (SETTLED/FAILED/REVERSED).
 //
-// Updates three projections — all via atomic SQL (no race condition):
-//  1. success_rate  — settled/total count for this corridor
-//  2. finality_latency histogram — time from intent creation to finality
-//  3. pending_backlog — decrement (this payout is done)
+// PHASE 6 MODE GATING:
 //
-// Also resolves the SLA timer so we don't fire a false breach alert.
+// ALL modes: event is ingested, idempotency-checked, SLA timer resolved.
+//   Skipping ingestion in Grade A would lose events permanently — not acceptable.
+//
+// GRADE B ONLY: finality-grade intelligence computation runs:
+//   1. success_rate  — settled/total count for this corridor
+//   2. finality_latency histogram — time from intent creation to finality
+//   3. pending_backlog — decrement (this payout is done)
+//   4. provider_ref_missing_rate — UTR/RRN/BankRef quality
+//   5. conflict_rate_in_fusion — Outcome Fusion signal conflicts
+//   6. retry_recovery_rate — retried payouts that reached SETTLED
+//
+// In Grade A these projections are skipped with a trace log. The finality cert
+// is still marked processed so it is never double-counted if mode later upgrades.
+//
+// WHY SKIP IN GRADE A?
+//   In Grade A, ZPI does not own dispatch. Finality certs may arrive from an
+//   external source with incomplete signal coverage. Publishing corridor success
+//   rates based on partial data would misrepresent ZPI's intelligence quality
+//   and undermine the commercial case for Grade B upgrade.
+//   Spec Section 5: "expose only the contracted intelligence surface in early mode."
 func (s *ProjectionService) HandleFinalityCertIssued(
 	ctx context.Context,
 	e models.FinalityCertIssuedEvent,
@@ -276,88 +343,85 @@ func (s *ProjectionService) HandleFinalityCertIssued(
 
 	window := todayWindow(e.DecisionAt)
 
-	// ── Update 1: success_rate ────────────────────────────────────────────
-	var err error
-	switch e.FinalState {
-	case "SETTLED":
-		err = s.projRepo.AtomicIncrementSuccess(
-			ctx, e.TenantID, e.CorridorID, window.start, window.end,
-		)
-	default:
-		// FAILED, REVERSED, UNKNOWN — count in total but not settled
-		err = s.projRepo.AtomicIncrementFailure(
-			ctx, e.TenantID, e.CorridorID, window.start, window.end,
-		)
-	}
-	if err != nil {
-		return fmt.Errorf("HandleFinalityCertIssued success_rate corridor=%s: %w",
-			e.CorridorID, err)
-	}
+	// ── PHASE 6: Grade B-only finality intelligence ───────────────────────
+	// Updates 1–6 compute projections that require ZPI to own dispatch.
+	// In Grade A mode these are skipped — the event is still marked processed.
+	//
+	// We gate at the COMPUTATION level, not the ingestion level.
+	// Ingestion (idempotency + SLA resolution below) runs in all modes.
+	if s.isGradeB() {
+		// ── Update 1: success_rate ────────────────────────────────────────
+		var err error
+		switch e.FinalState {
+		case "SETTLED":
+			err = s.projRepo.AtomicIncrementSuccess(
+				ctx, e.TenantID, e.CorridorID, window.start, window.end,
+			)
+		default:
+			err = s.projRepo.AtomicIncrementFailure(
+				ctx, e.TenantID, e.CorridorID, window.start, window.end,
+			)
+		}
+		if err != nil {
+			return fmt.Errorf("HandleFinalityCertIssued success_rate corridor=%s: %w",
+				e.CorridorID, err)
+		}
 
-	// ── Update 2: finality latency histogram ──────────────────────────────
-	ttfSeconds := e.DecisionAt.Sub(e.IntentCreatedAt).Seconds()
+		// ── Update 2: finality latency histogram ──────────────────────────
+		ttfSeconds := e.DecisionAt.Sub(e.IntentCreatedAt).Seconds()
+		if ttfSeconds < 0 {
+			log.Printf("HandleFinalityCertIssued: negative TTF cert=%s (clock skew), clamping to 0",
+				e.CertificateID)
+			ttfSeconds = 0
+		}
+		if err := s.projRepo.AtomicRecordLatencySample(
+			ctx, e.TenantID, e.CorridorID, ttfSeconds, window.start, window.end,
+		); err != nil {
+			return fmt.Errorf("HandleFinalityCertIssued latency corridor=%s: %w",
+				e.CorridorID, err)
+		}
 
-	// Negative TTF means clock skew between services — clamp to 0
-	if ttfSeconds < 0 {
-		log.Printf("HandleFinalityCertIssued: negative TTF cert=%s (clock skew), clamping to 0",
-			e.CertificateID)
-		ttfSeconds = 0
-	}
-
-	if err := s.projRepo.AtomicRecordLatencySample(
-		ctx, e.TenantID, e.CorridorID, ttfSeconds, window.start, window.end,
-	); err != nil {
-		return fmt.Errorf("HandleFinalityCertIssued latency corridor=%s: %w",
-			e.CorridorID, err)
-	}
-
-	// ── Update 3: pending backlog ─────────────────────────────────────────
-	if err := s.projRepo.AtomicDecrementPending(
-		ctx, e.TenantID, e.CorridorID, window.start, window.end,
-	); err != nil {
-		return fmt.Errorf("HandleFinalityCertIssued pending corridor=%s: %w",
-			e.CorridorID, err)
-	}
-
-	// ── Update 4: provider_ref_missing_rate (new — Service 5 field) ───────
-	// HasProviderRef tells us whether Service 5 found a UTR/RRN/BankRef.
-	// Default true if field absent (zero-value bool = false, but old events
-	// from before the Service 5 upgrade won't have this field at all —
-	// treat missing field as "unknown" by using true to avoid inflating miss rate).
-	if err := s.projRepo.AtomicRecordProviderRef(
-		ctx, e.TenantID, e.CorridorID, e.HasProviderRef, window.start, window.end,
-	); err != nil {
-		// Log but don't fail — this is a new projection; don't break existing flow
-		log.Printf("HandleFinalityCertIssued: AtomicRecordProviderRef failed cert=%s: %v",
-			e.CertificateID, err)
-	}
-
-	// ── Update 5: conflict_rate_in_fusion (new — Service 5 fields) ────────
-	// ConflictCount and ConflictTypes are populated by Outcome Fusion.
-	// ConflictCount == 0 on events from before the Service 5 upgrade —
-	// that's fine, it just registers as a clean (no-conflict) cert.
-	if err := s.projRepo.AtomicRecordFusionConflict(
-		ctx, e.TenantID, e.CorridorID,
-		e.ConflictCount, e.ConflictTypes,
-		window.start, window.end,
-	); err != nil {
-		log.Printf("HandleFinalityCertIssued: AtomicRecordFusionConflict failed cert=%s: %v",
-			e.CertificateID, err)
-	}
-
-	// ── Update 6: retry_recovery_rate (increment recovered if SETTLED) ────
-	// When a corridor's SETTLED cert arrives, we check whether the corridor
-	// already has retry_attempts > 0 in this window. If so, this settlement
-	// counts as a "recovery" — a retry that ultimately succeeded.
-	// This is a corridor-level heuristic (not per-intent), which keeps the
-	// handler stateless. Per-intent tracking would require a join table.
-	if e.FinalState == "SETTLED" {
-		if err := s.projRepo.AtomicIncrementRetryRecovered(
+		// ── Update 3: pending backlog ─────────────────────────────────────
+		if err := s.projRepo.AtomicDecrementPending(
 			ctx, e.TenantID, e.CorridorID, window.start, window.end,
 		); err != nil {
-			log.Printf("HandleFinalityCertIssued: AtomicIncrementRetryRecovered failed cert=%s: %v",
+			return fmt.Errorf("HandleFinalityCertIssued pending corridor=%s: %w",
+				e.CorridorID, err)
+		}
+
+		// ── Update 4: provider_ref_missing_rate ───────────────────────────
+		if err := s.projRepo.AtomicRecordProviderRef(
+			ctx, e.TenantID, e.CorridorID, e.HasProviderRef, window.start, window.end,
+		); err != nil {
+			log.Printf("HandleFinalityCertIssued: AtomicRecordProviderRef failed cert=%s: %v",
 				e.CertificateID, err)
 		}
+
+		// ── Update 5: conflict_rate_in_fusion ─────────────────────────────
+		if err := s.projRepo.AtomicRecordFusionConflict(
+			ctx, e.TenantID, e.CorridorID,
+			e.ConflictCount, e.ConflictTypes,
+			window.start, window.end,
+		); err != nil {
+			log.Printf("HandleFinalityCertIssued: AtomicRecordFusionConflict failed cert=%s: %v",
+				e.CertificateID, err)
+		}
+
+		// ── Update 6: retry_recovery_rate ─────────────────────────────────
+		if e.FinalState == "SETTLED" {
+			if err := s.projRepo.AtomicIncrementRetryRecovered(
+				ctx, e.TenantID, e.CorridorID, window.start, window.end,
+			); err != nil {
+				log.Printf("HandleFinalityCertIssued: AtomicIncrementRetryRecovered failed cert=%s: %v",
+					e.CertificateID, err)
+			}
+		}
+	} else {
+		// Grade A: log that we received a finality cert but are not computing
+		// finality-grade intelligence. This is expected and correct.
+		// The log helps ops confirm Grade B upgrade is working once they flip the mode.
+		log.Printf("HandleFinalityCertIssued: Grade A mode — skipping finality intelligence cert=%s tenant=%s corridor=%s final_state=%s",
+			e.CertificateID, e.TenantID, e.CorridorID, e.FinalState)
 	}
 
 	// ── Resolve the SLA timer ─────────────────────────────────────────────

@@ -25,13 +25,19 @@ import (
 )
 
 // KPIHandler handles KPI and projection HTTP requests.
+//
+// PHASE 6: KPIHandler now holds the IntelligenceMode so it can:
+//   1. Annotate every response with "intelligence_mode" field (Grade A/B)
+//   2. Return a mode-appropriate error for Grade B-only endpoints when in Grade A
 type KPIHandler struct {
 	projRepo *persistence.ProjectionRepo
+	mode     models.IntelligenceMode // PHASE 6
 }
 
 // NewKPIHandler creates a KPIHandler with its dependencies.
-func NewKPIHandler(projRepo *persistence.ProjectionRepo) *KPIHandler {
-	return &KPIHandler{projRepo: projRepo}
+// PHASE 6: mode is required so responses carry the active mode annotation.
+func NewKPIHandler(projRepo *persistence.ProjectionRepo, mode models.IntelligenceMode) *KPIHandler {
+	return &KPIHandler{projRepo: projRepo, mode: mode}
 }
 
 // GetKPIs handles GET /v1/intelligence/kpis?tenant_id=X
@@ -93,10 +99,31 @@ func (h *KPIHandler) GetKPIs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"tenant_id":   tenantID,
-		"projections": items,
-		"count":       len(items),
+		"tenant_id":         tenantID,
+		"intelligence_mode": string(h.mode), // PHASE 6: every response declares mode
+		"projections":       items,
+		"count":             len(items),
 	})
+}
+
+// requireGradeB writes a structured "requires upgrade" response for endpoints
+// that are only available in Grade B mode. Returns true if the check failed
+// (caller should return immediately). Returns false if Grade B is active.
+//
+// PHASE 6: This helper enforces the commercial upgrade path at the API layer.
+// Grade A tenants see a clear message telling them exactly what is needed.
+func (h *KPIHandler) requireGradeB(w http.ResponseWriter, endpoint string) bool {
+	if h.mode.IsGradeB() {
+		return false // Grade B active — proceed normally
+	}
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"intelligence_mode": string(h.mode),
+		"data_available":    false,
+		"endpoint":          endpoint,
+		"reason":            "requires_upgrade — this metric is only available in Grade B (Full Finality / Control Mode)",
+		"upgrade_path":      "Set INTELLIGENCE_MODE=GRADE_B after routing dispatch through ZPI. See GET /v1/intelligence/mode for the full upgrade guide.",
+	})
+	return true
 }
 
 // GetCorridorHealth handles GET /v1/intelligence/corridors/health?tenant_id=X
@@ -121,7 +148,12 @@ func (h *KPIHandler) GetCorridorHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch all projections and filter for corridor-level ones
+	// PHASE 6: Corridor health (success_rate, finality_latency, pending_backlog)
+	// is populated by HandleFinalityCertIssued which is gated to Grade B.
+	// In Grade A, return a clear upgrade signal rather than empty data.
+	if h.requireGradeB(w, "GET /v1/intelligence/corridors/health") {
+		return
+	}
 	projections, err := h.projRepo.ListByTenant(r.Context(), tenantID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to fetch corridor health")
@@ -191,9 +223,10 @@ func (h *KPIHandler) GetCorridorHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"tenant_id": tenantID,
-		"corridors": corridors,
-		"count":     len(corridors),
+		"tenant_id":         tenantID,
+		"intelligence_mode": string(h.mode), // PHASE 6
+		"corridors":         corridors,
+		"count":             len(corridors),
 	})
 }
 
@@ -275,6 +308,11 @@ func (h *KPIHandler) getMLScore(w http.ResponseWriter, r *http.Request, keyPrefi
 	}
 	if corridorID == "" {
 		writeError(w, http.StatusBadRequest, "corridor_id is required")
+		return
+	}
+	// PHASE 6: ML scores (anomaly, SLA risk, failure shift) are fed by
+	// corridor-level projections that require Grade B finality data.
+	if h.requireGradeB(w, "GET /v1/intelligence/ml/"+keyPrefix) {
 		return
 	}
 
@@ -407,6 +445,10 @@ func (h *KPIHandler) GetRetryRecoveryRate(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "tenant_id is required")
 		return
 	}
+	// PHASE 6: retry_recovery_rate requires dispatch control (Grade B)
+	if h.requireGradeB(w, "GET /v1/intelligence/retry-recovery") {
+		return
+	}
 
 	// If no corridor specified, list all corridor retry projections
 	if corridorID == "" {
@@ -506,6 +548,10 @@ func (h *KPIHandler) GetStatementMatchRate(w http.ResponseWriter, r *http.Reques
 	corridorID := r.URL.Query().Get("corridor_id")
 	if tenantID == "" {
 		writeError(w, http.StatusBadRequest, "tenant_id is required")
+		return
+	}
+	// PHASE 6: statement match rate requires Service 5 statement.match.event (Grade B)
+	if h.requireGradeB(w, "GET /v1/intelligence/statement-match") {
 		return
 	}
 
@@ -610,6 +656,10 @@ func (h *KPIHandler) GetProviderRefMissingRate(w http.ResponseWriter, r *http.Re
 		writeError(w, http.StatusBadRequest, "tenant_id is required")
 		return
 	}
+	// PHASE 6: provider ref quality requires finality certs (Grade B)
+	if h.requireGradeB(w, "GET /v1/intelligence/provider-ref-missing") {
+		return
+	}
 
 	if corridorID == "" {
 		projections, err := h.projRepo.ListByTenant(r.Context(), tenantID)
@@ -711,6 +761,10 @@ func (h *KPIHandler) GetConflictRateInFusion(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadRequest, "tenant_id is required")
 		return
 	}
+	// PHASE 6: Outcome Fusion conflict rate requires finality certs (Grade B)
+	if h.requireGradeB(w, "GET /v1/intelligence/fusion-conflicts") {
+		return
+	}
 
 	if corridorID == "" {
 		projections, err := h.projRepo.ListByTenant(r.Context(), tenantID)
@@ -805,6 +859,10 @@ func (h *KPIHandler) GetSLABreachRate(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.URL.Query().Get("tenant_id")
 	if tenantID == "" {
 		writeError(w, http.StatusBadRequest, "tenant_id query parameter is required")
+		return
+	}
+	// PHASE 6: SLA breach rate requires ZPI to own the SLA clock (Grade B)
+	if h.requireGradeB(w, "GET /v1/intelligence/sla-breach") {
 		return
 	}
 

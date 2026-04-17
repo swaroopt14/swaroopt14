@@ -1,99 +1,99 @@
 package config
 
-// What is a "package"?
-// Every Go file starts with "package X"
-// Files in the same folder must have the same package name
-// Other files import this package to use it:
-//   import "github.com/zord/zord-intelligence/config"
-//   cfg := config.Load()
+// config.go
+//
+// Holds every setting zord-intelligence needs to run.
+//
+// PHASE 6 ADDITIONS:
+//
+//   IntelligenceMode — dual-mode architecture switch.
+//
+//   GRADE_A (default) — Attachment Intelligence Mode.
+//     Customer provides: payout intents + settlement files.
+//     ZPI produces: leakage, ambiguity, defensibility, RCA, pattern, recommendation.
+//     Grade B-only computation (finality rates, latency, SLA, retry recovery)
+//     is skipped so ZPI does not claim intelligence it cannot deliver.
+//     This is the correct default for all new deployments.
+//
+//   GRADE_B — Full Finality / Control Mode.
+//     Customer routes dispatch through ZPI (Service 4 + finality certs).
+//     ZPI additionally produces finality-grade success rates, p95 latency,
+//     SLA compliance, retry recovery, and Outcome Fusion conflict rates.
+//     Set INTELLIGENCE_MODE=GRADE_B only after validating that
+//     finality.certificate.issued events are flowing correctly.
+//
+// SAFETY PRINCIPLE:
+//   Defaulting to GRADE_A means a misconfigured or partial deployment
+//   never silently serves metrics it cannot support. An explicit opt-in
+//   to GRADE_B is required — no accidental finality-grade exposure.
 
 import (
 	"log"
 	"os"
+
+	"github.com/zord/zord-intelligence/internal/models"
 )
 
 // Config holds every setting zord-intelligence needs to run.
-//
-// Think of this like application.properties in Spring Boot.
-// Every value here comes from the .env file.
-// Nobody else in the codebase calls os.Getenv() — only this file does.
 type Config struct {
 
 	// ── Server ──────────────────────────────────────────────────
-	HTTPPort    string // which port the HTTP server listens on. e.g. "8087"
-	Environment string // "development" or "production"
+	HTTPPort    string
+	Environment string
 
 	// ── Database ────────────────────────────────────────────────
-	DatabaseURL string // full postgres connection string
+	DatabaseURL string
 
 	// ── Kafka ───────────────────────────────────────────────────
-	KafkaBrokers string // e.g. "localhost:9092"
-	KafkaGroupID string // consumer group name for this service
+	KafkaBrokers string
+	KafkaGroupID string
 
 	// ── Kafka Input Topics (ZPI reads FROM these) ────────────────
-	// Published by Service 2, 4, 5, 6
-	TopicIntentCreated     string // canonical.intent.created       ← Service 2
-	TopicDispatchCreated   string // dispatch.attempt.created        ← Service 4
-	TopicOutcomeNormalized string // outcome.event.normalized        ← Service 5
-	TopicFinalityCert      string // finality.certificate.issued     ← Service 5
-	TopicFinalContract     string // final.contract.updated          ← Service 5/6
-	TopicEvidenceReady     string // evidence.pack.ready             ← Service 6
-	TopicDLQ               string // dlq.event                       ← any service
-	// TopicStatementMatch is the new topic emitted by Service 5 after each
-	// statement reconciliation pass. Requires Service 5 upgrade.
-	TopicStatementMatch     string // statement.match.event            ← Service 5 (NEW)
-	TopicCorridorHealthTick string // corridor.health.tick             ← operational heartbeat
-	TopicSLATimerTick       string // sla.timer.tick                   ← operational heartbeat
+	TopicIntentCreated     string
+	TopicDispatchCreated   string
+	TopicOutcomeNormalized string
+	TopicFinalityCert      string
+	TopicFinalContract     string
+	TopicEvidenceReady     string
+	TopicDLQ               string
+	TopicStatementMatch    string
+	TopicCorridorHealthTick string
+	TopicSLATimerTick      string
 
-	// ── NEW INPUT TOPICS ( Grade A Attachment Intelligence Mode) ────
-	//
-	// These 5 topics are the new upstream inputs from the pivoted spec.
-	// They are consumed in Grade A mode (attachment-based intelligence).
-	// In Grade B mode (dispatch/control), all original topics above are also used.
-	//
-	// All use getWithDefault so:
-	//   - Service runs immediately without these set (no crash)
-	//   - If topic is empty string, consumer.go skips wiring it
-	//   - Production sets real values via environment variables
-
-	TopicSettlementCreated string // canonical.settlement.created    ← Service 5B
-	// Emitted when Service 5B parses a settlement file line.
-	// ZPI uses to track settlement observations and feed leakage calculation.
-
-	TopicAttachmentDecision string // attachment.decision.created     ← Service 5C
-	// Emitted when Service 5C makes a match/ambiguous/unresolved decision.
-	// MOST IMPORTANT new topic for leakage and ambiguity intelligence.
-
-	TopicVarianceRecord string // variance.record.created         ← Service 5C
-	// Emitted when Service 5C detects amount/date mismatch between
-	// intent and settlement. Feeds leakage amount calculation directly.
-
-	TopicBatchSummary string // batch.summary.updated           ← Service 5C
-	// Emitted when batch-level aggregate state changes.
-	// Feeds batch_contracts table and Pattern intelligence layer.
-
-	TopicGovernanceDecision string // governance.decision.created     ← Service 6
-	// Emitted when Service 6 creates a governance record for a payment.
-	// Feeds defensibility score (governance coverage component).
+	// ── Grade A Input Topics ────────────────────────────────────
+	TopicSettlementCreated  string
+	TopicAttachmentDecision string
+	TopicVarianceRecord     string
+	TopicBatchSummary       string
+	TopicGovernanceDecision string
 
 	// ── Kafka Output Topics (ZPI publishes TO these) ──────────────
-	// ONLY for actuation — triggering other services
-	// KPI data does NOT go to Kafka. It goes to DB → REST API → frontend
-	TopicActuationRetry      string // → Service 4 (retry a payout)
-	TopicActuationEvidence   string // → Service 6 (generate evidence pack)
-	TopicActuationAlert      string // → Notification service (ops alert)
-	TopicActuationBatchPatch string // → Client-facing API (batch patch request) NEW Phase 2
+	TopicActuationRetry      string
+	TopicActuationEvidence   string
+	TopicActuationAlert      string
+	TopicActuationBatchPatch string
+
+	// ── PHASE 6: Dual-Mode Architecture ─────────────────────────
+	//
+	// IntelligenceMode controls which intelligence surfaces ZPI computes
+	// and which API endpoints return data vs. "requires upgrade" responses.
+	//
+	// Set via env var: INTELLIGENCE_MODE=GRADE_A (default) or GRADE_B
+	//
+	// GRADE_A — Attachment Intelligence Mode (safe default)
+	//   Produces: leakage, ambiguity, defensibility, RCA, pattern, recommendation
+	//   Skips:    finality-grade projections (no false implied capabilities)
+	//
+	// GRADE_B — Full Finality / Control Mode
+	//   Produces: all of Grade A + finality rates, latency, SLA, retry recovery
+	//   Requires: dispatch.attempt.created + finality.certificate.issued flowing
+	IntelligenceMode models.IntelligenceMode
 }
 
 // Load reads all environment variables and returns a filled Config struct.
-//
-// Call this once in main.go:
-//
-//	cfg := config.Load()
-//
-// If a required variable is missing, the service crashes immediately.
-// This is intentional — "fail fast" is safer than running with broken config.
 func Load() *Config {
+	mode := loadIntelligenceMode()
+
 	return &Config{
 
 		// ── Server ──────────────────────────────────────────────
@@ -119,10 +119,7 @@ func Load() *Config {
 		TopicCorridorHealthTick: getWithDefault("TOPIC_CORRIDOR_HEALTH_TICK", "corridor.health.tick"),
 		TopicSLATimerTick:       getWithDefault("TOPIC_SLA_TIMER_TICK", "sla.timer.tick"),
 
-		// ── NEW INPUT TOPICS ( Grade A) ─────────────────────────────
-		// All use getWithDefault so the service starts cleanly even when
-		// upstream services have not deployed these topics yet.
-		// consumer.go skips any topic whose config value is empty string.
+		// ── Grade A Input Topics ──────────────────────────────────
 		TopicSettlementCreated:  getWithDefault("TOPIC_SETTLEMENT_CREATED", "canonical.settlement.created"),
 		TopicAttachmentDecision: getWithDefault("TOPIC_ATTACHMENT_DECISION", "attachment.decision.created"),
 		TopicVarianceRecord:     getWithDefault("TOPIC_VARIANCE_RECORD", "variance.record.created"),
@@ -134,26 +131,37 @@ func Load() *Config {
 		TopicActuationEvidence:   getWithDefault("TOPIC_ACTUATION_EVIDENCE", "zpi.actuation.evidence"),
 		TopicActuationAlert:      getWithDefault("TOPIC_ACTUATION_ALERT", "zpi.actuation.alert"),
 		TopicActuationBatchPatch: getWithDefault("TOPIC_ACTUATION_BATCH_PATCH", "zpi.actuation.batch_patch"),
+
+		// ── PHASE 6: Intelligence Mode ────────────────────────────
+		IntelligenceMode: mode,
 	}
 }
 
-// ── Helper functions ─────────────────────────────────────────────────────────
-// These are private (lowercase first letter = only usable inside this package)
+// loadIntelligenceMode reads and validates INTELLIGENCE_MODE.
+// Defaults to GRADE_A for safety. Logs the active mode at startup.
+func loadIntelligenceMode() models.IntelligenceMode {
+	raw := getWithDefault("INTELLIGENCE_MODE", string(models.IntelligenceModeGradeA))
+	mode := models.IntelligenceMode(raw)
 
-// getRequired reads an env var. Crashes if it is not set.
-// Use this for things that MUST be set: DATABASE_URL, KAFKA_BROKERS
+	if !mode.Valid() {
+		log.Printf("WARN: INTELLIGENCE_MODE=%q is not recognised — defaulting to GRADE_A", raw)
+		mode = models.IntelligenceModeGradeA
+	}
+
+	log.Printf("config: intelligence mode = %s", mode.String())
+	return mode
+}
+
+// ── Helper functions ─────────────────────────────────────────────────────────
+
 func getRequired(key string) string {
 	value := os.Getenv(key)
 	if value == "" {
-		// log.Fatalf prints the message and immediately stops the program
-		// This is the "fail fast" pattern — better to crash loudly than run broken
 		log.Fatalf("FATAL: required environment variable %q is not set", key)
 	}
 	return value
 }
 
-// getWithDefault reads an env var. Returns defaultVal if not set.
-// Use this for things that have sensible defaults: HTTP_PORT, topic names
 func getWithDefault(key, defaultVal string) string {
 	value := os.Getenv(key)
 	if value == "" {

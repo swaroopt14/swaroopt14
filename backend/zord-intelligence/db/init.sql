@@ -995,3 +995,113 @@ THEN ACTION OPEN_OPS_INCIDENT severity=HIGH',
 'AMBIGUITY', 'HIGH', false, false)
 
 ON CONFLICT (policy_id) DO NOTHING;
+
+
+-- =============================================================================
+-- PHASE 6: Dual-Mode Architecture (Grade A / Grade B)
+-- =============================================================================
+--
+-- WHAT THIS ADDS:
+--   1. intelligence_mode_config table — records the active mode and when it changed.
+--      Provides an audit trail of mode transitions (GRADE_A → GRADE_B).
+--   2. Indexes to support mode-specific query patterns on intelligence_snapshots.
+--   3. Seed row for the default GRADE_A mode.
+--
+-- MIGRATION SAFETY:
+--   All statements use CREATE TABLE IF NOT EXISTS and CREATE INDEX IF NOT EXISTS.
+--   Safe to run on both fresh and existing databases.
+-- =============================================================================
+
+
+-- TABLE 10: intelligence_mode_config
+-- Records the current and historical operating modes for this ZPI deployment.
+--
+-- WHY A TABLE INSTEAD OF JUST ENV VAR?
+-- The env var is the source of truth for the RUNNING mode.
+-- This table provides:
+--   1. Audit trail — when did we switch modes and who initiated it?
+--   2. Historical context — the GET /v1/intelligence/mode/status endpoint
+--      can show "mode set at" without reading the env var at runtime.
+--   3. Migration guard — if you accidentally set GRADE_B without routing
+--      dispatch correctly, this table lets you diagnose when it happened.
+--
+-- There is always exactly ONE row with is_current = true.
+-- When the mode changes, the old row is updated (is_current = false, ended_at = now)
+-- and a new row is inserted (is_current = true).
+
+CREATE TABLE IF NOT EXISTS intelligence_mode_config (
+
+    id              BIGSERIAL    PRIMARY KEY,
+
+    mode            TEXT         NOT NULL,
+    CHECK (mode IN ('GRADE_A', 'GRADE_B')),
+    -- The operating mode for this row.
+
+    is_current      BOOLEAN      NOT NULL DEFAULT true,
+    -- Only one row has is_current = true at any time.
+    -- This is a soft constraint — enforced by the application, not a DB constraint,
+    -- because a partial unique index on is_current = true would prevent inserting
+    -- the new row in the same transaction as updating the old one.
+
+    started_at      TIMESTAMPTZ  NOT NULL DEFAULT now(),
+    -- When this mode became active.
+
+    ended_at        TIMESTAMPTZ,
+    -- When this mode was superseded. NULL = still active.
+
+    initiated_by    TEXT         NOT NULL DEFAULT 'system',
+    -- Who or what triggered the mode change.
+    -- 'system' = automatic (env var change on restart)
+    -- 'ops'    = manual intervention
+
+    notes           TEXT,
+    -- Optional context: "Upgraded to Grade B after validating finality certs for tenant X"
+
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+
+-- Index: "what is the current mode?" — used by intelligence_mode_handler
+CREATE INDEX IF NOT EXISTS idx_mode_config_current
+    ON intelligence_mode_config (is_current, started_at DESC)
+    WHERE is_current = true;
+
+-- Index: "show mode transition history" — audit trail query
+CREATE INDEX IF NOT EXISTS idx_mode_config_history
+    ON intelligence_mode_config (started_at DESC);
+
+
+-- Seed: default Grade A mode entry.
+-- This runs on fresh installs so the table is never empty.
+-- ON CONFLICT DO NOTHING is not available without a unique constraint here,
+-- so we use a WHERE NOT EXISTS guard instead.
+INSERT INTO intelligence_mode_config (mode, is_current, initiated_by, notes)
+SELECT 'GRADE_A', true, 'system', 'Default mode — Attachment Intelligence Mode on initial deployment'
+WHERE NOT EXISTS (SELECT 1 FROM intelligence_mode_config WHERE is_current = true);
+
+
+-- PHASE 6 INDEXES on intelligence_snapshots for mode-aware queries:
+
+-- "Give me all LEAKAGE snapshots for tenant X in the last 7 days" — dashboard trend
+CREATE INDEX IF NOT EXISTS idx_snap_tenant_type_recent
+    ON intelligence_snapshots (tenant_id, snapshot_type, created_at DESC)
+    WHERE snapshot_type IN ('LEAKAGE', 'AMBIGUITY', 'DEFENSIBILITY', 'RCA', 'PATTERN', 'RECOMMENDATION');
+
+-- "Give me the latest snapshot for each type for tenant X" — single-query dashboard load
+-- Complements idx_snap_tenant_type_window (added in Phase 1).
+-- This index specifically optimises the GetLatestByType query pattern used by Phase 6 handlers.
+CREATE INDEX IF NOT EXISTS idx_snap_latest_by_type
+    ON intelligence_snapshots (tenant_id, snapshot_type, scope_type, created_at DESC);
+
+
+-- PHASE 6 INDEXES on projection_state for signal health checks:
+
+-- "Has leakage.total been updated in the last 24h for tenant X?"
+-- Used by buildSignalHealth in intelligence_mode_handler.go
+CREATE INDEX IF NOT EXISTS idx_proj_key_computed
+    ON projection_state (tenant_id, projection_key, computed_at DESC);
+
+-- "Has any batch.health.* projection been updated in the last 24h?"
+-- Used by the prefix-check signal health probe.
+CREATE INDEX IF NOT EXISTS idx_proj_family_computed
+    ON projection_state (tenant_id, projection_family, computed_at DESC)
+    WHERE projection_family IS NOT NULL;

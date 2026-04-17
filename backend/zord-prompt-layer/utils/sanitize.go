@@ -10,16 +10,10 @@ import (
 var (
 	uuidRe = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b`)
 
-	// key=value or key: value
-	keyValIDRe = regexp.MustCompile(`(?i)\b(intent_id|trace_id|tenant_id|envelope_id|contract_id|action_id|record_id|chunk_id|idempotency[_\s]?key|account(_id|_number)?)\b\s*[:=]\s*[^,\s]+`)
-
-	// JSON style: "key":"value"
-	jsonSensitivePairRe = regexp.MustCompile(`(?i)"(intent_id|trace_id|tenant_id|envelope_id|contract_id|action_id|record_id|chunk_id|idempotency_key|account_id|account_number|iban|ifsc|swift|pan|vault_object_ref)"\s*:\s*"[^"]*"`)
-
-	// loose sensitive values
-	sensitiveValRe = regexp.MustCompile(`(?i)\b(idempotency[_\s]?key|account(_id|_number)?|iban|ifsc|swift|pan|vault_object_ref)\b\s*[:=]?\s*[^,\n]*`)
-
-	sensitiveWordRe = regexp.MustCompile(`(?i)\b(api[_-]?key|secret|password|token)\b`)
+	keyValIDRe          = regexp.MustCompile(`(?i)\b(intent_id|trace_id|tenant_id|envelope_id|contract_id|action_id|record_id|chunk_id|batch_id|idempotency[_\s]?key|account(_id|_number)?)\b\s*[:=]\s*[^,\s]+`)
+	jsonSensitivePairRe = regexp.MustCompile(`(?i)"(intent_id|trace_id|tenant_id|envelope_id|contract_id|action_id|record_id|chunk_id|batch_id|idempotency_key|account_id|account_number|iban|ifsc|swift|pan|vault_object_ref|payload_hash|salient_hash|request_fingerprint|provider_request_fingerprint|envelope_hash|envelope_signature|signature_value|archive_hash|encrypted_payload)"\s*:\s*"[^"]*"`)
+	sensitiveValRe      = regexp.MustCompile(`(?i)\b(idempotency[_\s]?key|account(_id|_number)?|iban|ifsc|swift|pan|vault_object_ref|payload_hash|salient_hash|request_fingerprint|provider_request_fingerprint|envelope_hash|envelope_signature|signature_value|archive_hash|encrypted_payload)\b\s*[:=]?\s*[^,\n]*`)
+	sensitiveWordRe     = regexp.MustCompile(`(?i)\b(api[_-]?key|secret|password|token|hash|encrypted|signature|cipher|vault)\b`)
 )
 
 func SanitizeAnswerText(s string) string {

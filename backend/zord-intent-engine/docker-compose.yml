@@ -29,7 +29,7 @@ services:
 
       - AWS_REGION=ap-southeast-2
       - AWS_EC2_METADATA_DISABLED=true
-      - S3_BUCKET=canonical-worm-storage
+      - S3_BUCKET=swaroop-vault
     depends_on:
       - postgres
     networks:

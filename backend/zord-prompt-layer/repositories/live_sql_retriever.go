@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -16,18 +17,22 @@ import (
 var uuidRegex = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type LiveSQLRetriever struct {
-	edgeDB   *sql.DB
-	intentDB *sql.DB
-	relayDB  *sql.DB
-	timeout  time.Duration
+	edgeDB         *sql.DB
+	intentDB       *sql.DB
+	relayDB        *sql.DB
+	intelligenceDB *sql.DB
+	evidenceDB     *sql.DB
+	timeout        time.Duration
 }
 
-func NewLiveSQLRetriever(edgeDB, intentDB, relayDB *sql.DB) *LiveSQLRetriever {
+func NewLiveSQLRetriever(edgeDB, intentDB, relayDB, intelligenceDB, evidenceDB *sql.DB) *LiveSQLRetriever {
 	return &LiveSQLRetriever{
-		edgeDB:   edgeDB,
-		intentDB: intentDB,
-		relayDB:  relayDB,
-		timeout:  4 * time.Second,
+		edgeDB:         edgeDB,
+		intentDB:       intentDB,
+		relayDB:        relayDB,
+		intelligenceDB: intelligenceDB,
+		evidenceDB:     evidenceDB,
+		timeout:        4 * time.Second,
 	}
 }
 func isFailureQuery(q string) bool {
@@ -57,31 +62,40 @@ func (r *LiveSQLRetriever) Retrieve(req dto.QueryRequest, intentID, traceID stri
 	chunks := make([]model.RetrievedChunk, 0, topK*4)
 
 	if r.edgeDB != nil {
-		c, err := r.fetchFromEdge(tenantID, traceID, topK, failureOnly, scope)
-
-		if err != nil {
-			return nil, err
+		if c, err := r.fetchFromEdge(tenantID, traceID, topK, failureOnly, scope); err == nil {
+			chunks = append(chunks, c...)
 		}
-		chunks = append(chunks, c...)
+
 	}
 	if r.intentDB != nil {
-		c, err := r.fetchFromIntent(tenantID, intentID, traceID, topK, failureOnly, scope)
-		if err != nil {
-			return nil, err
+		if c, err := r.fetchFromIntent(tenantID, intentID, traceID, topK, failureOnly, scope); err == nil {
+			chunks = append(chunks, c...)
 		}
-		chunks = append(chunks, c...)
-
-		d, err := r.fetchFromIntentDLQ(tenantID, topK, scope)
-		if err != nil {
-			return nil, err
+		if d, err := r.fetchFromIntentDLQ(tenantID, topK, scope); err == nil {
+			chunks = append(chunks, d...)
 		}
-		chunks = append(chunks, d...)
+	}
+	if r.relayDB != nil {
+		if c, err := r.fetchFromRelay(tenantID, intentID, traceID, topK, failureOnly, scope); err == nil {
+			chunks = append(chunks, c...)
+		}
 	}
 
-	if len(chunks) > topK {
-		chunks = chunks[:topK]
+	if r.intelligenceDB != nil {
+		if c, err := r.fetchFromIntelligence(tenantID, topK, failureOnly, scope); err == nil {
+			chunks = append(chunks, c...)
+		}
 	}
+
+	if r.evidenceDB != nil {
+		if c, err := r.fetchFromEvidence(tenantID, topK, failureOnly, scope); err == nil {
+			chunks = append(chunks, c...)
+		}
+	}
+
+	chunks = rankAndTrimBalanced(chunks, topK)
 	return chunks, nil
+
 }
 
 func (r *LiveSQLRetriever) resolveTenantID(input string) (string, error) {
@@ -521,12 +535,12 @@ func (r *LiveSQLRetriever) fetchFromIntent(tenantID, intentID, traceID string, t
 		}
 
 		out = append(out, model.RetrievedChunk{
-			ChunkID:    "intent_" + id,
+			ChunkID:    "",
 			SourceType: "intent_payment_intents",
-			RecordID:   id,
-			IntentID:   id,
-			TraceID:    tr,
-			TenantID:   tenantID,
+			RecordID:   "",
+			IntentID:   "",
+			TraceID:    "",
+			TenantID:   "",
 			Score:      1.0,
 			Text: fmt.Sprintf("Intent event: status=%s type=%s amount=%s %s confidence=%s created_at=%s",
 				status, intentType, amount, currency, confidenceVal, createdAt),
@@ -576,12 +590,12 @@ func (r *LiveSQLRetriever) fetchFromIntent(tenantID, intentID, traceID string, t
 			return nil, err
 		}
 		out = append(out, model.RetrievedChunk{
-			ChunkID:    "outbox_" + eventID.String,
+			ChunkID:    "",
 			SourceType: "intent_outbox",
-			RecordID:   eventID.String,
-			IntentID:   aggID.String,
-			TraceID:    tr.String,
-			TenantID:   tenantID,
+			RecordID:   "",
+			IntentID:   "",
+			TraceID:    "",
+			TenantID:   "",
 			Score:      0.95,
 			Text: fmt.Sprintf("Outbox event: event_type=%s status=%s retry_count=%s created_at=%s sent_at=%s",
 				eventType.String, status.String, retryCount.String, createdAt.String, sentAt.String),
@@ -624,10 +638,10 @@ func (r *LiveSQLRetriever) fetchFromIntentDLQ(tenantID string, topK int, scope u
 			return nil, err
 		}
 		out = append(out, model.RetrievedChunk{
-			ChunkID:    "intent_dlq_" + dlqID.String,
+			ChunkID:    "",
 			SourceType: "intent_dlq_items",
-			RecordID:   dlqID.String,
-			TenantID:   tID.String,
+			RecordID:   "",
+			TenantID:   "",
 			Score:      0.97,
 			Text: fmt.Sprintf("DLQ item: stage=%s reason_code=%s replayable=%s created_at=%s error_detail=%s",
 				stage.String, reasonCode.String, replayable.String, createdAt.String, errorDetail.String),
@@ -640,57 +654,404 @@ func (r *LiveSQLRetriever) fetchFromRelay(tenantID, intentID, traceID string, to
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 	defer cancel()
 
-	args := []any{}
-	q := `
-		SELECT contract_id::text, intent_id::text, envelope_id::text, trace_id, status, created_at::text
-		FROM payout_contracts
-		WHERE 1=1
-	`
-	if tenantID != "" {
-		q += fmt.Sprintf(" AND tenant_id::text = $%d", len(args)+1)
-		args = append(args, tenantID)
+	if topK <= 0 {
+		topK = 5
 	}
-	if intentID != "" && uuidRegex.MatchString(intentID) {
-		q += fmt.Sprintf(" AND intent_id::text = $%d", len(args)+1)
-		args = append(args, strings.ToLower(intentID))
-	}
-	if traceID != "" {
-		q += fmt.Sprintf(" AND trace_id = $%d", len(args)+1)
-		args = append(args, traceID)
-	}
-	if failureOnly {
-		q += " AND status ILIKE '%FAIL%'"
-	}
-	if scope.HasExplicitTime {
-		q += fmt.Sprintf(" AND created_at >= $%d AND created_at < $%d", len(args)+1, len(args)+2)
-		args = append(args, scope.StartUTC, scope.EndUTC)
-	}
+	out := make([]model.RetrievedChunk, 0, topK*2)
 
-	q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", topK)
+	{
+		args := []any{}
+		q := `
+			SELECT status, attempt_count, retry_class, provider_response_status,
+			       next_dispatch_attempt_at::text, created_at::text, updated_at::text, sent_at::text, acked_at::text
+			FROM dispatches
+			WHERE 1=1
+		`
+		if tenantID != "" {
+			q += fmt.Sprintf(" AND tenant_id = $%d", len(args)+1)
+			args = append(args, tenantID)
+		}
+		if failureOnly {
+			q += " AND (status ILIKE '%FAIL%' OR status ILIKE '%RETRY%')"
+		}
+		if scope.HasExplicitTime {
+			q += fmt.Sprintf(" AND created_at >= $%d AND created_at < $%d", len(args)+1, len(args)+2)
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", topK)
 
-	rows, err := r.relayDB.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, fmt.Errorf("relay retrieval failed: %w", err)
-	}
-	defer rows.Close()
-
-	out := make([]model.RetrievedChunk, 0, topK)
-	for rows.Next() {
-		var contractID, id, envelopeID, tr, status, createdAt string
-		if err := rows.Scan(&contractID, &id, &envelopeID, &tr, &status, &createdAt); err != nil {
+		rows, err := r.relayDB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, fmt.Errorf("relay dispatches retrieval failed: %w", err)
+		}
+		for rows.Next() {
+			var status string
+			var attempt int
+			var retryClass, providerStatus, nextAttempt, createdAt, updatedAt, sentAt, ackedAt sql.NullString
+			if err := rows.Scan(&status, &attempt, &retryClass, &providerStatus, &nextAttempt, &createdAt, &updatedAt, &sentAt, &ackedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, model.RetrievedChunk{
+				SourceType: "relay_dispatches",
+				Score:      0.93,
+				Text: fmt.Sprintf(
+					"Relay dispatch status: status=%s attempts=%d retry_class=%s provider_response_status=%s next_retry_at=%s created_at=%s updated_at=%s sent_at=%s acked_at=%s",
+					status, attempt, nullText(retryClass), nullText(providerStatus), nullText(nextAttempt),
+					nullText(createdAt), nullText(updatedAt), nullText(sentAt), nullText(ackedAt),
+				),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
 			return nil, err
 		}
-		out = append(out, model.RetrievedChunk{
-			ChunkID:    "relay_contract_" + contractID,
-			SourceType: "relay_payout_contracts",
-			RecordID:   contractID,
-			IntentID:   id,
-			TraceID:    tr,
-			TenantID:   tenantID,
-			Score:      0.93,
-			Text: fmt.Sprintf("Relay contract event: status=%s created_at=%s",
-				status, createdAt),
-		})
+		rows.Close()
 	}
-	return out, rows.Err()
+
+	{
+		args := []any{}
+		q := `
+			SELECT event_type, status, retry_count, created_at::text, published_at::text
+			FROM relay_outbox
+			WHERE 1=1
+		`
+		if tenantID != "" {
+			q += fmt.Sprintf(" AND tenant_id = $%d", len(args)+1)
+			args = append(args, tenantID)
+		}
+		if failureOnly {
+			q += " AND (status ILIKE '%FAIL%' OR retry_count > 0)"
+		}
+		if scope.HasExplicitTime {
+			q += fmt.Sprintf(" AND created_at >= $%d AND created_at < $%d", len(args)+1, len(args)+2)
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", topK)
+
+		rows, err := r.relayDB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, fmt.Errorf("relay outbox retrieval failed: %w", err)
+		}
+		for rows.Next() {
+			var eventType, status, createdAt string
+			var retryCount int
+			var publishedAt sql.NullString
+			if err := rows.Scan(&eventType, &status, &retryCount, &createdAt, &publishedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, model.RetrievedChunk{
+				SourceType: "relay_outbox",
+				Score:      0.90,
+				Text: fmt.Sprintf(
+					"Relay event delivery: event_type=%s status=%s retry_count=%d created_at=%s published_at=%s",
+					eventType, status, retryCount, createdAt, nullText(publishedAt),
+				),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	if len(out) > topK {
+		out = out[:topK]
+	}
+	return out, nil
+}
+
+// ADD these two new functions:
+
+func (r *LiveSQLRetriever) fetchFromIntelligence(tenantID string, topK int, failureOnly bool, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
+	defer cancel()
+
+	if topK <= 0 {
+		topK = 5
+	}
+	out := make([]model.RetrievedChunk, 0, topK*3)
+
+	{
+		args := []any{}
+		q := `
+			SELECT projection_key, value_json::text, window_end::text, computed_at::text
+			FROM projection_state
+			WHERE 1=1
+		`
+		if tenantID != "" {
+			q += fmt.Sprintf(" AND tenant_id = $%d", len(args)+1)
+			args = append(args, tenantID)
+		}
+		if scope.HasExplicitTime {
+			q += fmt.Sprintf(" AND computed_at >= $%d AND computed_at < $%d", len(args)+1, len(args)+2)
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+		q += fmt.Sprintf(" ORDER BY computed_at DESC LIMIT %d", topK)
+
+		rows, err := r.intelligenceDB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, fmt.Errorf("intelligence projection retrieval failed: %w", err)
+		}
+		for rows.Next() {
+			var key, valueJSON, windowEnd, computedAt string
+			if err := rows.Scan(&key, &valueJSON, &windowEnd, &computedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, model.RetrievedChunk{
+				SourceType: "intelligence_projection_state",
+				Score:      0.92,
+				Text:       fmt.Sprintf("Intelligence metric: projection=%s window_end=%s computed_at=%s value=%s", key, windowEnd, computedAt, valueJSON),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	{
+		args := []any{}
+		q := `
+			SELECT snapshot_type, scope_type, window_start::text, window_end::text, model_version, created_at::text
+			FROM intelligence_snapshots
+			WHERE 1=1
+		`
+		if tenantID != "" {
+			q += fmt.Sprintf(" AND tenant_id = $%d", len(args)+1)
+			args = append(args, tenantID)
+		}
+		if scope.HasExplicitTime {
+			q += fmt.Sprintf(" AND created_at >= $%d AND created_at < $%d", len(args)+1, len(args)+2)
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", topK)
+
+		rows, err := r.intelligenceDB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, fmt.Errorf("intelligence snapshots retrieval failed: %w", err)
+		}
+		for rows.Next() {
+			var snapType, scopeType, windowStart, windowEnd, modelVersion, createdAt sql.NullString
+			if err := rows.Scan(&snapType, &scopeType, &windowStart, &windowEnd, &modelVersion, &createdAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, model.RetrievedChunk{
+				SourceType: "intelligence_snapshots",
+				Score:      0.89,
+				Text: fmt.Sprintf(
+					"Intelligence snapshot: type=%s scope=%s window_start=%s window_end=%s model_version=%s created_at=%s",
+					nullText(snapType), nullText(scopeType), nullText(windowStart), nullText(windowEnd), nullText(modelVersion), nullText(createdAt),
+				),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	{
+		args := []any{}
+		q := `
+			SELECT decision, confidence::text, contract_status, policy_family, severity, created_at::text
+			FROM action_contracts
+			WHERE 1=1
+		`
+		if tenantID != "" {
+			q += fmt.Sprintf(" AND tenant_id = $%d", len(args)+1)
+			args = append(args, tenantID)
+		}
+		if failureOnly {
+			q += " AND (severity = 'HIGH' OR contract_status ILIKE '%PENDING%')"
+		}
+		if scope.HasExplicitTime {
+			q += fmt.Sprintf(" AND created_at >= $%d AND created_at < $%d", len(args)+1, len(args)+2)
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", topK)
+
+		rows, err := r.intelligenceDB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, fmt.Errorf("intelligence actions retrieval failed: %w", err)
+		}
+		for rows.Next() {
+			var decision, confidence, status, family, severity, createdAt sql.NullString
+			if err := rows.Scan(&decision, &confidence, &status, &family, &severity, &createdAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, model.RetrievedChunk{
+				SourceType: "intelligence_action_contracts",
+				Score:      0.88,
+				Text: fmt.Sprintf(
+					"Intelligence action state: decision=%s confidence=%s status=%s family=%s severity=%s created_at=%s",
+					nullText(decision), nullText(confidence), nullText(status), nullText(family), nullText(severity), nullText(createdAt),
+				),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	if len(out) > topK {
+		out = out[:topK]
+	}
+	return out, nil
+}
+
+func (r *LiveSQLRetriever) fetchFromEvidence(tenantID string, topK int, failureOnly bool, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
+	defer cancel()
+
+	if topK <= 0 {
+		topK = 5
+	}
+	out := make([]model.RetrievedChunk, 0, topK*2)
+
+	{
+		args := []any{}
+		q := `
+			SELECT mode, pack_status, ruleset_version, signature_alg, replay_equivalence_status, created_at::text, updated_at::text
+			FROM evidence_packs
+			WHERE 1=1
+		`
+		if tenantID != "" {
+			q += fmt.Sprintf(" AND tenant_id = $%d", len(args)+1)
+			args = append(args, tenantID)
+		}
+		if failureOnly {
+			q += " AND (pack_status ILIKE '%FAILED%' OR replay_equivalence_status ILIKE '%MISMATCH%')"
+		}
+		if scope.HasExplicitTime {
+			q += fmt.Sprintf(" AND created_at >= $%d AND created_at < $%d", len(args)+1, len(args)+2)
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", topK)
+
+		rows, err := r.evidenceDB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, fmt.Errorf("evidence packs retrieval failed: %w", err)
+		}
+		for rows.Next() {
+			var mode, packStatus, rulesetVersion, signatureAlg, replayStatus, createdAt, updatedAt sql.NullString
+			if err := rows.Scan(&mode, &packStatus, &rulesetVersion, &signatureAlg, &replayStatus, &createdAt, &updatedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, model.RetrievedChunk{
+				SourceType: "evidence_packs",
+				Score:      0.90,
+				Text: fmt.Sprintf(
+					"Evidence pack status: mode=%s pack_status=%s ruleset_version=%s signature_algorithm=%s replay_status=%s created_at=%s updated_at=%s",
+					nullText(mode), nullText(packStatus), nullText(rulesetVersion), nullText(signatureAlg), nullText(replayStatus), nullText(createdAt), nullText(updatedAt),
+				),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	{
+		args := []any{}
+		q := `
+			SELECT status, ruleset_version, equivalence_result, created_at::text, completed_at::text
+			FROM evidence_replay_jobs
+			WHERE 1=1
+		`
+		if tenantID != "" {
+			q += fmt.Sprintf(" AND tenant_id = $%d", len(args)+1)
+			args = append(args, tenantID)
+		}
+		if failureOnly {
+			q += " AND (status ILIKE '%FAIL%' OR equivalence_result ILIKE '%MISMATCH%')"
+		}
+		if scope.HasExplicitTime {
+			q += fmt.Sprintf(" AND created_at >= $%d AND created_at < $%d", len(args)+1, len(args)+2)
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+		q += fmt.Sprintf(" ORDER BY created_at DESC LIMIT %d", topK)
+
+		rows, err := r.evidenceDB.QueryContext(ctx, q, args...)
+		if err != nil {
+			return nil, fmt.Errorf("evidence replay retrieval failed: %w", err)
+		}
+		for rows.Next() {
+			var status, rulesetVersion, equivalence, createdAt, completedAt sql.NullString
+			if err := rows.Scan(&status, &rulesetVersion, &equivalence, &createdAt, &completedAt); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, model.RetrievedChunk{
+				SourceType: "evidence_replay_jobs",
+				Score:      0.86,
+				Text: fmt.Sprintf(
+					"Evidence replay job: status=%s ruleset_version=%s equivalence_result=%s created_at=%s completed_at=%s",
+					nullText(status), nullText(rulesetVersion), nullText(equivalence), nullText(createdAt), nullText(completedAt),
+				),
+			})
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+
+	if len(out) > topK {
+		out = out[:topK]
+	}
+	return out, nil
+}
+func rankAndTrimBalanced(chunks []model.RetrievedChunk, topK int) []model.RetrievedChunk {
+	if topK <= 0 || len(chunks) <= topK {
+		return chunks
+	}
+
+	buckets := map[string][]model.RetrievedChunk{}
+	for _, c := range chunks {
+		k := c.SourceType
+		buckets[k] = append(buckets[k], c)
+	}
+
+	keys := make([]string, 0, len(buckets))
+	for k := range buckets {
+		sort.SliceStable(buckets[k], func(i, j int) bool { return buckets[k][i].Score > buckets[k][j].Score })
+		keys = append(keys, k)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		return buckets[keys[i]][0].Score > buckets[keys[j]][0].Score
+	})
+
+	out := make([]model.RetrievedChunk, 0, topK)
+	for len(out) < topK {
+		added := false
+		for _, k := range keys {
+			if len(buckets[k]) == 0 {
+				continue
+			}
+			out = append(out, buckets[k][0])
+			buckets[k] = buckets[k][1:]
+			added = true
+			if len(out) == topK {
+				break
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return out
 }

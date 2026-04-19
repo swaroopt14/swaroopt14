@@ -62,8 +62,16 @@ func NewRouter(
 	kpiH *KPIHandler,
 	policyH *PolicyHandler,
 	actionH *ActionHandler,
-	modeH *IntelligenceModeHandler,       // PHASE 6
-	surfaceH *IntelligenceSurfaceHandler, // PHASE 6
+	modeH *IntelligenceModeHandler,
+	leakageH *LeakageHandler,
+	ambiguityH *AmbiguityHandler,
+	defensibilityH *DefensibilityHandler,
+	rcaH *RCAHandler,
+	patternH *PatternHandler,
+	recommendationH *RecommendationHandler,
+	batchH *BatchHandler,
+	historyH *HistoryHandler,
+	explanationH *ExplanationHandler,
 ) http.Handler {
 
 	r := chi.NewRouter()
@@ -72,6 +80,9 @@ func NewRouter(
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Logger)
+
+	// Phase 7 Issue 7 Fix: Attach global Tenant Validation Header injection guarding routes.
+	r.Use(TenantIsolationMiddleware)
 
 	// ── Health check endpoints ─────────────────────────────────────────────
 	r.Get("/healthz", healthH.Liveness)
@@ -122,12 +133,12 @@ func NewRouter(
 		// All six are available in both Grade A and Grade B.
 		// Grade B-only data is exposed only through KPI endpoints above.
 
-		r.Get("/leakage", surfaceH.GetLeakage)
-		r.Get("/ambiguity", surfaceH.GetAmbiguity)
-		r.Get("/defensibility", surfaceH.GetDefensibility)
-		r.Get("/rca", surfaceH.GetRCA)
-		r.Get("/pattern", surfaceH.GetPattern)
-		r.Get("/recommendation", surfaceH.GetRecommendation)
+		r.Get("/leakage", leakageH.GetLeakage)
+		r.Get("/ambiguity", ambiguityH.GetAmbiguity)
+		r.Get("/defensibility", defensibilityH.GetDefensibility)
+		r.Get("/rca", rcaH.GetRCA)
+		r.Get("/pattern", patternH.GetPattern)
+		r.Get("/recommendation", recommendationH.GetRecommendation)
 
 		// ── PHASE 6: Batch intelligence endpoints ─────────────────────────
 		//
@@ -136,10 +147,10 @@ func NewRouter(
 
 		r.Route("/batches", func(r chi.Router) {
 			// GET /v1/intelligence/batches?tenant_id=X[&status=REQUIRES_REVIEW]
-			r.Get("/", surfaceH.ListBatches)
+			r.Get("/", batchH.ListBatches)
 
 			// GET /v1/intelligence/batches/{batch_id}?tenant_id=X
-			r.Get("/{batch_id}", surfaceH.GetBatch)
+			r.Get("/{batch_id}", batchH.GetBatch)
 		})
 
 		// ── PHASE 6: Snapshot history endpoint ───────────────────────────
@@ -147,7 +158,11 @@ func NewRouter(
 		// GET /v1/intelligence/{type}/history?tenant_id=X&limit=N
 		// Valid types: leakage, ambiguity, defensibility, rca, pattern, recommendation
 		// Uses {type} URL param to keep one handler serving all snapshot types.
-		r.Get("/{type}/history", surfaceH.GetSnapshotHistory)
+		r.Get("/{type}/history", historyH.GetSnapshotHistory)
+
+		// ── PHASE 7: Explanation endpoints ────────────────────────────────
+		r.Get("/explanations/{snapshot_id}", explanationH.GetExplanation)
+		r.Post("/explain-batch", explanationH.ExplainBatch)
 
 		// ── Policy endpoints ───────────────────────────────────────────────
 		r.Route("/policies", func(r chi.Router) {

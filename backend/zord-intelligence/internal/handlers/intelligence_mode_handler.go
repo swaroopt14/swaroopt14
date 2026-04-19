@@ -183,24 +183,22 @@ func (h *IntelligenceModeHandler) buildSignalHealth(
 	}
 
 	// ── Helper: check any projection whose key starts with prefix ────────────
-	// Uses ListByTenant and scans for matching prefix — avoids needing a new
-	// repo method while keeping the signal check self-contained.
+	// Updated for Phase 7 Issue 3: Uses ListKeysByPrefix instead of loading ALL
+	// tenant projections to perform Go-side string scanning which exhausts memory.
 	checkPrefix := func(prefix string) (active bool, lastSeen *time.Time) {
-		projections, err := h.projRepo.ListByTenant(ctx, tenantID)
-		if err != nil {
+		projections, err := h.projRepo.ListKeysByPrefix(ctx, tenantID, prefix)
+		if err != nil || len(projections) == 0 {
 			return false, nil
 		}
 		for _, p := range projections {
-			if len(p.ProjectionKey) >= len(prefix) && p.ProjectionKey[:len(prefix)] == prefix {
-				if p.ComputedAt.After(cutoff) {
-					t := p.ComputedAt
-					return true, &t
-				}
+			if p.ComputedAt.After(cutoff) {
 				t := p.ComputedAt
-				return false, &t
+				return true, &t
 			}
 		}
-		return false, nil
+		// none matched time cutoff, just return the first one's staleness
+		t := projections[0].ComputedAt
+		return false, &t
 	}
 
 	// ── Grade A signal checks ─────────────────────────────────────────────────

@@ -32,10 +32,10 @@ package worker
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/zord/zord-intelligence/config"
+	"github.com/zord/zord-intelligence/internal/logger"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 	kafkapkg "github.com/zord/zord-intelligence/kafka"
@@ -75,7 +75,7 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	log.Println("outbox_worker: started (interval=5s)")
+	logger.Info("outbox_worker: started (interval=5s)")
 
 	// Run once immediately before the first tick so startup isn't delayed.
 	w.runOnce(ctx)
@@ -85,7 +85,7 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 		case <-ticker.C:
 			w.runOnce(ctx)
 		case <-ctx.Done():
-			log.Println("outbox_worker: shutting down")
+			logger.Info("outbox_worker: shutting down")
 			return
 		}
 	}
@@ -99,9 +99,9 @@ func (w *OutboxWorker) runOnce(ctx context.Context) {
 	// We do this before fetching deliverable entries so that any entries
 	// whose contract just expired are cleanly excluded from delivery.
 	if expired, err := w.actionRepo.MarkExpiredContracts(ctx); err != nil {
-		log.Printf("outbox_worker: expiry sweep error: %v", err)
+		logger.Error(fmt.Sprintf("outbox_worker: expiry sweep error: %v", err))
 	} else if expired > 0 {
-		log.Printf("outbox_worker: expired %d stale approval contracts", expired)
+		logger.Info(fmt.Sprintf("outbox_worker: expired %d stale approval contracts", expired))
 	}
 
 	// Fetch up to 50 entries ready for delivery.
@@ -109,14 +109,14 @@ func (w *OutboxWorker) runOnce(ctx context.Context) {
 	// (the SQL join enforces this — see outbox_repo.go).
 	entries, err := w.outboxRepo.FetchPending(ctx, 50)
 	if err != nil {
-		log.Printf("outbox_worker: fetch error: %v", err)
+		logger.Error(fmt.Sprintf("outbox_worker: fetch error: %v", err))
 		return
 	}
 	if len(entries) == 0 {
 		return
 	}
 
-	log.Printf("outbox_worker: processing %d entries", len(entries))
+	logger.Info(fmt.Sprintf("outbox_worker: processing %d entries", len(entries)))
 	for _, entry := range entries {
 		w.deliver(ctx, entry)
 	}
@@ -126,8 +126,8 @@ func (w *OutboxWorker) runOnce(ctx context.Context) {
 func (w *OutboxWorker) deliver(ctx context.Context, entry models.ActuationOutbox) {
 	topic, err := w.topicForEventType(entry.EventType)
 	if err != nil {
-		log.Printf("outbox_worker: unknown event_type=%s for event=%s — marking failed",
-			entry.EventType, entry.EventID)
+		logger.Error(fmt.Sprintf("outbox_worker: unknown event_type=%s for event=%s — marking failed",
+			entry.EventType, entry.EventID))
 		_ = w.outboxRepo.MarkFailed(ctx, entry.EventID)
 		return
 	}
@@ -136,10 +136,10 @@ func (w *OutboxWorker) deliver(ctx context.Context, entry models.ActuationOutbox
 	// go to the same Kafka partition.
 	publishErr := w.producer.Publish(ctx, topic, entry.ActionID, entry.Payload)
 	if publishErr != nil {
-		log.Printf("outbox_worker: publish failed event=%s topic=%s attempt=%d: %v",
-			entry.EventID, topic, entry.Attempts+1, publishErr)
+		logger.Error(fmt.Sprintf("outbox_worker: publish failed event=%s topic=%s attempt=%d: %v",
+			entry.EventID, topic, entry.Attempts+1, publishErr))
 		if err := w.outboxRepo.MarkFailed(ctx, entry.EventID); err != nil {
-			log.Printf("outbox_worker: mark_failed error event=%s: %v", entry.EventID, err)
+			logger.Error(fmt.Sprintf("outbox_worker: mark_failed error event=%s: %v", entry.EventID, err))
 		}
 		return
 	}
@@ -147,11 +147,11 @@ func (w *OutboxWorker) deliver(ctx context.Context, entry models.ActuationOutbox
 	// Delivery succeeded — mark as SENT.
 	// ON CONFLICT DO NOTHING in MarkSent means a retry after a crash is harmless.
 	if err := w.outboxRepo.MarkSent(ctx, entry.EventID); err != nil {
-		log.Printf("outbox_worker: mark_sent error event=%s: %v", entry.EventID, err)
+		logger.Error(fmt.Sprintf("outbox_worker: mark_sent error event=%s: %v", entry.EventID, err))
 	}
 
-	log.Printf("outbox_worker: delivered event=%s action=%s topic=%s",
-		entry.EventID, entry.ActionID, topic)
+	logger.Info(fmt.Sprintf("outbox_worker: delivered event=%s action=%s topic=%s",
+		entry.EventID, entry.ActionID, topic))
 }
 
 // topicForEventType maps an event type to the correct Kafka output topic.
@@ -205,6 +205,7 @@ func (w *OutboxWorker) topicForEventType(eventType string) (string, error) {
 		string(models.DecisionNotify),
 		string(models.DecisionOpenOpsIncident),
 		string(models.DecisionHold),
+		string(models.DecisionAllow),
 		string(models.DecisionAdvisoryRecommendation),
 		string(models.DecisionReviewAmbiguousBatch),
 		string(models.DecisionPrepareAndSignRecommended),

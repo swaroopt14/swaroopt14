@@ -41,6 +41,7 @@ type ProjectionService struct {
 	projRepo      *persistence.ProjectionRepo
 	policyService *PolicyService
 	slaRepo       *persistence.SLATimerRepo
+	batchRepo     *persistence.BatchContractRepo
 
 	// ── Phase 4: Six intelligence layer services ──────────────────────────
 	leakageSvc        *LeakageIntelligenceService
@@ -63,6 +64,7 @@ type ProjectionService struct {
 // All six intelligence services are required. main.go constructs them and injects.
 func NewProjectionService(
 	projRepo *persistence.ProjectionRepo,
+	batchRepo *persistence.BatchContractRepo,
 	policyService *PolicyService,
 	slaRepo *persistence.SLATimerRepo,
 	leakageSvc *LeakageIntelligenceService,
@@ -79,6 +81,7 @@ func NewProjectionService(
 	}
 	return &ProjectionService{
 		projRepo:          projRepo,
+		batchRepo:         batchRepo,
 		policyService:     policyService,
 		slaRepo:           slaRepo,
 		leakageSvc:        leakageSvc,
@@ -1040,6 +1043,29 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 	); err != nil {
 		return fmt.Errorf("HandleBatchSummaryUpdated AtomicUpdateBatchHealth batch=%s: %w",
 			e.BatchID, err)
+	}
+
+	// Issue 10 Fix: Upsert batch to contracts immediately alongside projection window to keep Batch API aligned.
+	bc := persistence.BatchContract{
+		BatchID:                   e.BatchID,
+		TenantID:                  e.TenantID,
+		SourceReference:           nil, // Mapped if upstream adds it via Event Schema
+		TotalCount:                e.TotalCount,
+		SuccessCount:              e.SuccessCount,
+		FailedCount:               e.FailedCount,
+		PendingCount:              e.PendingCount,
+		ReversedCount:             e.ReversedCount,
+		PartialReconCount:         e.PartialReconCount,
+		TotalIntendedAmountMinor:  e.TotalIntendedAmountMinor,
+		TotalConfirmedAmountMinor: e.TotalConfirmedAmountMinor,
+		TotalVarianceMinor:        e.TotalVarianceMinor,
+		BatchFinalityStatus:       e.BatchFinalityStatus,
+		AmbiguityScore:            &e.AmbiguityScore,
+		LastUpdatedAt:             time.Now(),
+		CreatedAt:                 time.Now(),
+	}
+	if err := s.batchRepo.Upsert(ctx, bc); err != nil {
+		return fmt.Errorf("HandleBatchSummaryUpdated batchRepo.Upsert batch=%s: %w", e.BatchID, err)
 	}
 
 	// Step 2: Compute PATTERN intelligence snapshot

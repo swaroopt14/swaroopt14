@@ -75,22 +75,24 @@ func main() {
 	outboxRepo  := persistence.NewOutboxRepo(pool)
 	slaRepo     := persistence.NewSLATimerRepo(pool)
 
-	// ── PHASE 4: New intelligence repos ───────────────────────────────────
+	// ── PHASE 4 & 7: New intelligence repos ───────────────────────────────
 	snapshotRepo := persistence.NewIntelligenceSnapshotRepo(pool)
 	batchRepo    := persistence.NewBatchContractRepo(pool)
 	mlRepo       := persistence.NewMLFeatureStoreRepo(pool)
+	explRepo     := persistence.NewIntelligenceExplanationRepo(pool)
 
 	// ── Step 5: Create services ────────────────────────────────────────────
 	actionService := services.NewActionService(actionRepo, outboxRepo, pool)
 	policyService := services.NewPolicyService(policyRepo, projRepo, actionService)
 
-	// ── PHASE 4: Six intelligence layer services ───────────────────────────
+	// ── PHASE 4 & 7: Six intelligence layer services + Explanation ────────
 	leakageSvc        := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo)
 	ambiguitySvc      := services.NewAmbiguityIntelligenceService(projRepo, snapshotRepo, mlRepo)
 	defensibilitySvc  := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
 	rcaSvc            := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
 	patternSvc        := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo)
 	recommendationSvc := services.NewRecommendationIntelligenceService(snapshotRepo)
+	explSvc           := services.NewExplanationService(explRepo, snapshotRepo, batchRepo)
 
 	// PHASE 6: NewProjectionService now receives cfg.IntelligenceMode.
 	// This controls which intelligence computation runs inside the Grade B handlers.
@@ -98,6 +100,7 @@ func main() {
 	// Grade B mode: all projections computed (requires dispatch + finality certs).
 	projectionService := services.NewProjectionService(
 		projRepo,
+		batchRepo,
 		policyService,
 		slaRepo,
 		leakageSvc,
@@ -140,24 +143,37 @@ func main() {
 	policyHandler := handlers.NewPolicyHandler(policyRepo)
 	actionHandler := handlers.NewActionHandler(actionRepo, actionService)
 
-	// PHASE 6: New handlers for dual-mode architecture
+	// PHASE 6 & 7: New handlers for dual-mode architecture and separated intelligence layers
 	modeHandler := handlers.NewIntelligenceModeHandler(projectionService, projRepo)
-	surfaceHandler := handlers.NewIntelligenceSurfaceHandler(
-		projectionService,
-		snapshotRepo,
-		batchRepo,
-		projRepo,
-	)
+
+	intelBase := handlers.NewIntelligenceBase(projectionService, snapshotRepo)
+	leakageHandler := handlers.NewLeakageHandler(intelBase)
+	ambiguityHandler := handlers.NewAmbiguityHandler(intelBase)
+	defensibilityHandler := handlers.NewDefensibilityHandler(intelBase)
+	rcaHandler := handlers.NewRCAHandler(intelBase)
+	patternHandler := handlers.NewPatternHandler(intelBase)
+	recommendationHandler := handlers.NewRecommendationHandler(intelBase)
+	batchHandler := handlers.NewBatchHandler(batchRepo, projRepo, projectionService)
+	historyHandler := handlers.NewHistoryHandler(projectionService, snapshotRepo)
+	explanationHandler := handlers.NewExplanationHandler(explSvc)
 
 	// ── Step 9: Build the HTTP router ─────────────────────────────────────
-	// PHASE 6: NewRouter now accepts modeHandler and surfaceHandler.
+	// PHASE 6 & 7: NewRouter now accepts all unbundled surface handlers + explanation handler
 	router := handlers.NewRouter(
 		healthHandler,
 		kpiHandler,
 		policyHandler,
 		actionHandler,
 		modeHandler,
-		surfaceHandler,
+		leakageHandler,
+		ambiguityHandler,
+		defensibilityHandler,
+		rcaHandler,
+		patternHandler,
+		recommendationHandler,
+		batchHandler,
+		historyHandler,
+		explanationHandler,
 	)
 
 	// ── Step 10: Create the HTTP server ───────────────────────────────────

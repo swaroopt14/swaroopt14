@@ -429,6 +429,41 @@ func (r *ProjectionRepo) ListByTenant(
 	return result, nil
 }
 
+// ListKeysByPrefix efficiently returns projections matching a string prefix.
+func (r *ProjectionRepo) ListKeysByPrefix(
+	ctx context.Context,
+	tenantID, prefix string,
+) ([]models.ProjectionState, error) {
+	sql := `
+		SELECT DISTINCT ON (projection_key)
+		       id, tenant_id, projection_key, window_start, window_end,
+		       value_json, computed_at, projection_version
+		FROM   projection_state
+		WHERE  tenant_id = $1
+		  AND  projection_key LIKE $2 || '%'
+		ORDER  BY projection_key, window_end DESC, projection_version DESC
+	`
+	rows, err := r.pool.Query(ctx, sql, tenantID, prefix)
+	if err != nil {
+		return nil, fmt.Errorf("projection_repo.ListKeysByPrefix tenant=%s: %w", tenantID, err)
+	}
+	defer rows.Close()
+
+	var result []models.ProjectionState
+	for rows.Next() {
+		var p models.ProjectionState
+		if err := rows.Scan(
+			&p.ID, &p.TenantID, &p.ProjectionKey,
+			&p.WindowStart, &p.WindowEnd, &p.ValueJSON,
+			&p.ComputedAt, &p.ProjectionVersion,
+		); err != nil {
+			return nil, fmt.Errorf("projection_repo.ListKeysByPrefix scan: %w", err)
+		}
+		result = append(result, p)
+	}
+	return result, nil
+}
+
 // ComputePercentilesFromHistogram reads the latency histogram for a corridor
 // and estimates p50 and p95 in seconds. Used by the KPI handler.
 func (r *ProjectionRepo) ComputePercentilesFromHistogram(

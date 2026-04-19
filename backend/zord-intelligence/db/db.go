@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/zord/zord-intelligence/config"
+	"time"
 )
 
 // Connect opens a PostgreSQL connection pool and returns it.
@@ -34,15 +35,22 @@ func Connect(cfg *config.Config) *pgxpool.Pool {
 	// We use it here because this is startup code — we want it to run fully
 	ctx := context.Background()
 
-	// pgxpool.New() parses the DATABASE_URL and creates the connection pool
-	// It does NOT open connections yet — connections open lazily when first used
-	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
-
-	// err is the second return value — Go always returns errors as values
-	// If err != nil, something went wrong
+	// pgxpool.ParseConfig allows us to define pool size and boundaries
+	pgxCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
-		// log.Fatalf prints the error and crashes the program immediately
-		// At startup, if we can't reach the DB, there is no point running
+		log.Fatalf("db: failed to parse database connection string: %v", err)
+	}
+
+	// ── Phase 7 Fix: Pool Limits ──────────────────────────────
+	// Explicit caps prevent queue exhaustion
+	pgxCfg.MaxConns = 50
+	pgxCfg.MinConns = 5
+	pgxCfg.MaxConnLifetime = 1 * time.Hour
+	pgxCfg.HealthCheckPeriod = 1 * time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, pgxCfg)
+
+	if err != nil {
 		log.Fatalf("db: failed to create connection pool: %v", err)
 	}
 

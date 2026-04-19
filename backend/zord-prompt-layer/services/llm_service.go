@@ -122,15 +122,17 @@ func (s *LLMService) GenerateFromContextScopedWithConfidence(userQuery string, c
 		"Rules:\n" +
 		"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
 		"2) If CONTEXT is insufficient, clearly say: \"I don't have enough information in current data to answer that confidently.\"\n" +
-		"3) Write in plain, simple, non-technical language for business users.\n" +
+		"3) Write in plain, simple, non-technical language for business users, but include a clear detailed explanation of what happened.\n" +
 		"4) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
-		"5) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, api keys, tokens, secrets).\n" +
-		"6) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
-		"7) " + visRule + "\n" +
-		"8) Return strict JSON only with keys: answer, confidence, confidence_score, evidence_coverage, scope_adherence, contradiction_risk, ambiguity.\n" +
-		"9) confidence must be one of high|medium|low.\n" +
-		"10) All numeric scores must be between 0 and 1.\n" +
-		"11) confidence_score must reflect how reliable the answer is based only on the provided context.\n\n" +
+		"5) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, hashes, signatures, encrypted fields, api keys, tokens, secrets).\n" +
+		"6) Use only CONTEXT facts; if uncertain, explicitly say data is insufficient.\n" +
+		"7) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
+
+		"8) " + visRule + "\n" +
+		"9) Return strict JSON only with keys: answer, confidence, confidence_score, evidence_coverage, scope_adherence, contradiction_risk, ambiguity.\n" +
+		"10) confidence must be one of high|medium|low.\n" +
+		"11) All numeric scores must be between 0 and 1.\n" +
+		"12) confidence_score must reflect how reliable the answer is based only on the provided context.\n\n" +
 
 		"CONTEXT:\n" + context + "\n\n" +
 		"USER QUERY:\n" + userQuery

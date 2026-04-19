@@ -15,6 +15,25 @@ type IntelligenceClient struct {
 	HTTP    *http.Client
 }
 
+type CorridorHealthRow struct {
+	CorridorID         string  `json:"corridor_id"`
+	SuccessRate        float64 `json:"success_rate"`
+	FinalityP95Seconds float64 `json:"finality_p95_seconds"`
+	TotalPending       int     `json:"total_pending"`
+}
+type corridorHealthResponse struct {
+	Corridors []CorridorHealthRow `json:"corridors"`
+}
+type topFailureRow struct {
+	ReasonCode string  `json:"reason_code"`
+	Count      int     `json:"count"`
+	Rate       float64 `json:"rate"`
+}
+
+type topFailuresResponse struct {
+	TopReasons []topFailureRow `json:"top_reasons"`
+}
+
 func NewIntelligenceClient(baseURL string, timeoutSec int) *IntelligenceClient {
 	if timeoutSec <= 0 {
 		timeoutSec = 3
@@ -82,4 +101,68 @@ func (c *IntelligenceClient) FetchNextActions(tenantID string, limit int) ([]str
 		}
 	}
 	return next, nil
+}
+func (c *IntelligenceClient) FetchCorridorHealth(tenantID string) ([]CorridorHealthRow, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, nil
+	}
+	u := fmt.Sprintf("%s/v1/intelligence/corridors/health", c.BaseURL)
+	q := url.Values{}
+	q.Set("tenant_id", tenantID)
+	u = u + "?" + q.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("intelligence corridor health error: status=%d body=%s", resp.StatusCode, string(raw))
+	}
+
+	var out corridorHealthResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out.Corridors, nil
+}
+
+func (c *IntelligenceClient) FetchTopFailures(tenantID, corridorID string) ([]topFailureRow, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, nil
+	}
+	u := fmt.Sprintf("%s/v1/intelligence/failures/top", c.BaseURL)
+	q := url.Values{}
+	q.Set("tenant_id", tenantID)
+	if strings.TrimSpace(corridorID) != "" {
+		q.Set("corridor_id", corridorID)
+	}
+	u = u + "?" + q.Encode()
+
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("intelligence top failures error: status=%d body=%s", resp.StatusCode, string(raw))
+	}
+
+	var out topFailuresResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out.TopReasons, nil
 }

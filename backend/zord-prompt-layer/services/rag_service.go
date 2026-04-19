@@ -19,8 +19,9 @@ type RAGService interface {
 
 var uuidLeakRe = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b`)
 
-var sensitiveQueryRe = regexp.MustCompile(`(?i)\b(tenant[_\s]?id|intent[_\s]?id|trace[_\s]?id|envelope[_\s]?id|idempotency[_\s]?key|account[_\s]?(id|number)|iban|ifsc|swift|pan|api[_\s-]?key|token|secret|password)\b`)
+var sensitiveExtractionRe = regexp.MustCompile(`(?i)\b(api[_\s-]?key|password|secret|access[_\s-]?token|private[_\s-]?key)\b`)
 var statusCaptureRe = regexp.MustCompile(`(?i)\bstatus=([A-Za-z0-9_ -]+)`)
+var corridorIDRe = regexp.MustCompile(`(?i)\bcorridor[_\s-]?id\s*[:=]?\s*([A-Za-z0-9._-]+)\b`)
 
 type DefaultRAGService struct {
 	model        string
@@ -46,9 +47,9 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	if topK <= 0 {
 		topK = s.defaultK
 	}
-	if sensitiveQueryRe.MatchString(req.Query) {
+	if sensitiveExtractionRe.MatchString(req.Query) {
 		return dto.QueryResponse{
-			Answer:        "I can’t provide sensitive identifiers or secret fields. I can help with non-sensitive operational status and trends.",
+			Answer:        "I cannot provide secrets or credential material. I can still help with safe operational status and trends.",
 			Confidence:    "low",
 			EntitiesFound: dto.EntitiesFound{},
 			Citations:     []dto.Citation{},
@@ -134,9 +135,10 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 
 	answer := utils.SanitizeAnswerText(llmOut.Answer)
 	answer = utils.StripActionLikeSections(answer)
-	if uuidLeakRe.MatchString(answer) {
+	if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
+
 		return dto.QueryResponse{
-			Answer:        "I can provide a safe summary, but I cannot show identifiers. Based on current evidence, the status is available without exposing IDs.",
+			Answer:        "I can share a safe operational summary, but I cannot expose sensitive identifiers or secure values.",
 			Confidence:    "low",
 			EntitiesFound: dto.EntitiesFound{},
 			Citations:     []dto.Citation{},
@@ -150,8 +152,11 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		citations[i].Score = rounded
 	}
 	var viz *dto.Visualization
-	if scope.WantsVisualization && len(chunks) > 0 {
-		viz = buildVisualization(chunks, req.Query)
+	if scope.WantsVisualization {
+		viz = s.buildVisualizationFromIntelligence(req)
+		if viz == nil && len(chunks) > 0 {
+			viz = buildVisualization(chunks, req.Query)
+		}
 	}
 
 	return dto.QueryResponse{
@@ -237,12 +242,12 @@ func sourceDiversity(chunks []model.RetrievedChunk) float64 {
 	}
 	seen := map[string]struct{}{}
 	for _, c := range chunks {
-		if strings.TrimSpace(c.SourceType) != "" {
-			seen[c.SourceType] = struct{}{}
+		group := sourceGroup(c.SourceType)
+		if group != "" {
+			seen[group] = struct{}{}
 		}
 	}
-	// 3 distinct sources (edge/intent/relay) treated as full diversity
-	v := float64(len(seen)) / 3.0
+	v := float64(len(seen)) / 5.0 // edge, intent, relay, intelligence, evidence
 	if v > 1 {
 		return 1
 	}
@@ -251,6 +256,25 @@ func sourceDiversity(chunks []model.RetrievedChunk) float64 {
 	}
 	return v
 }
+
+func sourceGroup(sourceType string) string {
+	s := strings.ToLower(strings.TrimSpace(sourceType))
+	switch {
+	case strings.HasPrefix(s, "edge_"):
+		return "edge"
+	case strings.HasPrefix(s, "intent_"):
+		return "intent"
+	case strings.HasPrefix(s, "relay_"):
+		return "relay"
+	case strings.HasPrefix(s, "intelligence_"):
+		return "intelligence"
+	case strings.HasPrefix(s, "evidence_"):
+		return "evidence"
+	default:
+		return ""
+	}
+}
+
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
 }
@@ -304,4 +328,72 @@ func buildVisualization(chunks []model.RetrievedChunk, _ string) *dto.Visualizat
 		YAxis:  "Count",
 		Series: series,
 	}
+}
+
+func (s *DefaultRAGService) buildVisualizationFromIntelligence(req dto.QueryRequest) *dto.Visualization {
+	if s.intelligence == nil || strings.TrimSpace(req.TenantID) == "" {
+		return nil
+	}
+	queryLower := strings.ToLower(req.Query)
+	corridorID := extractCorridorID(req.Query)
+
+	if strings.Contains(queryLower, "failure") || strings.Contains(queryLower, "error") {
+		rows, err := s.intelligence.FetchTopFailures(req.TenantID, corridorID)
+		if err != nil || len(rows) == 0 {
+			return nil
+		}
+		series := make([]dto.VisualizationPoint, 0, len(rows))
+		for _, r := range rows {
+			label := utils.SanitizeAnswerText(r.ReasonCode)
+			if strings.TrimSpace(label) == "" {
+				continue
+			}
+			series = append(series, dto.VisualizationPoint{
+				Label: label,
+				Value: float64(r.Count),
+			})
+		}
+		if len(series) == 0 {
+			return nil
+		}
+		return &dto.Visualization{
+			Title:  "Top Failure Reasons",
+			XAxis:  "Reason",
+			YAxis:  "Count",
+			Series: series,
+		}
+	}
+
+	rows, err := s.intelligence.FetchCorridorHealth(req.TenantID)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	series := make([]dto.VisualizationPoint, 0, len(rows))
+	for _, r := range rows {
+		label := utils.SanitizeAnswerText(r.CorridorID)
+		if strings.TrimSpace(label) == "" || uuidLeakRe.MatchString(label) {
+			continue
+		}
+		series = append(series, dto.VisualizationPoint{
+			Label: label,
+			Value: round2(r.SuccessRate * 100.0),
+		})
+	}
+	if len(series) == 0 {
+		return nil
+	}
+	return &dto.Visualization{
+		Title:  "Corridor Success Rate",
+		XAxis:  "Corridor",
+		YAxis:  "Success (%)",
+		Series: series,
+	}
+}
+
+func extractCorridorID(q string) string {
+	m := corridorIDRe.FindStringSubmatch(q)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
 }

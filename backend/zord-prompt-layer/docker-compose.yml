@@ -8,9 +8,6 @@ services:
       - "8086:8086"
     env_file:
       - .env
-    environment:
-      - ONNXRUNTIME_SHARED_LIBRARY_PATH=/opt/onnxruntime/lib/libonnxruntime.so
-      - LD_LIBRARY_PATH=/opt/onnxruntime/lib
     networks:
       - zord-network
     restart: unless-stopped

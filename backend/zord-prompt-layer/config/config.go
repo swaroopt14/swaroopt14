@@ -20,22 +20,11 @@ type AppConfig struct {
 	IntelligenceBaseURL    string
 	IntelligenceTimeoutSec int
 
-	ChromaURL        string
-	ChromaCollection string
-	DefaultTopK      int
+	DefaultTopK int
 
-	EmbeddingModelPath string
-	TokenizerPath      string
-
-	EmbeddingInputIDsName      string
-	EmbeddingAttentionMaskName string
-	EmbeddingTokenTypeIDsName  string
-	EmbeddingOutputName        string
-	EmbeddingMaxLength         int
-
-	ChromaTenant   string
-	ChromaDatabase string
-	GeminiAPIKeys  []string
+	IntelligenceReadDSN string
+	EvidenceReadDSN     string
+	GeminiAPIKeys       []string
 }
 
 func parseCSVKeys(v string) []string {
@@ -87,18 +76,9 @@ func Load() AppConfig {
 			return n
 		}(),
 
-		ChromaURL:        get("CHROMA_URL", "http://localhost:8000"),
-		ChromaCollection: get("CHROMA_COLLECTION", "zord_prompt_chunks"),
-		DefaultTopK:      topK,
+		DefaultTopK: topK,
 
-		EmbeddingModelPath:         get("EMBEDDING_MODEL_PATH", "./assets/models/bge-small-en-v1.5/model.onnx"),
-		TokenizerPath:              get("TOKENIZER_PATH", "./assets/models/bge-small-en-v1.5/tokenizer.json"),
-		EmbeddingInputIDsName:      get("EMBEDDING_INPUT_IDS_NAME", "input_ids"),
-		EmbeddingAttentionMaskName: get("EMBEDDING_ATTENTION_MASK_NAME", "attention_mask"),
-		EmbeddingTokenTypeIDsName:  get("EMBEDDING_TOKEN_TYPE_IDS_NAME", "token_type_ids"),
-		EmbeddingOutputName:        get("EMBEDDING_OUTPUT_NAME", "last_hidden_state"),
-		EmbeddingMaxLength:         256,
-		ChromaTenant:               get("CHROMA_TENANT", "default_tenant"),
-		ChromaDatabase:             get("CHROMA_DATABASE", "default_database"),
+		IntelligenceReadDSN: os.Getenv("INTELLIGENCE_READ_DSN"),
+		EvidenceReadDSN:     os.Getenv("EVIDENCE_READ_DSN"),
 	}
 }

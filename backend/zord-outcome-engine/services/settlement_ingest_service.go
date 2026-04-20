@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"zord-outcome-engine/db"
+	"zord-outcome-engine/models"
 	"zord-outcome-engine/storage"
 
 	"github.com/google/uuid"
@@ -18,8 +19,9 @@ type SettlementIngestService struct {
 }
 
 // RegisterJob creates the initial job record in 'PARSING' status.
-// This is the first database record created in the ingestion lifecycle.
-func (s *SettlementIngestService) RegisterJob(ctx context.Context, jobID, tenantID, envelopeID uuid.UUID) error {
+// profile carries the PSP-specific metadata (source_system, mapping_profile_id, etc.)
+// so the job row correctly reflects which PSP this file came from.
+func (s *SettlementIngestService) RegisterJob(ctx context.Context, jobID, tenantID, envelopeID uuid.UUID, profile models.MappingProfile) error {
 	receivedAt := time.Now().UTC()
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO settlement_ingest_jobs (
@@ -29,20 +31,21 @@ func (s *SettlementIngestService) RegisterJob(ctx context.Context, jobID, tenant
 			job_status, started_at, created_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
 		jobID, tenantID, envelopeID,
-		"PSP_SETTLEMENT_RECON", "razorpay",
-		"razorpay-recon-v1", "1.0.0",
+		profile.ArtifactFamily, profile.SourceSystem,
+		profile.ProfileID, profile.ProfileVersion,
 		"PARSING", receivedAt, receivedAt,
 	)
 	return err
 }
 
 // PersistParsedRow saves a successfully parsed row to the database.
-// It encodes the raw columns and the parsed shape into JSON for storage.
+// profile is passed through so the row records which PSP mapping was used.
 func (s *SettlementIngestService) PersistParsedRow(
 	ctx context.Context, 
 	tenantID, jobID, envelopeID uuid.UUID,
 	objRef, rowRef string,
 	result ParsedRowResult,
+	profile models.MappingProfile, // NEW
 ) error {
 	parsedRowID := uuid.New()
 	rawColsJSON, _ := json.Marshal(result.RawColumns)
@@ -63,7 +66,7 @@ func (s *SettlementIngestService) PersistParsedRow(
 		parsedRowID, jobID, tenantID, envelopeID,
 		objRef, rowRef,
 		rawColsJSON, shapeJSON, warningsJSON,
-		result.Confidence, "razorpay-recon-v1", "1.0.0", time.Now().UTC(),
+		result.Confidence, profile.ProfileID, profile.ProfileVersion, time.Now().UTC(),
 	)
 	return err
 }
@@ -98,7 +101,8 @@ func (s *SettlementIngestService) MarkJobFailed(ctx context.Context, jobID uuid.
 }
 
 // PersistParseError records a non-fatal row-level error for later auditing.
-func (s *SettlementIngestService) PersistParseError(ctx context.Context, tenantID, jobID, envID uuid.UUID, rowRef, errorStage, reason string) error {
+// profile is passed so the error record references the correct mapping profile.
+func (s *SettlementIngestService) PersistParseError(ctx context.Context, tenantID, jobID, envID uuid.UUID, rowRef, errorStage, reason string, profile models.MappingProfile) error {
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO settlement_parse_errors (
 			error_id, tenant_id, job_id, settlement_envelope_id,
@@ -107,7 +111,7 @@ func (s *SettlementIngestService) PersistParseError(ctx context.Context, tenantI
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
 		uuid.New(), tenantID, jobID, envID,
 		rowRef, errorStage, reason,
-		"ERROR", "razorpay-recon-v1", "1.0.0", time.Now().UTC(),
+		"ERROR", profile.ProfileID, profile.ProfileVersion, time.Now().UTC(),
 	)
 	return err
 }

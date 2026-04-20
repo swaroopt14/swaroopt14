@@ -8,9 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"zord-outcome-engine/models"
+
 	"github.com/google/uuid"
 	"github.com/xuri/excelize/v2"
-	"zord-outcome-engine/models"
 )
 
 // Razorpay Recon Header Configuration (Reference for 27-column XLSX)
@@ -71,7 +72,7 @@ func (p *RazorpayParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 	// 4. Row Transformation: Iterate through data rows (skipping header at row 0).
 	var results []ParsedRowResult
 	for i, row := range rows[1:] {
-		rowIndex := i + 1 
+		rowIndex := i + 1
 		result := parseRazorpayRow(row, rowIndex, sourceFileRef, envelopeID)
 		results = append(results, result)
 	}
@@ -104,6 +105,7 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	}
 
 	// Handle Amount Conversion: Convert decimal string to Minor units (int64).
+	//need to confirm this part
 	amount := parseDecimal(cellStr(row, 2))
 	fee := parseDecimal(cellStr(row, 4))
 	tax := parseDecimal(cellStr(row, 5))
@@ -126,10 +128,10 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 
 	// Extract References.
 	providerRef := cellStr(row, 1)    // entity_id
-	bankRef := cellStr(row, 25)        // settlement_utr
-	extRef := cellStr(row, 17)         // order_id
-	clientRefCand := cellStr(row, 18)  // order_receipt
-	batchRef := cellStr(row, 23)       // settlement_id
+	bankRef := cellStr(row, 25)       // settlement_utr
+	extRef := cellStr(row, 17)        // order_id
+	clientRefCand := cellStr(row, 18) // order_receipt
+	batchRef := cellStr(row, 23)      // settlement_id
 
 	// Calculate Confidence based on key identifier presence.
 	if bankRef == "" {
@@ -140,19 +142,25 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		confidence -= 0.1
 		warnings = append(warnings, "missing provider_reference (entity_id)")
 	}
-	if confidence < 0.0 { confidence = 0.0 }
+	if confidence < 0.0 {
+		confidence = 0.0
+	}
 
 	// Determine Observation Kind based on Razorpay's entity type.
 	txEntity := strings.ToLower(strings.TrimSpace(cellStr(row, 0)))
 	observationKind := "OUTCOME_EXPORT"
 	switch txEntity {
-	case "payment": observationKind = "SETTLEMENT"
-	case "refund":  observationKind = "REVERSAL"
+	case "payment":
+		observationKind = "SETTLEMENT"
+	case "refund":
+		observationKind = "REVERSAL"
 	}
 
 	// Determine Status based on directional credit/debit.
 	statusCandidate := "SETTLED"
-	if debit > 0 { statusCandidate = "REVERSED" }
+	if debit > 0 {
+		statusCandidate = "REVERSED"
+	}
 
 	// Construct the Universal Shape.
 	creditMinor := int64(math.Round(credit * 100))
@@ -160,29 +168,29 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	taxMinor := int64(math.Round(tax * 100))
 
 	shape := models.UniversalSettlementShape{
-		ArtifactFamily:      "PSP_SETTLEMENT_RECON",
-		SourceSystem:        "razorpay",
-		SourceStrengthClass: "PSP_REPORT",
-		SourceFileRef:       sourceFileRef,
-		SourceRowRef:        strconv.Itoa(rowIndex),
-		ProviderReference:   strPtr(providerRef),
-		BankReference:       strPtr(bankRef),
-		ExternalReference:   strPtr(extRef),
+		ArtifactFamily:           "PSP_SETTLEMENT_RECON",
+		SourceSystem:             "razorpay",
+		SourceStrengthClass:      "PSP_REPORT",
+		SourceFileRef:            sourceFileRef,
+		SourceRowRef:             strconv.Itoa(rowIndex),
+		ProviderReference:        strPtr(providerRef),
+		BankReference:            strPtr(bankRef),
+		ExternalReference:        strPtr(extRef),
 		ClientReferenceCandidate: strPtr(clientRefCand),
-		BatchReference:      strPtr(batchRef),
-		AmountMinor:         int64(math.Round(amount * 100)),
-		SettledAmountMinor:  &creditMinor,
-		FeeAmountMinor:      &feeMinor,
-		DeductionAmountMinor: &taxMinor,
-		CurrencyCode:        cellStr(row, 3),
-		StatusCandidate:     statusCandidate,
-		ObservationKind:     observationKind,
-		ReversalFlag:        debit > 0,
-		ObservationTimestamp: observationTS,
-		ValueDate:           &valueDate,
-		ParseConfidence:     confidence,
-		RawEnvelopeRef:      envelopeID,
-		CarrierCandidates:   map[string]interface{}{},
+		BatchReference:           strPtr(batchRef),
+		AmountMinor:              int64(math.Round(amount * 100)),
+		SettledAmountMinor:       &creditMinor,
+		FeeAmountMinor:           &feeMinor,
+		DeductionAmountMinor:     &taxMinor,
+		CurrencyCode:             cellStr(row, 3),
+		StatusCandidate:          statusCandidate,
+		ObservationKind:          observationKind,
+		ReversalFlag:             debit > 0,
+		ObservationTimestamp:     observationTS,
+		ValueDate:                &valueDate,
+		ParseConfidence:          confidence,
+		RawEnvelopeRef:           envelopeID,
+		CarrierCandidates:        map[string]interface{}{},
 	}
 
 	if shape.CarrierCandidates == nil {
@@ -201,18 +209,24 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 }
 
 func cellStr(row []string, idx int) string {
-	if idx < 0 || idx >= len(row) { return "" }
+	if idx < 0 || idx >= len(row) {
+		return ""
+	}
 	return strings.TrimSpace(row[idx])
 }
 
 func parseDecimal(s string) float64 {
-	if s == "" { return 0 }
+	if s == "" {
+		return 0
+	}
 	v, _ := strconv.ParseFloat(s, 64)
 	return v
 }
 
 func parseSettlementDate(s string) (time.Time, string) {
-	if s == "" { return time.Now().UTC(), "empty" }
+	if s == "" {
+		return time.Now().UTC(), "empty"
+	}
 	// Common Razorpay recon date formats.
 	layouts := []string{"02/01/2006 15:04:05", "2006-01-02 15:04:05"}
 	for _, layout := range layouts {

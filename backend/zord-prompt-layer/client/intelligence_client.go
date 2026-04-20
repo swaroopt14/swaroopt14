@@ -21,17 +21,46 @@ type CorridorHealthRow struct {
 	FinalityP95Seconds float64 `json:"finality_p95_seconds"`
 	TotalPending       int     `json:"total_pending"`
 }
-type corridorHealthResponse struct {
-	Corridors []CorridorHealthRow `json:"corridors"`
-}
-type topFailureRow struct {
+
+type TopFailureRow struct {
 	ReasonCode string  `json:"reason_code"`
 	Count      int     `json:"count"`
 	Rate       float64 `json:"rate"`
 }
 
+type SLABreachResponse struct {
+	TenantID         string  `json:"tenant_id"`
+	TotalProcessed   int     `json:"total_processed"`
+	Breached         int     `json:"breached"`
+	OnTime           int     `json:"on_time"`
+	BreachRate       float64 `json:"breach_rate"`
+	AvgBreachSeconds float64 `json:"avg_breach_seconds"`
+}
+
+type PendingApprovalSummary struct {
+	TotalPending   int `json:"total_pending"`
+	ExpiringIn1h   int `json:"expiring_in_1h"`
+	ExpiringIn6h   int `json:"expiring_in_6h"`
+	HighSeverity   int `json:"high_severity"`
+	MediumSeverity int `json:"medium_severity"`
+	LowSeverity    int `json:"low_severity"`
+}
+
+type corridorHealthResponse struct {
+	Corridors []CorridorHealthRow `json:"corridors"`
+}
 type topFailuresResponse struct {
-	TopReasons []topFailureRow `json:"top_reasons"`
+	TopReasons []TopFailureRow `json:"top_reasons"`
+}
+type pendingApprovalResponse struct {
+	Summary PendingApprovalSummary `json:"summary"`
+}
+type actionListResponse struct {
+	Actions []struct {
+		Decision   string `json:"decision"`
+		PolicyID   string `json:"policy_id"`
+		Confidence any    `json:"confidence"`
+	} `json:"actions"`
 }
 
 func NewIntelligenceClient(baseURL string, timeoutSec int) *IntelligenceClient {
@@ -44,12 +73,64 @@ func NewIntelligenceClient(baseURL string, timeoutSec int) *IntelligenceClient {
 	}
 }
 
-type actionListResponse struct {
-	Actions []struct {
-		Decision   string `json:"decision"`
-		PolicyID   string `json:"policy_id"`
-		Confidence any    `json:"confidence"`
-	} `json:"actions"`
+func (c *IntelligenceClient) doGetJSON(path string, q url.Values, out any) error {
+	u := c.BaseURL + path
+	if len(q) > 0 {
+		u += "?" + q.Encode()
+	}
+
+	maxRetries := 2
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequest(http.MethodGet, u, nil)
+		if err != nil {
+			return err
+		}
+
+		resp, err := c.HTTP.Do(req)
+		if err != nil {
+			if attempt < maxRetries {
+				time.Sleep(backoff(attempt))
+				continue
+			}
+			return err
+		}
+
+		raw, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode >= 300 {
+			retriable := resp.StatusCode == http.StatusTooManyRequests ||
+				resp.StatusCode == http.StatusServiceUnavailable ||
+				resp.StatusCode == http.StatusBadGateway ||
+				resp.StatusCode == http.StatusGatewayTimeout
+
+			if retriable && attempt < maxRetries {
+				time.Sleep(backoff(attempt))
+				continue
+			}
+			return fmt.Errorf("intelligence api error: status=%d body=%s", resp.StatusCode, string(raw))
+		}
+
+		if out == nil {
+			return nil
+		}
+		if err := json.Unmarshal(raw, out); err != nil {
+			return err
+		}
+		return nil
+	}
+	return fmt.Errorf("intelligence api failed after retries")
+}
+
+func backoff(attempt int) time.Duration {
+	d := 200 * time.Millisecond
+	for i := 0; i < attempt; i++ {
+		d *= 2
+	}
+	if d > 2*time.Second {
+		d = 2 * time.Second
+	}
+	return d
 }
 
 func (c *IntelligenceClient) FetchNextActions(tenantID string, limit int) ([]string, error) {
@@ -60,30 +141,12 @@ func (c *IntelligenceClient) FetchNextActions(tenantID string, limit int) ([]str
 		limit = 3
 	}
 
-	u := fmt.Sprintf("%s/v1/intelligence/actions", c.BaseURL)
 	q := url.Values{}
 	q.Set("tenant_id", tenantID)
 	q.Set("limit", fmt.Sprintf("%d", limit))
-	u = u + "?" + q.Encode()
-
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("intelligence actions error: status=%d body=%s", resp.StatusCode, string(raw))
-	}
 
 	var out actionListResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := c.doGetJSON("/v1/intelligence/actions", q, &out); err != nil {
 		return nil, err
 	}
 
@@ -102,67 +165,62 @@ func (c *IntelligenceClient) FetchNextActions(tenantID string, limit int) ([]str
 	}
 	return next, nil
 }
+
 func (c *IntelligenceClient) FetchCorridorHealth(tenantID string) ([]CorridorHealthRow, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, nil
 	}
-	u := fmt.Sprintf("%s/v1/intelligence/corridors/health", c.BaseURL)
 	q := url.Values{}
 	q.Set("tenant_id", tenantID)
-	u = u + "?" + q.Encode()
-
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("intelligence corridor health error: status=%d body=%s", resp.StatusCode, string(raw))
-	}
 
 	var out corridorHealthResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := c.doGetJSON("/v1/intelligence/corridors/health", q, &out); err != nil {
 		return nil, err
 	}
 	return out.Corridors, nil
 }
 
-func (c *IntelligenceClient) FetchTopFailures(tenantID, corridorID string) ([]topFailureRow, error) {
+func (c *IntelligenceClient) FetchTopFailures(tenantID, corridorID string) ([]TopFailureRow, error) {
 	if strings.TrimSpace(tenantID) == "" {
 		return nil, nil
 	}
-	u := fmt.Sprintf("%s/v1/intelligence/failures/top", c.BaseURL)
 	q := url.Values{}
 	q.Set("tenant_id", tenantID)
 	if strings.TrimSpace(corridorID) != "" {
 		q.Set("corridor_id", corridorID)
 	}
-	u = u + "?" + q.Encode()
-
-	req, err := http.NewRequest(http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("intelligence top failures error: status=%d body=%s", resp.StatusCode, string(raw))
-	}
 
 	var out topFailuresResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
+	if err := c.doGetJSON("/v1/intelligence/failures/top", q, &out); err != nil {
 		return nil, err
 	}
 	return out.TopReasons, nil
+}
+
+func (c *IntelligenceClient) FetchSLABreach(tenantID string) (*SLABreachResponse, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, nil
+	}
+	q := url.Values{}
+	q.Set("tenant_id", tenantID)
+
+	var out SLABreachResponse
+	if err := c.doGetJSON("/v1/intelligence/sla-breach", q, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *IntelligenceClient) FetchPendingApprovalSummary(tenantID string) (*PendingApprovalSummary, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, nil
+	}
+	q := url.Values{}
+	q.Set("tenant_id", tenantID)
+
+	var out pendingApprovalResponse
+	if err := c.doGetJSON("/v1/intelligence/actions/pending-approval", q, &out); err != nil {
+		return nil, err
+	}
+	return &out.Summary, nil
 }

@@ -32,4 +32,43 @@ type OutboxEvent struct {
 	LeaseUntil  *time.Time      `json:"lease_until,omitempty" db:"lease_until"`
 	PayloadHash []byte          `json:"payload_hash" db:"payload_hash"`
 	BatchID     *string         `json:"batchid,omitempty" db:"batchid"`
+
+	// Intent Metadata (Synchronized from payment_intents)
+	IdempotencyKey   string          `json:"idempotency_key,omitempty" db:"idempotency_key"`
+	SalientHash      string          `json:"salient_hash,omitempty" db:"salient_hash"`
+	IntentType       string          `json:"intent_type,omitempty" db:"intent_type"`
+	CanonicalVersion string          `json:"canonical_version,omitempty" db:"canonical_version"`
+	DeadlineAt       *time.Time      `json:"deadline_at,omitempty" db:"deadline_at"`
+	Constraints      json.RawMessage `json:"constraints,omitempty" db:"constraints"`
+	BeneficiaryType  string          `json:"beneficiary_type,omitempty" db:"beneficiary_type"`
+	PIITokens        json.RawMessage `json:"pii_tokens,omitempty" db:"pii_tokens"`
+	Beneficiary      json.RawMessage `json:"beneficiary,omitempty" db:"beneficiary"`
+	IntentStatus     string          `json:"intent_status,omitempty" db:"intent_status"`
+	ConfidenceScore  *float64        `json:"confidence_score,omitempty" db:"confidence_score"`
+
+	CanonicalHash         string `json:"canonical_hash,omitempty" db:"canonical_hash"`
+	CanonicalSnapshotRef  string `json:"canonical_snapshot_ref,omitempty" db:"canonical_snapshot_ref"`
+	NIRSnapshotRef        string `json:"nir_snapshot_ref,omitempty" db:"nir_snapshot_ref"`
+	GovernanceSnapshotRef string `json:"governance_snapshot_ref,omitempty" db:"governance_snapshot_ref"`
+
+	ClientPayoutRef       string          `json:"client_payout_ref,omitempty" db:"client_payout_ref"`
+	RequestFingerprint    string          `json:"request_fingerprint,omitempty" db:"request_fingerprint"`
+	RoutingHintsJSON      json.RawMessage `json:"routing_hints_json,omitempty" db:"routing_hints_json"`
+	GovernanceState       string          `json:"governance_state,omitempty" db:"governance_state"`
+	BusinessState         string          `json:"business_state,omitempty" db:"business_state"`
+	DuplicateRiskFlag     bool            `json:"duplicate_risk_flag,omitempty" db:"duplicate_risk_flag"`
+	MappingProfileID      string          `json:"mapping_profile_id,omitempty" db:"mapping_profile_id"`
+	MappingProfileVersion string          `json:"mapping_profile_version,omitempty" db:"mapping_profile_version"`
+	SourceSystem          string          `json:"source_system,omitempty" db:"source_system"`
+
+	BusinessIdempotencyKey    string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
+	BeneficiaryFingerprint    string          `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
+	ProofReadinessScore       float64         `json:"proof_readiness_score,omitempty" db:"proof_readiness_score"`
+	MatchabilityScore         float64         `json:"matchability_score,omitempty" db:"matchability_score"`
+	IntentQualityScore        float64         `json:"intent_quality_score,omitempty" db:"intent_quality_score"`
+	MappingConfidenceScore    float64         `json:"mapping_confidence_score,omitempty" db:"mapping_confidence_score"`
+	SchemaCompletenessScore   float64         `json:"schema_completeness_score,omitempty" db:"schema_completeness_score"`
+	GovernanceReasonCodesJSON json.RawMessage `json:"governance_reason_codes_json,omitempty" db:"governance_reason_codes_json"`
+	DuplicateReasonCode       string          `json:"duplicate_reason_code,omitempty" db:"duplicate_reason_code"`
+	ClientBatchRef            string          `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
 }

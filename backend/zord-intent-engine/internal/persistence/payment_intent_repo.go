@@ -226,7 +226,7 @@ INSERT INTO outbox (
     $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
     $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,
     $40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
-    $50,$51,$52
+    $50,$51
 )`
 
 	outbox.ContractID = intent.ContractID
@@ -234,57 +234,57 @@ INSERT INTO outbox (
 	_, err = tx.ExecContext(
 		ctx,
 		outboxQuery,
-		outbox.TraceID,                 // $1
-		outbox.EnvelopeID,              // $2
-		outbox.TenantID,                // $3
-		outbox.ContractID,              // $4
-		outbox.AggregateType,           // $5
-		outbox.AggregateID,             // $6
-		outbox.EventType,               // $7
-		outbox.SchemaVersion,           // $8
-		outbox.Amount,                  // $9
-		outbox.Currency,                // $10
-		outbox.IdempotencyKey,          // $11
-		outbox.SalientHash,             // $12
-		outbox.IntentType,              // $13
-		outbox.CanonicalVersion,        // $14
-		outbox.DeadlineAt,              // $15
-		outbox.Constraints,             // $16
-		outbox.BeneficiaryType,         // $17
-		outbox.PIITokens,               // $18
-		outbox.Beneficiary,             // $19
-		outbox.IntentStatus,            // $20
-		outbox.ConfidenceScore,         // $21
-		outbox.CanonicalHash,           // $22
-		outbox.CanonicalSnapshotRef,    // $23
-		outbox.NIRSnapshotRef,          // $24
-		outbox.GovernanceSnapshotRef,   // $25
-		outbox.ClientPayoutRef,         // $26
-		outbox.RequestFingerprint,      // $27
-		outbox.RoutingHintsJSON,        // $28
-		outbox.GovernanceState,         // $29
-		outbox.BusinessState,           // $30
-		outbox.DuplicateRiskFlag,       // $31
-		outbox.MappingProfileID,        // $32
-		outbox.MappingProfileVersion,   // $33
-		outbox.SourceSystem,            // $34
-		outbox.BusinessIdempotencyKey,  // $35
-		outbox.BeneficiaryFingerprint,  // $36
-		outbox.ProofReadinessScore,     // $37
-		outbox.MatchabilityScore,       // $38
-		outbox.IntentQualityScore,      // $39
-		outbox.MappingConfidenceScore,  // $40
-		outbox.SchemaCompletenessScore, // $41
+		outbox.TraceID,                   // $1
+		outbox.EnvelopeID,                // $2
+		outbox.TenantID,                  // $3
+		outbox.ContractID,                // $4
+		outbox.AggregateType,             // $5
+		outbox.AggregateID,               // $6
+		outbox.EventType,                 // $7
+		outbox.SchemaVersion,             // $8
+		outbox.Amount,                    // $9
+		outbox.Currency,                  // $10
+		outbox.IdempotencyKey,            // $11
+		outbox.SalientHash,               // $12
+		outbox.IntentType,                // $13
+		outbox.CanonicalVersion,          // $14
+		outbox.DeadlineAt,                // $15
+		outbox.Constraints,               // $16
+		outbox.BeneficiaryType,           // $17
+		outbox.PIITokens,                 // $18
+		outbox.Beneficiary,               // $19
+		outbox.IntentStatus,              // $20
+		outbox.ConfidenceScore,           // $21
+		outbox.CanonicalHash,             // $22
+		outbox.CanonicalSnapshotRef,      // $23
+		outbox.NIRSnapshotRef,            // $24
+		outbox.GovernanceSnapshotRef,     // $25
+		outbox.ClientPayoutRef,           // $26
+		outbox.RequestFingerprint,        // $27
+		outbox.RoutingHintsJSON,          // $28
+		outbox.GovernanceState,           // $29
+		outbox.BusinessState,             // $30
+		outbox.DuplicateRiskFlag,         // $31
+		outbox.MappingProfileID,          // $32
+		outbox.MappingProfileVersion,     // $33
+		outbox.SourceSystem,              // $34
+		outbox.BusinessIdempotencyKey,    // $35
+		outbox.BeneficiaryFingerprint,    // $36
+		outbox.ProofReadinessScore,       // $37
+		outbox.MatchabilityScore,         // $38
+		outbox.IntentQualityScore,        // $39
+		outbox.MappingConfidenceScore,    // $40
+		outbox.SchemaCompletenessScore,   // $41
 		outbox.GovernanceReasonCodesJSON, // $42
-		outbox.DuplicateReasonCode,     // $43
-		outbox.ClientBatchRef,          // $44
-		outbox.Payload,                 // $45
-		outbox.PayloadHash,             // $46
-		outbox.Status,                  // $47
-		outbox.RetryCount,              // $48
-		outbox.NextRetryAt,             // $49
-		outbox.CreatedAt,               // $50
-		outbox.BatchID,                 // $51
+		outbox.DuplicateReasonCode,       // $43
+		outbox.ClientBatchRef,            // $44
+		outbox.Payload,                   // $45
+		outbox.PayloadHash,               // $46
+		outbox.Status,                    // $47
+		outbox.RetryCount,                // $48
+		outbox.NextRetryAt,               // $49
+		outbox.CreatedAt,                 // $50
+		outbox.BatchID,                   // $51
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)

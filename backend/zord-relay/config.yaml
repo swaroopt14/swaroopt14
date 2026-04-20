@@ -79,6 +79,11 @@ token_enclave:
 
 # ── Dispatch loop (Step 0–5 lifecycle) ──────────────────────────────────────
 dispatch:
+  # Toggle dispatch responsibilities (Kafka consumer + dispatch workers/sweepers).
+  # true  = dispatch enabled (normal mode)
+  # false = disable dispatch; Kafka publish responsibilities continue to run.
+  enabled: false
+
   # Kafka consumer configuration for consuming payments.intent.events.v1.
   consumer_group_id: "dispatch-loop-group"
   topic: "payments.intent.events.v1"

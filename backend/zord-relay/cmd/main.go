@@ -246,42 +246,50 @@ func run() error {
 	// 1. Existing Kafka relay scheduler (Responsibility 1 — unchanged)
 	go sched.Run(leaseCtx)
 
-	// 2. Dispatch consumer (Kafka → DispatchLoop, Responsibility 2)
-	// Pass workCtx so in-flight PSP calls complete even after leaseCtx is cancelled.
-	if err := dispatchConsumer.Start(workCtx, &wg); err != nil {
-		cancelLease()
-		cancelWork()
-		return fmt.Errorf("starting dispatch consumer: %w", err)
+	// 2. Dispatch responsibility (Kafka consumer + dispatch lifecycle workers)
+	// Gate this with dispatch.enabled so Service 4 can run in publish-only mode.
+	if cfg.Dispatch.Enabled {
+		// Pass workCtx so in-flight PSP calls complete even after leaseCtx is cancelled.
+		if err := dispatchConsumer.Start(workCtx, &wg); err != nil {
+			cancelLease()
+			cancelWork()
+			return fmt.Errorf("starting dispatch consumer: %w", err)
+		}
+		log.Info("dispatch consumer started",
+			zap.String("topic", cfg.Dispatch.Topic),
+			zap.String("group_id", cfg.Dispatch.ConsumerGroupID),
+		)
+	} else {
+		log.Warn("dispatch disabled by config; running in kafka-publish-only mode")
 	}
-	log.Info("dispatch consumer started",
-		zap.String("topic", cfg.Dispatch.Topic),
-		zap.String("group_id", cfg.Dispatch.ConsumerGroupID),
-	)
 
 	// 3. Relay loop (relay_outbox → Kafka for dispatch lifecycle events)
 	relayLoop.Start(workCtx, &wg)
 	log.Info("relay loop started", zap.Int("workers", cfg.RelayLoop.WorkerCount))
 
-	// 4. Retry sweeper (FAILED_RETRYABLE re-try)
-	retrySweeper.Start(workCtx, &wg)
-	log.Info("retry sweeper started", zap.Duration("interval", cfg.RetrySweeper.Interval))
+	// 4/5. Retry + Recovery sweepers are dispatch-only responsibilities.
+	if cfg.Dispatch.Enabled {
+		retrySweeper.Start(workCtx, &wg)
+		log.Info("retry sweeper started", zap.Duration("interval", cfg.RetrySweeper.Interval))
 
-	// 5. Recovery sweeper (SENT + AWAITING_PROVIDER_SIGNAL resolution)
-	recoverySweeper := services.NewRecoverySweeper(
-		database,
-		dispatchRepo,
-		relayOutboxRepo,
-		dispatchLoop,
-		pspClient,
-		services.RecoverySweeperConfig{
-			SweepInterval:       cfg.RecoverySweeper.Interval,
-			SentTimeoutSecs:     cfg.RecoverySweeper.SentTimeoutSeconds,
-			AwaitingTimeoutSecs: cfg.RecoverySweeper.AwaitingTimeoutSeconds,
-			BatchSize:           cfg.RecoverySweeper.BatchSize,
-		},
-	)
-	recoverySweeper.Start(workCtx, &wg)
-	log.Info("recovery sweeper started")
+		recoverySweeper := services.NewRecoverySweeper(
+			database,
+			dispatchRepo,
+			relayOutboxRepo,
+			dispatchLoop,
+			pspClient,
+			services.RecoverySweeperConfig{
+				SweepInterval:       cfg.RecoverySweeper.Interval,
+				SentTimeoutSecs:     cfg.RecoverySweeper.SentTimeoutSeconds,
+				AwaitingTimeoutSecs: cfg.RecoverySweeper.AwaitingTimeoutSeconds,
+				BatchSize:           cfg.RecoverySweeper.BatchSize,
+			},
+		)
+		recoverySweeper.Start(workCtx, &wg)
+		log.Info("recovery sweeper started")
+	} else {
+		log.Info("dispatch sweepers disabled because dispatch.enabled=false")
+	}
 
 	// ── Graceful shutdown ────────────────────────────────────────────────────
 	shutdownCoord := shutdown.New(cfg.Relay.ShutdownTimeout, log)

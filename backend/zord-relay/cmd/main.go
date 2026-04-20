@@ -88,6 +88,7 @@ func run() error {
 	// ── Database (Service 4 owns this) ──────────────────────────────────────
 	database := db.Connect(cfg.DB.URL, cfg.DB.MaxOpenConns, cfg.DB.MaxIdleConns)
 	defer database.Close() //nolint:errcheck
+	db.EnsureSchema(context.Background(), database)
 	log.Info("database connected")
 
 	// ── Kafka Publisher (Confluent — used by existing relay workers) ─────────

@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zord-relay
+spec:
+  replicas: 2
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zord-relay
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zord-relay
+    spec:
+      terminationGracePeriodSeconds: 45
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: zord-relay
+              topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: zord-relay
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: zord-relay
+      containers:
+        - name: zord-relay
+          image: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/zord-relay:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8082
+              name: http
+          env:
+            - name: RELAY_KAFKA_BROKERS
+              value: zord-kafka:9092
+            - name: RELAY_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: RELAY_DB_URL
+            - name: RELAY_PSP_BASE_URL
+              value: https://replace-me-psp.example.com
+            - name: RELAY_PSP_TIMEOUT_SECONDS
+              value: "30"
+            - name: RELAY_TOKEN_ENCLAVE_BASE_URL
+              value: http://zord-token-enclave:8087
+            - name: RELAY_METRICS_ADDR
+              value: :8082
+            - name: RELAY_TRACING_ENABLED
+              value: "false"
+            - name: RELAY_SERVICES_0_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: RELAY_SERVICES_0_AUTH_TOKEN
+            - name: RELAY_SERVICES_1_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: RELAY_SERVICES_1_AUTH_TOKEN
+          volumeMounts:
+            - name: relay-config
+              mountPath: /config.yaml
+              subPath: config.yaml
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8082
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8082
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: relay-config
+          configMap:
+            name: zord-relay-config

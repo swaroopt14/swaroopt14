@@ -8,12 +8,16 @@ package db
 
 import (
 	"context"
+	_ "embed"
 	"log"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/zord/zord-intelligence/config"
 	"time"
 )
+
+//go:embed init.sql
+var schemaSQL string
 
 // Connect opens a PostgreSQL connection pool and returns it.
 //
@@ -64,4 +68,16 @@ func Connect(cfg *config.Config) *pgxpool.Pool {
 
 	// Return the pool — main.go will pass this to all repositories
 	return pool
+}
+
+// EnsureSchema applies the intelligence schema on startup so Kubernetes
+// deployments do not rely on external SQL bootstrap steps.
+func EnsureSchema(ctx context.Context, pool *pgxpool.Pool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, err := pool.Exec(ctx, schemaSQL); err != nil {
+		log.Fatalf("db: failed to apply intelligence schema: %v", err)
+	}
+	log.Println("db: intelligence schema ensured")
 }

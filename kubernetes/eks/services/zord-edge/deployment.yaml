@@ -1,0 +1,113 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zord-edge
+spec:
+  replicas: 2
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zord-edge
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zord-edge
+    spec:
+      serviceAccountName: zord-aws-access
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: zord-edge
+              topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: zord-edge
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: zord-edge
+      containers:
+        - name: zord-edge
+          image: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/zord-edge:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: DB_HOST
+              value: zord-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: zord_user
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: EDGE_DB_PASSWORD
+            - name: DB_NAME
+              value: zord_edge_db
+            - name: DB_SSLMODE
+              value: disable
+            - name: AWS_REGION
+              value: ap-south-1
+            - name: AWS_EC2_METADATA_DISABLED
+              value: "true"
+            - name: S3_BUCKET
+              value: replace-me-edge-bucket
+            - name: SIGNING_KEY_PATH
+              value: /run/secrets/ed25519_private.pem
+            - name: VAULT_KEY_ID
+              value: key-1234567890
+            - name: OBJECT_STORE_VERSION
+              value: v1
+            - name: ZORD_VAULT_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: ZORD_VAULT_KEY
+            - name: INTERNAL_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: INTERNAL_ADMIN_KEY
+          volumeMounts:
+            - name: signing-key
+              mountPath: /run/secrets
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: signing-key
+          secret:
+            secretName: zord-edge-signing-key

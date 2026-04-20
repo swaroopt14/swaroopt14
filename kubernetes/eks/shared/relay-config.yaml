@@ -1,0 +1,89 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zord-relay-config
+data:
+  config.yaml: |
+    relay:
+      poll_interval: 2s
+      lease_limit: 500
+      lease_ttl_seconds: 120
+      max_publish_concurrency: 10
+      shutdown_timeout: 30s
+
+    kafka:
+      brokers: "zord-kafka:9092"
+      sasl_mechanism: SCRAM-SHA-512
+      sasl_username: ""
+      sasl_password: ""
+      tls_enabled: false
+      acks: "all"
+      linger_ms: 5
+      compression_type: snappy
+      message_max_bytes: 1048576
+      delivery_timeout: 30s
+      dlq_publish_failure_topic: relay.dlq.publish_failure
+      dlq_poison_topic: relay.dlq.poison
+
+    services:
+      - name: intent-engine
+        base_url: http://zord-intent-engine:8083
+        auth_token: "replace-me"
+        http_timeout: 15s
+        default_topic: payments.intent.events.v1
+      - name: edge
+        base_url: http://zord-edge:8080
+        auth_token: "replace-me"
+        http_timeout: 15s
+        default_topic: payments.ledger.events.v1
+
+    tracing:
+      enabled: false
+      otlp_endpoint: ""
+      service_name: relay-service
+      environment: production
+
+    metrics:
+      enabled: true
+      addr: ":8082"
+
+    db:
+      url: "postgres://relay_user:replace-me@zord-postgres:5432/zord_relay_db?sslmode=disable"
+      max_open_conns: 20
+      max_idle_conns: 5
+
+    psp:
+      base_url: "https://replace-me-psp.example.com"
+      timeout_seconds: 30
+
+    token_enclave:
+      base_url: "http://zord-token-enclave:8087"
+      timeout_seconds: 10
+
+    dispatch:
+      consumer_group_id: "dispatch-loop-group"
+      topic: "payments.intent.events.v1"
+      poll_timeout: 200ms
+      connector_id: "razorpayx-v1"
+      default_corridor_id: "IMPS"
+      worker_count: 4
+      psp_circuit_breaker_threshold: 5
+      psp_circuit_reset_seconds: 60
+
+    relay_loop:
+      worker_count: 2
+      batch_size: 50
+      poll_interval: 2s
+      dispatch_events_topic: "payments.dispatch.events.v1"
+      publish_failure_dlq_topic: "relay.dlq.publish_failure"
+      poison_event_dlq_topic: "relay.dlq.poison"
+
+    retry_sweeper:
+      interval: 30s
+      batch_size: 20
+
+    recovery_sweeper:
+      interval: 60s
+      sent_timeout_seconds: 120
+      awaiting_timeout_seconds: 300
+      batch_size: 50

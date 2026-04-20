@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zord-console
+spec:
+  replicas: 2
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: zord-console
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: zord-console
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: zord-console
+              topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: zord-console
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: zord-console
+      containers:
+        - name: zord-console
+          image: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/zord-console:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NODE_ENV
+              value: production
+            - name: NEXT_TELEMETRY_DISABLED
+              value: "1"
+            - name: PORT
+              value: "3000"
+            - name: HOSTNAME
+              value: 0.0.0.0
+            - name: ZORD_EDGE_URL
+              value: http://zord-edge:8080
+            - name: ZORD_VAULT_URL
+              value: http://zord-edge:8080
+            - name: ZORD_RELAY_URL
+              value: http://zord-relay:8082
+            - name: ZORD_INTENT_ENGINE_URL
+              value: http://zord-intent-engine:8083
+            - name: ZORD_CONTRACTS_URL
+              value: http://zord-relay:8082
+            - name: ZORD_PII_ENCLAVE_URL
+              value: http://zord-token-enclave:8087
+            - name: PROMPT_LAYER_URL
+              value: http://zord-prompt-layer:8086
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 45
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi

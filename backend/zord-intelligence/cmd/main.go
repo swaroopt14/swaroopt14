@@ -67,6 +67,7 @@ func main() {
 	// ── Step 3: Connect to PostgreSQL ──────────────────────────────────────
 	pool := db.Connect(cfg)
 	defer pool.Close()
+	db.EnsureSchema(context.Background(), pool)
 
 	// ── Step 4: Create repositories ───────────────────────────────────────
 	projRepo    := persistence.NewProjectionRepo(pool)

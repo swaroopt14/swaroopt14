@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +29,33 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		return
 	}
 
+	// Read the PSP identifier from the query param.
+	// This tells the system which parser and mapping profile to use.
+	// Example: POST /v1/settlement/upload?tenant_id=xxx&psp=razorpay
+	psp := strings.ToLower(strings.TrimSpace(c.Query("psp")))
+	if psp == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "psp query param is required (e.g. ?psp=razorpay)"})
+		return
+	}
+
+	// Look up the mapping profile for this PSP.
+	// If the PSP is not registered, reject the request immediately.
+	profile, ok := models.GetProfile(psp)
+	if !ok {
+		// Build supported PSP list dynamically from KnownProfiles so this message
+		// never goes out of date when new PSPs are added to the registry.
+		supportedKeys := make([]string, 0, len(models.KnownProfiles))
+		for k := range models.KnownProfiles {
+			supportedKeys = append(supportedKeys, k)
+		}
+		sort.Strings(supportedKeys)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("unsupported psp %q — supported: %s",
+				psp, strings.Join(supportedKeys, ", ")),
+		})
+		return
+	}
+
 	// Retrieve the file from the multipart form data.
 	file, header, err := c.Request.FormFile("file")
 	if err != nil {
@@ -36,9 +64,12 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 	}
 	defer file.Close()
 
-	// Only .xlsx files are allowed as Razorpay recon reports are delivered in this format.
-	if !strings.HasSuffix(strings.ToLower(header.Filename), ".xlsx") {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "only .xlsx files are supported"})
+	// Validate file extension matches what this PSP's profile expects.
+	// This catches the common mistake of uploading a Razorpay file for a Cashfree job.
+	if !strings.HasSuffix(strings.ToLower(header.Filename), profile.FileExtension) {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": fmt.Sprintf("wrong file type for psp=%s: expected %s file", psp, profile.FileExtension),
+		})
 		return
 	}
 
@@ -73,14 +104,21 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 	jobID := uuid.New()
 	svc := &services.SettlementIngestService{S3: h.S3store}
 	
-	if err := svc.RegisterJob(c.Request.Context(), jobID, tenantID, envelopeID); err != nil {
+	// RegisterJob now takes profile so it writes the correct PSP metadata to the job row.
+	if err := svc.RegisterJob(c.Request.Context(), jobID, tenantID, envelopeID, profile); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register job: " + err.Error()})
 		return
 	}
 
 	// ── PHASE 3: PARSING ─────────────────────────────────────────────────────
-	// Transform raw bytes into structured shapes using the Razorpay-specific parser.
-	parser := &services.RazorpayParser{}
+	// Get the correct parser for this PSP from the registry.
+	// The registry was populated at startup in services/parser_registry.go init().
+	parser, err := services.GetParser(profile.ParserKey)
+	if err != nil {
+		svc.MarkJobFailed(c.Request.Context(), jobID, "PARSER_NOT_FOUND")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	results, err := parser.Parse(fileBytes, objRef, envelopeID)
 	if err != nil {
 		svc.MarkJobFailed(c.Request.Context(), jobID, "HEADER_MISMATCH")
@@ -99,11 +137,13 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 
 		if result.Failed {
 			rowCountFailed++
-			_ = svc.PersistParseError(c.Request.Context(), tenantID, jobID, envelopeID, rowRef, "PARSING", result.FailureReason)
+			// PersistParseError for failed rows during parsing phase.
+			_ = svc.PersistParseError(c.Request.Context(), tenantID, jobID, envelopeID, rowRef, "PARSING", result.FailureReason, profile)
 			continue
 		}
 
-		if err := svc.PersistParsedRow(c.Request.Context(), tenantID, jobID, envelopeID, objRef, rowRef, result); err != nil {
+		// PersistParsedRow for successful rows.
+		if err := svc.PersistParsedRow(c.Request.Context(), tenantID, jobID, envelopeID, objRef, rowRef, result, profile); err != nil {
 			log.Printf("settlement.upload.row_persist_error job_id=%s row=%s err=%v", jobID, rowRef, err)
 			continue
 		}
@@ -126,7 +166,8 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 	// This keeps the entire truth-generation flow synchronous within the upload request.
 	log.Printf("settlement.upload.canonicalize_start job_id=%s", jobID)
 	canonSvc := &services.SettlementCanonicalizeService{}
-	if err := canonSvc.RunForJob(c.Request.Context(), jobID, tenantID); err != nil {
+	// RunForJob now takes profile so canonical observations store the correct profile ID.
+	if err := canonSvc.RunForJob(c.Request.Context(), jobID, tenantID, profile); err != nil {
 		log.Printf("settlement.upload.canonicalize_error job_id=%s err=%v", jobID, err)
 	}
 

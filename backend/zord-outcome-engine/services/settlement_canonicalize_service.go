@@ -19,13 +19,13 @@ import (
 type SettlementCanonicalizeService struct{}
 
 // RunForJob executes the canonicalization pipeline for a specific ingest job.
-// It follows these steps:
+// profile is passed so the canonical observations record the correct mapping profile.
 // 1. Load all raw parsed rows from the DB.
 // 2. Transform each row into a normalized 'Canonical Observation'.
 // 3. Compute quality and readiness scores for downstream matching.
 // 4. Group observations into batches (e.g. by Razorpay settlement_id).
 // 5. Persist everything and trigger the outbox event emission.
-func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uuid.UUID, tenantID uuid.UUID) error {
+func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uuid.UUID, tenantID uuid.UUID, profile models.MappingProfile) error {
 	log.Printf("settlement.canonicalize.start job_id=%s", jobID)
 
 	// 1. Load all parsed rows for this job.
@@ -73,13 +73,13 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 		if err := json.Unmarshal(shapeJSON, &shape); err != nil {
 			log.Printf("settlement.canonicalize.unmarshal_failed job_id=%s row=%s", jobID, sourceRowRef)
 			svc := &SettlementIngestService{}
-			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "SHAPE_UNMARSHAL_FAILED")
+			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "SHAPE_UNMARSHAL_FAILED", profile)
 			canonicalizeFailed++
 			continue
 		}
 
 		// 2. Build canonical observation.
-		obs := buildCanonicalObservation(tenantID, jobID, parsedRowID, envelopeID, shape, parseConfidence)
+		obs := buildCanonicalObservation(tenantID, jobID, parsedRowID, envelopeID, shape, parseConfidence, profile)
 
 		// 3. Insert into Postgres.
 		_, err = db.DB.ExecContext(ctx, `
@@ -129,7 +129,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 		if err != nil {
 			log.Printf("settlement.canonicalize.insert_failed job_id=%s row=%s err=%v", jobID, sourceRowRef, err)
 			svc := &SettlementIngestService{}
-			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "INSERT_FAILED")
+			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "INSERT_FAILED", profile)
 			canonicalizeFailed++
 			continue
 		}
@@ -214,7 +214,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 				updated_at = EXCLUDED.updated_at`,
 			batchID, tenantID, jobID,
 			firstObs.SourceFileRef, firstObs.SourceSystem,
-			sourceBatchRef, "PSP_SETTLEMENT_RECON",
+			sourceBatchRef, profile.ArtifactFamily,
 			len(group), successCount, 0,
 			0, reversalCount,
 			totalAmount, totalSettledAmount,
@@ -242,8 +242,9 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 	return outboxSvc.EmitForJob(ctx, jobID, tenantID, observations)
 }
 
-// buildCanonicalObservation maps the raw UniversalSettlementShape to a structured 
-// CanonicalSettlementObservation, computing various quality and readiness scores along the way.
+// buildCanonicalObservation maps the raw UniversalSettlementShape to a CanonicalSettlementObservation.
+// profile provides the mapping_profile_id and version stored on the observation,
+// ensuring each canonical record is traceable to the exact parser version that produced it.
 func buildCanonicalObservation(
 	tenantID uuid.UUID,
 	jobID uuid.UUID,
@@ -251,6 +252,7 @@ func buildCanonicalObservation(
 	envelopeID uuid.UUID,
 	shape models.UniversalSettlementShape,
 	parseConfidence float64,
+	profile models.MappingProfile, // NEW
 ) models.CanonicalSettlementObservation {
 	obs := models.CanonicalSettlementObservation{
 		SettlementObservationID:  uuid.New(),
@@ -281,8 +283,8 @@ func buildCanonicalObservation(
 		ObservationTimestamp:     shape.ObservationTimestamp,
 		ValueDate:                shape.ValueDate,
 		ProviderRefStatus:        computeProviderRefStatus(shape),
-		MappingProfileID:         "razorpay-recon-v1",
-		MappingProfileVersion:    "1.0.0",
+		MappingProfileID:         profile.ProfileID,
+		MappingProfileVersion:    profile.ProfileVersion,
 		ParseConfidence:          parseConfidence,
 		MappingConfidence:        computeMappingConfidence(shape),
 		CarrierRichnessScore:     computeCarrierRichnessScore(shape),

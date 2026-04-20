@@ -377,23 +377,23 @@ func (s *IntentService) ProcessIncomingIntent(
 	decryptedPayload, err := vault.DecryptPayload(in.EncryptedPayload)
 	if err != nil {
 		log.Printf("⚠️ Payload decryption failed for EnvelopeID=%s: %v", in.EnvelopeID, err)
-		return nil, &models.DLQEntry{ReasonCode: "PAYLOAD_DECRYPTION_FAILED"}, nil
+		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "PAYLOAD_DECRYPTION_FAILED"}, nil
 	}
 
 	// -------- STEP 4: Recompute SHA256(raw_bytes) and compare --------
 	rawHash := sha256.Sum256(decryptedPayload)
 	if len(in.PayloadHash) == 0 {
 		log.Printf("⚠️ Missing raw payload hash for EnvelopeID=%s", in.EnvelopeID)
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_RAW_PAYLOAD_HASH"}, nil
+		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "MISSING_RAW_PAYLOAD_HASH"}, nil
 	}
 
 	if len(in.PayloadHash) != sha256.Size {
 		log.Printf("⚠️ Invalid raw payload hash length for EnvelopeID=%s", in.EnvelopeID)
-		return nil, &models.DLQEntry{ReasonCode: "INVALID_RAW_PAYLOAD_HASH_LENGTH"}, nil
+		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "INVALID_RAW_PAYLOAD_HASH_LENGTH"}, nil
 	}
 	if len(in.PayloadHash) > 0 && !bytes.Equal(rawHash[:], in.PayloadHash) {
 		log.Printf("⚠️ Raw payload hash mismatch for EnvelopeID=%s", in.EnvelopeID)
-		return nil, &models.DLQEntry{ReasonCode: "RAW_PAYLOAD_INTEGRITY_FAILED"}, nil
+		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "RAW_PAYLOAD_INTEGRITY_FAILED"}, nil
 	}
 
 	var parsed models.ParsedIncomingIntent
@@ -441,7 +441,12 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	profileID := "generic_json_profile"
 	if in.SourceSystem != "" {
-		profileID = strings.ToLower(in.SourceSystem) + "_json_profile"
+		profileID = fmt.Sprintf("%s_%s_json_profile", in.TenantID.String(), strings.ToLower(in.SourceSystem))
+	}
+
+	profileVersion := "v1"
+	if parsed.SchemaVersion != "" {
+		profileVersion = parsed.SchemaVersion
 	}
 
 	nir := &models.NormalizedIngestRecord{
@@ -450,7 +455,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		TenantID:                in.TenantID,
 		DetectedFormat:          "json",
 		ProfileID:               profileID,
-		ProfileVersion:          "v1",
+		ProfileVersion:          profileVersion,
 		FieldsJSON:              fieldsJSON,
 		FieldConfidenceSummary:  json.RawMessage(`{"overall": 1.0}`),
 		UnmappedJSON:            json.RawMessage(`{}`),
@@ -822,7 +827,12 @@ func (s *IntentService) ProcessTokenizeResult(
 
 	profileID := "kafka_async_profile"
 	if event.SourceSystem != "" {
-		profileID = strings.ToLower(event.SourceSystem) + "_async_profile"
+		profileID = fmt.Sprintf("%s_%s_async_profile", event.TenantID, strings.ToLower(event.SourceSystem))
+	}
+
+	profileVersion := "v1"
+	if canonicalInput.SchemaVersion != "" {
+		profileVersion = canonicalInput.SchemaVersion
 	}
 
 	nir := &models.NormalizedIngestRecord{
@@ -831,10 +841,14 @@ func (s *IntentService) ProcessTokenizeResult(
 		TenantID:               uuid.MustParse(event.TenantID),
 		DetectedFormat:         "json",
 		ProfileID:              profileID,
-		ProfileVersion:         "v1",
-		FieldsJSON:             fieldsJSON,
-		FieldConfidenceSummary: json.RawMessage(`{"overall": 0.9}`),
-		CreatedAt:              time.Now().UTC(),
+		ProfileVersion:          profileVersion,
+		FieldsJSON:              fieldsJSON,
+		FieldConfidenceSummary:  json.RawMessage(`{"overall": 0.9}`),
+		UnmappedJSON:            json.RawMessage(`{}`),
+		MappingUncertainFlag:    false,
+		RequiredFieldGapCount:   0,
+		LowConfidenceFieldCount: 0,
+		CreatedAt:               time.Now().UTC(),
 	}
 
 	// -------- COMPUTE SCORES & FINGERPRINT --------
@@ -1124,6 +1138,16 @@ func (s *IntentService) aggregateGovernanceReasons(intent *models.CanonicalInten
 				"module":   "NIR_MAPPING",
 				"code":     "REQUIRED_FIELD_GAPS",
 				"count":    nir.RequiredFieldGapCount,
+				"severity": "WARNING",
+			})
+		}
+	}
+
+	if len(intent.ValidationAnomalies) > 0 {
+		for _, failure := range intent.ValidationAnomalies {
+			reasons = append(reasons, map[string]any{
+				"module":   "CONTENT_VALIDATION",
+				"code":     failure,
 				"severity": "WARNING",
 			})
 		}

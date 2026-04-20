@@ -36,8 +36,10 @@ type VisualizationPoint struct {
 }
 
 type Visualization struct {
-	Title  string               `json:"title"`
-	XAxis  string               `json:"x_axis"`
-	YAxis  string               `json:"y_axis"`
-	Series []VisualizationPoint `json:"series"`
+	Title    string               `json:"title"`
+	XAxis    string               `json:"x_axis"`
+	YAxis    string               `json:"y_axis"`
+	Series   []VisualizationPoint `json:"series"`
+	Subtitle string               `json:"subtitle,omitempty"`
+	Insights []string             `json:"insights,omitempty"`
 }

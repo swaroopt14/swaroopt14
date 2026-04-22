@@ -21,7 +21,7 @@ type SettlementOutboxService struct{}
 // 2. 'batch_ready' events for each unique batch reference found in the file.
 func (s *SettlementOutboxService) EmitForJob(
 	ctx context.Context,
-	jobID uuid.UUID,
+	jobID string,
 	tenantID uuid.UUID,
 	observations []models.CanonicalSettlementObservation,
 ) error {
@@ -70,7 +70,7 @@ func (s *SettlementOutboxService) EmitForJob(
 			"event":           "batch_ready",
 		}
 
-		if err := s.insertEvent(ctx, tenantID, jobID, "settlement_observation", jobID, "canonical.settlement.batch_ready", payload); err != nil {
+		if err := s.insertEvent(ctx, tenantID, jobID, "settlement_observation", uuid.New(), "canonical.settlement.batch_ready", payload); err != nil {
 			lastErr = err
 		}
 		batchCount++
@@ -82,7 +82,7 @@ func (s *SettlementOutboxService) EmitForJob(
 
 func (s *SettlementOutboxService) insertEvent(
 	ctx context.Context,
-	tenantID, jobID uuid.UUID,
+	tenantID uuid.UUID, jobID string,
 	family string,
 	entityID uuid.UUID,
 	eventType string,

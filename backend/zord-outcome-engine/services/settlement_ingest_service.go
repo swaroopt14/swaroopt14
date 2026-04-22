@@ -21,7 +21,7 @@ type SettlementIngestService struct {
 // RegisterJob creates the initial job record in 'PARSING' status.
 // profile carries the PSP-specific metadata (source_system, mapping_profile_id, etc.)
 // so the job row correctly reflects which PSP this file came from.
-func (s *SettlementIngestService) RegisterJob(ctx context.Context, jobID, tenantID, envelopeID uuid.UUID, profile models.MappingProfile) error {
+func (s *SettlementIngestService) RegisterJob(ctx context.Context, jobID string, tenantID, envelopeID uuid.UUID, profile models.MappingProfile) error {
 	receivedAt := time.Now().UTC()
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO settlement_ingest_jobs (
@@ -42,7 +42,7 @@ func (s *SettlementIngestService) RegisterJob(ctx context.Context, jobID, tenant
 // profile is passed through so the row records which PSP mapping was used.
 func (s *SettlementIngestService) PersistParsedRow(
 	ctx context.Context, 
-	tenantID, jobID, envelopeID uuid.UUID,
+	tenantID uuid.UUID, jobID string, envelopeID uuid.UUID,
 	objRef, rowRef string,
 	result ParsedRowResult,
 	profile models.MappingProfile, // NEW
@@ -75,7 +75,7 @@ func (s *SettlementIngestService) PersistParsedRow(
 // This is called after all rows have been processed in the persistence phase.
 func (s *SettlementIngestService) FinalizeJob(
 	ctx context.Context, 
-	jobID uuid.UUID, 
+	jobID string, 
 	parsedCount, failedCount int, 
 	avgConfidence float64,
 ) error {
@@ -93,7 +93,7 @@ func (s *SettlementIngestService) FinalizeJob(
 }
 
 // MarkJobFailed is a helper to update job status on non-recoverable failures.
-func (s *SettlementIngestService) MarkJobFailed(ctx context.Context, jobID uuid.UUID, reasonCode string) {
+func (s *SettlementIngestService) MarkJobFailed(ctx context.Context, jobID string, reasonCode string) {
 	_, _ = db.DB.ExecContext(ctx,
 		`UPDATE settlement_ingest_jobs SET job_status='FAILED', failure_reason_code=$1, completed_at=$2 WHERE job_id=$3`,
 		reasonCode, time.Now().UTC(), jobID,
@@ -102,7 +102,7 @@ func (s *SettlementIngestService) MarkJobFailed(ctx context.Context, jobID uuid.
 
 // PersistParseError records a non-fatal row-level error for later auditing.
 // profile is passed so the error record references the correct mapping profile.
-func (s *SettlementIngestService) PersistParseError(ctx context.Context, tenantID, jobID, envID uuid.UUID, rowRef, errorStage, reason string, profile models.MappingProfile) error {
+func (s *SettlementIngestService) PersistParseError(ctx context.Context, tenantID uuid.UUID, jobID string, envID uuid.UUID, rowRef, errorStage, reason string, profile models.MappingProfile) error {
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO settlement_parse_errors (
 			error_id, tenant_id, job_id, settlement_envelope_id,

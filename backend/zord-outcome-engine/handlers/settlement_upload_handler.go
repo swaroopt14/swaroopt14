@@ -104,16 +104,11 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 	// ── PHASE 2: JOB REGISTRATION ───────────────────────────────────────────
 	// Register a new ingest job in 'PARSING' status. This allows us to track
 	// job progress and handle resumes or audits if needed.
-	var jobID uuid.UUID
+	var jobID string
 	if batchIDRaw := c.GetHeader("Batch-ID"); batchIDRaw != "" {
-		parsedID, err := uuid.Parse(batchIDRaw)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid Batch-ID format (must be UUID)"})
-			return
-		}
-		jobID = parsedID
+		jobID = batchIDRaw
 	} else {
-		jobID = uuid.New()
+		jobID = uuid.New().String()
 	}
 
 	svc := &services.SettlementIngestService{S3: h.S3store}
@@ -143,7 +138,7 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 
 	// ── ASYNC BACKGROUND PIPELINE ───────────────────────────────────────────
 	// Push parsing and canonicalization to background to free up HTTP worker.
-	go func(bgCtx context.Context, pspProfile models.MappingProfile, bgJobID, bgTenant uuid.UUID, bgEnvelope uuid.UUID, bgRef string, data []byte) {
+	go func(bgCtx context.Context, pspProfile models.MappingProfile, bgJobID string, bgTenant uuid.UUID, bgEnvelope uuid.UUID, bgRef string, data []byte) {
 		// ── PHASE 3: PARSING ─────────────────────────────────────────────────────
 		parser, err := services.GetParser(pspProfile.ParserKey)
 		if err != nil {

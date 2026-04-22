@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS finality_certificates(
 );`,
 		`
 CREATE TABLE IF NOT EXISTS settlement_ingest_jobs(
-	job_id UUID PRIMARY KEY,
+	job_id TEXT PRIMARY KEY,
 	tenant_id UUID NOT NULL,
 	settlement_envelope_id UUID NOT NULL,
 	artifact_family TEXT NOT NULL,
@@ -161,7 +161,7 @@ CREATE TABLE IF NOT EXISTS settlement_ingest_jobs(
 		`
 CREATE TABLE IF NOT EXISTS settlement_parsed_rows(
 	parsed_row_id UUID PRIMARY KEY,
-	job_id UUID NOT NULL REFERENCES settlement_ingest_jobs(job_id),
+	job_id TEXT NOT NULL REFERENCES settlement_ingest_jobs(job_id),
 	tenant_id UUID NOT NULL,
 	settlement_envelope_id UUID NOT NULL,
 	source_file_ref TEXT NOT NULL,
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	tenant_id UUID NOT NULL,
 	trace_id UUID NOT NULL,
 	settlement_envelope_id UUID NOT NULL,
-	job_id UUID NOT NULL REFERENCES settlement_ingest_jobs(job_id),
+	job_id TEXT NOT NULL REFERENCES settlement_ingest_jobs(job_id),
 	source_file_ref TEXT NOT NULL,
 	source_row_ref TEXT NOT NULL,
 	source_system TEXT NOT NULL,
@@ -237,7 +237,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 	settlement_batch_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	job_id UUID NOT NULL REFERENCES settlement_ingest_jobs(job_id),
+	job_id TEXT NOT NULL REFERENCES settlement_ingest_jobs(job_id),
 	source_file_ref TEXT NOT NULL,
 	source_system TEXT NOT NULL,
 	connector_id UUID,
@@ -262,7 +262,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 CREATE TABLE IF NOT EXISTS settlement_parse_errors(
 	error_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	job_id UUID NOT NULL REFERENCES settlement_ingest_jobs(job_id),
+	job_id TEXT NOT NULL REFERENCES settlement_ingest_jobs(job_id),
 	settlement_envelope_id UUID NOT NULL,
 	source_row_ref TEXT,
 	error_stage TEXT NOT NULL,
@@ -279,7 +279,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 	outbox_event_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
 	trace_id UUID NOT NULL,
-	job_id UUID NOT NULL,
+	job_id TEXT NOT NULL,
 	entity_family TEXT NOT NULL,
 	entity_id UUID NOT NULL,
 	event_type TEXT NOT NULL,

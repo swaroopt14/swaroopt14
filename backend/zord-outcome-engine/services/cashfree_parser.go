@@ -5,7 +5,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -158,10 +157,6 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		statusCandidate = "UNKNOWN"
 	}
 
-	settledMinor := int64(math.Round(settledAmount * 100))
-	feeMinor := int64(math.Round(serviceCharge * 100))
-	taxMinor := int64(math.Round(serviceTax * 100))
-
 	shape := models.UniversalSettlementShape{
 		ArtifactFamily:           "PSP_SETTLEMENT_RECON",
 		SourceSystem:             "cashfree",
@@ -173,10 +168,10 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		ExternalReference:        strPtr(extRef),
 		ClientReferenceCandidate: strPtr(batchRef),
 		BatchReference:           strPtr(batchRef),
-		AmountMinor:              int64(math.Round(orderAmount * 100)),
-		SettledAmountMinor:       &settledMinor,
-		FeeAmountMinor:           &feeMinor,
-		DeductionAmountMinor:     &taxMinor,
+		Amount:                   orderAmount,
+		SettledAmount:            &settledAmount,
+		FeeAmount:                &serviceCharge,
+		DeductionAmount:          &serviceTax,
 		// Cashfree India settlement exports do not include a currency column.
 		// All domestic Cashfree settlements are in Indian Rupees.
 		// When multi-currency support is needed, add currency to the profile config.

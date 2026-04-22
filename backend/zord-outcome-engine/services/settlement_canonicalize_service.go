@@ -91,7 +91,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 				client_reference_candidate, provider_reference, bank_reference,
 				external_reference, batch_reference,
 				beneficiary_fingerprint,
-				amount_minor, settled_amount_minor, fee_amount_minor, deduction_amount_minor,
+				amount, settled_amount, fee_amount, deduction_amount,
 				currency_code, settlement_status,
 				retry_flag, reversal_flag, return_flag,
 				observation_timestamp, value_date,
@@ -114,7 +114,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 			obs.ClientReferenceCandidate, obs.ProviderReference, obs.BankReference,
 			obs.ExternalReference, obs.BatchReference,
 			obs.BeneficiaryFingerprint,
-			obs.AmountMinor, obs.SettledAmountMinor, obs.FeeAmountMinor, obs.DeductionAmountMinor,
+			obs.Amount, obs.SettledAmount, obs.FeeAmount, obs.DeductionAmount,
 			obs.CurrencyCode, obs.SettlementStatus,
 			obs.RetryFlag, obs.ReversalFlag, obs.ReturnFlag,
 			obs.ObservationTimestamp, obs.ValueDate,
@@ -165,8 +165,8 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 		}
 
 		var (
-			totalAmount        int64
-			totalSettledAmount int64
+			totalAmount        float64
+			totalSettledAmount float64
 			successCount       int
 			reversalCount      int
 			parseConfSum       float64
@@ -174,9 +174,9 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 		)
 
 		for _, o := range group {
-			totalAmount += o.AmountMinor
-			if o.SettledAmountMinor != nil {
-				totalSettledAmount += *o.SettledAmountMinor
+			totalAmount += o.Amount
+			if o.SettledAmount != nil {
+				totalSettledAmount += *o.SettledAmount
 			}
 			if o.ReversalFlag {
 				reversalCount++
@@ -197,7 +197,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 				source_batch_ref, artifact_family,
 				row_count, success_count_estimate, failed_count_estimate,
 				pending_count_estimate, reversal_count_estimate,
-				total_amount_minor, total_settled_amount_minor,
+				total_amount, total_settled_amount,
 				currency_code,
 				parse_confidence_overall, attachment_readiness_overall,
 				created_at, updated_at
@@ -207,8 +207,8 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 				row_count = EXCLUDED.row_count,
 				success_count_estimate = EXCLUDED.success_count_estimate,
 				reversal_count_estimate = EXCLUDED.reversal_count_estimate,
-				total_amount_minor = EXCLUDED.total_amount_minor,
-				total_settled_amount_minor = EXCLUDED.total_settled_amount_minor,
+				total_amount = EXCLUDED.total_amount,
+				total_settled_amount = EXCLUDED.total_settled_amount,
 				parse_confidence_overall = EXCLUDED.parse_confidence_overall,
 				attachment_readiness_overall = EXCLUDED.attachment_readiness_overall,
 				updated_at = EXCLUDED.updated_at`,
@@ -271,10 +271,10 @@ func buildCanonicalObservation(
 		ExternalReference:        shape.ExternalReference,
 		BatchReference:           shape.BatchReference,
 		BeneficiaryFingerprint:   computeBeneficiaryFingerprint(shape),
-		AmountMinor:              shape.AmountMinor,
-		SettledAmountMinor:       shape.SettledAmountMinor,
-		FeeAmountMinor:           shape.FeeAmountMinor,
-		DeductionAmountMinor:     shape.DeductionAmountMinor,
+		Amount:                   shape.Amount,
+		SettledAmount:            shape.SettledAmount,
+		FeeAmount:                shape.FeeAmount,
+		DeductionAmount:          shape.DeductionAmount,
 		CurrencyCode:             shape.CurrencyCode,
 		SettlementStatus:         shape.StatusCandidate,
 		RetryFlag:                shape.RetryFlag,
@@ -332,7 +332,7 @@ func computeMappingConfidence(shape models.UniversalSettlementShape) float64 {
 	if shape.CurrencyCode == "" {
 		score -= 0.15
 	}
-	if shape.AmountMinor == 0 {
+	if shape.Amount == 0 {
 		score -= 0.10
 	}
 	if shape.ObservationKind == "" {
@@ -361,7 +361,7 @@ func computeCarrierRichnessScore(shape models.UniversalSettlementShape) float64 
 	if shape.BatchReference != nil {
 		count++
 	}
-	if shape.AmountMinor > 0 {
+	if shape.Amount > 0 {
 		count++
 	}
 	return float64(count) / 6.0
@@ -378,7 +378,7 @@ func computeAttachmentReadinessScore(shape models.UniversalSettlementShape) floa
 	if shape.ExternalReference != nil {
 		score += 0.15
 	}
-	if shape.AmountMinor > 0 && shape.CurrencyCode != "" {
+	if shape.Amount > 0 && shape.CurrencyCode != "" {
 		score += 0.15
 	}
 	if !shape.ObservationTimestamp.IsZero() {
@@ -394,7 +394,7 @@ func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.Univ
 	parts := []string{
 		tenantID.String(),
 		obsID.String(),
-		fmt.Sprintf("%d", shape.AmountMinor),
+		fmt.Sprintf("%.4f", shape.Amount),
 		shape.CurrencyCode,
 		safeDeref(shape.BankReference),
 		shape.ObservationTimestamp.UTC().Format(time.RFC3339),

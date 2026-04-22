@@ -38,7 +38,7 @@ func (s *SettlementOutboxService) EmitForJob(
 			"job_id":                     jobID,
 			"observation_kind":           obs.ObservationKind,
 			"settlement_status":          obs.SettlementStatus,
-			"amount_minor":               obs.AmountMinor,
+			"amount":                     obs.Amount,
 			"currency_code":              obs.CurrencyCode,
 			"bank_reference":             obs.BankReference,
 			"provider_reference":         obs.ProviderReference,

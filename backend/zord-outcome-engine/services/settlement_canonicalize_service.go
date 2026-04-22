@@ -25,7 +25,7 @@ type SettlementCanonicalizeService struct{}
 // 3. Compute quality and readiness scores for downstream matching.
 // 4. Group observations into batches (e.g. by Razorpay settlement_id).
 // 5. Persist everything and trigger the outbox event emission.
-func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uuid.UUID, tenantID uuid.UUID, profile models.MappingProfile) error {
+func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID string, tenantID uuid.UUID, profile models.MappingProfile) error {
 	log.Printf("settlement.canonicalize.start job_id=%s", jobID)
 
 	// 1. Load all parsed rows for this job.
@@ -247,7 +247,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID uui
 // ensuring each canonical record is traceable to the exact parser version that produced it.
 func buildCanonicalObservation(
 	tenantID uuid.UUID,
-	jobID uuid.UUID,
+	jobID string,
 	parsedRowID uuid.UUID,
 	envelopeID uuid.UUID,
 	shape models.UniversalSettlementShape,

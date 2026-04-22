@@ -9,7 +9,7 @@ import (
 
 // SettlementIngestJob tracks the processing of each settlement artifact.
 type SettlementIngestJob struct {
-	JobID                  uuid.UUID  `json:"job_id" db:"job_id"`
+	JobID                  string  `json:"job_id" db:"job_id"`
 	TenantID               uuid.UUID  `json:"tenant_id" db:"tenant_id"`
 	SettlementEnvelopeID   uuid.UUID  `json:"settlement_envelope_id" db:"settlement_envelope_id"`
 	ArtifactFamily         string     `json:"artifact_family" db:"artifact_family"`
@@ -32,7 +32,7 @@ type SettlementIngestJob struct {
 // SettlementParsedRow represents an intermediate parse layer for transparency.
 type SettlementParsedRow struct {
 	ParsedRowID           uuid.UUID       `json:"parsed_row_id" db:"parsed_row_id"`
-	JobID                 uuid.UUID       `json:"job_id" db:"job_id"`
+	JobID                 string       `json:"job_id" db:"job_id"`
 	TenantID              uuid.UUID       `json:"tenant_id" db:"tenant_id"`
 	SettlementEnvelopeID  uuid.UUID       `json:"settlement_envelope_id" db:"settlement_envelope_id"`
 	SourceFileRef         string          `json:"source_file_ref" db:"source_file_ref"`
@@ -53,7 +53,7 @@ type CanonicalSettlementObservation struct {
 	TenantID                   uuid.UUID  `json:"tenant_id" db:"tenant_id"`
 	TraceID                    uuid.UUID  `json:"trace_id" db:"trace_id"`
 	SettlementEnvelopeID       uuid.UUID  `json:"settlement_envelope_id" db:"settlement_envelope_id"`
-	JobID                      uuid.UUID  `json:"job_id" db:"job_id"`
+	JobID                      string  `json:"job_id" db:"job_id"`
 	SourceFileRef              string     `json:"source_file_ref" db:"source_file_ref"`
 	SourceRowRef               string     `json:"source_row_ref" db:"source_row_ref"`
 	SourceSystem               string     `json:"source_system" db:"source_system"`
@@ -103,7 +103,7 @@ type CanonicalSettlementObservation struct {
 type CanonicalSettlementBatch struct {
 	SettlementBatchID           uuid.UUID `json:"settlement_batch_id" db:"settlement_batch_id"`
 	TenantID                    uuid.UUID `json:"tenant_id" db:"tenant_id"`
-	JobID                       uuid.UUID `json:"job_id" db:"job_id"`
+	JobID                       string `json:"job_id" db:"job_id"`
 	SourceFileRef               string    `json:"source_file_ref" db:"source_file_ref"`
 	SourceSystem                string    `json:"source_system" db:"source_system"`
 	ConnectorID                 *uuid.UUID `json:"connector_id,omitempty" db:"connector_id"`
@@ -144,7 +144,7 @@ type SettlementOutboxEvent struct {
 	OutboxEventID uuid.UUID       `json:"outbox_event_id" db:"outbox_event_id"`
 	TenantID      uuid.UUID       `json:"tenant_id" db:"tenant_id"`
 	TraceID       uuid.UUID       `json:"trace_id" db:"trace_id"`
-	JobID         uuid.UUID       `json:"job_id" db:"job_id"`
+	JobID         string       `json:"job_id" db:"job_id"`
 	EntityFamily  string          `json:"entity_family" db:"entity_family"`
 	EntityID      uuid.UUID       `json:"entity_id" db:"entity_id"`
 	EventType     string          `json:"event_type" db:"event_type"`

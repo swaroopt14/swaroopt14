@@ -3,7 +3,6 @@ package services
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -163,10 +162,6 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	}
 
 	// Construct the Universal Shape.
-	creditMinor := int64(math.Round(credit * 100))
-	feeMinor := int64(math.Round(fee * 100))
-	taxMinor := int64(math.Round(tax * 100))
-
 	shape := models.UniversalSettlementShape{
 		ArtifactFamily:           "PSP_SETTLEMENT_RECON",
 		SourceSystem:             "razorpay",
@@ -178,10 +173,10 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		ExternalReference:        strPtr(extRef),
 		ClientReferenceCandidate: strPtr(clientRefCand),
 		BatchReference:           strPtr(batchRef),
-		AmountMinor:              int64(math.Round(amount * 100)),
-		SettledAmountMinor:       &creditMinor,
-		FeeAmountMinor:           &feeMinor,
-		DeductionAmountMinor:     &taxMinor,
+		Amount:                   amount,
+		SettledAmount:            &credit,
+		FeeAmount:                &fee,
+		DeductionAmount:          &tax,
 		CurrencyCode:             cellStr(row, 3),
 		StatusCandidate:          statusCandidate,
 		ObservationKind:          observationKind,

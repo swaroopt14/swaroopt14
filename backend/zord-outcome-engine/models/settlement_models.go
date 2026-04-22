@@ -69,10 +69,10 @@ type CanonicalSettlementObservation struct {
 	SellerIDToken              *string    `json:"seller_id_token,omitempty" db:"seller_id_token"`
 	VendorIDToken              *string    `json:"vendor_id_token,omitempty" db:"vendor_id_token"`
 	BeneficiaryFingerprint     string     `json:"beneficiary_fingerprint" db:"beneficiary_fingerprint"`
-	AmountMinor                int64      `json:"amount_minor" db:"amount_minor"`
-	SettledAmountMinor         *int64     `json:"settled_amount_minor,omitempty" db:"settled_amount_minor"`
-	FeeAmountMinor             *int64     `json:"fee_amount_minor,omitempty" db:"fee_amount_minor"`
-	DeductionAmountMinor       *int64     `json:"deduction_amount_minor,omitempty" db:"deduction_amount_minor"`
+	Amount                     float64    `json:"amount" db:"amount"`
+	SettledAmount              *float64   `json:"settled_amount,omitempty" db:"settled_amount"`
+	FeeAmount                  *float64   `json:"fee_amount,omitempty" db:"fee_amount"`
+	DeductionAmount            *float64   `json:"deduction_amount,omitempty" db:"deduction_amount"`
 	CurrencyCode               string     `json:"currency_code" db:"currency_code"`
 	SettlementStatus           string     `json:"settlement_status" db:"settlement_status"`
 	ProviderStatusCode         *string    `json:"provider_status_code,omitempty" db:"provider_status_code"`
@@ -114,8 +114,8 @@ type CanonicalSettlementBatch struct {
 	FailedCountEstimate         int       `json:"failed_count_estimate" db:"failed_count_estimate"`
 	PendingCountEstimate        int       `json:"pending_count_estimate" db:"pending_count_estimate"`
 	ReversalCountEstimate       int       `json:"reversal_count_estimate" db:"reversal_count_estimate"`
-	TotalAmountMinor            int64     `json:"total_amount_minor" db:"total_amount_minor"`
-	TotalSettledAmountMinor     int64     `json:"total_settled_amount_minor" db:"total_settled_amount_minor"`
+	TotalAmount                 float64   `json:"total_amount" db:"total_amount"`
+	TotalSettledAmount          float64   `json:"total_settled_amount" db:"total_settled_amount"`
 	CurrencyCode                string    `json:"currency_code" db:"currency_code"`
 	ParseConfidenceOverall      float64   `json:"parse_confidence_overall" db:"parse_confidence_overall"`
 	AttachmentReadinessOverall  float64   `json:"attachment_readiness_overall" db:"attachment_readiness_overall"`
@@ -170,10 +170,10 @@ type UniversalSettlementShape struct {
 	BatchReference               *string                `json:"batch_reference"`
 	PartyReferenceCandidates     map[string]interface{} `json:"party_reference_candidates"`
 	BeneficiaryIdentityCandidates map[string]interface{} `json:"beneficiary_identity_candidates"`
-	AmountMinor                  int64                  `json:"amount_minor"`
-	SettledAmountMinor           *int64                 `json:"settled_amount_minor"`
-	FeeAmountMinor               *int64                 `json:"fee_amount_minor"`
-	DeductionAmountMinor         *int64                 `json:"deduction_amount_minor"`
+	Amount                       float64                `json:"amount"`
+	SettledAmount                *float64               `json:"settled_amount"`
+	FeeAmount                    *float64               `json:"fee_amount"`
+	DeductionAmount              *float64               `json:"deduction_amount"`
 	CurrencyCode                 string                 `json:"currency_code"`
 	StatusCandidate              string                 `json:"status_candidate"`
 	ObservationKind              string                 `json:"observation_kind"`

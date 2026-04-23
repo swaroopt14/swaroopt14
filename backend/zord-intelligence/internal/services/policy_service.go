@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/zord/zord-intelligence/internal/logger"
 	"github.com/zord/zord-intelligence/internal/models"
@@ -161,6 +162,19 @@ func (s *PolicyService) evaluateOne(
 
 	fires, decision, confidence, payload, severity := evaluateDSL(policy.DSL, evalCtx)
 	if !fires {
+		return nil
+	}
+
+	// Cooldown guard: skip if this policy already fired for this tenant+corridor
+	// in the last 30 minutes. Prevents flooding when the same projection metric
+	// stays above threshold across many rapid events.
+	recent, rErr := s.actionService.actionRepo.HasRecentAction(
+		ctx, tenantID, policy.PolicyID, corridorID, 30*time.Minute,
+	)
+	if rErr != nil {
+		logger.Error("policy cooldown check failed",
+			"policy_id", policy.PolicyID, "tenant_id", tenantID, "error", rErr)
+	} else if recent {
 		return nil
 	}
 

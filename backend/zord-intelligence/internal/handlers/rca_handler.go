@@ -15,6 +15,10 @@ func NewRCAHandler(base *IntelligenceBase) *RCAHandler {
 }
 
 // GetRCA handles GET /v1/intelligence/rca?tenant_id=X[&corridor_id=Y]
+//
+// With corridor_id: returns the RCA snapshot for that specific corridor.
+// Without corridor_id: returns the most recently computed RCA snapshot across
+// all corridors for this tenant (overview view).
 func (h *RCAHandler) GetRCA(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.URL.Query().Get("tenant_id")
 	if tenantID == "" {
@@ -23,13 +27,12 @@ func (h *RCAHandler) GetRCA(w http.ResponseWriter, r *http.Request) {
 	}
 
 	corridorID := r.URL.Query().Get("corridor_id")
-	scopeType := "TENANT"
-	var scopeRef *string
 	if corridorID != "" {
-		scopeType = "CORRIDOR"
-		scopeRef = &corridorID
+		resp := h.base.buildSnapshotResponse(r, tenantID, "RCA", "CORRIDOR", &corridorID)
+		writeJSON(w, http.StatusOK, resp)
+		return
 	}
 
-	resp := h.base.buildSnapshotResponse(r, tenantID, "RCA", scopeType, scopeRef)
+	resp := h.base.buildSnapshotResponseAnyScope(r, tenantID, "RCA", "CORRIDOR")
 	writeJSON(w, http.StatusOK, resp)
 }

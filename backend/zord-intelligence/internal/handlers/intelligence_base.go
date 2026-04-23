@@ -42,6 +42,47 @@ type intelligenceResponse struct {
 	Reason           string          `json:"reason,omitempty"` // why data is unavailable
 }
 
+// buildSnapshotResponseAnyScope fetches the most recent snapshot of a given type
+// ignoring scope_ref — used when no specific scope is requested (e.g. Pattern
+// overview with no batch_id).
+func (b *IntelligenceBase) buildSnapshotResponseAnyScope(
+	r *http.Request,
+	tenantID string,
+	snapshotType string,
+	scopeType string,
+) intelligenceResponse {
+	mode := b.projectionService.Mode()
+	snap, err := b.snapshotRepo.GetLatestByTypeAnyScope(r.Context(), tenantID, snapshotType, scopeType)
+
+	base := intelligenceResponse{
+		TenantID:         tenantID,
+		IntelligenceMode: string(mode),
+		SnapshotType:     snapshotType,
+	}
+	if err != nil {
+		base.DataAvailable = false
+		base.Reason = "internal error reading snapshot"
+		base.Data = json.RawMessage([]byte(`null`))
+		return base
+	}
+	if snap == nil {
+		base.DataAvailable = false
+		base.Data = json.RawMessage([]byte(`null`))
+		base.Reason = "no_data — no batch summary events received yet"
+		return base
+	}
+	base.SnapshotID = snap.SnapshotID
+	base.ScopeType = snap.ScopeType
+	base.ScopeRef = snap.ScopeRef
+	base.WindowStart = &snap.WindowStart
+	base.WindowEnd = &snap.WindowEnd
+	base.ComputedAt = &snap.CreatedAt
+	base.ModelVersion = snap.ModelVersion
+	base.Data = json.RawMessage(snap.SnapshotJSON)
+	base.DataAvailable = true
+	return base
+}
+
 // buildSnapshotResponse fetches the latest snapshot of a given type for a tenant
 // and wraps it in the standard intelligence response envelope.
 func (b *IntelligenceBase) buildSnapshotResponse(

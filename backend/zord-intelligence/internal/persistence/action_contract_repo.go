@@ -335,6 +335,32 @@ func (r *ActionContractRepo) ListByPolicyFamily(
 	return scanActionContractRows(rows)
 }
 
+// HasRecentAction returns true if a non-dismissed, non-expired action already
+// exists for this policy+tenant+corridor created within the last cooldown window.
+//
+// Used by the policy engine to prevent flooding: if P_AMBIGUITY_RATE_HIGH already
+// fired for tnt_A/razorpay.UPI in the last 30 minutes, skip the new firing.
+func (r *ActionContractRepo) HasRecentAction(
+	ctx context.Context,
+	tenantID, policyID, corridorID string,
+	cooldown time.Duration,
+) (bool, error) {
+	since := time.Now().UTC().Add(-cooldown)
+	sql := `
+		SELECT COUNT(*) FROM action_contracts
+		WHERE  tenant_id  = $1
+		  AND  policy_id  = $2
+		  AND  (scope_refs->>'corridor_id' = $3 OR $3 = '')
+		  AND  contract_status NOT IN ('DISMISSED', 'EXPIRED')
+		  AND  created_at >= $4
+	`
+	var count int
+	if err := r.pool.QueryRow(ctx, sql, tenantID, policyID, corridorID, since).Scan(&count); err != nil {
+		return false, fmt.Errorf("action_repo.HasRecentAction: %w", err)
+	}
+	return count > 0, nil
+}
+
 // ── SCAN HELPERS ──────────────────────────────────────────────────────────────
 
 // scanActionContractRows scans a pgx.Rows result set into a slice of ActionContracts.

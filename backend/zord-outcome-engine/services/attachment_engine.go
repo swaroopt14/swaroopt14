@@ -329,13 +329,14 @@ func findCandidateIntents(
 			beneficiary_fingerprint, amount, currency_code,
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
-			canonical_hash, governance_state, zord_signature_carrier,
+			canonical_hash, governance_state,
 			created_at
 		FROM canonical_intents
 		WHERE tenant_id = $1
 		  AND (
-		    (client_payout_ref IS NOT NULL AND client_payout_ref = $2)
-		    OR (client_batch_ref IS NOT NULL AND client_batch_ref = $3)
+		    ($2 != '' AND client_payout_ref = $2)
+		    OR ($3 != '' AND client_batch_ref = $3)
+		    OR ($9 != '' AND provider_hint = $9)
 		    OR (
 		      beneficiary_fingerprint = $4
 		      AND amount = $5
@@ -358,6 +359,10 @@ func findCandidateIntents(
 	if obs.BatchReference != nil {
 		batchRef = *obs.BatchReference
 	}
+	providerRef := ""
+	if obs.ProviderReference != nil {
+		providerRef = *obs.ProviderReference
+	}
 
 	rows, err := db.DB.QueryContext(ctx, query,
 		tenantID,
@@ -368,6 +373,7 @@ func findCandidateIntents(
 		obs.CurrencyCode,
 		windowStart,
 		windowEnd,
+		providerRef,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("findCandidateIntents: query: %w", err)
@@ -383,7 +389,7 @@ func findCandidateIntents(
 			&intent.BeneficiaryFingerprint, &intent.Amount, &intent.CurrencyCode,
 			&intent.IntendedExecutionAt, &intent.PayoutType, &intent.ProviderHint, &intent.Corridor,
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
-			&intent.CanonicalHash, &intent.GovernanceState, &intent.ZordSignatureCarrier,
+			&intent.CanonicalHash, &intent.GovernanceState, 
 			&intent.CreatedAt,
 		)
 		if err != nil {

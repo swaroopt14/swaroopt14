@@ -254,10 +254,10 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 			beneficiary_fingerprint, amount, currency_code,
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
-			canonical_hash, governance_state, zord_signature_carrier,
+			canonical_hash, governance_state, 
 			created_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
 		) ON CONFLICT (intent_id) DO UPDATE SET
 			client_payout_ref       = EXCLUDED.client_payout_ref,
 			client_batch_ref        = EXCLUDED.client_batch_ref,
@@ -270,7 +270,7 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 		intent.BeneficiaryFingerprint, intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
 		intent.ProofReadinessScore, intent.MatchabilityScore,
-		intent.CanonicalHash, intent.GovernanceState, intent.ZordSignatureCarrier,
+		intent.CanonicalHash, intent.GovernanceState, 
 		intent.CreatedAt,
 	)
 	if err != nil {

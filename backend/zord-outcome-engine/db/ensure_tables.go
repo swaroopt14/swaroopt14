@@ -34,7 +34,6 @@ func EnsureTables(ctx context.Context) error {
 			matchability_score       NUMERIC(5,4) NOT NULL DEFAULT 0,
 			canonical_hash           TEXT NOT NULL,
 			governance_state         TEXT NOT NULL,
-			zord_signature_carrier   TEXT,
 			created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
 		`CREATE INDEX IF NOT EXISTS canonical_intents_tenant_idx

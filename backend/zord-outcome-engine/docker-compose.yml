@@ -11,7 +11,8 @@ services:
       - .env
     environment: 
       - KAFKA_BROKERS=broker1:9092,broker2:9093,broker3:9094
-      - KAFKA_TOPIC=z.dispatch.events.v1
+      - KAFKA_TOPIC=payments.dispatch.events.v1
+      - KAFKA_INTENT_TOPIC=payments.intent.events.v1
       - DB_HOST=zord-outcome-postgres
       - DB_PORT=5432 
       - DB_USER=outcome_user 

@@ -105,12 +105,12 @@ func ScoreCandidate(
 	// ── LAYER 1: Exact carrier matches ────────────────────────────────────
 
 	// Zord prepare-and-sign signature (strongest possible carrier)
-	if intent.ZordSignatureCarrier != nil && obs.ClientReferenceCandidate != nil &&
-		*intent.ZordSignatureCarrier == *obs.ClientReferenceCandidate {
-		bd.ZordSignatureScore = ScoreZordSignatureExact
-		cs.ZordSignatureMatch = true
-		cs.ExactRefMatch = true
-	}
+	// if intent.ZordSignatureCarrier != nil && obs.ClientReferenceCandidate != nil &&
+	// 	*intent.ZordSignatureCarrier == *obs.ClientReferenceCandidate {
+	// 	bd.ZordSignatureScore = ScoreZordSignatureExact
+	// 	cs.ZordSignatureMatch = true
+	// 	cs.ExactRefMatch = true
+	// }
 
 	// Client payout reference
 	if intent.ClientPayoutRef != nil && obs.ClientReferenceCandidate != nil &&

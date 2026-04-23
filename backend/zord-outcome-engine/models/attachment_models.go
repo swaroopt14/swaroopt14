@@ -83,7 +83,7 @@ type CanonicalIntent struct {
 	MatchabilityScore      float64         `json:"matchability_score" db:"matchability_score"`
 	CanonicalHash          string          `json:"canonical_hash" db:"canonical_hash"`
 	GovernanceState        string          `json:"governance_state" db:"governance_state"`
-	ZordSignatureCarrier   *string         `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
+	// ZordSignatureCarrier   *string         `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
 	CreatedAt              time.Time       `json:"created_at" db:"created_at"`
 }
 

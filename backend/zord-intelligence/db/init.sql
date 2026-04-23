@@ -313,6 +313,14 @@ CREATE TABLE IF NOT EXISTS action_contracts (
     -- The approval lifecycle of this ActionContract.
     -- DEFAULT 'ACTIVE' = all existing rows get ACTIVE, which is correct.
 
+    policy_family    TEXT,
+    -- Which intelligence family created this action.
+    -- Values mirror policy_registry.policy_family.
+
+    severity         TEXT,
+    -- Queryable severity promoted from DSL/policy metadata.
+    -- Values: 'HIGH' | 'MEDIUM' | 'LOW'
+
     created_at       TIMESTAMPTZ  NOT NULL DEFAULT now()
     -- Set once, never changed. Matches IMMUTABILITY RULE.
 );
@@ -916,6 +924,12 @@ ON CONFLICT (policy_id) DO NOTHING;
 --    that make them operationally useful.)
 --
 -- PHASE 5 INDEXES (complement the Phase 1 partial indexes):
+
+ALTER TABLE action_contracts
+    ADD COLUMN IF NOT EXISTS policy_family TEXT;
+
+ALTER TABLE action_contracts
+    ADD COLUMN IF NOT EXISTS severity TEXT;
 
 -- "Which policies belong to the LEAKAGE family and fired today?"
 CREATE INDEX IF NOT EXISTS idx_ac_family_created

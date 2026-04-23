@@ -175,6 +175,39 @@ func (r *IntelligenceSnapshotRepo) GetLatestByType(
 	return snap, nil
 }
 
+// GetLatestByTypeAnyScope returns the most recently created snapshot for a
+// tenant + snapshot_type + scope_type, ignoring scope_ref.
+// Used by the Pattern handler when no specific batch_id is provided — shows the
+// most recently scored batch regardless of which batch it was.
+func (r *IntelligenceSnapshotRepo) GetLatestByTypeAnyScope(
+	ctx context.Context,
+	tenantID string,
+	snapshotType string,
+	scopeType string,
+) (*IntelligenceSnapshot, error) {
+	sql := `
+		SELECT snapshot_id, tenant_id, snapshot_type, scope_type, scope_ref,
+		       window_start, window_end, projection_refs_json, snapshot_json,
+		       model_version, created_at
+		FROM   intelligence_snapshots
+		WHERE  tenant_id     = $1
+		  AND  snapshot_type = $2
+		  AND  scope_type    = $3
+		ORDER  BY created_at DESC
+		LIMIT  1
+	`
+	row := r.pool.QueryRow(ctx, sql, tenantID, snapshotType, scopeType)
+	snap, err := scanSnapshot(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("intelligence_snapshot_repo.GetLatestByTypeAnyScope type=%s scope=%s: %w",
+			snapshotType, scopeType, err)
+	}
+	return snap, nil
+}
+
 // ListByTenantAndType returns the N most recent snapshots for a tenant + type.
 //
 // Used by the replay sandbox and trend views to show history.

@@ -53,10 +53,10 @@ const (
 // ─── Job scope constants ──────────────────────────────────────────────────────
 
 const (
-	JobScopeSettlementBatch  = "SETTLEMENT_BATCH"
+	JobScopeSettlementBatch   = "SETTLEMENT_BATCH"
 	JobScopeSingleObservation = "SINGLE_OBSERVATION"
-	JobScopeReplay           = "REPLAY"
-	JobScopeBackfill         = "BACKFILL"
+	JobScopeReplay            = "REPLAY"
+	JobScopeBackfill          = "BACKFILL"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -73,6 +73,7 @@ type CanonicalIntent struct {
 	BusinessIdempotencyKey *string    `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
 	BeneficiaryFingerprint string     `json:"beneficiary_fingerprint" db:"beneficiary_fingerprint"`
 	AmountMinor            int64      `json:"amount_minor" db:"amount_minor"`
+	AmountRaw              *string    `json:"amount,omitempty" db:"-"`
 	CurrencyCode           string     `json:"currency_code" db:"currency_code"`
 	IntendedExecutionAt    *time.Time `json:"intended_execution_at,omitempty" db:"intended_execution_at"`
 	PayoutType             *string    `json:"payout_type,omitempty" db:"payout_type"`
@@ -114,32 +115,32 @@ type AttachmentJob struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AttachmentCandidate struct {
-	CandidateID              uuid.UUID       `json:"candidate_id" db:"candidate_id"`
-	AttachmentJobID          uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
-	TenantID                 uuid.UUID       `json:"tenant_id" db:"tenant_id"`
-	SettlementObservationID  uuid.UUID       `json:"settlement_observation_id" db:"settlement_observation_id"`
-	IntentID                 uuid.UUID       `json:"intent_id" db:"intent_id"`
-	CandidateRank            int             `json:"candidate_rank" db:"candidate_rank"`
+	CandidateID             uuid.UUID `json:"candidate_id" db:"candidate_id"`
+	AttachmentJobID         uuid.UUID `json:"attachment_job_id" db:"attachment_job_id"`
+	TenantID                uuid.UUID `json:"tenant_id" db:"tenant_id"`
+	SettlementObservationID uuid.UUID `json:"settlement_observation_id" db:"settlement_observation_id"`
+	IntentID                uuid.UUID `json:"intent_id" db:"intent_id"`
+	CandidateRank           int       `json:"candidate_rank" db:"candidate_rank"`
 
 	// Per-carrier match flags
-	ExactRefMatchFlag        bool            `json:"exact_ref_match_flag" db:"exact_ref_match_flag"`
-	ClientRefMatchFlag       bool            `json:"client_ref_match_flag" db:"client_ref_match_flag"`
-	ProviderRefMatchFlag     bool            `json:"provider_ref_match_flag" db:"provider_ref_match_flag"`
-	BankRefMatchFlag         bool            `json:"bank_ref_match_flag" db:"bank_ref_match_flag"`
-	BatchMatchFlag           bool            `json:"batch_match_flag" db:"batch_match_flag"`
-	BeneficiaryFpMatchFlag   bool            `json:"beneficiary_fp_match_flag" db:"beneficiary_fp_match_flag"`
-	AmountMatchFlag          bool            `json:"amount_match_flag" db:"amount_match_flag"`
-	CurrencyMatchFlag        bool            `json:"currency_match_flag" db:"currency_match_flag"`
-	TimeWindowMatchFlag      bool            `json:"time_window_match_flag" db:"time_window_match_flag"`
-	SourceSystemMatchFlag    bool            `json:"source_system_match_flag" db:"source_system_match_flag"`
-	ZordSignatureMatchFlag   bool            `json:"zord_signature_match_flag" db:"zord_signature_match_flag"`
-	CompositeMatchFlag       bool            `json:"composite_match_flag" db:"composite_match_flag"`
+	ExactRefMatchFlag      bool `json:"exact_ref_match_flag" db:"exact_ref_match_flag"`
+	ClientRefMatchFlag     bool `json:"client_ref_match_flag" db:"client_ref_match_flag"`
+	ProviderRefMatchFlag   bool `json:"provider_ref_match_flag" db:"provider_ref_match_flag"`
+	BankRefMatchFlag       bool `json:"bank_ref_match_flag" db:"bank_ref_match_flag"`
+	BatchMatchFlag         bool `json:"batch_match_flag" db:"batch_match_flag"`
+	BeneficiaryFpMatchFlag bool `json:"beneficiary_fp_match_flag" db:"beneficiary_fp_match_flag"`
+	AmountMatchFlag        bool `json:"amount_match_flag" db:"amount_match_flag"`
+	CurrencyMatchFlag      bool `json:"currency_match_flag" db:"currency_match_flag"`
+	TimeWindowMatchFlag    bool `json:"time_window_match_flag" db:"time_window_match_flag"`
+	SourceSystemMatchFlag  bool `json:"source_system_match_flag" db:"source_system_match_flag"`
+	ZordSignatureMatchFlag bool `json:"zord_signature_match_flag" db:"zord_signature_match_flag"`
+	CompositeMatchFlag     bool `json:"composite_match_flag" db:"composite_match_flag"`
 
 	// Scoring
-	ScoreTotal               float64         `json:"score_total" db:"score_total"`
-	ScoreBreakdownJSON       json.RawMessage `json:"score_breakdown_json" db:"score_breakdown_json"`
-	ConfidenceBucket         string          `json:"confidence_bucket" db:"confidence_bucket"`
-	CreatedAt                time.Time       `json:"created_at" db:"created_at"`
+	ScoreTotal         float64         `json:"score_total" db:"score_total"`
+	ScoreBreakdownJSON json.RawMessage `json:"score_breakdown_json" db:"score_breakdown_json"`
+	ConfidenceBucket   string          `json:"confidence_bucket" db:"confidence_bucket"`
+	CreatedAt          time.Time       `json:"created_at" db:"created_at"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -148,24 +149,24 @@ type AttachmentCandidate struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AttachmentDecision struct {
-	AttachmentDecisionID    uuid.UUID       `json:"attachment_decision_id" db:"attachment_decision_id"`
-	TenantID                uuid.UUID       `json:"tenant_id" db:"tenant_id"`
-	SettlementObservationID uuid.UUID       `json:"settlement_observation_id" db:"settlement_observation_id"`
-	IntentID                *uuid.UUID      `json:"intent_id,omitempty" db:"intent_id"`
-	AttachmentJobID         uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
-	DecisionType            string          `json:"decision_type" db:"decision_type"`
-	DecisionReasonCode      string          `json:"decision_reason_code" db:"decision_reason_code"`
+	AttachmentDecisionID     uuid.UUID       `json:"attachment_decision_id" db:"attachment_decision_id"`
+	TenantID                 uuid.UUID       `json:"tenant_id" db:"tenant_id"`
+	SettlementObservationID  uuid.UUID       `json:"settlement_observation_id" db:"settlement_observation_id"`
+	IntentID                 *uuid.UUID      `json:"intent_id,omitempty" db:"intent_id"`
+	AttachmentJobID          uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
+	DecisionType             string          `json:"decision_type" db:"decision_type"`
+	DecisionReasonCode       string          `json:"decision_reason_code" db:"decision_reason_code"`
 	DecisionReasonDetailJSON json.RawMessage `json:"decision_reason_detail_json" db:"decision_reason_detail_json"`
-	MatchingRulesetVersion  string          `json:"matching_ruleset_version" db:"matching_ruleset_version"`
-	WinningScore            float64         `json:"winning_score" db:"winning_score"`
-	RunnerUpScore           *float64        `json:"runner_up_score,omitempty" db:"runner_up_score"`
-	ScoreMargin             *float64        `json:"score_margin,omitempty" db:"score_margin"`
-	ConfidenceScore         float64         `json:"confidence_score" db:"confidence_score"`
-	AmbiguityScore          float64         `json:"ambiguity_score" db:"ambiguity_score"`
-	SupportingCarriersJSON  json.RawMessage `json:"supporting_carriers_json" db:"supporting_carriers_json"`
-	CandidateSetHash        string          `json:"candidate_set_hash" db:"candidate_set_hash"`
-	CreatedAt               time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt               time.Time       `json:"updated_at" db:"updated_at"`
+	MatchingRulesetVersion   string          `json:"matching_ruleset_version" db:"matching_ruleset_version"`
+	WinningScore             float64         `json:"winning_score" db:"winning_score"`
+	RunnerUpScore            *float64        `json:"runner_up_score,omitempty" db:"runner_up_score"`
+	ScoreMargin              *float64        `json:"score_margin,omitempty" db:"score_margin"`
+	ConfidenceScore          float64         `json:"confidence_score" db:"confidence_score"`
+	AmbiguityScore           float64         `json:"ambiguity_score" db:"ambiguity_score"`
+	SupportingCarriersJSON   json.RawMessage `json:"supporting_carriers_json" db:"supporting_carriers_json"`
+	CandidateSetHash         string          `json:"candidate_set_hash" db:"candidate_set_hash"`
+	CreatedAt                time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt                time.Time       `json:"updated_at" db:"updated_at"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -174,28 +175,28 @@ type AttachmentDecision struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type VarianceRecord struct {
-	VarianceRecordID        uuid.UUID       `json:"variance_record_id" db:"variance_record_id"`
-	TenantID                uuid.UUID       `json:"tenant_id" db:"tenant_id"`
-	AttachmentDecisionID    uuid.UUID       `json:"attachment_decision_id" db:"attachment_decision_id"`
-	IntentID                uuid.UUID       `json:"intent_id" db:"intent_id"`
-	SettlementObservationID uuid.UUID       `json:"settlement_observation_id" db:"settlement_observation_id"`
+	VarianceRecordID        uuid.UUID `json:"variance_record_id" db:"variance_record_id"`
+	TenantID                uuid.UUID `json:"tenant_id" db:"tenant_id"`
+	AttachmentDecisionID    uuid.UUID `json:"attachment_decision_id" db:"attachment_decision_id"`
+	IntentID                uuid.UUID `json:"intent_id" db:"intent_id"`
+	SettlementObservationID uuid.UUID `json:"settlement_observation_id" db:"settlement_observation_id"`
 
 	// Amount deltas
-	AmountVarianceMinor     int64           `json:"amount_variance_minor" db:"amount_variance_minor"`
-	DeductionVarianceMinor  *int64          `json:"deduction_variance_minor,omitempty" db:"deduction_variance_minor"`
-	FeeVarianceMinor        *int64          `json:"fee_variance_minor,omitempty" db:"fee_variance_minor"`
+	AmountVarianceMinor    int64  `json:"amount_variance_minor" db:"amount_variance_minor"`
+	DeductionVarianceMinor *int64 `json:"deduction_variance_minor,omitempty" db:"deduction_variance_minor"`
+	FeeVarianceMinor       *int64 `json:"fee_variance_minor,omitempty" db:"fee_variance_minor"`
 
 	// Status & timing variance flags
-	CurrencyMatchFlag       bool            `json:"currency_match_flag" db:"currency_match_flag"`
-	StatusVarianceFlag      bool            `json:"status_variance_flag" db:"status_variance_flag"`
-	ValueDateMismatchFlag   bool            `json:"value_date_mismatch_flag" db:"value_date_mismatch_flag"`
-	SettlementDelayDays     int             `json:"settlement_delay_days" db:"settlement_delay_days"`
-	CrossPeriodFlag         bool            `json:"cross_period_flag" db:"cross_period_flag"`
+	CurrencyMatchFlag     bool `json:"currency_match_flag" db:"currency_match_flag"`
+	StatusVarianceFlag    bool `json:"status_variance_flag" db:"status_variance_flag"`
+	ValueDateMismatchFlag bool `json:"value_date_mismatch_flag" db:"value_date_mismatch_flag"`
+	SettlementDelayDays   int  `json:"settlement_delay_days" db:"settlement_delay_days"`
+	CrossPeriodFlag       bool `json:"cross_period_flag" db:"cross_period_flag"`
 
 	// Evidence quality flags
-	ProviderRefMissingFlag  bool            `json:"provider_ref_missing_flag" db:"provider_ref_missing_flag"`
-	BankRefMissingFlag      bool            `json:"bank_ref_missing_flag" db:"bank_ref_missing_flag"`
-	EvidenceGapFlag         bool            `json:"evidence_gap_flag" db:"evidence_gap_flag"`
+	ProviderRefMissingFlag bool `json:"provider_ref_missing_flag" db:"provider_ref_missing_flag"`
+	BankRefMissingFlag     bool `json:"bank_ref_missing_flag" db:"bank_ref_missing_flag"`
+	EvidenceGapFlag        bool `json:"evidence_gap_flag" db:"evidence_gap_flag"`
 
 	// Severity & classification
 	VarianceSeverity        string          `json:"variance_severity" db:"variance_severity"`
@@ -215,22 +216,22 @@ type BatchAttachmentSummary struct {
 	AttachmentJobID          uuid.UUID `json:"attachment_job_id" db:"attachment_job_id"`
 
 	// Counts
-	TotalIntentCount        int       `json:"total_intent_count" db:"total_intent_count"`
-	ExactMatchCount         int       `json:"exact_match_count" db:"exact_match_count"`
-	HighConfidenceCount     int       `json:"high_confidence_count" db:"high_confidence_count"`
-	AmbiguousCount          int       `json:"ambiguous_count" db:"ambiguous_count"`
-	UnresolvedCount         int       `json:"unresolved_count" db:"unresolved_count"`
-	ConflictedCount         int       `json:"conflicted_count" db:"conflicted_count"`
+	TotalIntentCount    int `json:"total_intent_count" db:"total_intent_count"`
+	ExactMatchCount     int `json:"exact_match_count" db:"exact_match_count"`
+	HighConfidenceCount int `json:"high_confidence_count" db:"high_confidence_count"`
+	AmbiguousCount      int `json:"ambiguous_count" db:"ambiguous_count"`
+	UnresolvedCount     int `json:"unresolved_count" db:"unresolved_count"`
+	ConflictedCount     int `json:"conflicted_count" db:"conflicted_count"`
 
 	// Amount aggregates
-	TotalIntendedAmountMinor int64    `json:"total_intended_amount_minor" db:"total_intended_amount_minor"`
-	TotalObservedAmountMinor int64    `json:"total_observed_amount_minor" db:"total_observed_amount_minor"`
-	TotalVarianceMinor       int64    `json:"total_variance_minor" db:"total_variance_minor"`
+	TotalIntendedAmountMinor int64 `json:"total_intended_amount_minor" db:"total_intended_amount_minor"`
+	TotalObservedAmountMinor int64 `json:"total_observed_amount_minor" db:"total_observed_amount_minor"`
+	TotalVarianceMinor       int64 `json:"total_variance_minor" db:"total_variance_minor"`
 
 	// Derived status
-	BatchAttachmentStatus    string    `json:"batch_attachment_status" db:"batch_attachment_status"`
-	CreatedAt                time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt                time.Time `json:"updated_at" db:"updated_at"`
+	BatchAttachmentStatus string    `json:"batch_attachment_status" db:"batch_attachment_status"`
+	CreatedAt             time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -260,19 +261,19 @@ type AttachmentRuleProfile struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type AttachmentOutboxEvent struct {
-	OutboxEventID  uuid.UUID       `json:"outbox_event_id" db:"outbox_event_id"`
-	TenantID       uuid.UUID       `json:"tenant_id" db:"tenant_id"`
-	TraceID        uuid.UUID       `json:"trace_id" db:"trace_id"`
-	AttachmentJobID uuid.UUID      `json:"attachment_job_id" db:"attachment_job_id"`
-	EntityFamily   string          `json:"entity_family" db:"entity_family"`
-	EntityID       uuid.UUID       `json:"entity_id" db:"entity_id"`
-	EventType      string          `json:"event_type" db:"event_type"`
-	PayloadJSON    json.RawMessage `json:"payload_json" db:"payload_json"`
-	Status         string          `json:"status" db:"status"`
-	Attempts       int             `json:"attempts" db:"attempts"`
-	NextRetryAt    *time.Time      `json:"next_retry_at,omitempty" db:"next_retry_at"`
-	CreatedAt      time.Time       `json:"created_at" db:"created_at"`
-	PublishedAt    *time.Time      `json:"published_at,omitempty" db:"published_at"`
+	OutboxEventID   uuid.UUID       `json:"outbox_event_id" db:"outbox_event_id"`
+	TenantID        uuid.UUID       `json:"tenant_id" db:"tenant_id"`
+	TraceID         uuid.UUID       `json:"trace_id" db:"trace_id"`
+	AttachmentJobID uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
+	EntityFamily    string          `json:"entity_family" db:"entity_family"`
+	EntityID        uuid.UUID       `json:"entity_id" db:"entity_id"`
+	EventType       string          `json:"event_type" db:"event_type"`
+	PayloadJSON     json.RawMessage `json:"payload_json" db:"payload_json"`
+	Status          string          `json:"status" db:"status"`
+	Attempts        int             `json:"attempts" db:"attempts"`
+	NextRetryAt     *time.Time      `json:"next_retry_at,omitempty" db:"next_retry_at"`
+	CreatedAt       time.Time       `json:"created_at" db:"created_at"`
+	PublishedAt     *time.Time      `json:"published_at,omitempty" db:"published_at"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -301,7 +302,7 @@ type AttachmentResponse struct {
 
 // AttachmentDecisionResponse is returned when fetching the decision for one observation.
 type AttachmentDecisionResponse struct {
-	Decision      *AttachmentDecision    `json:"decision"`
-	Variance      *VarianceRecord        `json:"variance,omitempty"`
-	BatchSummary  *BatchAttachmentSummary `json:"batch_summary,omitempty"`
+	Decision     *AttachmentDecision     `json:"decision"`
+	Variance     *VarianceRecord         `json:"variance,omitempty"`
+	BatchSummary *BatchAttachmentSummary `json:"batch_summary,omitempty"`
 }

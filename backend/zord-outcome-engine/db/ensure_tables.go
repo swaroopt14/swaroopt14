@@ -24,7 +24,7 @@ func EnsureTables(ctx context.Context) error {
 			client_batch_ref         TEXT,
 			business_idempotency_key TEXT,
 			beneficiary_fingerprint  TEXT NOT NULL,
-			amount_minor             BIGINT NOT NULL,
+			amount_minor             NUMERIC NOT NULL,
 			currency_code            TEXT NOT NULL,
 			intended_execution_at    TIMESTAMPTZ,
 			payout_type              TEXT,

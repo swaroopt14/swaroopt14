@@ -6,11 +6,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
-
 	"zord-outcome-engine/config"
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/handlers"
+	"zord-outcome-engine/kafka"
 	"zord-outcome-engine/routes"
 	"zord-outcome-engine/storage"
 
@@ -35,32 +36,49 @@ func main() {
 	if err != nil {
 		log.Println("No .env file found")
 	}
-	// brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	// topic := os.Getenv("KAFKA_TOPIC")
-	// if strings.TrimSpace(topic) == "" {
-	// 	// Default to the relay's dispatch event stream topic so that
-	// 	// dispatch_index is populated even if KAFKA_TOPIC is not set.
-	// 	topic = "z.dispatch.events.v1"
-	// }
-	// groupID := "intent-engine-group"
-	// err = kafka.StartConsumer(
-	// 	ctx,
-	// 	brokers,
-	// 	groupID,
-	// 	topic,
-	// 	handlers.HandleDispatchEvent,
-	// )
-	// if err != nil {
-	// 	log.Fatalf("Kafka consumer failed: %v", err)
-	// }
-	// log.Println("Kafka consumer started")
-	// brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	// producer, err := kafka.NewProducer(brokers)
-	// if err != nil {
-	// 	log.Fatal("Kafka producer creation failure: ", err)
-	// }
+	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	dispatchTopic := os.Getenv("KAFKA_TOPIC")
+	if strings.TrimSpace(dispatchTopic) == "" {
+		// Default to the relay's dispatch event stream topic so that
+		// dispatch_index is populated even if KAFKA_TOPIC is not set.
+		dispatchTopic = "payments.dispatch.events.v1"
+	}
+	intentTopic := os.Getenv("KAFKA_INTENT_TOPIC")
+	if strings.TrimSpace(intentTopic) == "" {
+		intentTopic = "payments.intent.events.v1"
+	}
 
-	// defer producer.Close()
+	groupID := "outcome-engine-dispatch-group"
+	err = kafka.StartConsumer(
+		ctx,
+		brokers,
+		groupID,
+		dispatchTopic,
+		handlers.HandleDispatchEvent,
+	)
+	if err != nil {
+		log.Fatalf("Dispatch Kafka consumer failed: %v", err)
+	}
+
+	intentGroupID := "outcome-engine-intent-group"
+	err = kafka.StartConsumer(
+		ctx,
+		brokers,
+		intentGroupID,
+		intentTopic,
+		handlers.HandleIntentEvent,
+	)
+	if err != nil {
+		log.Fatalf("Intent Kafka consumer failed: %v", err)
+	}
+	log.Printf("Kafka consumers started dispatch_topic=%s intent_topic=%s", dispatchTopic, intentTopic)
+	brokers = strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	producer, err := kafka.NewProducer(brokers)
+	if err != nil {
+		log.Fatal("Kafka producer creation failure: ", err)
+	}
+
+	defer producer.Close()
 
 	bucket := os.Getenv("S3_BUCKET")
 	region := os.Getenv("AWS_REGION")
@@ -87,6 +105,8 @@ func main() {
 		//Kafka:   producer,
 	}
 	routes.Routes(server, h)
+	// Service 5C — Attachment, Variance & Ambiguity Engine routes.
+	routes.AttachmentRoutes(server, h)
 
 	log.Println("Starting Zord Outcome Engine service on port 8081 with observability enabled")
 

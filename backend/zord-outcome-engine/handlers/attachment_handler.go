@@ -247,32 +247,7 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 
 	intent.CreatedAt = time.Now().UTC()
 
-	_, err := db.DB.ExecContext(c.Request.Context(), `
-		INSERT INTO canonical_intents (
-			intent_id, tenant_id,
-			client_payout_ref, client_batch_ref, business_idempotency_key,
-			beneficiary_fingerprint, amount_minor, currency_code,
-			intended_execution_at, payout_type, provider_hint, corridor,
-			proof_readiness_score, matchability_score,
-			canonical_hash, governance_state, zord_signature_carrier,
-			created_at
-		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
-		) ON CONFLICT (intent_id) DO UPDATE SET
-			client_payout_ref       = EXCLUDED.client_payout_ref,
-			client_batch_ref        = EXCLUDED.client_batch_ref,
-			beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
-			amount_minor            = EXCLUDED.amount_minor,
-			currency_code           = EXCLUDED.currency_code,
-			governance_state        = EXCLUDED.governance_state`,
-		intent.IntentID, intent.TenantID,
-		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
-		intent.BeneficiaryFingerprint, intent.AmountMinor, intent.CurrencyCode,
-		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
-		intent.ProofReadinessScore, intent.MatchabilityScore,
-		intent.CanonicalHash, intent.GovernanceState, intent.ZordSignatureCarrier,
-		intent.CreatedAt,
-	)
+	err := upsertCanonicalIntent(c.Request.Context(), intent)
 	if err != nil {
 		log.Printf("attachment.handler.register_intent_failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register intent: " + err.Error()})

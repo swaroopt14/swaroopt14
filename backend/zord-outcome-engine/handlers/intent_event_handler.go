@@ -1,0 +1,52 @@
+package handlers
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"strings"
+
+	"github.com/google/uuid"
+	"zord-outcome-engine/models"
+)
+
+func HandleIntentEvent(msg []byte) error {
+	var event models.IntentOutboxEvent
+	if err := json.Unmarshal(msg, &event); err != nil {
+		return err
+	}
+	if !isIntentEvent(event.EventType) {
+		return nil
+	}
+
+	var payload models.IntentPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return err
+	}
+	if payload.TenantID == "" {
+		payload.TenantID = event.TenantID
+	}
+
+	intent, err := canonicalIntentFromPayload(payload)
+	if err != nil {
+		return err
+	}
+	if err := upsertCanonicalIntent(nil, intent); err != nil {
+		return err
+	}
+	log.Printf("canonical_intents upserted from topic event_id=%s intent_id=%s", event.EventID, payload.IntentID)
+	return nil
+}
+
+func isIntentEvent(eventType string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(eventType))
+	return strings.HasPrefix(normalized, "intent.")
+}
+
+func parseRequiredUUID(raw string, field string) (uuid.UUID, error) {
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("invalid %s: %w", field, err)
+	}
+	return id, nil
+}

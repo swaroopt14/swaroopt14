@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -66,25 +67,24 @@ const (
 // ─────────────────────────────────────────────────────────────────────────────
 
 type CanonicalIntent struct {
-	IntentID               uuid.UUID  `json:"intent_id" db:"intent_id"`
-	TenantID               uuid.UUID  `json:"tenant_id" db:"tenant_id"`
-	ClientPayoutRef        *string    `json:"client_payout_ref,omitempty" db:"client_payout_ref"`
-	ClientBatchRef         *string    `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
-	BusinessIdempotencyKey *string    `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
-	BeneficiaryFingerprint string     `json:"beneficiary_fingerprint" db:"beneficiary_fingerprint"`
-	AmountMinor            int64      `json:"amount_minor" db:"amount_minor"`
-	AmountRaw              *string    `json:"amount,omitempty" db:"-"`
-	CurrencyCode           string     `json:"currency_code" db:"currency_code"`
-	IntendedExecutionAt    *time.Time `json:"intended_execution_at,omitempty" db:"intended_execution_at"`
-	PayoutType             *string    `json:"payout_type,omitempty" db:"payout_type"`
-	ProviderHint           *string    `json:"provider_hint,omitempty" db:"provider_hint"`
-	Corridor               *string    `json:"corridor,omitempty" db:"corridor"`
-	ProofReadinessScore    float64    `json:"proof_readiness_score" db:"proof_readiness_score"`
-	MatchabilityScore      float64    `json:"matchability_score" db:"matchability_score"`
-	CanonicalHash          string     `json:"canonical_hash" db:"canonical_hash"`
-	GovernanceState        string     `json:"governance_state" db:"governance_state"`
-	ZordSignatureCarrier   *string    `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
-	CreatedAt              time.Time  `json:"created_at" db:"created_at"`
+	IntentID               uuid.UUID       `json:"intent_id" db:"intent_id"`
+	TenantID               uuid.UUID       `json:"tenant_id" db:"tenant_id"`
+	ClientPayoutRef        *string         `json:"client_payout_ref,omitempty" db:"client_payout_ref"`
+	ClientBatchRef         *string         `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
+	BusinessIdempotencyKey *string         `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
+	BeneficiaryFingerprint string          `json:"beneficiary_fingerprint" db:"beneficiary_fingerprint"`
+	Amount                 decimal.Decimal `json:"amount" db:"amount"`
+	CurrencyCode           string          `json:"currency_code" db:"currency_code"`
+	IntendedExecutionAt    *time.Time      `json:"intended_execution_at,omitempty" db:"intended_execution_at"`
+	PayoutType             *string         `json:"payout_type,omitempty" db:"payout_type"`
+	ProviderHint           *string         `json:"provider_hint,omitempty" db:"provider_hint"`
+	Corridor               *string         `json:"corridor,omitempty" db:"corridor"`
+	ProofReadinessScore    float64         `json:"proof_readiness_score" db:"proof_readiness_score"`
+	MatchabilityScore      float64         `json:"matchability_score" db:"matchability_score"`
+	CanonicalHash          string          `json:"canonical_hash" db:"canonical_hash"`
+	GovernanceState        string          `json:"governance_state" db:"governance_state"`
+	ZordSignatureCarrier   *string         `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
+	CreatedAt              time.Time       `json:"created_at" db:"created_at"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -182,9 +182,9 @@ type VarianceRecord struct {
 	SettlementObservationID uuid.UUID `json:"settlement_observation_id" db:"settlement_observation_id"`
 
 	// Amount deltas
-	AmountVarianceMinor    int64  `json:"amount_variance_minor" db:"amount_variance_minor"`
-	DeductionVarianceMinor *int64 `json:"deduction_variance_minor,omitempty" db:"deduction_variance_minor"`
-	FeeVarianceMinor       *int64 `json:"fee_variance_minor,omitempty" db:"fee_variance_minor"`
+	AmountVariance    decimal.Decimal  `json:"amount_variance" db:"amount_variance"`
+	DeductionVariance *decimal.Decimal `json:"deduction_variance,omitempty" db:"deduction_variance"`
+	FeeVariance       *decimal.Decimal `json:"fee_variance,omitempty" db:"fee_variance"`
 
 	// Status & timing variance flags
 	CurrencyMatchFlag     bool `json:"currency_match_flag" db:"currency_match_flag"`
@@ -224,9 +224,9 @@ type BatchAttachmentSummary struct {
 	ConflictedCount     int `json:"conflicted_count" db:"conflicted_count"`
 
 	// Amount aggregates
-	TotalIntendedAmountMinor int64 `json:"total_intended_amount_minor" db:"total_intended_amount_minor"`
-	TotalObservedAmountMinor int64 `json:"total_observed_amount_minor" db:"total_observed_amount_minor"`
-	TotalVarianceMinor       int64 `json:"total_variance_minor" db:"total_variance_minor"`
+	TotalIntendedAmount decimal.Decimal `json:"total_intended_amount" db:"total_intended_amount"`
+	TotalObservedAmount decimal.Decimal `json:"total_observed_amount" db:"total_observed_amount"`
+	TotalVariance       decimal.Decimal `json:"total_variance" db:"total_variance"`
 
 	// Derived status
 	BatchAttachmentStatus string    `json:"batch_attachment_status" db:"batch_attachment_status"`

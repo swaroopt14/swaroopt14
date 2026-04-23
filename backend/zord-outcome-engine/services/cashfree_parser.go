@@ -40,6 +40,7 @@ var cashfreeHeaders = []string{
 	"settled_amount", "service_charge", "service_tax", "settlement_date", "transaction_type",
 }
 
+
 // Parse reads raw file bytes and returns one ParsedRowResult per data row.
 func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID) ([]ParsedRowResult, error) {
 	reader := csv.NewReader(bytes.NewReader(fileBytes))

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/shopspring/decimal"
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/models"
 )
@@ -13,15 +15,11 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	amountValue := any(intent.AmountMinor)
-	if intent.AmountRaw != nil {
-		amountValue = strings.TrimSpace(*intent.AmountRaw)
-	}
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO canonical_intents (
 			intent_id, tenant_id,
 			client_payout_ref, client_batch_ref, business_idempotency_key,
-			beneficiary_fingerprint, amount_minor, currency_code,
+			beneficiary_fingerprint, amount, currency_code,
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state, zord_signature_carrier,
@@ -33,7 +31,7 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 			client_batch_ref        = EXCLUDED.client_batch_ref,
 			business_idempotency_key= EXCLUDED.business_idempotency_key,
 			beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
-			amount_minor            = EXCLUDED.amount_minor,
+			amount                  = EXCLUDED.amount,
 			currency_code           = EXCLUDED.currency_code,
 			intended_execution_at   = EXCLUDED.intended_execution_at,
 			payout_type             = EXCLUDED.payout_type,
@@ -46,7 +44,7 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 			zord_signature_carrier  = EXCLUDED.zord_signature_carrier`,
 		intent.IntentID, intent.TenantID,
 		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
-		intent.BeneficiaryFingerprint, amountValue, intent.CurrencyCode,
+		intent.BeneficiaryFingerprint, intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
 		intent.ProofReadinessScore, intent.MatchabilityScore,
 		intent.CanonicalHash, intent.GovernanceState, intent.ZordSignatureCarrier,
@@ -55,12 +53,16 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 	return err
 }
 
-func validateAmount(amount string) (string, error) {
+func validateAmount(amount string) (decimal.Decimal, error) {
 	trimmed := strings.TrimSpace(amount)
 	if trimmed == "" {
-		return "", fmt.Errorf("amount is empty")
+		return decimal.Zero, fmt.Errorf("amount is empty")
 	}
-	return trimmed, nil
+	val, err := decimal.NewFromString(trimmed)
+	if err != nil {
+		return decimal.Zero, fmt.Errorf("invalid amount format: %w", err)
+	}
+	return val, nil
 }
 
 func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalIntent, error) {
@@ -72,7 +74,7 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 	if err != nil {
 		return models.CanonicalIntent{}, err
 	}
-	amountRaw, err := validateAmount(payload.Amount)
+	amount, err := validateAmount(payload.Amount)
 	if err != nil {
 		return models.CanonicalIntent{}, err
 	}
@@ -119,7 +121,7 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 		ClientBatchRef:         clientBatchRef,
 		BusinessIdempotencyKey: bizIdemKey,
 		BeneficiaryFingerprint: payload.BeneficiaryFingerprint,
-		AmountRaw:              &amountRaw,
+		Amount:                 amount,
 		CurrencyCode:           payload.Currency,
 		IntendedExecutionAt:    payload.DeadlineAt,
 		PayoutType:             payoutType,

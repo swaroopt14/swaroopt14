@@ -10,9 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/models"
+
+	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 // SettlementCanonicalizeService converts parsed results into normalized canonical observations.
@@ -165,8 +167,8 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		}
 
 		var (
-			totalAmount        float64
-			totalSettledAmount float64
+			totalAmount        decimal.Decimal
+			totalSettledAmount decimal.Decimal
 			successCount       int
 			reversalCount      int
 			parseConfSum       float64
@@ -174,9 +176,9 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		)
 
 		for _, o := range group {
-			totalAmount += o.Amount
+			totalAmount = totalAmount.Add(o.Amount)
 			if o.SettledAmount != nil {
-				totalSettledAmount += *o.SettledAmount
+				totalSettledAmount = totalSettledAmount.Add(*o.SettledAmount)
 			}
 			if o.ReversalFlag {
 				reversalCount++
@@ -332,7 +334,7 @@ func computeMappingConfidence(shape models.UniversalSettlementShape) float64 {
 	if shape.CurrencyCode == "" {
 		score -= 0.15
 	}
-	if shape.Amount == 0 {
+	if shape.Amount.IsZero() {
 		score -= 0.10
 	}
 	if shape.ObservationKind == "" {
@@ -361,7 +363,7 @@ func computeCarrierRichnessScore(shape models.UniversalSettlementShape) float64 
 	if shape.BatchReference != nil {
 		count++
 	}
-	if shape.Amount > 0 {
+	if !shape.Amount.IsZero() {
 		count++
 	}
 	return float64(count) / 6.0
@@ -378,7 +380,7 @@ func computeAttachmentReadinessScore(shape models.UniversalSettlementShape) floa
 	if shape.ExternalReference != nil {
 		score += 0.15
 	}
-	if shape.Amount > 0 && shape.CurrencyCode != "" {
+	if !shape.Amount.IsZero() && shape.CurrencyCode != "" {
 		score += 0.15
 	}
 	if !shape.ObservationTimestamp.IsZero() {
@@ -394,7 +396,7 @@ func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.Univ
 	parts := []string{
 		tenantID.String(),
 		obsID.String(),
-		fmt.Sprintf("%.4f", shape.Amount),
+		shape.Amount.StringFixed(2),
 		shape.CurrencyCode,
 		safeDeref(shape.BankReference),
 		shape.ObservationTimestamp.UTC().Format(time.RFC3339),

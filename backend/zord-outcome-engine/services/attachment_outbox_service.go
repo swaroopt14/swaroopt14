@@ -73,7 +73,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		// Attach variance summary inline when available (Service 6 convenience).
 		if v, ok := varianceByDecision[d.AttachmentDecisionID]; ok {
 			payload["variance_summary"] = map[string]interface{}{
-				"amount_variance_minor":   v.AmountVarianceMinor,
+				"amount_variance":   v.AmountVariance,
 				"variance_severity":       v.VarianceSeverity,
 				"value_date_mismatch":     v.ValueDateMismatchFlag,
 				"cross_period":            v.CrossPeriodFlag,
@@ -150,7 +150,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 			"attachment_decision_id":    v.AttachmentDecisionID,
 			"intent_id":                 v.IntentID,
 			"settlement_observation_id": v.SettlementObservationID,
-			"amount_variance_minor":     v.AmountVarianceMinor,
+			"amount_variance":           v.AmountVariance,
 			"variance_severity":         v.VarianceSeverity,
 			"value_date_mismatch_flag":  v.ValueDateMismatchFlag,
 			"settlement_delay_days":     v.SettlementDelayDays,

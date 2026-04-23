@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"zord-outcome-engine/models"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -103,8 +103,7 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		rawCols[h] = cellStr(row, i)
 	}
 
-	// Handle Amount Conversion: Convert decimal string to Minor units (int64).
-	//need to confirm this part
+	// Handle Amount Conversion: Convert decimal string to Decimal.
 	amount := parseDecimal(cellStr(row, 2))
 	fee := parseDecimal(cellStr(row, 4))
 	tax := parseDecimal(cellStr(row, 5))
@@ -157,7 +156,7 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 
 	// Determine Status based on directional credit/debit.
 	statusCandidate := "SETTLED"
-	if debit > 0 {
+	if debit.GreaterThan(decimal.Zero) {
 		statusCandidate = "REVERSED"
 	}
 
@@ -180,7 +179,7 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		CurrencyCode:             cellStr(row, 3),
 		StatusCandidate:          statusCandidate,
 		ObservationKind:          observationKind,
-		ReversalFlag:             debit > 0,
+		ReversalFlag:             debit.GreaterThan(decimal.Zero),
 		ObservationTimestamp:     observationTS,
 		ValueDate:                &valueDate,
 		ParseConfidence:          confidence,
@@ -203,31 +202,3 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	}
 }
 
-func cellStr(row []string, idx int) string {
-	if idx < 0 || idx >= len(row) {
-		return ""
-	}
-	return strings.TrimSpace(row[idx])
-}
-
-func parseDecimal(s string) float64 {
-	if s == "" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}
-
-func parseSettlementDate(s string) (time.Time, string) {
-	if s == "" {
-		return time.Now().UTC(), "empty"
-	}
-	// Common Razorpay recon date formats.
-	layouts := []string{"02/01/2006 15:04:05", "2006-01-02 15:04:05"}
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC(), ""
-		}
-	}
-	return time.Now().UTC(), "format error"
-}

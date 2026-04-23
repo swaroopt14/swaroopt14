@@ -149,7 +149,7 @@ func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
 		SELECT
 			variance_record_id, tenant_id, attachment_decision_id,
 			intent_id, settlement_observation_id,
-			amount_variance_minor, deduction_variance_minor, fee_variance_minor,
+			amount_variance, deduction_variance, fee_variance,
 			currency_match_flag, status_variance_flag,
 			value_date_mismatch_flag, settlement_delay_days, cross_period_flag,
 			provider_ref_missing_flag, bank_ref_missing_flag, evidence_gap_flag,
@@ -163,7 +163,7 @@ func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
 	if err := vRow.Scan(
 		&v.VarianceRecordID, &v.TenantID, &v.AttachmentDecisionID,
 		&v.IntentID, &v.SettlementObservationID,
-		&v.AmountVarianceMinor, &v.DeductionVarianceMinor, &v.FeeVarianceMinor,
+		&v.AmountVariance, &v.DeductionVariance, &v.FeeVariance,
 		&v.CurrencyMatchFlag, &v.StatusVarianceFlag,
 		&v.ValueDateMismatchFlag, &v.SettlementDelayDays, &v.CrossPeriodFlag,
 		&v.ProviderRefMissingFlag, &v.BankRefMissingFlag, &v.EvidenceGapFlag,
@@ -196,7 +196,7 @@ func (h *Handler) GetBatchAttachmentSummaryHandler(c *gin.Context) {
 			attachment_job_id,
 			total_intent_count, exact_match_count, high_confidence_count,
 			ambiguous_count, unresolved_count, conflicted_count,
-			total_intended_amount_minor, total_observed_amount_minor, total_variance_minor,
+			total_intended_amount, total_observed_amount, total_variance,
 			batch_attachment_status, created_at, updated_at
 		FROM batch_attachment_summaries
 		WHERE tenant_id = $1 AND source_reference = $2
@@ -211,7 +211,7 @@ func (h *Handler) GetBatchAttachmentSummaryHandler(c *gin.Context) {
 		&s.AttachmentJobID,
 		&s.TotalIntentCount, &s.ExactMatchCount, &s.HighConfidenceCount,
 		&s.AmbiguousCount, &s.UnresolvedCount, &s.ConflictedCount,
-		&s.TotalIntendedAmountMinor, &s.TotalObservedAmountMinor, &s.TotalVarianceMinor,
+		&s.TotalIntendedAmount, &s.TotalObservedAmount, &s.TotalVariance,
 		&s.BatchAttachmentStatus, &s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no batch summary found"})
@@ -247,7 +247,32 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 
 	intent.CreatedAt = time.Now().UTC()
 
-	err := upsertCanonicalIntent(c.Request.Context(), intent)
+	_, err := db.DB.ExecContext(c.Request.Context(), `
+		INSERT INTO canonical_intents (
+			intent_id, tenant_id,
+			client_payout_ref, client_batch_ref, business_idempotency_key,
+			beneficiary_fingerprint, amount, currency_code,
+			intended_execution_at, payout_type, provider_hint, corridor,
+			proof_readiness_score, matchability_score,
+			canonical_hash, governance_state, zord_signature_carrier,
+			created_at
+		) VALUES (
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+		) ON CONFLICT (intent_id) DO UPDATE SET
+			client_payout_ref       = EXCLUDED.client_payout_ref,
+			client_batch_ref        = EXCLUDED.client_batch_ref,
+			beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
+			amount                  = EXCLUDED.amount,
+			currency_code           = EXCLUDED.currency_code,
+			governance_state        = EXCLUDED.governance_state`,
+		intent.IntentID, intent.TenantID,
+		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
+		intent.BeneficiaryFingerprint, intent.Amount, intent.CurrencyCode,
+		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
+		intent.ProofReadinessScore, intent.MatchabilityScore,
+		intent.CanonicalHash, intent.GovernanceState, intent.ZordSignatureCarrier,
+		intent.CreatedAt,
+	)
 	if err != nil {
 		log.Printf("attachment.handler.register_intent_failed: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register intent: " + err.Error()})

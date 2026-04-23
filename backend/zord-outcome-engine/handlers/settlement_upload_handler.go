@@ -93,6 +93,75 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 	log.Printf("settlement.upload.metrics tenant_id=%s filename=%s hash=%s size=%d",
 		tenantID, header.Filename, fileHash, fileSize)
 
+	// ── IDEMPOTENCY INPUTS ───────────────────────────────────────────────────────
+	externalBatchIDRaw := strings.TrimSpace(c.Query("batch_id"))
+	if externalBatchIDRaw == "" {
+		externalBatchIDRaw = strings.TrimSpace(c.GetHeader("Batch-ID")) // Fallback to honor prior request
+	}
+	forceReprocess := strings.ToLower(strings.TrimSpace(
+		c.GetHeader("X-Zord-Force-Reprocess"))) == "true"
+
+	// ── FINGERPRINT COMPUTATION ──────────────────────────────────────────────────
+	baseRaw := tenantID.String() + "|" + psp + "|" + fileHash
+	baseSum := sha256.Sum256([]byte(baseRaw))
+	normalFingerprint := hex.EncodeToString(baseSum[:])
+
+	fingerprint := normalFingerprint
+	if forceReprocess {
+		forceRaw := baseRaw + "|force|" + fmt.Sprintf("%d", time.Now().UnixNano())
+		forceSum := sha256.Sum256([]byte(forceRaw))
+		fingerprint = hex.EncodeToString(forceSum[:])
+	}
+
+	// ── IDEMPOTENCY CHECK ────────────────────────────────────────────────────────
+	svc := &services.SettlementIngestService{S3: h.S3store}
+
+	if !forceReprocess {
+		existing, err := svc.CheckByFingerprint(c.Request.Context(), normalFingerprint)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if existing != nil {
+			log.Printf("settlement.upload.duplicate tenant_id=%s fingerprint=%s existing_job_id=%s",
+				tenantID, normalFingerprint, existing.JobID)
+			c.JSON(http.StatusOK, gin.H{
+				"job_id":               existing.JobID,
+				"status":               existing.JobStatus,
+				"already_processed":    true,
+				"ingest_fingerprint":   existing.Fingerprint,
+				"original_received_at": existing.CreatedAt,
+				"message":              "file already ingested for this tenant and psp — use X-Zord-Force-Reprocess: true to reprocess",
+			})
+			return
+		}
+	}
+
+	// ── JOB ID RESOLUTION ────────────────────────────────────────────────────────
+	var jobID string
+	var externalBatchIDPtr *string
+
+	if externalBatchIDRaw != "" {
+		exists, checkErr := svc.JobIDExists(c.Request.Context(), externalBatchIDRaw)
+		if checkErr != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": checkErr.Error()})
+			return
+		}
+		if exists {
+			// If the Job ID already exists, we must block its reuse.
+			// Even in forceReprocess mode, the system requires a new Batch-ID
+			// to preserve audit trails of the previous failed/cancelled attempts.
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "batch_id already used as job_id for a previous ingest — provide a new batch_id to ingest this file",
+			})
+			return
+		}
+		jobID = externalBatchIDRaw
+		externalBatchIDPtr = &externalBatchIDRaw
+	} else {
+		jobID = uuid.New().String()
+	}
+
 	// Persist the raw file payload to S3. This is our immutable source of truth
 	// for the ingestion job. The storage layer returns an envelopeID and objRef.
 	envelopeID, _, objRef, err := h.S3store.StoreRawPayload(c.Request.Context(), fileBytes, tenantID.String())
@@ -102,19 +171,10 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 	}
 
 	// ── PHASE 2: JOB REGISTRATION ───────────────────────────────────────────
-	// Register a new ingest job in 'PARSING' status. This allows us to track
-	// job progress and handle resumes or audits if needed.
-	var jobID string
-	if batchIDRaw := c.GetHeader("Batch-ID"); batchIDRaw != "" {
-		jobID = batchIDRaw
-	} else {
-		jobID = uuid.New().String()
-	}
-
-	svc := &services.SettlementIngestService{S3: h.S3store}
-
-	// RegisterJob now takes profile so it writes the correct PSP metadata to the job row.
-	if err := svc.RegisterJob(c.Request.Context(), jobID, tenantID, envelopeID, profile); err != nil {
+	if err := svc.RegisterJob(
+		c.Request.Context(), jobID, tenantID, envelopeID,
+		profile, fileHash, externalBatchIDPtr, fingerprint,
+	); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register job: " + err.Error()})
 		return
 	}

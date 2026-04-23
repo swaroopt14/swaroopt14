@@ -222,6 +222,71 @@ func (r *ProjectionRepo) AtomicIncrementFailureReason(
 		return fmt.Errorf("projection_repo.AtomicIncrementFailureReason corridor=%s reason=%s: %w",
 			corridorID, reasonCode, err)
 	}
+	// Promote the raw "reasons" map into a sorted "top_reasons" array so that
+	// FailureTaxonomyValue.TopReasons unmarshals correctly.
+	// This is the same two-step pattern used by recomputeRate, recomputeEvidenceRate, etc.
+	return r.recomputeFailureTaxonomy(ctx, tenantID, key, windowStart)
+}
+
+// recomputeFailureTaxonomy reads the current "reasons" map from the projection row,
+// sorts entries by count descending, keeps the top 10, and writes them back as a
+// "top_reasons" JSON array alongside per-entry "rate" values.
+//
+// WHY A SEPARATE RECOMPUTE STEP?
+// The atomic upsert above maintains a raw map: {"reasons": {"CODE": count}}.
+// FailureTaxonomyValue.TopReasons expects a typed slice: [{"reason_code":"CODE","count":N,"rate":0.47}].
+// Converting inside a single JSONB expression would be unreadably complex SQL.
+// A two-step pattern (increment raw, recompute derived) keeps each SQL statement simple
+// and auditable — the same approach used by every other projection in this file.
+//
+// ORDERING: jsonb_each returns keys in undefined order in Postgres <16.
+// We sort in SQL using a lateral subquery so the result is stable across Postgres versions.
+func (r *ProjectionRepo) recomputeFailureTaxonomy(
+	ctx context.Context,
+	tenantID, key string,
+	windowStart time.Time,
+) error {
+	// Build top_reasons as a JSONB array of objects sorted by count DESC, top 10.
+	// LATERAL jsonb_each_text lets us iterate the "reasons" map inline.
+	// NULLIF prevents division-by-zero when total_fails is somehow 0.
+	sql := `
+		UPDATE projection_state
+		SET value_json = jsonb_set(
+			value_json,
+			'{top_reasons}',
+			COALESCE(
+				(
+					SELECT jsonb_agg(
+						jsonb_build_object(
+							'reason_code', kv.key,
+							'count',       kv.val::int,
+							'rate',        ROUND(
+								(kv.val::numeric /
+								NULLIF((value_json->>'total_fails')::numeric, 0))::numeric,
+								4
+							)
+						)
+						ORDER BY kv.val::int DESC
+					)
+					FROM (
+						SELECT k.key, k.value AS val
+						FROM   jsonb_each_text(value_json->'reasons') AS k(key, value)
+						ORDER  BY k.value::int DESC
+						LIMIT  10
+					) AS kv
+				),
+				'[]'::jsonb
+			)
+		),
+		computed_at = now()
+		WHERE tenant_id          = $1
+		  AND projection_key     = $2
+		  AND window_start       = $3
+		  AND projection_version = 1
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart); err != nil {
+		return fmt.Errorf("projection_repo.recomputeFailureTaxonomy key=%s: %w", key, err)
+	}
 	return nil
 }
 

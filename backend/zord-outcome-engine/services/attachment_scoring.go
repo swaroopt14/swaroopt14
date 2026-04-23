@@ -15,30 +15,31 @@ import (
 	"time"
 
 	"zord-outcome-engine/models"
+	"github.com/shopspring/decimal"
 )
 
 const (
 	RulesetVersion = "5c-v1"
 
 	// ── Layer 1: Exact carrier scores ─────────────────────────────────────
-	ScoreZordSignatureExact  = 100.0
+	ScoreZordSignatureExact   = 100.0
 	ScoreClientPayoutRefExact = 90.0
 	ScoreBatchRowExact        = 85.0
 	ScoreProviderRefExact     = 85.0
 	ScoreBankRefExact         = 85.0
 
 	// ── Layer 2: Composite / soft scores ──────────────────────────────────
-	ScoreBeneficiaryFpMatch   = 50.0
-	ScoreAmountMatch          = 30.0
-	ScoreCurrencyMatch        = 10.0
-	ScoreTimeWindowMatch      = 20.0
-	ScoreBatchFamilyMatch     = 15.0
-	ScoreSourceSystemMatch    = 10.0
+	ScoreBeneficiaryFpMatch = 50.0
+	ScoreAmountMatch        = 30.0
+	ScoreCurrencyMatch      = 10.0
+	ScoreTimeWindowMatch    = 20.0
+	ScoreBatchFamilyMatch   = 15.0
+	ScoreSourceSystemMatch  = 10.0
 
 	// ── Modifiers ─────────────────────────────────────────────────────────
-	PenaltyWeakParseConf      = -20.0 // parse_confidence < 0.6
-	PenaltyLowSourceStrength  = -15.0 // source_strength_class == INTERNAL_EXPORT
-	PenaltyConflictingRefs    = -40.0 // bank/provider refs present but don't match
+	PenaltyWeakParseConf     = -20.0 // parse_confidence < 0.6
+	PenaltyLowSourceStrength = -15.0 // source_strength_class == INTERNAL_EXPORT
+	PenaltyConflictingRefs   = -40.0 // bank/provider refs present but don't match
 
 	// ── Ambiguity threshold ───────────────────────────────────────────────
 	// If top two candidates are within this margin the result is AMBIGUOUS.
@@ -71,24 +72,24 @@ type ScoreBreakdown struct {
 
 // CandidateScore is the intermediate result returned by ScoreCandidate.
 type CandidateScore struct {
-	IntentID               interface{} // uuid.UUID
-	Breakdown              ScoreBreakdown
-	Total                  float64
-	ConfidenceBucket       string
+	IntentID         interface{} // uuid.UUID
+	Breakdown        ScoreBreakdown
+	Total            float64
+	ConfidenceBucket string
 
 	// Match flags (written directly into AttachmentCandidate)
-	ExactRefMatch          bool
-	ClientRefMatch         bool
-	ProviderRefMatch       bool
-	BankRefMatch           bool
-	BatchMatch             bool
-	BeneficiaryFpMatch     bool
-	AmountMatch            bool
-	CurrencyMatch          bool
-	TimeWindowMatch        bool
-	SourceSystemMatch      bool
-	ZordSignatureMatch     bool
-	CompositeMatch         bool
+	ExactRefMatch      bool
+	ClientRefMatch     bool
+	ProviderRefMatch   bool
+	BankRefMatch       bool
+	BatchMatch         bool
+	BeneficiaryFpMatch bool
+	AmountMatch        bool
+	CurrencyMatch      bool
+	TimeWindowMatch    bool
+	SourceSystemMatch  bool
+	ZordSignatureMatch bool
+	CompositeMatch     bool
 }
 
 // ScoreCandidate evaluates one (settlement observation, intent) pair and returns
@@ -152,17 +153,18 @@ func ScoreCandidate(
 	}
 
 	// Amount (exact match — no tolerance by default unless profile says otherwise)
-	obsAmount := obs.AmountMinor
-	if obs.SettledAmountMinor != nil {
-		obsAmount = *obs.SettledAmountMinor
+	obsAmount := obs.Amount
+	if obs.SettledAmount != nil {
+		obsAmount = *obs.SettledAmount
 	}
-	amountTolerance := int64(0)
+	amountTolerance := decimal.Zero
 	if profile != nil && profile.AmountTolerancePolicyJSON != nil {
-		// Simple tolerance: profile can encode {"tolerance_minor": 500}
-		// A full production system would unmarshal this properly.
-		amountTolerance = 0 // default: exact only
+		// amountTolerance = ... (unmarshal from JSON if needed)
+		amountTolerance = decimal.Zero
 	}
-	if abs64(obsAmount-intent.AmountMinor) <= amountTolerance {
+	
+	diff := obsAmount.Sub(intent.Amount).Abs()
+	if diff.LessThanOrEqual(amountTolerance) {
 		bd.AmountMatchScore = ScoreAmountMatch
 		cs.AmountMatch = true
 	}
@@ -361,17 +363,17 @@ type VarianceInputs struct {
 
 // ComputeVariance calculates the formal difference between intent and observation.
 // Returned severity and reason codes feed Service 7 intelligence.
-func ComputeVariance(in VarianceInputs) (amountVariance int64, severity string, flags map[string]bool, reasons []string) {
+func ComputeVariance(in VarianceInputs) (amountVariance decimal.Decimal, severity string, flags map[string]bool, reasons []string) {
 	flags = make(map[string]bool)
 	reasons = []string{}
 
 	// ── Amount variance ───────────────────────────────────────────────────
-	obsAmount := in.Observation.AmountMinor
-	if in.Observation.SettledAmountMinor != nil {
-		obsAmount = *in.Observation.SettledAmountMinor
+	obsAmount := in.Observation.Amount
+	if in.Observation.SettledAmount != nil {
+		obsAmount = *in.Observation.SettledAmount
 	}
-	amountVariance = in.Intent.AmountMinor - obsAmount
-	if amountVariance != 0 {
+	amountVariance = in.Intent.Amount.Sub(obsAmount)
+	if !amountVariance.IsZero() {
 		reasons = append(reasons, "AMOUNT_MISMATCH")
 	}
 
@@ -426,20 +428,24 @@ func ComputeVariance(in VarianceInputs) (amountVariance int64, severity string, 
 	}
 
 	// ── Severity classification ───────────────────────────────────────────
-	severity = classifyVarianceSeverity(amountVariance, in.Intent.AmountMinor, flags)
+	severity = classifyVarianceSeverity(amountVariance, in.Intent.Amount, flags)
 	return
 }
 
-func classifyVarianceSeverity(variance int64, intendedAmount int64, flags map[string]bool) string {
-	if flags["status_variance"] && variance == intendedAmount {
+func classifyVarianceSeverity(variance decimal.Decimal, intendedAmount decimal.Decimal, flags map[string]bool) string {
+	if flags["status_variance"] && variance.Equal(intendedAmount) {
 		// Settlement status is failed and full amount is missing — critical.
 		return models.VarianceSeverityCritical
 	}
 	if flags["evidence_gap"] {
 		return models.VarianceSeverityHigh
 	}
-	if variance != 0 {
-		pct := math.Abs(float64(variance)) / math.Max(float64(intendedAmount), 1) * 100
+	if !variance.IsZero() {
+		div := intendedAmount
+		if div.IsZero() {
+			div = decimal.NewFromInt(1)
+		}
+		pct, _ := variance.Abs().Div(div).Mul(decimal.NewFromInt(100)).Float64()
 		switch {
 		case pct > 10:
 			return models.VarianceSeverityHigh

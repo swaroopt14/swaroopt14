@@ -249,7 +249,7 @@ func (e *AttachmentEngine) runAttachment(
 					AttachmentDecisionID:    decision.AttachmentDecisionID,
 					IntentID:                *winnerIntentID,
 					SettlementObservationID: obs.SettlementObservationID,
-					AmountVarianceMinor:     amtVariance,
+					AmountVariance:          amtVariance,
 					CurrencyMatchFlag:       flags["currency_match"],
 					StatusVarianceFlag:      flags["status_variance"],
 					ValueDateMismatchFlag:   flags["value_date_mismatch"],
@@ -326,7 +326,7 @@ func findCandidateIntents(
 		SELECT DISTINCT
 			intent_id, tenant_id,
 			client_payout_ref, client_batch_ref, business_idempotency_key,
-			beneficiary_fingerprint, amount_minor, currency_code,
+			beneficiary_fingerprint, amount, currency_code,
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state, zord_signature_carrier,
@@ -338,7 +338,7 @@ func findCandidateIntents(
 		    OR (client_batch_ref IS NOT NULL AND client_batch_ref = $3)
 		    OR (
 		      beneficiary_fingerprint = $4
-		      AND amount_minor = $5
+		      AND amount = $5
 		      AND currency_code = $6
 		      AND (intended_execution_at IS NULL
 		           OR intended_execution_at BETWEEN $7 AND $8)
@@ -364,7 +364,7 @@ func findCandidateIntents(
 		clientRef,
 		batchRef,
 		obs.BeneficiaryFingerprint,
-		obs.AmountMinor,
+		obs.Amount,
 		obs.CurrencyCode,
 		windowStart,
 		windowEnd,
@@ -380,7 +380,7 @@ func findCandidateIntents(
 		err := rows.Scan(
 			&intent.IntentID, &intent.TenantID,
 			&intent.ClientPayoutRef, &intent.ClientBatchRef, &intent.BusinessIdempotencyKey,
-			&intent.BeneficiaryFingerprint, &intent.AmountMinor, &intent.CurrencyCode,
+			&intent.BeneficiaryFingerprint, &intent.Amount, &intent.CurrencyCode,
 			&intent.IntendedExecutionAt, &intent.PayoutType, &intent.ProviderHint, &intent.Corridor,
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
 			&intent.CanonicalHash, &intent.GovernanceState, &intent.ZordSignatureCarrier,
@@ -459,7 +459,7 @@ func buildUnresolvedDecision(tenantID uuid.UUID, obsID uuid.UUID, jobID uuid.UUI
 func buildSupportingCarriers(obs models.CanonicalSettlementObservation) map[string]interface{} {
 	carriers := map[string]interface{}{
 		"beneficiary_fingerprint": obs.BeneficiaryFingerprint,
-		"amount_minor":            obs.AmountMinor,
+		"amount":                  obs.Amount,
 		"currency_code":           obs.CurrencyCode,
 		"attachment_readiness":    obs.AttachmentReadinessScore,
 		"carrier_richness":        obs.CarrierRichnessScore,
@@ -545,14 +545,10 @@ func computeBatchSummary(
 	}
 
 	for _, obs := range observations {
-		summary.TotalObservedAmountMinor += obs.AmountMinor
+		summary.TotalObservedAmount = summary.TotalObservedAmount.Add(obs.Amount)
 	}
 	for _, v := range variances {
-		if v.AmountVarianceMinor < 0 {
-			summary.TotalVarianceMinor += -v.AmountVarianceMinor
-		} else {
-			summary.TotalVarianceMinor += v.AmountVarianceMinor
-		}
+		summary.TotalVariance = summary.TotalVariance.Add(v.AmountVariance.Abs())
 	}
 
 	// Derive batch status.
@@ -687,7 +683,7 @@ func persistAttachmentOutputs(
 			INSERT INTO variance_records (
 				variance_record_id, tenant_id,
 				attachment_decision_id, intent_id, settlement_observation_id,
-				amount_variance_minor, deduction_variance_minor, fee_variance_minor,
+				amount_variance, deduction_variance, fee_variance,
 				currency_match_flag, status_variance_flag,
 				value_date_mismatch_flag, settlement_delay_days, cross_period_flag,
 				provider_ref_missing_flag, bank_ref_missing_flag, evidence_gap_flag,
@@ -697,7 +693,7 @@ func persistAttachmentOutputs(
 			) ON CONFLICT DO NOTHING`,
 			v.VarianceRecordID, v.TenantID,
 			v.AttachmentDecisionID, v.IntentID, v.SettlementObservationID,
-			v.AmountVarianceMinor, v.DeductionVarianceMinor, v.FeeVarianceMinor,
+			v.AmountVariance, v.DeductionVariance, v.FeeVariance,
 			v.CurrencyMatchFlag, v.StatusVarianceFlag,
 			v.ValueDateMismatchFlag, v.SettlementDelayDays, v.CrossPeriodFlag,
 			v.ProviderRefMissingFlag, v.BankRefMissingFlag, v.EvidenceGapFlag,
@@ -748,7 +744,7 @@ func insertBatchSummary(ctx context.Context, s models.BatchAttachmentSummary) er
 			attachment_job_id,
 			total_intent_count, exact_match_count, high_confidence_count,
 			ambiguous_count, unresolved_count, conflicted_count,
-			total_intended_amount_minor, total_observed_amount_minor, total_variance_minor,
+			total_intended_amount, total_observed_amount, total_variance,
 			batch_attachment_status, created_at, updated_at
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
@@ -757,7 +753,7 @@ func insertBatchSummary(ctx context.Context, s models.BatchAttachmentSummary) er
 		s.AttachmentJobID,
 		s.TotalIntentCount, s.ExactMatchCount, s.HighConfidenceCount,
 		s.AmbiguousCount, s.UnresolvedCount, s.ConflictedCount,
-		s.TotalIntendedAmountMinor, s.TotalObservedAmountMinor, s.TotalVarianceMinor,
+		s.TotalIntendedAmount, s.TotalObservedAmount, s.TotalVariance,
 		s.BatchAttachmentStatus, s.CreatedAt, s.UpdatedAt,
 	)
 	return err
@@ -777,7 +773,7 @@ func loadObservationsByBatch(ctx context.Context, tenantID uuid.UUID, batchRef s
 			client_reference_candidate, provider_reference, bank_reference,
 			external_reference, batch_reference,
 			beneficiary_fingerprint,
-			amount_minor, settled_amount_minor, fee_amount_minor, deduction_amount_minor,
+			amount, settled_amount, fee_amount, deduction_amount,
 			currency_code, settlement_status,
 			retry_flag, reversal_flag, return_flag,
 			observation_timestamp, value_date,
@@ -847,7 +843,7 @@ func scanObservations(rows *sql.Rows) ([]models.CanonicalSettlementObservation, 
 			&o.ClientReferenceCandidate, &o.ProviderReference, &o.BankReference,
 			&o.ExternalReference, &o.BatchReference,
 			&o.BeneficiaryFingerprint,
-			&o.AmountMinor, &o.SettledAmountMinor, &o.FeeAmountMinor, &o.DeductionAmountMinor,
+			&o.Amount, &o.SettledAmount, &o.FeeAmount, &o.DeductionAmount,
 			&o.CurrencyCode, &o.SettlementStatus,
 			&o.RetryFlag, &o.ReversalFlag, &o.ReturnFlag,
 			&o.ObservationTimestamp, &o.ValueDate,

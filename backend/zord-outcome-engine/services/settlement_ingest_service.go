@@ -178,15 +178,6 @@ func (s *SettlementIngestService) PersistParseError(ctx context.Context, tenantI
 
 // -- Pointer Helpers --
 
-func strPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-func int64Ptr(v int64) *int64 { return &v }
-
 // isUniqueViolation returns true for Postgres error code 23505.
 func isUniqueViolation(err error) bool {
 	var pgErr *pq.Error

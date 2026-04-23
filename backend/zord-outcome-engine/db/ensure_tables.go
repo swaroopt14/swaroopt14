@@ -24,7 +24,7 @@ func EnsureTables(ctx context.Context) error {
 			client_batch_ref         TEXT,
 			business_idempotency_key TEXT,
 			beneficiary_fingerprint  TEXT NOT NULL,
-			amount_minor             NUMERIC NOT NULL,
+			amount             NUMERIC(20,2) NOT NULL,
 			currency_code            TEXT NOT NULL,
 			intended_execution_at    TIMESTAMPTZ,
 			payout_type              TEXT,
@@ -44,7 +44,7 @@ func EnsureTables(ctx context.Context) error {
 		`CREATE INDEX IF NOT EXISTS canonical_intents_beneficiary_idx
 			ON canonical_intents(tenant_id, beneficiary_fingerprint);`,
 		`CREATE INDEX IF NOT EXISTS canonical_intents_amount_currency_idx
-			ON canonical_intents(tenant_id, amount_minor, currency_code);`,
+			ON canonical_intents(tenant_id, amount, currency_code);`,
 		`CREATE TABLE IF NOT EXISTS dispatch_index(
 	dispatch_id UUID PRIMARY KEY,
 	contract_id UUID NOT NULL,
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS canonical_outcome_events(
 	provider_ref_hash TEXT,
 	provider_event_id TEXT,
 	utr TEXT,
-	amount NUMERIC(24,8),
+	amount NUMERIC(20,2),
 	currency TEXT,
 	observed_at TIMESTAMPTZ,
 	received_at TIMESTAMPTZ NOT NULL,
@@ -204,10 +204,10 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	seller_id_token TEXT,
 	vendor_id_token TEXT,
 	beneficiary_fingerprint TEXT,
-	amount NUMERIC(20,4) NOT NULL,
-	settled_amount NUMERIC(20,4),
-	fee_amount NUMERIC(20,4),
-	deduction_amount NUMERIC(20,4),
+	amount NUMERIC(20,2) NOT NULL,
+	settled_amount NUMERIC(20,2),
+	fee_amount NUMERIC(20,2),
+	deduction_amount NUMERIC(20,2),
 	currency_code TEXT NOT NULL,
 	settlement_status TEXT NOT NULL,
 	provider_status_code TEXT,
@@ -253,8 +253,8 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 	failed_count_estimate INT NOT NULL DEFAULT 0,
 	pending_count_estimate INT NOT NULL DEFAULT 0,
 	reversal_count_estimate INT NOT NULL DEFAULT 0,
-	total_amount NUMERIC(20,4) NOT NULL,
-	total_settled_amount NUMERIC(20,4) NOT NULL,
+	total_amount NUMERIC(20,2) NOT NULL,
+	total_settled_amount NUMERIC(20,2) NOT NULL,
 	currency_code TEXT NOT NULL,
 	parse_confidence_overall NUMERIC(5,4) NOT NULL DEFAULT 0,
 	attachment_readiness_overall NUMERIC(5,4) NOT NULL DEFAULT 0,
@@ -402,9 +402,9 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			settlement_observation_id   UUID NOT NULL,
 
 			-- amount deltas
-			amount_variance_minor       BIGINT NOT NULL DEFAULT 0,
-			deduction_variance_minor    BIGINT,
-			fee_variance_minor          BIGINT,
+			amount_variance       NUMERIC(20,2) NOT NULL DEFAULT 0,
+			deduction_variance    NUMERIC(20,2),
+			fee_variance          NUMERIC(20,2),
 
 			-- status & timing flags
 			currency_match_flag         BOOLEAN NOT NULL DEFAULT TRUE,
@@ -448,9 +448,9 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			conflicted_count            INT NOT NULL DEFAULT 0,
 
 			-- amount aggregates
-			total_intended_amount_minor BIGINT NOT NULL DEFAULT 0,
-			total_observed_amount_minor BIGINT NOT NULL DEFAULT 0,
-			total_variance_minor        BIGINT NOT NULL DEFAULT 0,
+			total_intended_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
+			total_observed_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
+			total_variance        NUMERIC(20,2) NOT NULL DEFAULT 0,
 
 			-- derived status
 			batch_attachment_status     TEXT NOT NULL,

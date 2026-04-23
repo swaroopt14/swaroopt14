@@ -22,14 +22,14 @@ func NewPolicyRepo(pool *pgxpool.Pool) *PolicyRepo {
 func (r *PolicyRepo) GetByTrigger(ctx context.Context, triggerType, triggerValue string) ([]models.Policy, error) {
 	sql := `
 		SELECT policy_id, version, scope_type, trigger_type, trigger_value,
-		       dsl, enabled, COALESCE(tenant_id, ''), created_at, updated_at
+		       dsl, enabled, COALESCE(tenant_id, ''), created_at, updated_at,
+		       COALESCE(policy_family, ''), COALESCE(severity, ''), requires_manual_approval
 		FROM   policy_registry
 		WHERE  trigger_type  = $1
 		  AND  trigger_value = $2
 		  AND  enabled       = true
 		ORDER  BY policy_id
 	`
-	
 
 	rows, err := r.pool.Query(ctx, sql, triggerType, triggerValue)
 	if err != nil {
@@ -45,6 +45,7 @@ func (r *PolicyRepo) GetByTrigger(ctx context.Context, triggerType, triggerValue
 			&p.TriggerType, &p.TriggerValue, &p.DSL,
 			&p.Enabled, &p.TenantID,
 			&p.CreatedAt, &p.UpdatedAt,
+			&p.PolicyFamily, &p.Severity, &p.RequiresManualApproval,
 		); err != nil {
 			return nil, fmt.Errorf("policy_repo.GetByTrigger scan: %w", err)
 		}
@@ -58,7 +59,8 @@ func (r *PolicyRepo) GetByTrigger(ctx context.Context, triggerType, triggerValue
 func (r *PolicyRepo) GetByID(ctx context.Context, policyID string) (*models.Policy, error) {
 	sql := `
 		SELECT policy_id, version, scope_type, trigger_type, trigger_value,
-		       dsl, enabled, COALESCE(tenant_id, ''), created_at, updated_at
+		       dsl, enabled, COALESCE(tenant_id, ''), created_at, updated_at,
+		       COALESCE(policy_family, ''), COALESCE(severity, ''), requires_manual_approval
 		FROM   policy_registry
 		WHERE  policy_id = $1
 	`
@@ -70,6 +72,7 @@ func (r *PolicyRepo) GetByID(ctx context.Context, policyID string) (*models.Poli
 		&p.TriggerType, &p.TriggerValue, &p.DSL,
 		&p.Enabled, &p.TenantID,
 		&p.CreatedAt, &p.UpdatedAt,
+		&p.PolicyFamily, &p.Severity, &p.RequiresManualApproval,
 	)
 	if err != nil {
 		if err.Error() == "no rows in result set" {
@@ -84,7 +87,8 @@ func (r *PolicyRepo) GetByID(ctx context.Context, policyID string) (*models.Poli
 func (r *PolicyRepo) ListAll(ctx context.Context) ([]models.Policy, error) {
 	sql := `
 		SELECT policy_id, version, scope_type, trigger_type, trigger_value,
-		       dsl, enabled, COALESCE(tenant_id, ''), created_at, updated_at
+		       dsl, enabled, COALESCE(tenant_id, ''), created_at, updated_at,
+		       COALESCE(policy_family, ''), COALESCE(severity, ''), requires_manual_approval
 		FROM   policy_registry
 		ORDER  BY policy_id
 	`
@@ -102,6 +106,7 @@ func (r *PolicyRepo) ListAll(ctx context.Context) ([]models.Policy, error) {
 			&p.TriggerType, &p.TriggerValue, &p.DSL,
 			&p.Enabled, &p.TenantID,
 			&p.CreatedAt, &p.UpdatedAt,
+			&p.PolicyFamily, &p.Severity, &p.RequiresManualApproval,
 		); err != nil {
 			return nil, fmt.Errorf("policy_repo.ListAll scan: %w", err)
 		}
@@ -117,18 +122,22 @@ func (r *PolicyRepo) Insert(ctx context.Context, p models.Policy) error {
 	sql := `
 		INSERT INTO policy_registry
 			(policy_id, version, scope_type, trigger_type, trigger_value,
-			 dsl, enabled, tenant_id, created_at, updated_at)
+			 dsl, enabled, tenant_id, created_at, updated_at,
+			 policy_family, severity, requires_manual_approval)
 		VALUES
-			($1, $2, $3, $4, $5, $6, false, NULLIF($7, ''), $8, $9)
+			($1, $2, $3, $4, $5, $6, false, NULLIF($7, ''), $8, $9,
+			 NULLIF($10, ''), NULLIF($11, ''), $12)
 	`
-	// NULLIF($7, '') converts empty string back to NULL for tenant_id
-	// This is the reverse of COALESCE used in SELECT queries
+	// NULLIF($7, '')  — empty string → NULL for tenant_id   (reverse of COALESCE in SELECTs)
+	// NULLIF($10, '') — empty string → NULL for policy_family (optional field)
+	// NULLIF($11, '') — empty string → NULL for severity      (optional field; DB DEFAULT is 'MEDIUM')
 
 	now := time.Now().UTC()
 	_, err := r.pool.Exec(ctx, sql,
 		p.PolicyID, p.Version, p.ScopeType,
 		p.TriggerType, p.TriggerValue, p.DSL,
 		p.TenantID, now, now,
+		string(p.PolicyFamily), p.Severity, p.RequiresManualApproval,
 	)
 	if err != nil {
 		return fmt.Errorf("policy_repo.Insert id=%s: %w", p.PolicyID, err)
@@ -145,7 +154,8 @@ func (r *PolicyRepo) Insert(ctx context.Context, p models.Policy) error {
 func (r *PolicyRepo) GetAllCronPolicies(ctx context.Context) ([]models.Policy, error) {
 	sql := `
 		SELECT policy_id, version, scope_type, trigger_type, trigger_value,
-		       dsl, enabled, COALESCE(tenant_id, ''), created_at, updated_at
+		       dsl, enabled, COALESCE(tenant_id, ''), created_at, updated_at,
+		       COALESCE(policy_family, ''), COALESCE(severity, ''), requires_manual_approval
 		FROM   policy_registry
 		WHERE  trigger_type = 'cron'
 		  AND  enabled      = true
@@ -165,6 +175,7 @@ func (r *PolicyRepo) GetAllCronPolicies(ctx context.Context) ([]models.Policy, e
 			&p.TriggerType, &p.TriggerValue, &p.DSL,
 			&p.Enabled, &p.TenantID,
 			&p.CreatedAt, &p.UpdatedAt,
+			&p.PolicyFamily, &p.Severity, &p.RequiresManualApproval,
 		); err != nil {
 			return nil, fmt.Errorf("policy_repo.GetAllCronPolicies scan: %w", err)
 		}

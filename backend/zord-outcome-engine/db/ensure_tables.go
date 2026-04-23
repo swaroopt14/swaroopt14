@@ -152,8 +152,13 @@ CREATE TABLE IF NOT EXISTS settlement_ingest_jobs(
 	started_at TIMESTAMPTZ,
 	completed_at TIMESTAMPTZ,
 	failure_reason_code TEXT,
+	file_sha256        TEXT NOT NULL DEFAULT '',
+	external_batch_id  TEXT,
+	ingest_fingerprint TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS settlement_ingest_jobs_fingerprint_uq
+			ON settlement_ingest_jobs(ingest_fingerprint);`,
 		`CREATE INDEX IF NOT EXISTS settlement_ingest_jobs_tenant_idx ON settlement_ingest_jobs(tenant_id);`,
 		`CREATE INDEX IF NOT EXISTS settlement_ingest_jobs_envelope_idx ON settlement_ingest_jobs(settlement_envelope_id);`,
 		`CREATE INDEX IF NOT EXISTS settlement_ingest_jobs_status_idx ON settlement_ingest_jobs(job_status);`,

@@ -22,9 +22,9 @@ type CanonicalIntent struct {
 	CanonicalVersion string `json:"canonical_version"`
 	SchemaVersion    string `json:"schema_version"`
 
-	Amount     decimal.Decimal `json:"amount"`
-	Currency   string          `json:"currency"`
-	DeadlineAt *time.Time      `json:"deadline_at,omitempty"`
+	Amount                decimal.Decimal `json:"amount"`
+	Currency              string          `json:"currency"`
+	IntendedExecutionAt   *time.Time      `json:"intended_execution_at,omitempty" db:"intended_execution_at"`
 
 	Constraints json.RawMessage `json:"constraints,omitempty"`
 
@@ -46,6 +46,7 @@ type CanonicalIntent struct {
 
 	// 🆕 Additional Canonical Schema fields
 	ClientPayoutRef       string          `json:"client_payout_ref,omitempty"`
+	ProviderHint          string          `json:"provider_hint,omitempty" db:"provider_hint"`
 	RequestFingerprint    string          `json:"request_fingerprint,omitempty"`
 	RoutingHintsJSON      json.RawMessage `json:"routing_hints_json,omitempty"`
 	GovernanceState       string          `json:"governance_state,omitempty"`

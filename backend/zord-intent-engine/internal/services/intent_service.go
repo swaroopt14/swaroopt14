@@ -436,6 +436,9 @@ func (s *IntentService) ProcessIncomingIntent(
 	addFields("beneficiary_name", parsed.Beneficiary.Name, "$.beneficiary.name", true)
 	addFields("idempotency_key", parsed.IdempotencyKey, "$.idempotency_key", true)
 	addFields("client_batch_ref", parsed.ClientBatchRef, "$.client_batch_ref", false)
+	addFields("client_payout_ref", parsed.ClientPayoutRef, "$.client_payout_ref", false)
+	addFields("provider_hint", parsed.ProviderHint, "$.provider_hint", false)
+	addFields("intended_execution_at", parsed.IntendedExecutionAt, "$.intended_execution_at", false)
 
 	fieldsJSON, _ := json.Marshal(fieldsMap)
 
@@ -617,6 +620,11 @@ func (s *IntentService) ProcessIncomingIntent(
 		}
 	}
 
+	batchIDStr := ""
+	if in.BatchID != nil {
+		batchIDStr = *in.BatchID
+	}
+
 	// Score requires partial intent for signals
 	tempIntent := &models.CanonicalIntent{
 		BeneficiaryFingerprint: bFingerprint,
@@ -624,8 +632,9 @@ func (s *IntentService) ProcessIncomingIntent(
 		Currency:               canonicalInput.Amount.Currency,
 		TraceID:                in.TraceID.String(),
 		EnvelopeID:             in.EnvelopeID.String(),
-		ClientPayoutRef:        canonicalInput.IdempotencyKey, // Map from incoming idempotency if applicable
-		ClientBatchRef:         canonicalInput.ClientBatchRef,
+		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
+		ClientBatchRef:         batchIDStr,
+		ProviderHint:           canonicalInput.ProviderHint,
 		CreatedAt:              time.Now().UTC(),
 		DuplicateRiskFlag:      dupRisk,
 	}
@@ -634,6 +643,14 @@ func (s *IntentService) ProcessIncomingIntent(
 	// -------- STEP 9: BUILD CANONICAL INTENT --------
 
 	intentID := uuid.NewString()
+
+	var executionAt *time.Time
+	if canonicalInput.IntendedExecutionAt != "" {
+		t, err := time.Parse(time.RFC3339, canonicalInput.IntendedExecutionAt)
+		if err == nil {
+			executionAt = &t
+		}
+	}
 
 	// Link registry entry to intent if it's a new entry
 	if registryEntry != nil {
@@ -656,7 +673,8 @@ func (s *IntentService) ProcessIncomingIntent(
 		Amount:   amount,
 		Currency: canonicalInput.Amount.Currency,
 
-		Constraints: constraintsJSON,
+		IntendedExecutionAt: executionAt,
+		Constraints:         constraintsJSON,
 
 		BeneficiaryType: canonicalInput.Beneficiary.Instrument.Kind,
 		PIITokens:       piiJSON,
@@ -665,7 +683,9 @@ func (s *IntentService) ProcessIncomingIntent(
 		Status:    "CREATED",
 		CreatedAt: time.Now().UTC(),
 
-		ClientPayoutRef:       "NA",
+		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
+		ProviderHint:          canonicalInput.ProviderHint,
+		ClientBatchRef:        batchIDStr,
 		RequestFingerprint:    in.IdempotencyKey,
 		RoutingHintsJSON:      json.RawMessage(`{}`),
 		GovernanceState:       "PENDING",
@@ -816,6 +836,11 @@ func (s *IntentService) ProcessTokenizeResult(
 		return nil, err
 	}
 
+	batchIDStr := ""
+	if event.BatchID != nil {
+		batchIDStr = *event.BatchID
+	}
+
 	// -------- Build NIR (Reconstructed for async flow) --------
 	fieldsMap := make(map[string]models.NIRField)
 	fieldsMap["intent_type"] = models.NIRField{Value: canonicalInput.IntentType, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
@@ -823,6 +848,9 @@ func (s *IntentService) ProcessTokenizeResult(
 	fieldsMap["currency"] = models.NIRField{Value: canonicalInput.Amount.Currency, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
 	fieldsMap["beneficiary_name"] = models.NIRField{Value: canonicalInput.Beneficiary.Name, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
 	fieldsMap["client_batch_ref"] = models.NIRField{Value: canonicalInput.ClientBatchRef, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
+	fieldsMap["client_payout_ref"] = models.NIRField{Value: canonicalInput.ClientPayoutRef, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
+	fieldsMap["provider_hint"] = models.NIRField{Value: canonicalInput.ProviderHint, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
+	fieldsMap["intended_execution_at"] = models.NIRField{Value: canonicalInput.IntendedExecutionAt, SourcePath: "KAFKA_RECONSTRUCTED", ConfidenceScore: 1.0, SensitiveFlag: false, TransformApplied: "NONE", ExtractionNotes: ""}
 	fieldsJSON, _ := json.Marshal(fieldsMap)
 
 	profileID := "kafka_async_profile"
@@ -894,8 +922,9 @@ func (s *IntentService) ProcessTokenizeResult(
 		Currency:               canonicalInput.Amount.Currency,
 		TraceID:                event.TraceID,
 		EnvelopeID:             event.EnvelopeID,
-		ClientPayoutRef:        "KAFKA_ASYNCHRONOUS",
-		ClientBatchRef:         canonicalInput.ClientBatchRef,
+		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
+		ClientBatchRef:         batchIDStr,
+		ProviderHint:           canonicalInput.ProviderHint,
 		CreatedAt:              time.Now().UTC(),
 		DuplicateRiskFlag:      dupRisk,
 	}
@@ -907,6 +936,14 @@ func (s *IntentService) ProcessTokenizeResult(
 
 	if registryEntry != nil {
 		registryEntry.IntentID = uuid.MustParse(intentID)
+	}
+
+	var executionAt *time.Time
+	if canonicalInput.IntendedExecutionAt != "" {
+		t, err := time.Parse(time.RFC3339, canonicalInput.IntendedExecutionAt)
+		if err == nil {
+			executionAt = &t
+		}
 	}
 
 	intent := models.CanonicalIntent{
@@ -922,7 +959,8 @@ func (s *IntentService) ProcessTokenizeResult(
 		Amount:   amount,
 		Currency: canonicalInput.Amount.Currency,
 
-		Constraints: constraintsJSON,
+		IntendedExecutionAt: executionAt,
+		Constraints:         constraintsJSON,
 
 		BeneficiaryType: canonicalInput.Beneficiary.Instrument.Kind,
 		PIITokens:       piiJSON,
@@ -931,7 +969,9 @@ func (s *IntentService) ProcessTokenizeResult(
 		Status:    "CREATED",
 		CreatedAt: time.Now().UTC(),
 
-		ClientPayoutRef:       "NA",
+		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
+		ProviderHint:          canonicalInput.ProviderHint,
+		ClientBatchRef:        batchIDStr,
 		RequestFingerprint:    "KAFKA_TOKENIZED",
 		RoutingHintsJSON:      json.RawMessage(`{}`),
 		GovernanceState:       "PENDING",
@@ -1068,11 +1108,12 @@ func (s *IntentService) processWebhook(
 		Status:         "CREATED",
 		CreatedAt:      time.Now().UTC(),
 
-		Constraints: json.RawMessage("{}"),
+		IntendedExecutionAt: nil,
+		Constraints:         json.RawMessage("{}"),
 		PIITokens:   json.RawMessage("{}"),
 		Beneficiary: json.RawMessage("{}"),
 
-		ClientPayoutRef:       "NA",
+		ClientPayoutRef:       in.IdempotencyKey, // Fallback to idempotency key for webhooks if ref is missing
 		RequestFingerprint:    in.IdempotencyKey,
 		RoutingHintsJSON:      json.RawMessage(`{}`),
 		GovernanceState:       "WEBHOOK",

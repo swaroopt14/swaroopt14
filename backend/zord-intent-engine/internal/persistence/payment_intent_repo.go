@@ -73,13 +73,13 @@ func (r *PaymentIntentRepo) Save(
     intent_id, envelope_id, tenant_id, contract_id,
     trace_id, idempotency_key, salient_hash, payload_hash,
     intent_type, canonical_version, schema_version,
-    amount, currency, deadline_at,
+    amount, currency, intended_execution_at,
     constraints, beneficiary_type, pii_tokens, beneficiary,
     status, confidence_score,
     canonical_snapshot_ref, nir_snapshot_ref, governance_snapshot_ref,
     canonical_hash,
     created_at,
-    client_payout_ref, request_fingerprint, routing_hints_json,
+    client_payout_ref, provider_hint, request_fingerprint, routing_hints_json,
     governance_state, business_state, duplicate_risk_flag,
     mapping_profile_id, mapping_profile_version, source_system, updated_at,
     business_idempotency_key, beneficiary_fingerprint,
@@ -99,16 +99,16 @@ VALUES (
     $19,$20,
     $21,$22,$23,
     $24,$25,
-    $26,
-    $27,$28,$29,
-    $30,$31,$32,
-    $33,$34,$35,
-    $36,$37,
-    $38,$39,$40,
-    $41,
-    $42,
+    $26, $27,
+    $28,$29,$30,
+    $31,$32,$33,
+    $34,$35,$36,$37,
+    $38,$39,
+    $40,$41,$42,
     $43,
-    $44,$45,$46
+    $44,
+    $45,
+    $46, $47
 ) `
 
 	_, err = tx.ExecContext(
@@ -127,7 +127,7 @@ VALUES (
 		intent.SchemaVersion,             // $11
 		intent.Amount,                    // $12
 		intent.Currency,                  // $13
-		intent.DeadlineAt,                // $14
+		intent.IntendedExecutionAt,                // $14
 		intent.Constraints,               // $15
 		intent.BeneficiaryType,           // $16
 		intent.PIITokens,                 // $17
@@ -140,26 +140,27 @@ VALUES (
 		intent.CanonicalHash,             // $24
 		intent.CreatedAt,                 // $25
 		intent.ClientPayoutRef,           // $26
-		intent.RequestFingerprint,        // $27
-		intent.RoutingHintsJSON,          // $28
-		intent.GovernanceState,           // $29
-		intent.BusinessState,             // $30
-		intent.DuplicateRiskFlag,         // $31
-		intent.MappingProfileID,          // $32
-		intent.MappingProfileVersion,     // $33
-		intent.SourceSystem,              // $34
-		intent.UpdatedAt,                 // $35
-		intent.BusinessIdempotencyKey,    // $36
-		intent.BeneficiaryFingerprint,    // $37
-		intent.ProofReadinessScore,       // $38
-		intent.MatchabilityScore,         // $39
-		intent.IntentQualityScore,        // $40
-		intent.MappingConfidenceScore,    // $41
-		intent.SchemaCompletenessScore,   // $42
-		intent.GovernanceReasonCodesJSON, // $43
-		intent.DuplicateReasonCode,       // $44
-		intent.ClientBatchRef,            // $45
-		intent.BatchID,                   //$46
+		intent.ProviderHint,             // $27
+		intent.RequestFingerprint,        // $28
+		intent.RoutingHintsJSON,          // $29
+		intent.GovernanceState,           // $30
+		intent.BusinessState,             // $31
+		intent.DuplicateRiskFlag,         // $32
+		intent.MappingProfileID,          // $33
+		intent.MappingProfileVersion,     // $34
+		intent.SourceSystem,              // $35
+		intent.UpdatedAt,                 // $36
+		intent.BusinessIdempotencyKey,    // $37
+		intent.BeneficiaryFingerprint,    // $38
+		intent.ProofReadinessScore,       // $39
+		intent.MatchabilityScore,         // $40
+		intent.IntentQualityScore,        // $41
+		intent.MappingConfidenceScore,    // $42
+		intent.SchemaCompletenessScore,   // $43
+		intent.GovernanceReasonCodesJSON, // $44
+		intent.DuplicateReasonCode,       // $45
+		intent.ClientBatchRef,            // $46
+		intent.BatchID,                   //$47
 	)
 
 	if err != nil {
@@ -183,7 +184,7 @@ INSERT INTO outbox (
     salient_hash,
     intent_type,
     canonical_version,
-    deadline_at,
+		intended_execution_at,
     constraints,
     beneficiary_type,
     pii_tokens,
@@ -195,6 +196,7 @@ INSERT INTO outbox (
     nir_snapshot_ref,
     governance_snapshot_ref,
     client_payout_ref,
+    provider_hint,
     request_fingerprint,
     routing_hints_json,
     governance_state,
@@ -226,7 +228,7 @@ INSERT INTO outbox (
     $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
     $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,
     $40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
-    $50,$51
+    $50,$51,$52
 )`
 
 	outbox.ContractID = intent.ContractID
@@ -248,7 +250,7 @@ INSERT INTO outbox (
 		outbox.SalientHash,               // $12
 		outbox.IntentType,                // $13
 		outbox.CanonicalVersion,          // $14
-		outbox.DeadlineAt,                // $15
+		outbox.IntendedExecutionAt,                // $15
 		outbox.Constraints,               // $16
 		outbox.BeneficiaryType,           // $17
 		outbox.PIITokens,                 // $18
@@ -260,31 +262,32 @@ INSERT INTO outbox (
 		outbox.NIRSnapshotRef,            // $24
 		outbox.GovernanceSnapshotRef,     // $25
 		outbox.ClientPayoutRef,           // $26
-		outbox.RequestFingerprint,        // $27
-		outbox.RoutingHintsJSON,          // $28
-		outbox.GovernanceState,           // $29
-		outbox.BusinessState,             // $30
-		outbox.DuplicateRiskFlag,         // $31
-		outbox.MappingProfileID,          // $32
-		outbox.MappingProfileVersion,     // $33
-		outbox.SourceSystem,              // $34
-		outbox.BusinessIdempotencyKey,    // $35
-		outbox.BeneficiaryFingerprint,    // $36
-		outbox.ProofReadinessScore,       // $37
-		outbox.MatchabilityScore,         // $38
-		outbox.IntentQualityScore,        // $39
-		outbox.MappingConfidenceScore,    // $40
-		outbox.SchemaCompletenessScore,   // $41
-		outbox.GovernanceReasonCodesJSON, // $42
-		outbox.DuplicateReasonCode,       // $43
-		outbox.ClientBatchRef,            // $44
-		outbox.Payload,                   // $45
-		outbox.PayloadHash,               // $46
-		outbox.Status,                    // $47
-		outbox.RetryCount,                // $48
-		outbox.NextRetryAt,               // $49
-		outbox.CreatedAt,                 // $50
-		outbox.BatchID,                   // $51
+		outbox.ProviderHint,             // $27
+		outbox.RequestFingerprint,        // $28
+		outbox.RoutingHintsJSON,          // $29
+		outbox.GovernanceState,           // $30
+		outbox.BusinessState,             // $31
+		outbox.DuplicateRiskFlag,         // $32
+		outbox.MappingProfileID,          // $33
+		outbox.MappingProfileVersion,     // $34
+		outbox.SourceSystem,              // $35
+		outbox.BusinessIdempotencyKey,    // $36
+		outbox.BeneficiaryFingerprint,    // $37
+		outbox.ProofReadinessScore,       // $38
+		outbox.MatchabilityScore,         // $39
+		outbox.IntentQualityScore,        // $40
+		outbox.MappingConfidenceScore,    // $41
+		outbox.SchemaCompletenessScore,   // $42
+		outbox.GovernanceReasonCodesJSON, // $43
+		outbox.DuplicateReasonCode,       // $44
+		outbox.ClientBatchRef,            // $45
+		outbox.Payload,                   // $46
+		outbox.PayloadHash,               // $47
+		outbox.Status,                    // $48
+		outbox.RetryCount,                // $49
+		outbox.NextRetryAt,               // $50
+		outbox.CreatedAt,                 // $51
+		outbox.BatchID,                   // $52
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)
@@ -336,7 +339,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		schema_version,
 		amount,
 		currency,
-		deadline_at,
+		intended_execution_at,
 		constraints,
 		beneficiary_type,
 		pii_tokens,
@@ -345,6 +348,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		confidence_score,
 		created_at,
 		client_payout_ref,
+		provider_hint,
 		request_fingerprint,
 		routing_hints_json,
 		governance_state,
@@ -391,7 +395,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.SchemaVersion,
 		&intent.Amount,
 		&intent.Currency,
-		&intent.DeadlineAt,
+		&intent.IntendedExecutionAt,
 		&intent.Constraints,
 		&intent.BeneficiaryType,
 		&intent.PIITokens,
@@ -400,6 +404,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.ConfidenceScore,
 		&intent.CreatedAt,
 		&intent.ClientPayoutRef,
+		&intent.ProviderHint,
 		&intent.RequestFingerprint,
 		&intent.RoutingHintsJSON,
 		&intent.GovernanceState,
@@ -513,7 +518,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		schema_version,
 		amount,
 		currency,
-		deadline_at,
+		intended_execution_at,
 		constraints,
 		beneficiary_type,
 		pii_tokens,
@@ -522,6 +527,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		confidence_score,
 		created_at,
 		client_payout_ref,
+		provider_hint,
 		request_fingerprint,
 		routing_hints_json,
 		governance_state,
@@ -568,7 +574,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.SchemaVersion,
 		&intent.Amount,
 		&intent.Currency,
-		&intent.DeadlineAt,
+		&intent.IntendedExecutionAt,
 		&intent.Constraints,
 		&intent.BeneficiaryType,
 		&intent.PIITokens,
@@ -577,6 +583,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.ConfidenceScore,
 		&intent.CreatedAt,
 		&intent.ClientPayoutRef,
+		&intent.ProviderHint,
 		&intent.RequestFingerprint,
 		&intent.RoutingHintsJSON,
 		&intent.GovernanceState,

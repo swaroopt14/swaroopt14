@@ -45,24 +45,18 @@ func validateCurrency(code string) error {
 	}
 }
 
-func validateDeadline(constraints map[string]any) error {
-	raw, ok := constraints["deadline_at"]
-	if !ok {
+func validateIntendedExecution(executionAt string) error {
+	if executionAt == "" {
 		return nil // optional
 	}
 
-	deadlineStr, ok := raw.(string)
-	if !ok {
-		return semanticError("deadline_at must be a string (RFC3339)")
-	}
-
-	t, err := time.Parse(time.RFC3339, deadlineStr)
+	t, err := time.Parse(time.RFC3339, executionAt)
 	if err != nil {
-		return semanticError("deadline_at must be RFC3339")
+		return semanticError("intended_execution_at must be RFC3339")
 	}
 
 	if t.Before(time.Now().UTC()) {
-		return semanticError("deadline_at must not be in the past")
+		return semanticError("intended_execution_at must not be in the past")
 	}
 
 	return nil
@@ -79,7 +73,7 @@ func SemanticValidate(intent models.ParsedIncomingIntent) error {
 		return err
 	}
 
-	if err := validateDeadline(intent.Constraints); err != nil {
+	if err := validateIntendedExecution(intent.IntendedExecutionAt); err != nil {
 		return err
 	}
 

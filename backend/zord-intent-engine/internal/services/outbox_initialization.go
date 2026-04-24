@@ -42,7 +42,7 @@ func CanonicalIntentToOutboxEvent(
 		SalientHash:      intent.SalientHash,
 		IntentType:       intent.IntentType,
 		CanonicalVersion: intent.CanonicalVersion,
-		DeadlineAt:       intent.DeadlineAt,
+		IntendedExecutionAt:   intent.IntendedExecutionAt,
 		Constraints:      intent.Constraints,
 		BeneficiaryType:  intent.BeneficiaryType,
 		PIITokens:        intent.PIITokens,
@@ -56,6 +56,7 @@ func CanonicalIntentToOutboxEvent(
 		GovernanceSnapshotRef: intent.GovernanceSnapshotRef,
 
 		ClientPayoutRef:       intent.ClientPayoutRef,
+		ProviderHint:          intent.ProviderHint,
 		RequestFingerprint:    intent.RequestFingerprint,
 		RoutingHintsJSON:      intent.RoutingHintsJSON,
 		GovernanceState:       intent.GovernanceState,

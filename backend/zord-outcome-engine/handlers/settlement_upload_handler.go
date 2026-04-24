@@ -244,7 +244,9 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 
 		// ── PHASE 5: CANONICALIZATION & OUTPUTS ──────────────────────────────────
 		log.Printf("settlement.upload.canonicalize_start job_id=%s", bgJobID)
-		canonSvc := &services.SettlementCanonicalizeService{}
+		canonSvc := &services.SettlementCanonicalizeService{
+			TokenizeQueue: services.NewKafkaTokenizeQueue(h.Kafka),
+		}
 		if err := canonSvc.RunForJob(bgCtx, bgJobID, bgTenant, pspProfile); err != nil {
 			log.Printf("settlement.upload.canonicalize_error job_id=%s err=%v", bgJobID, err)
 		} else {

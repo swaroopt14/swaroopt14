@@ -78,7 +78,15 @@ func (e *AttachmentEngine) RunForSingleObservation(
 		return nil, fmt.Errorf("attachment.RunForSingleObservation: %w", err)
 	}
 
-	return e.runAttachment(ctx, tenantID, models.JobScopeSingleObservation, observationID.String(), []models.CanonicalSettlementObservation{*obs})
+	// Use the observation's batch_reference as the scope ref so that
+	// GET /v1/attachment/batch/:batch_ref resolves correctly.
+	// Fall back to the observation UUID when no batch ref is present.
+	scopeRef := observationID.String()
+	if obs.BatchReference != nil && *obs.BatchReference != "" {
+		scopeRef = *obs.BatchReference
+	}
+
+	return e.runAttachment(ctx, tenantID, models.JobScopeSingleObservation, scopeRef, []models.CanonicalSettlementObservation{*obs})
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -389,7 +397,7 @@ func findCandidateIntents(
 			&intent.BeneficiaryFingerprint, &intent.Amount, &intent.CurrencyCode,
 			&intent.IntendedExecutionAt, &intent.PayoutType, &intent.ProviderHint, &intent.Corridor,
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
-			&intent.CanonicalHash, &intent.GovernanceState, 
+			&intent.CanonicalHash, &intent.GovernanceState,
 			&intent.CreatedAt,
 		)
 		if err != nil {
@@ -810,7 +818,7 @@ func loadObservationByID(ctx context.Context, tenantID uuid.UUID, obsID uuid.UUI
 			client_reference_candidate, provider_reference, bank_reference,
 			external_reference, batch_reference,
 			beneficiary_fingerprint,
-			amount_minor, settled_amount_minor, fee_amount_minor, deduction_amount_minor,
+			amount, settled_amount, fee_amount, deduction_amount,
 			currency_code, settlement_status,
 			retry_flag, reversal_flag, return_flag,
 			observation_timestamp, value_date,

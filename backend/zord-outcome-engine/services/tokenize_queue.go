@@ -16,6 +16,9 @@ type KafkaTokenizeQueue struct {
 
 func NewKafkaTokenizeQueue(producer *kafka.Producer) *KafkaTokenizeQueue {
 	topic := os.Getenv("KAFKA_TOPIC_PII_TOKENIZE_REQUEST")
+	if topic == "" {
+		topic = "pii.tokenize.request"
+	}
 	return &KafkaTokenizeQueue{
 		producer: producer,
 		topic:    topic,

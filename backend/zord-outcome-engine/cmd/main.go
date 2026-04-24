@@ -49,7 +49,10 @@ func main() {
 	defer producer.Close()
 
 	// -------- TOKENIZE RESULT CONSUMER --------
-	resultTopic := "pii.tokenize.result"
+	resultTopic := os.Getenv("KAFKA_TOPIC_PII_TOKENIZE_RESULT")
+	if resultTopic == "" {
+		resultTopic = "pii.tokenize.result"
+	}
 	canonSvc := &services.SettlementCanonicalizeService{}
 
 	go func() {

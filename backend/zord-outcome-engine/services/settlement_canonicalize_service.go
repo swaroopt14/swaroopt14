@@ -460,11 +460,11 @@ func (s *SettlementCanonicalizeService) tokenizeObservation(
 		},
 	}
 
-	log.Printf("settlement.tokenize.request observation_id=%s pii=%+v", obs.SettlementObservationID, tokenReq.PII)
+	log.Printf("settlement.tokenize.request.sync observation_id=%s data=%+v enclave_url=%s", obs.SettlementObservationID, tokenReq, os.Getenv("ZORD_PII_ENCLAVE_URL"))
 
 	tokenMap, err := callEnclaveTokenize(ctx, tokenReq)
 	if err != nil {
-		log.Printf("Token enclave unavailable, publishing tokenize request to Kafka: %v", err)
+		log.Printf("⚠️ Sync tokenization failed for observation_id=%s, falling back to Kafka: %v", obs.SettlementObservationID, err)
 
 		// KAFKA FALLBACK
 		if s.TokenizeQueue == nil {

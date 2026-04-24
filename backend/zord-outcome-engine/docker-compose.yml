@@ -11,11 +11,7 @@ services:
       - .env
     environment: 
       - KAFKA_BROKERS=broker1:9092,broker2:9093,broker3:9094
-      - KAFKA_TOPIC_PII_TOKENIZE_REQUEST=pii.tokenize.request
-      - KAFKA_TOPIC_PII_TOKENIZE_RESULT=pii.tokenize.result
-      - ZORD_PII_ENCLAVE_URL=http://host.docker.internal:8087
-      - KAFKA_TOPIC=payments.dispatch.events.v1
-      - KAFKA_INTENT_TOPIC=payments.intent.events.v1
+      - KAFKA_TOPIC=z.dispatch.events.v1
       - DB_HOST=zord-outcome-postgres
       - DB_PORT=5432 
       - DB_USER=outcome_user 
@@ -26,6 +22,9 @@ services:
       - JAEGER_ENDPOINT=http://host.docker.internal:14268/api/traces 
       - AWS_REGION=ap-south-1
       - AWS_EC2_METADATA_DISABLED=true
+      - ZORD_PII_ENCLAVE_URL=http://zord-token-enclave-service:8087
+      - KAFKA_TOPIC_PII_TOKENIZE_REQUEST=pii.tokenize.request
+      - KAFKA_TOPIC_PII_TOKENIZE_RESULT=pii.tokenize.result
       - S3_BUCKET=swaroop-vault2
     depends_on:
       postgres:

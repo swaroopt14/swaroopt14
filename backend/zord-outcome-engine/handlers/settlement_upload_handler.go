@@ -247,6 +247,13 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		canonSvc := &services.SettlementCanonicalizeService{}
 		if err := canonSvc.RunForJob(bgCtx, bgJobID, bgTenant, pspProfile); err != nil {
 			log.Printf("settlement.upload.canonicalize_error job_id=%s err=%v", bgJobID, err)
+		} else {
+			// Trigger attachment engine automatically on success
+			log.Printf("settlement.upload.attachment_start job_id=%s", bgJobID)
+			engine := &services.AttachmentEngine{}
+			if _, err := engine.RunForBatch(bgCtx, bgTenant, bgJobID); err != nil {
+				log.Printf("settlement.upload.attachment_error job_id=%s err=%v", bgJobID, err)
+			}
 		}
 	}(context.Background(), profile, jobID, tenantID, envelopeID, objRef, fileBytes)
 }

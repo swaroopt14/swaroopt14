@@ -90,6 +90,10 @@ type CandidateScore struct {
 	SourceSystemMatch  bool
 	ZordSignatureMatch bool
 	CompositeMatch     bool
+	// ParseConfPenalised is set when obs.ParseConfidence < 0.6.
+	// Used by classifyConfidence to prevent low-trust observations
+	// from reaching the HIGH bucket regardless of composite score.
+	ParseConfPenalised     bool
 }
 
 // ScoreCandidate evaluates one (settlement observation, intent) pair and returns
@@ -194,8 +198,10 @@ func ScoreCandidate(
 	// ── MODIFIERS ─────────────────────────────────────────────────────────
 
 	// Low parse confidence is a trust penalty.
+	// Also flag the candidate so classifyConfidence can gate the HIGH bucket.
 	if obs.ParseConfidence < 0.6 {
 		bd.ParseConfModifier = PenaltyWeakParseConf
+		cs.ParseConfPenalised = true
 	}
 
 	// Internal exports carry less finality weight.
@@ -239,7 +245,7 @@ func classifyConfidence(cs CandidateScore) string {
 	switch {
 	case cs.ExactRefMatch && cs.AmountMatch && cs.CurrencyMatch:
 		return models.ConfidenceExact
-	case cs.Total >= 120:
+	case cs.Total >= 120 && !cs.ParseConfPenalised:
 		return models.ConfidenceHigh
 	case cs.Total >= 70:
 		return models.ConfidenceMedium

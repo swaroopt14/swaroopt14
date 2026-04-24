@@ -112,6 +112,9 @@ func (w *OutboxWorker) runOnce(ctx context.Context) {
 		logger.Error(fmt.Sprintf("outbox_worker: fetch error: %v", err))
 		return
 	}
+
+	logger.Info(fmt.Sprintf("outbox_worker: pending_depth=%d", len(entries)))
+
 	if len(entries) == 0 {
 		return
 	}

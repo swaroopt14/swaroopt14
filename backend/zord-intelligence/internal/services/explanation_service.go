@@ -90,7 +90,7 @@ func (s *ExplanationService) ExplainBatch(ctx context.Context, tenantID, batchID
 	}
 
 	// We need a snapshot to attach this explanation to. We use the latest PATTERN snapshot.
-	snap, err := s.snapRepo.GetLatestByType(ctx, tenantID, "PATTERN", "TENANT", nil)
+	snap, err := s.snapRepo.GetLatestByType(ctx, tenantID, "PATTERN", "BATCH", nil)
 	if err != nil {
 		return nil, fmt.Errorf("ExplanationService failed to get PATTERN snapshot: %w", err)
 	}

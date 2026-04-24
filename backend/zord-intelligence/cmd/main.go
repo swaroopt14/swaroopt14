@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/zord/zord-intelligence/config"
 	"github.com/zord/zord-intelligence/db"
@@ -68,6 +69,7 @@ func main() {
 	pool := db.Connect(cfg)
 	defer pool.Close()
 	db.EnsureSchema(context.Background(), pool)
+	syncIntelligenceMode(context.Background(), pool, string(cfg.IntelligenceMode))
 
 	// ── Step 4: Create repositories ───────────────────────────────────────
 	projRepo    := persistence.NewProjectionRepo(pool)
@@ -235,6 +237,42 @@ func main() {
 	time.Sleep(2 * time.Second)
 	log.Println("main: shutdown complete")
 	fmt.Println("zord-intelligence stopped cleanly")
+}
+
+// syncIntelligenceMode keeps intelligence_mode_config in sync with the env var.
+// If the current row already matches the env var mode, it's a no-op.
+// If it differs (e.g. operator changed GRADE_A → GRADE_B), it closes the old
+// row and inserts a new one, giving a timestamped audit trail of every transition.
+func syncIntelligenceMode(ctx context.Context, pool *pgxpool.Pool, mode string) {
+	var currentMode string
+	err := pool.QueryRow(ctx,
+		`SELECT mode FROM intelligence_mode_config WHERE is_current = true LIMIT 1`,
+	).Scan(&currentMode)
+	if err != nil {
+		log.Printf("main: could not read intelligence_mode_config: %v", err)
+		return
+	}
+	if currentMode == mode {
+		return // already in sync — no-op
+	}
+
+	log.Printf("main: intelligence mode changed %s → %s — updating audit trail", currentMode, mode)
+
+	_, err = pool.Exec(ctx, `
+		UPDATE intelligence_mode_config SET is_current = false, ended_at = now()
+		WHERE is_current = true
+	`)
+	if err != nil {
+		log.Printf("main: failed to close old intelligence_mode_config row: %v", err)
+		return
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO intelligence_mode_config (mode, is_current, initiated_by, notes)
+		VALUES ($1, true, 'system', $2)
+	`, mode, fmt.Sprintf("Mode changed from %s to %s on startup", currentMode, mode))
+	if err != nil {
+		log.Printf("main: failed to insert new intelligence_mode_config row: %v", err)
+	}
 }
 
 // ensureTopicsWithRetry retries topic creation while Kafka is still booting.

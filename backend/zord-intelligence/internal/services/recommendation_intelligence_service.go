@@ -291,6 +291,10 @@ func (s *RecommendationIntelligenceService) cardFromRCA(
 		return nil
 	}
 
+	if len(rsnap.TopFailureDrivers) == 0 {
+		return nil
+	}
+
 	// RecommendedAction comes formatted like: "ESCALATE: PSP system errors..."
 	// We'll split it or just use it as the reason.
 	action := "NOTIFY"

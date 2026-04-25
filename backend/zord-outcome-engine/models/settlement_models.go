@@ -188,10 +188,5 @@ type UniversalSettlementShape struct {
 	ParseConfidence              float64                `json:"parse_confidence"`
 	CarrierCandidates            map[string]interface{} `json:"carrier_candidates"`
 	RawEnvelopeRef               uuid.UUID              `json:"raw_envelope_ref"`
-	AccountNumber                string                 `json:"account_number,omitempty"`
-	IFSC                         string                 `json:"ifsc,omitempty"`
-	VPA                          string                 `json:"vpa,omitempty"`
-	Name                         string                 `json:"name,omitempty"`
-	Phone                        string                 `json:"phone,omitempty"`
-	Email                        string                 `json:"email,omitempty"`
+	PIIData                      map[string]string      `json:"pii_data,omitempty"`
 }

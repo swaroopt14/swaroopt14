@@ -27,6 +27,9 @@ type MappingProfile struct {
 	// FileExtension is the expected file extension for this PSP's export.
 	// Used to validate the uploaded file before parsing. e.g. ".xlsx", ".csv"
 	FileExtension string
+
+	// PIIFields lists the column headers that should be dynamically extracted and tokenized as PII.
+	PIIFields []string
 }
 
 // KnownProfiles is the single source of truth for all registered PSP profiles.
@@ -40,6 +43,7 @@ var KnownProfiles = map[string]MappingProfile{
 		ArtifactFamily: "PSP_SETTLEMENT_RECON",
 		ParserKey:      "razorpay",
 		FileExtension:  ".xlsx",
+		PIIFields:      []string{"account_number", "ifsc", "vpa", "name", "phone", "email"},
 	},
 	// cashfree is the key passed as ?psp=cashfree in the upload request
 	"cashfree": {
@@ -49,6 +53,7 @@ var KnownProfiles = map[string]MappingProfile{
 		ArtifactFamily: "PSP_SETTLEMENT_RECON",
 		ParserKey:      "cashfree",
 		FileExtension:  ".csv",
+		PIIFields:      []string{"account_number", "ifsc", "vpa", "name", "phone", "email"},
 	},
 }
 

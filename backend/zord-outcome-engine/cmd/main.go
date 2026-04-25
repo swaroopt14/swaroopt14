@@ -53,7 +53,11 @@ func main() {
 	if resultTopic == "" {
 		resultTopic = "pii.tokenize.result"
 	}
-	canonSvc := &services.SettlementCanonicalizeService{}
+
+	tokenizeQueue := services.NewKafkaTokenizeQueue(producer)
+	canonSvc := &services.SettlementCanonicalizeService{
+		TokenizeQueue: tokenizeQueue,
+	}
 
 	go func() {
 		err := kafka.StartConsumer(
@@ -67,7 +71,7 @@ func main() {
 					log.Printf("Invalid tokenize result event: %v", err)
 					return err
 				}
-				log.Printf("Received tokenize result for observation=%s", event.IdempotencyKey)
+				log.Printf("Received tokenize result for envelope=%s", event.EnvelopeID)
 				_, err = canonSvc.ProcessTokenizeResult(ctx, &event)
 				if err != nil {
 					log.Printf("Failed to process tokenize result: %v", err)

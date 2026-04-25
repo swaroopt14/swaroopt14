@@ -206,7 +206,7 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 			return
 		}
 		
-		results, err := parser.Parse(data, bgRef, bgEnvelope)
+		results, err := parser.Parse(data, bgRef, bgEnvelope, pspProfile)
 		if err != nil {
 			svc.MarkJobFailed(bgCtx, bgJobID, "HEADER_MISMATCH")
 			return

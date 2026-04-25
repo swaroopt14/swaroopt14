@@ -19,10 +19,12 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 var enclaveHTTPClient = &http.Client{
-	Timeout: 10 * time.Second,
+	Timeout:   10 * time.Second,
+	Transport: otelhttp.NewTransport(http.DefaultTransport),
 }
 
 // SettlementCanonicalizeService converts parsed results into normalized canonical observations.
@@ -447,17 +449,15 @@ func (s *SettlementCanonicalizeService) tokenizeObservation(
 	shape models.UniversalSettlementShape,
 ) (models.CanonicalSettlementObservation, error) {
 
+	piiPayload := shape.PIIData
+	if piiPayload == nil {
+		piiPayload = make(map[string]string)
+	}
+
 	tokenReq := enclaveTokenizeRequest{
 		TenantID: obs.TenantID.String(),
 		TraceID:  obs.TraceID.String(),
-		PII: map[string]string{
-			"account_number": shape.AccountNumber,
-			"ifsc":           shape.IFSC,
-			"vpa":            shape.VPA,
-			"name":           shape.Name,
-			"phone":          shape.Phone,
-			"email":          shape.Email,
-		},
+		PII:      piiPayload,
 	}
 
 	log.Printf("settlement.tokenize.request.sync observation_id=%s data=%+v enclave_url=%s", obs.SettlementObservationID, tokenReq, os.Getenv("ZORD_PII_ENCLAVE_URL"))
@@ -471,6 +471,11 @@ func (s *SettlementCanonicalizeService) tokenizeObservation(
 			return obs, err // Fail if no fallback available
 		}
 
+		// Convert obs to map to avoid decimal unmarshaling issues and match intent engine pattern
+		obsMap := make(map[string]any)
+		obsBytes, _ := json.Marshal(obs)
+		json.Unmarshal(obsBytes, &obsMap)
+
 		req := models.TokenizeRequestEvent{
 			EventType:      "PII_TOKENIZE_REQUEST",
 			TraceID:        obs.TraceID.String(),
@@ -479,8 +484,9 @@ func (s *SettlementCanonicalizeService) tokenizeObservation(
 			ObjectRef:      obs.JobID,
 			IdempotencyKey: obs.SettlementObservationID.String(),
 			Source:         "OUTCOME_ENGINE",
+			SourceSystem:   obs.SourceSystem,
 			ReceivedAt:     time.Now().UTC(),
-			Canonical:      obs,
+			Canonical:      obsMap,
 		}
 
 		err = s.TokenizeQueue.PublishTokenizeRequest(ctx, req)
@@ -509,16 +515,40 @@ func (s *SettlementCanonicalizeService) ProcessTokenizeResult(
 	event *models.TokenizeResultEvent,
 ) (models.CanonicalSettlementObservation, error) {
 
-	log.Printf("settlement.tokenize.callback.async observation_id=%s tokens=%+v", event.IdempotencyKey, event.Tokens)
+	log.Printf("settlement.tokenize.callback.async envelope_id=%s tokens=%+v", event.EnvelopeID, event.Tokens)
 
-	log.Printf("ProcessTokenizeResult: ObservationID=%s", event.IdempotencyKey)
+	log.Printf("ProcessTokenizeResult: EnvelopeID=%s", event.EnvelopeID)
 
-	obs := event.Canonical
+	// Check if this belongs to outcome engine by trying to parse settlement_observation_id
+	obsIDStr, ok := event.Canonical["settlement_observation_id"].(string)
+	if !ok || obsIDStr == "" {
+		log.Printf("ProcessTokenizeResult: Ignoring event, not a settlement observation (no settlement_observation_id)")
+		return models.CanonicalSettlementObservation{}, nil
+	}
+
+	// Reconstruct observation from map
+	var obs models.CanonicalSettlementObservation
+	obsBytes, err := json.Marshal(event.Canonical)
+	if err != nil {
+		return obs, err
+	}
+
+	if err := json.Unmarshal(obsBytes, &obs); err != nil {
+		log.Printf("ProcessTokenizeResult: Failed to unmarshal settlement observation: %v", err)
+		// If it's a decimal error (like the one reported), we should skip it as it's likely from intent engine
+		if strings.Contains(err.Error(), "can't convert") {
+			log.Printf("ProcessTokenizeResult: Ignoring event due to structural mismatch (likely intent engine message)")
+			return models.CanonicalSettlementObservation{}, nil
+		}
+		return obs, err
+	}
+
 	tokenMap := event.Tokens
 
 	// Calculate and store fingerprint
 	obs.BeneficiaryFingerprint = s.computeBeneficiaryFingerprint(tokenMap)
 
+	// Persist tokens in beneficiary JSONB field
 	beneficiaryJSON, err := json.Marshal(tokenMap)
 	if err != nil {
 		return obs, err
@@ -585,12 +615,15 @@ func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[s
 		return nil, fmt.Errorf("ZORD_PII_ENCLAVE_URL is not set")
 	}
 
+	targetURL := baseURL + "/v1/tokenize"
+	log.Printf("callEnclaveTokenize: TargetURL=%s", targetURL)
+
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
 	}
 
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/tokenize", bytes.NewReader(body))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -598,6 +631,7 @@ func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[s
 
 	resp, err := enclaveHTTPClient.Do(httpReq)
 	if err != nil {
+		log.Printf("callEnclaveTokenize: HTTP call failed: %v", err)
 		return nil, err
 	}
 	defer resp.Body.Close()

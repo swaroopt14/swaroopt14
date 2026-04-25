@@ -1,6 +1,9 @@
 package services
 
-import "github.com/google/uuid"
+import (
+	"github.com/google/uuid"
+	"zord-outcome-engine/models"
+)
 
 // SettlementParser is the interface every PSP-specific parser must implement.
 // Adding a new PSP means writing a new struct that implements this interface.
@@ -10,5 +13,5 @@ type SettlementParser interface {
 	// sourceFileRef is the S3 object path. envelopeID is the raw envelope UUID.
 	// Returns an error only for fatal file-level failures (e.g. wrong format, missing headers).
 	// Row-level failures are represented as ParsedRowResult{Failed: true}, never as errors.
-	Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID) ([]ParsedRowResult, error)
+	Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID, profile models.MappingProfile) ([]ParsedRowResult, error)
 }

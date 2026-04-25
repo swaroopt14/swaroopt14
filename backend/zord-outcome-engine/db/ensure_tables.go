@@ -227,6 +227,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	mapping_confidence NUMERIC(5,4) NOT NULL DEFAULT 0,
 	carrier_richness_score NUMERIC(5,4) NOT NULL DEFAULT 0,
 	attachment_readiness_score NUMERIC(5,4) NOT NULL DEFAULT 0,
+	beneficiary JSONB,
 	canonical_hash TEXT NOT NULL,
 	canonical_snapshot_ref TEXT,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

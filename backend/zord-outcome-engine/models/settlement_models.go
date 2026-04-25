@@ -94,6 +94,7 @@ type CanonicalSettlementObservation struct {
 	MappingConfidence          float64    `json:"mapping_confidence" db:"mapping_confidence"`
 	CarrierRichnessScore       float64    `json:"carrier_richness_score" db:"carrier_richness_score"`
 	AttachmentReadinessScore   float64    `json:"attachment_readiness_score" db:"attachment_readiness_score"`
+	Beneficiary                json.RawMessage `json:"beneficiary,omitempty" db:"beneficiary"`
 	CanonicalHash              string     `json:"canonical_hash" db:"canonical_hash"`
 	CanonicalSnapshotRef       *string    `json:"canonical_snapshot_ref,omitempty" db:"canonical_snapshot_ref"`
 	CreatedAt                  time.Time  `json:"created_at" db:"created_at"`
@@ -187,4 +188,5 @@ type UniversalSettlementShape struct {
 	ParseConfidence              float64                `json:"parse_confidence"`
 	CarrierCandidates            map[string]interface{} `json:"carrier_candidates"`
 	RawEnvelopeRef               uuid.UUID              `json:"raw_envelope_ref"`
+	PIIData                      map[string]string      `json:"pii_data,omitempty"`
 }

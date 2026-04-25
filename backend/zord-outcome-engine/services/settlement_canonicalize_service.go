@@ -1,12 +1,16 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -15,10 +19,31 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
+var enclaveHTTPClient = &http.Client{
+	Timeout:   10 * time.Second,
+	Transport: otelhttp.NewTransport(http.DefaultTransport),
+}
+
 // SettlementCanonicalizeService converts parsed results into normalized canonical observations.
-type SettlementCanonicalizeService struct{}
+type SettlementCanonicalizeService struct {
+	TokenizeQueue *KafkaTokenizeQueue
+}
+
+func (s *SettlementCanonicalizeService) computeBeneficiaryFingerprint(tokens map[string]string) string {
+	// Formula: SHA256(account_number_token + ifsc_token + vpa_token)
+	raw := tokens["account_number"] + tokens["ifsc"] + tokens["vpa"]
+	hash := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(hash[:])
+}
+
+type enclaveTokenizeRequest struct {
+	TenantID string            `json:"tenant_id"`
+	TraceID  string            `json:"trace_id"`
+	PII      map[string]string `json:"pii"`
+}
 
 // RunForJob executes the canonicalization pipeline for a specific ingest job.
 // profile is passed so the canonical observations record the correct mapping profile.
@@ -83,7 +108,14 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		// 2. Build canonical observation.
 		obs := buildCanonicalObservation(tenantID, jobID, parsedRowID, envelopeID, shape, parseConfidence, profile)
 
-		// 3. Insert into Postgres.
+		// 3. Tokenize.
+		obs, err = s.tokenizeObservation(ctx, obs, shape)
+		if err != nil {
+			log.Printf("settlement.canonicalize.tokenization_info job_id=%s row=%s msg=%v", jobID, sourceRowRef, err)
+			continue
+		}
+
+		// 4. Insert into Postgres.
 		_, err = db.DB.ExecContext(ctx, `
 			INSERT INTO canonical_settlement_observations (
 				settlement_observation_id, tenant_id, trace_id,
@@ -101,13 +133,15 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				mapping_profile_id, mapping_profile_version,
 				parse_confidence, mapping_confidence,
 				carrier_richness_score, attachment_readiness_score,
+				beneficiary,
 				canonical_hash,
 				created_at, updated_at
 			) VALUES (
 				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 				$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 				$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-				$31,$32,$33,$34,$35,$36,$37
+				$31,$32,$33,$34,$35,
+				$36,$37,$38
 			) ON CONFLICT (settlement_observation_id) DO NOTHING`,
 			obs.SettlementObservationID, obs.TenantID, obs.TraceID,
 			obs.SettlementEnvelopeID, obs.JobID,
@@ -124,6 +158,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			obs.MappingProfileID, obs.MappingProfileVersion,
 			obs.ParseConfidence, obs.MappingConfidence,
 			obs.CarrierRichnessScore, obs.AttachmentReadinessScore,
+			obs.Beneficiary,
 			obs.CanonicalHash,
 			obs.CreatedAt, obs.UpdatedAt,
 		)
@@ -404,4 +439,213 @@ func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.Univ
 	combined := strings.Join(parts, "|")
 	hash := sha256.Sum256([]byte(combined))
 	return hex.EncodeToString(hash[:])
+}
+
+// ─── Tokenization Logic ────────────────────────────────────────────────────────
+
+func (s *SettlementCanonicalizeService) tokenizeObservation(
+	ctx context.Context,
+	obs models.CanonicalSettlementObservation,
+	shape models.UniversalSettlementShape,
+) (models.CanonicalSettlementObservation, error) {
+
+	piiPayload := shape.PIIData
+	if piiPayload == nil {
+		piiPayload = make(map[string]string)
+	}
+
+	tokenReq := enclaveTokenizeRequest{
+		TenantID: obs.TenantID.String(),
+		TraceID:  obs.TraceID.String(),
+		PII:      piiPayload,
+	}
+
+	log.Printf("settlement.tokenize.request.sync observation_id=%s data=%+v enclave_url=%s", obs.SettlementObservationID, tokenReq, os.Getenv("ZORD_PII_ENCLAVE_URL"))
+
+	tokenMap, err := callEnclaveTokenize(ctx, tokenReq)
+	if err != nil {
+		log.Printf("⚠️ Sync tokenization failed for observation_id=%s, falling back to Kafka: %v", obs.SettlementObservationID, err)
+
+		// KAFKA FALLBACK
+		if s.TokenizeQueue == nil {
+			return obs, err // Fail if no fallback available
+		}
+
+		// Convert obs to map to avoid decimal unmarshaling issues and match intent engine pattern
+		obsMap := make(map[string]any)
+		obsBytes, _ := json.Marshal(obs)
+		json.Unmarshal(obsBytes, &obsMap)
+
+		req := models.TokenizeRequestEvent{
+			EventType:      "PII_TOKENIZE_REQUEST",
+			TraceID:        obs.TraceID.String(),
+			EnvelopeID:     obs.SettlementEnvelopeID.String(),
+			TenantID:       obs.TenantID.String(),
+			ObjectRef:      obs.JobID,
+			IdempotencyKey: obs.SettlementObservationID.String(),
+			Source:         "OUTCOME_ENGINE",
+			SourceSystem:   obs.SourceSystem,
+			ReceivedAt:     time.Now().UTC(),
+			Canonical:      obsMap,
+		}
+
+		err = s.TokenizeQueue.PublishTokenizeRequest(ctx, req)
+		if err != nil {
+			return obs, err
+		}
+
+		// return dummy/nil-like to skip persistence in sync loop
+		return models.CanonicalSettlementObservation{}, fmt.Errorf("queued for async tokenization")
+	}
+
+	log.Printf("settlement.tokenize.response.sync observation_id=%s tokens=%+v", obs.SettlementObservationID, tokenMap)
+
+	// Calculate and store fingerprint
+	obs.BeneficiaryFingerprint = s.computeBeneficiaryFingerprint(tokenMap)
+
+	// Persist tokens in beneficiary JSONB field
+	beneficiaryJSON, _ := json.Marshal(tokenMap)
+	obs.Beneficiary = beneficiaryJSON
+
+	return obs, nil
+}
+
+func (s *SettlementCanonicalizeService) ProcessTokenizeResult(
+	ctx context.Context,
+	event *models.TokenizeResultEvent,
+) (models.CanonicalSettlementObservation, error) {
+
+	log.Printf("settlement.tokenize.callback.async envelope_id=%s tokens=%+v", event.EnvelopeID, event.Tokens)
+
+	log.Printf("ProcessTokenizeResult: EnvelopeID=%s", event.EnvelopeID)
+
+	// Check if this belongs to outcome engine by trying to parse settlement_observation_id
+	obsIDStr, ok := event.Canonical["settlement_observation_id"].(string)
+	if !ok || obsIDStr == "" {
+		log.Printf("ProcessTokenizeResult: Ignoring event, not a settlement observation (no settlement_observation_id)")
+		return models.CanonicalSettlementObservation{}, nil
+	}
+
+	// Reconstruct observation from map
+	var obs models.CanonicalSettlementObservation
+	obsBytes, err := json.Marshal(event.Canonical)
+	if err != nil {
+		return obs, err
+	}
+
+	if err := json.Unmarshal(obsBytes, &obs); err != nil {
+		log.Printf("ProcessTokenizeResult: Failed to unmarshal settlement observation: %v", err)
+		// If it's a decimal error (like the one reported), we should skip it as it's likely from intent engine
+		if strings.Contains(err.Error(), "can't convert") {
+			log.Printf("ProcessTokenizeResult: Ignoring event due to structural mismatch (likely intent engine message)")
+			return models.CanonicalSettlementObservation{}, nil
+		}
+		return obs, err
+	}
+
+	tokenMap := event.Tokens
+
+	// Calculate and store fingerprint
+	obs.BeneficiaryFingerprint = s.computeBeneficiaryFingerprint(tokenMap)
+
+	// Persist tokens in beneficiary JSONB field
+	beneficiaryJSON, err := json.Marshal(tokenMap)
+	if err != nil {
+		return obs, err
+	}
+	obs.Beneficiary = beneficiaryJSON
+
+	// Persist into Postgres (Async path)
+	_, err = db.DB.ExecContext(ctx, `
+		INSERT INTO canonical_settlement_observations (
+			settlement_observation_id, tenant_id, trace_id,
+			settlement_envelope_id, job_id,
+			source_file_ref, source_row_ref, source_system,
+			observation_kind, source_strength_class,
+			client_reference_candidate, provider_reference, bank_reference,
+			external_reference, batch_reference,
+			beneficiary_fingerprint,
+			amount, settled_amount, fee_amount, deduction_amount,
+			currency_code, settlement_status,
+			retry_flag, reversal_flag, return_flag,
+			observation_timestamp, value_date,
+			provider_ref_status,
+			mapping_profile_id, mapping_profile_version,
+			parse_confidence, mapping_confidence,
+			carrier_richness_score, attachment_readiness_score,
+			beneficiary,
+			canonical_hash,
+			created_at, updated_at
+		) VALUES (
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+			$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
+			$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
+			$31,$32,$33,$34,$35,
+			$36,$37,$38
+		) ON CONFLICT (settlement_observation_id) DO UPDATE SET
+			beneficiary = EXCLUDED.beneficiary,
+			beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
+			updated_at = NOW()`,
+		obs.SettlementObservationID, obs.TenantID, obs.TraceID,
+		obs.SettlementEnvelopeID, obs.JobID,
+		obs.SourceFileRef, obs.SourceRowRef, obs.SourceSystem,
+		obs.ObservationKind, obs.SourceStrengthClass,
+		obs.ClientReferenceCandidate, obs.ProviderReference, obs.BankReference,
+		obs.ExternalReference, obs.BatchReference,
+		obs.BeneficiaryFingerprint,
+		obs.Amount, obs.SettledAmount, obs.FeeAmount, obs.DeductionAmount,
+		obs.CurrencyCode, obs.SettlementStatus,
+		obs.RetryFlag, obs.ReversalFlag, obs.ReturnFlag,
+		obs.ObservationTimestamp, obs.ValueDate,
+		obs.ProviderRefStatus,
+		obs.MappingProfileID, obs.MappingProfileVersion,
+		obs.ParseConfidence, obs.MappingConfidence,
+		obs.CarrierRichnessScore, obs.AttachmentReadinessScore,
+		obs.Beneficiary,
+		obs.CanonicalHash,
+		obs.CreatedAt, obs.UpdatedAt,
+	)
+
+	return obs, err
+}
+
+func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[string]string, error) {
+	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("ZORD_PII_ENCLAVE_URL")), "/")
+	if baseURL == "" {
+		return nil, fmt.Errorf("ZORD_PII_ENCLAVE_URL is not set")
+	}
+
+	targetURL := baseURL + "/v1/tokenize"
+	log.Printf("callEnclaveTokenize: TargetURL=%s", targetURL)
+
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := enclaveHTTPClient.Do(httpReq)
+	if err != nil {
+		log.Printf("callEnclaveTokenize: HTTP call failed: %v", err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("enclave tokenize failed: status=%d body=%s", resp.StatusCode, string(raw))
+	}
+
+	var out struct {
+		Tokens map[string]string `json:"tokens"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	return out.Tokens, nil
 }

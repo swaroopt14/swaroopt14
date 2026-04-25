@@ -42,7 +42,7 @@ var cashfreeHeaders = []string{
 
 
 // Parse reads raw file bytes and returns one ParsedRowResult per data row.
-func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID) ([]ParsedRowResult, error) {
+func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID, profile models.MappingProfile) ([]ParsedRowResult, error) {
 	reader := csv.NewReader(bytes.NewReader(fileBytes))
 	
 	// Read header and validate
@@ -87,14 +87,14 @@ func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 		}
 		rowIndex++
 
-		result := parseCashfreeRow(row, rowIndex, sourceFileRef, envelopeID)
+		result := parseCashfreeRow(row, rowIndex, sourceFileRef, envelopeID, header, profile)
 		results = append(results, result)
 	}
 
 	return results, nil
 }
 
-func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelopeID uuid.UUID) ParsedRowResult {
+func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelopeID uuid.UUID, headerRow []string, profile models.MappingProfile) ParsedRowResult {
 	confidence := 1.0
 	var warnings []string
 
@@ -173,9 +173,6 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		SettledAmount:            &settledAmount,
 		FeeAmount:                &serviceCharge,
 		DeductionAmount:          &serviceTax,
-		// Cashfree India settlement exports do not include a currency column.
-		// All domestic Cashfree settlements are in Indian Rupees.
-		// When multi-currency support is needed, add currency to the profile config.
 		CurrencyCode:             "INR",
 		StatusCandidate:          statusCandidate,
 		ObservationKind:          observationKind,
@@ -187,6 +184,22 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		CarrierCandidates:        make(map[string]interface{}),
 		PartyReferenceCandidates: make(map[string]interface{}),
 		BeneficiaryIdentityCandidates: make(map[string]interface{}),
+		PIIData:                  make(map[string]string),
+	}
+
+	for i, colHeader := range headerRow {
+		h := strings.ToLower(strings.TrimSpace(colHeader))
+		if i < len(row) {
+			val := strings.TrimSpace(row[i])
+			if val != "" {
+				for _, piiField := range profile.PIIFields {
+					if h == piiField {
+						shape.PIIData[h] = val
+						break
+					}
+				}
+			}
+		}
 	}
 
 	return ParsedRowResult{

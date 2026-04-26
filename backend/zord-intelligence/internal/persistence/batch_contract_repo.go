@@ -264,6 +264,47 @@ func (r *BatchContractRepo) ListRequiringReview(
 	return result, nil
 }
 
+// ListByFinalityStatus returns batches for a tenant filtered by batch_finality_status.
+func (r *BatchContractRepo) ListByFinalityStatus(
+	ctx context.Context,
+	tenantID string,
+	status string,
+	limit int,
+) ([]BatchContract, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	sql := `
+		SELECT batch_id, tenant_id, source_reference,
+		       total_count, success_count, failed_count, pending_count,
+		       reversed_count, partial_recon_count,
+		       total_intended_amount_minor, total_confirmed_amount_minor, total_variance_minor,
+		       batch_finality_status, ambiguity_score, defensibility_tier,
+		       last_updated_at, created_at
+		FROM   batch_contracts
+		WHERE  tenant_id = $1
+		  AND  batch_finality_status = $2
+		ORDER  BY last_updated_at DESC
+		LIMIT  $3
+	`
+	rows, err := r.pool.Query(ctx, sql, tenantID, status, limit)
+	if err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.ListByFinalityStatus tenant=%s status=%s: %w", tenantID, status, err)
+	}
+	defer rows.Close()
+
+	var result []BatchContract
+	for rows.Next() {
+		bc, err := scanBatchContractFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("batch_contract_repo.ListByFinalityStatus scan: %w", err)
+		}
+		result = append(result, *bc)
+	}
+	return result, nil
+}
+
 // scanBatchContract scans one row from a QueryRow call.
 func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	var bc BatchContract

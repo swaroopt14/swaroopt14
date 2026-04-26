@@ -14,6 +14,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/zord/zord-intelligence/internal/models"
@@ -132,6 +133,10 @@ func (h *PolicyHandler) EnablePolicy(w http.ResponseWriter, r *http.Request) {
 	policyID := chi.URLParam(r, "id")
 
 	if err := h.policyRepo.SetEnabled(r.Context(), policyID, true); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "policy not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to enable policy: "+err.Error())
 		return
 	}
@@ -147,6 +152,10 @@ func (h *PolicyHandler) DisablePolicy(w http.ResponseWriter, r *http.Request) {
 	policyID := chi.URLParam(r, "id")
 
 	if err := h.policyRepo.SetEnabled(r.Context(), policyID, false); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			writeError(w, http.StatusNotFound, "policy not found")
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "failed to disable policy: "+err.Error())
 		return
 	}

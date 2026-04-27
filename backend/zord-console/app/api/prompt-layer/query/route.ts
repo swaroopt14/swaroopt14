@@ -9,8 +9,14 @@ function upstreamBaseUrl() {
   return process.env.PROMPT_LAYER_URL || 'http://zord-prompt-layer:8086'
 }
 
+function upstreamCandidates() {
+  if (process.env.PROMPT_LAYER_URL) return [process.env.PROMPT_LAYER_URL]
+  // Prefer localhost for local frontend-only dev, then docker service host.
+  return ['http://localhost:8086', upstreamBaseUrl()]
+}
+
 export async function POST(req: Request) {
-  const url = `${upstreamBaseUrl()}/query`
+  const candidateUrls = upstreamCandidates().map((base) => `${base}/query`)
 
   let body: unknown
   try {
@@ -19,13 +25,39 @@ export async function POST(req: Request) {
     return NextResponse.json({ details: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body),
-    // Avoid any unintended caching semantics.
-    cache: 'no-store',
-  })
+  let res: Response | null = null
+  let lastError: unknown = null
+  let lastUrl = candidateUrls[candidateUrls.length - 1]
+
+  for (const url of candidateUrls) {
+    lastUrl = url
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        // Avoid any unintended caching semantics.
+        cache: 'no-store',
+      })
+
+      if (res.ok || res.status < 500) {
+        break
+      }
+    } catch (error) {
+      lastError = error
+    }
+  }
+
+  if (!res) {
+    return NextResponse.json(
+      {
+        details: 'Prompt-layer service unavailable',
+        upstream: lastUrl,
+        error: lastError instanceof Error ? lastError.message : 'Unknown upstream error',
+      },
+      { status: 502 },
+    )
+  }
 
   const text = await res.text()
   return new NextResponse(text, {
@@ -41,4 +73,3 @@ export async function OPTIONS() {
   // Same-origin calls to /api/... typically don't require CORS, but OPTIONS may happen in some setups.
   return new NextResponse(null, { status: 204 })
 }
-

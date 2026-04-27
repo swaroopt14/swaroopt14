@@ -333,6 +333,17 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 				continue
 			}
 
+			isEmpty := true
+			for _, col := range row {
+				if strings.TrimSpace(col) != "" {
+					isEmpty = false
+					break
+				}
+			}
+			if isEmpty {
+				continue
+			}
+
 			jsonPayload, err := buildRowPayload(headers, row)
 			if err != nil {
 				results[i-1] = BulkResult{
@@ -376,7 +387,14 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		close(jobs)
 		wg.Wait()
 
-		respondBulkResults(c, results, file.Filename, fileHash)
+		var actualResults []BulkResult
+		for _, r := range results {
+			if r.Status != "" {
+				actualResults = append(actualResults, r)
+			}
+		}
+
+		respondBulkResults(c, actualResults, file.Filename, fileHash)
 
 	// ── Excel ─────────────────────────────────────────────────────────────────
 	case ".xlsx":
@@ -534,6 +552,17 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 				continue
 			}
 
+			isEmpty := true
+			for _, col := range row {
+				if strings.TrimSpace(col) != "" {
+					isEmpty = false
+					break
+				}
+			}
+			if isEmpty {
+				continue
+			}
+
 			jsonPayload, err := buildRowPayload(headers, row)
 			if err != nil {
 				results[i-1] = BulkResult{
@@ -577,7 +606,14 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		close(jobs)
 		wg.Wait()
 
-		respondBulkResults(c, results, file.Filename, fileHash)
+		var actualResults []BulkResult
+		for _, r := range results {
+			if r.Status != "" {
+				actualResults = append(actualResults, r)
+			}
+		}
+
+		respondBulkResults(c, actualResults, file.Filename, fileHash)
 
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{

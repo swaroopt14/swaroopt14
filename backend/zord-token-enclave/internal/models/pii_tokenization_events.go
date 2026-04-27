@@ -16,8 +16,8 @@ type TokenizeRequestEvent struct {
 	Source         string    `json:"source"`
 	SourceSystem   string    `json:"source_system"`
 	ReceivedAt     time.Time `json:"received_at"`
-
 	Canonical map[string]interface{} `json:"canonical"`
+	BatchID   *string              `json:"batchid,omitempty"`
 }
 
 /*
@@ -31,8 +31,10 @@ type TokenizeResultEvent struct {
 	TenantID     string `json:"tenant_id"`
 	ObjectRef    string `json:"object_ref"`
 	SourceSystem string `json:"source_system"`
+	IdempotencyKey string `json:"idempotency_key"`
 
 	Tokens map[string]string `json:"tokens"`
 
 	Canonical map[string]interface{} `json:"canonical"`
+	BatchID   *string              `json:"batchid,omitempty"`
 }

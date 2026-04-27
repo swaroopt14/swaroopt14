@@ -127,7 +127,7 @@ VALUES (
 		intent.SchemaVersion,             // $11
 		intent.Amount,                    // $12
 		intent.Currency,                  // $13
-		intent.IntendedExecutionAt,                // $14
+		intent.IntendedExecutionAt,       // $14
 		intent.Constraints,               // $15
 		intent.BeneficiaryType,           // $16
 		intent.PIITokens,                 // $17
@@ -140,7 +140,7 @@ VALUES (
 		intent.CanonicalHash,             // $24
 		intent.CreatedAt,                 // $25
 		intent.ClientPayoutRef,           // $26
-		intent.ProviderHint,             // $27
+		intent.ProviderHint,              // $27
 		intent.RequestFingerprint,        // $28
 		intent.RoutingHintsJSON,          // $29
 		intent.GovernanceState,           // $30
@@ -250,7 +250,7 @@ INSERT INTO outbox (
 		outbox.SalientHash,               // $12
 		outbox.IntentType,                // $13
 		outbox.CanonicalVersion,          // $14
-		outbox.IntendedExecutionAt,                // $15
+		outbox.IntendedExecutionAt,       // $15
 		outbox.Constraints,               // $16
 		outbox.BeneficiaryType,           // $17
 		outbox.PIITokens,                 // $18
@@ -262,7 +262,7 @@ INSERT INTO outbox (
 		outbox.NIRSnapshotRef,            // $24
 		outbox.GovernanceSnapshotRef,     // $25
 		outbox.ClientPayoutRef,           // $26
-		outbox.ProviderHint,             // $27
+		outbox.ProviderHint,              // $27
 		outbox.RequestFingerprint,        // $28
 		outbox.RoutingHintsJSON,          // $29
 		outbox.GovernanceState,           // $30
@@ -459,6 +459,19 @@ func (r *PaymentIntentRepo) UpdateSnapshotRefs(
 	`
 
 	if _, err := r.db.ExecContext(ctx, query, canonicalRef, nirRef, govRef, hash, intentID); err != nil {
+		return err
+	}
+
+	outboxQuery := `
+	UPDATE outbox
+	SET canonical_snapshot_ref = $1,
+	    nir_snapshot_ref = $2,
+	    governance_snapshot_ref = $3,
+	    canonical_hash = $4
+	WHERE aggregate_id = $5
+	`
+
+	if _, err := r.db.ExecContext(ctx, outboxQuery, canonicalRef, nirRef, govRef, hash, intentID); err != nil {
 		return err
 	}
 

@@ -42,11 +42,23 @@ func main() {
 	}
 
 	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+
 	producer, err := kafka.NewProducer(brokers)
 	if err != nil {
 		log.Fatalf("Kafka producer creation failure: %v", err)
 	}
 	defer producer.Close()
+
+	dispatchTopic := os.Getenv("KAFKA_TOPIC")
+	if strings.TrimSpace(dispatchTopic) == "" {
+		// Default to the relay's dispatch event stream topic so that
+		// dispatch_index is populated even if KAFKA_TOPIC is not set.
+		dispatchTopic = "payments.dispatch.events.v1"
+	}
+	intentTopic := os.Getenv("KAFKA_INTENT_TOPIC")
+	if strings.TrimSpace(intentTopic) == "" {
+		intentTopic = "payments.intent.events.v1"
+	}
 
 	// -------- TOKENIZE RESULT CONSUMER --------
 	resultTopic := os.Getenv("KAFKA_TOPIC_PII_TOKENIZE_RESULT")
@@ -58,7 +70,10 @@ func main() {
 	canonSvc := &services.SettlementCanonicalizeService{
 		TokenizeQueue: tokenizeQueue,
 	}
+	groupID := "outcome-engine-dispatch-group"
+	intentGroupID := "outcome-engine-intent-group"
 
+	// Tokenize result consumer — runs in its own goroutine.
 	go func() {
 		err := kafka.StartConsumer(
 			ctx,
@@ -72,7 +87,7 @@ func main() {
 					return err
 				}
 				log.Printf("Received tokenize result for envelope=%s", event.EnvelopeID)
-				_, err = canonSvc.ProcessTokenizeResult(ctx, &event)
+				_, err := canonSvc.ProcessTokenizeResult(ctx, &event)
 				if err != nil {
 					log.Printf("Failed to process tokenize result: %v", err)
 					return err
@@ -84,6 +99,24 @@ func main() {
 			log.Printf("Kafka tokenize result consumer failed: %v", err)
 		}
 	}()
+
+	// Dispatch consumer — runs in its own goroutine.
+	go func() {
+		err := kafka.StartConsumer(ctx, brokers, groupID, dispatchTopic, handlers.HandleDispatchEvent)
+		if err != nil {
+			log.Fatalf("Dispatch Kafka consumer failed: %v", err)
+		}
+	}()
+
+	// Intent consumer — runs in its own goroutine.
+	go func() {
+		err := kafka.StartConsumer(ctx, brokers, intentGroupID, intentTopic, handlers.HandleIntentEvent)
+		if err != nil {
+			log.Fatalf("Intent Kafka consumer failed: %v", err)
+		}
+	}()
+
+	log.Printf("Kafka consumers started dispatch_topic=%s intent_topic=%s tokenization_topic=%s", dispatchTopic, intentTopic, resultTopic)
 
 	bucket := os.Getenv("S3_BUCKET")
 	region := os.Getenv("AWS_REGION")
@@ -106,6 +139,7 @@ func main() {
 		Kafka:   producer,
 	}
 	routes.Routes(server, h)
+	routes.AttachmentRoutes(server, h)
 
 	log.Println("Starting Zord Outcome Engine service on port 8081 with observability enabled")
 

@@ -1,0 +1,191 @@
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    disableConcurrentBuilds()
+  }
+
+  parameters {
+    choice(
+      name: 'SERVICE_NAME',
+      choices: [
+        'zord-console',
+        'zord-edge',
+        'zord-evidence',
+        'zord-intelligence',
+        'zord-intent-engine',
+        'zord-outcome-engine',
+        'zord-prompt-layer',
+        'zord-relay',
+        'zord-token-enclave'
+      ],
+      description: 'Service to build and deploy'
+    )
+    string(name: 'AWS_ACCOUNT_ID', defaultValue: '123456789012', description: 'AWS account that owns the ECR repositories')
+    string(name: 'AWS_REGION', defaultValue: 'ap-south-1', description: 'AWS region for ECR')
+    string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag. Leave empty to auto-generate in vN format.')
+    string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch to update')
+    string(name: 'ECR_REPOSITORY_PREFIX', defaultValue: '', description: 'Optional ECR repository prefix, for example team/platform')
+    booleanParam(name: 'USE_INSTANCE_ROLE', defaultValue: true, description: 'Use the EC2 instance IAM role for AWS access')
+    booleanParam(name: 'PUSH_MANIFEST_CHANGES', defaultValue: true, description: 'Commit and push deployment.yaml changes back to GitHub')
+  }
+
+  environment {
+    AWS_CREDENTIALS_ID = 'aws-ecr-credentials'
+    GIT_CREDENTIALS_ID = 'github-pat'
+    GIT_REPO_URL = 'https://github.com/Arealis-network/Arealis-Zord-intent.git'
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Prepare') {
+      steps {
+        script {
+          env.SERVICE_DIR = "backend/${params.SERVICE_NAME}"
+          env.DEPLOYMENT_FILE = "kubernetes/eks/services/${params.SERVICE_NAME}/deployment.yaml"
+
+          if (!fileExists(env.SERVICE_DIR)) {
+            error("Service directory not found: ${env.SERVICE_DIR}")
+          }
+          if (!fileExists("${env.SERVICE_DIR}/Dockerfile")) {
+            error("Dockerfile not found: ${env.SERVICE_DIR}/Dockerfile")
+          }
+          if (!fileExists(env.DEPLOYMENT_FILE)) {
+            error("Deployment manifest not found: ${env.DEPLOYMENT_FILE}")
+          }
+
+          def shortSha = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+          env.RESOLVED_IMAGE_TAG = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : "v${env.BUILD_NUMBER}"
+          env.ECR_REPOSITORY = params.ECR_REPOSITORY_PREFIX?.trim() ? "${params.ECR_REPOSITORY_PREFIX.trim()}/${params.SERVICE_NAME}" : params.SERVICE_NAME
+          env.ECR_REGISTRY = "${params.AWS_ACCOUNT_ID}.dkr.ecr.${params.AWS_REGION}.amazonaws.com"
+          env.IMAGE_URI = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.RESOLVED_IMAGE_TAG}"
+        }
+      }
+    }
+
+    stage('Ensure ECR Repository') {
+      steps {
+        script {
+          def ensureRepoScript = '''
+            set -euo pipefail
+            export AWS_DEFAULT_REGION="${AWS_REGION}"
+
+            if aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}" >/dev/null 2>&1; then
+              echo "ECR repository already exists: ${ECR_REPOSITORY}"
+            else
+              aws ecr create-repository \
+                --repository-name "${ECR_REPOSITORY}" \
+                --image-scanning-configuration scanOnPush=true \
+                --image-tag-mutability MUTABLE
+            fi
+          '''
+
+          if (params.USE_INSTANCE_ROLE) {
+            sh ensureRepoScript
+          } else {
+            withCredentials([
+              usernamePassword(
+                credentialsId: env.AWS_CREDENTIALS_ID,
+                usernameVariable: 'AWS_ACCESS_KEY_ID',
+                passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+              )
+            ]) {
+              sh ensureRepoScript
+            }
+          }
+        }
+      }
+    }
+
+    stage('Build And Push Image') {
+      steps {
+        script {
+          def buildPushScript = '''
+            set -euo pipefail
+            export AWS_DEFAULT_REGION="${AWS_REGION}"
+
+            aws ecr get-login-password --region "${AWS_REGION}" \
+              | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
+
+            docker build -t "${IMAGE_URI}" "${SERVICE_DIR}"
+            docker push "${IMAGE_URI}"
+          '''
+
+          if (params.USE_INSTANCE_ROLE) {
+            sh buildPushScript
+          } else {
+            withCredentials([
+              usernamePassword(
+                credentialsId: env.AWS_CREDENTIALS_ID,
+                usernameVariable: 'AWS_ACCESS_KEY_ID',
+                passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+              )
+            ]) {
+              sh buildPushScript
+            }
+          }
+        }
+      }
+    }
+
+    stage('Update Kubernetes Manifest') {
+      steps {
+        sh '''
+          set -euo pipefail
+
+          sed -i -E "s#^([[:space:]]*image:[[:space:]]*).*$#\\1${IMAGE_URI}#" "${DEPLOYMENT_FILE}"
+
+          echo "Updated manifest:"
+          grep -n "image:" "${DEPLOYMENT_FILE}"
+        '''
+      }
+    }
+
+    stage('Commit Manifest Change') {
+      when {
+        expression { return params.PUSH_MANIFEST_CHANGES }
+      }
+      steps {
+        withCredentials([
+          usernamePassword(
+            credentialsId: env.GIT_CREDENTIALS_ID,
+            usernameVariable: 'GIT_USERNAME',
+            passwordVariable: 'GIT_TOKEN'
+          )
+        ]) {
+          sh '''
+            set -euo pipefail
+
+            git config user.name "jenkins[bot]"
+            git config user.email "jenkins@local"
+
+            git add "${DEPLOYMENT_FILE}"
+
+            if git diff --cached --quiet; then
+              echo "No manifest changes detected."
+              exit 0
+            fi
+
+            git commit -m "ci(${SERVICE_NAME}): update image to ${RESOLVED_IMAGE_TAG}"
+            git push "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/Arealis-network/Arealis-Zord-intent.git" "HEAD:${GIT_BRANCH}"
+          '''
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      sh '''
+        set +e
+        docker logout "${ECR_REGISTRY}" >/dev/null 2>&1 || true
+      '''
+    }
+  }
+}

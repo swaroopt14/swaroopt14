@@ -38,6 +38,7 @@ type TokenizeResultEvent struct {
 	TenantID     string `json:"tenant_id"`
 	SourceSystem string `json:"source_system"`
 	ObjectRef    string `json:"object_ref"`
+	IdempotencyKey string `json:"idempotency_key"`
 
 	Tokens map[string]string `json:"tokens"`
 

@@ -750,7 +750,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		return nil, nil, err
 	}
 
-	canonicalRef, hash, _ := s.s3.StoreSnapshot(
+	canonicalRef, hash, err := s.s3.StoreSnapshot(
 		ctx,
 		"canonical",
 		saved.TenantID,
@@ -759,13 +759,23 @@ func (s *IntentService) ProcessIncomingIntent(
 		canonicalBytes,
 		prevHash,
 	)
+	if err != nil {
+		log.Printf("⚠️ S3 Canonical Snapshot failed: %v. Warning: WORM metadata will remain null.", err)
+		return &saved, nil, nil
+	}
 
 	var nirRef string
 	nirBytes, _ := json.Marshal(nir)
-	nirRef, _, _ = s.s3.StoreSnapshot(ctx, "nir", saved.TenantID, saved.IntentID, version, nirBytes, "")
+	nirRef, _, err = s.s3.StoreSnapshot(ctx, "nir", saved.TenantID, saved.IntentID, version, nirBytes, "")
+	if err != nil {
+		log.Printf("⚠️ S3 NIR Snapshot failed: %v", err)
+	}
 
 	govBytes := []byte(`{"state":"` + canonical.GovernanceState + `"}`)
-	govRef, _, _ := s.s3.StoreSnapshot(ctx, "governance", saved.TenantID, saved.IntentID, version, govBytes, "")
+	govRef, _, err := s.s3.StoreSnapshot(ctx, "governance", saved.TenantID, saved.IntentID, version, govBytes, "")
+	if err != nil {
+		log.Printf("⚠️ S3 Governance Snapshot failed: %v", err)
+	}
 
 	// -------- STEP 12: UPDATE DB WITH WORM METADATA --------
 
@@ -864,11 +874,11 @@ func (s *IntentService) ProcessTokenizeResult(
 	}
 
 	nir := &models.NormalizedIngestRecord{
-		NIRID:                  uuid.New(),
-		EnvelopeID:             uuid.MustParse(event.EnvelopeID),
-		TenantID:               uuid.MustParse(event.TenantID),
-		DetectedFormat:         "json",
-		ProfileID:              profileID,
+		NIRID:                   uuid.New(),
+		EnvelopeID:              uuid.MustParse(event.EnvelopeID),
+		TenantID:                uuid.MustParse(event.TenantID),
+		DetectedFormat:          "json",
+		ProfileID:               profileID,
 		ProfileVersion:          profileVersion,
 		FieldsJSON:              fieldsJSON,
 		FieldConfidenceSummary:  json.RawMessage(`{"overall": 0.9}`),
@@ -946,11 +956,17 @@ func (s *IntentService) ProcessTokenizeResult(
 		}
 	}
 
+	idempotencyKey := event.IdempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = canonicalInput.IdempotencyKey
+	}
+
 	intent := models.CanonicalIntent{
-		TraceID:    event.TraceID,
-		IntentID:   intentID,
-		EnvelopeID: event.EnvelopeID,
-		TenantID:   event.TenantID,
+		TraceID:        event.TraceID,
+		IntentID:       intentID,
+		EnvelopeID:     event.EnvelopeID,
+		TenantID:       event.TenantID,
+		IdempotencyKey: idempotencyKey,
 
 		IntentType:       canonicalInput.IntentType,
 		CanonicalVersion: "v1",
@@ -1110,8 +1126,8 @@ func (s *IntentService) processWebhook(
 
 		IntendedExecutionAt: nil,
 		Constraints:         json.RawMessage("{}"),
-		PIITokens:   json.RawMessage("{}"),
-		Beneficiary: json.RawMessage("{}"),
+		PIITokens:           json.RawMessage("{}"),
+		Beneficiary:         json.RawMessage("{}"),
 
 		ClientPayoutRef:       in.IdempotencyKey, // Fallback to idempotency key for webhooks if ref is missing
 		RequestFingerprint:    in.IdempotencyKey,

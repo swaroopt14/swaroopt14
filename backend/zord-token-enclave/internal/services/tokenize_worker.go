@@ -68,8 +68,10 @@ func (w *TokenizeWorker) ProcessTokenizeEvent(
 		TenantID:     event.TenantID,
 		ObjectRef:    event.ObjectRef,
 		SourceSystem: event.SourceSystem,
+		IdempotencyKey: event.IdempotencyKey,
 		Tokens:       tokens,
 		Canonical:    event.Canonical,
+		BatchID:      event.BatchID,
 	}
 
 	topic := os.Getenv("KAFKA_TOPIC_PII_TOKENIZE_RESULT")

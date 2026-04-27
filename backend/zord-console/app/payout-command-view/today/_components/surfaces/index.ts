@@ -1,0 +1,6 @@
+export { HomeSurface } from './HomeSurface'
+export { LiveSyncSurface } from './LiveSyncSurface'
+export { OperationsGridSurface } from './OperationsGridSurface'
+export { ProofSurface } from './ProofSurface'
+export { RecoverySurface } from './RecoverySurface'
+export { WorkspaceSurface } from './WorkspaceSurface'

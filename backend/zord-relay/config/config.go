@@ -63,11 +63,11 @@ type KafkaConfig struct {
 
 	// Producer tuning.
 	// Acks: "all" = strongest durability guarantee (required for fintech).
-	Acks              string        `mapstructure:"acks"`
-	LingerMs          int           `mapstructure:"linger_ms"`
-	CompressionType   string        `mapstructure:"compression_type"` // snappy / lz4 / zstd
-	MessageMaxBytes   int           `mapstructure:"message_max_bytes"`
-	DeliveryTimeout   time.Duration `mapstructure:"delivery_timeout"`
+	Acks            string        `mapstructure:"acks"`
+	LingerMs        int           `mapstructure:"linger_ms"`
+	CompressionType string        `mapstructure:"compression_type"` // snappy / lz4 / zstd
+	MessageMaxBytes int           `mapstructure:"message_max_bytes"`
+	DeliveryTimeout time.Duration `mapstructure:"delivery_timeout"`
 
 	// DLQ topics.
 	DLQPublishFailureTopic string `mapstructure:"dlq_publish_failure_topic"`
@@ -100,9 +100,9 @@ type ServiceConfig struct {
 // DBConfig holds connection settings for Service 4's own Postgres database.
 type DBConfig struct {
 	// URL is the full postgres DSN. Override with RELAY_DB_URL env var.
-	URL         string `mapstructure:"url"`
-	MaxOpenConns int   `mapstructure:"max_open_conns"`
-	MaxIdleConns int   `mapstructure:"max_idle_conns"`
+	URL          string `mapstructure:"url"`
+	MaxOpenConns int    `mapstructure:"max_open_conns"`
+	MaxIdleConns int    `mapstructure:"max_idle_conns"`
 }
 
 // PSPConfig holds settings for the external Payment Service Provider client.
@@ -122,11 +122,12 @@ type TokenEnclaveConfig struct {
 
 // DispatchConfig holds all settings for the Kafka-triggered dispatch loop.
 type DispatchConfig struct {
-	ConsumerGroupID string        `mapstructure:"consumer_group_id"`
-	Topic           string        `mapstructure:"topic"`
-	PollTimeout     time.Duration `mapstructure:"poll_timeout"`
-	ConnectorID     string        `mapstructure:"connector_id"`
-	DefaultCorridorID string      `mapstructure:"default_corridor_id"`
+	Enabled           bool          `mapstructure:"enabled"`
+	ConsumerGroupID   string        `mapstructure:"consumer_group_id"`
+	Topic             string        `mapstructure:"topic"`
+	PollTimeout       time.Duration `mapstructure:"poll_timeout"`
+	ConnectorID       string        `mapstructure:"connector_id"`
+	DefaultCorridorID string        `mapstructure:"default_corridor_id"`
 
 	// WorkerCount is the size of the dispatch worker pool (Gap 14).
 	// Controls max concurrent PSP calls. Default: 4.
@@ -219,6 +220,7 @@ func Load() (*Config, error) {
 	v.SetDefault("token_enclave.timeout_seconds", 10)
 
 	// ── Dispatch defaults ───────────────────────────────────────────────────
+	v.SetDefault("dispatch.enabled", true)
 	v.SetDefault("dispatch.consumer_group_id", "dispatch-loop-group")
 	v.SetDefault("dispatch.topic", "payments.intent.events.v1")
 	v.SetDefault("dispatch.poll_timeout", "200ms")

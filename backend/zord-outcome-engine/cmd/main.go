@@ -2,16 +2,21 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"zord-outcome-engine/config"
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/handlers"
+	"zord-outcome-engine/kafka"
+	"zord-outcome-engine/models"
 	"zord-outcome-engine/routes"
+	"zord-outcome-engine/services"
 	"zord-outcome-engine/storage"
 
 	"github.com/gin-gonic/gin"
@@ -35,32 +40,50 @@ func main() {
 	if err != nil {
 		log.Println("No .env file found")
 	}
-	// brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	// topic := os.Getenv("KAFKA_TOPIC")
-	// if strings.TrimSpace(topic) == "" {
-	// 	// Default to the relay's dispatch event stream topic so that
-	// 	// dispatch_index is populated even if KAFKA_TOPIC is not set.
-	// 	topic = "z.dispatch.events.v1"
-	// }
-	// groupID := "intent-engine-group"
-	// err = kafka.StartConsumer(
-	// 	ctx,
-	// 	brokers,
-	// 	groupID,
-	// 	topic,
-	// 	handlers.HandleDispatchEvent,
-	// )
-	// if err != nil {
-	// 	log.Fatalf("Kafka consumer failed: %v", err)
-	// }
-	// log.Println("Kafka consumer started")
-	// brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-	// producer, err := kafka.NewProducer(brokers)
-	// if err != nil {
-	// 	log.Fatal("Kafka producer creation failure: ", err)
-	// }
 
-	// defer producer.Close()
+	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
+	producer, err := kafka.NewProducer(brokers)
+	if err != nil {
+		log.Fatalf("Kafka producer creation failure: %v", err)
+	}
+	defer producer.Close()
+
+	// -------- TOKENIZE RESULT CONSUMER --------
+	resultTopic := os.Getenv("KAFKA_TOPIC_PII_TOKENIZE_RESULT")
+	if resultTopic == "" {
+		resultTopic = "pii.tokenize.result"
+	}
+
+	tokenizeQueue := services.NewKafkaTokenizeQueue(producer)
+	canonSvc := &services.SettlementCanonicalizeService{
+		TokenizeQueue: tokenizeQueue,
+	}
+
+	go func() {
+		err := kafka.StartConsumer(
+			ctx,
+			brokers,
+			"outcome-engine-tokenize-result-group",
+			resultTopic,
+			func(msg []byte) error {
+				var event models.TokenizeResultEvent
+				if err := json.Unmarshal(msg, &event); err != nil {
+					log.Printf("Invalid tokenize result event: %v", err)
+					return err
+				}
+				log.Printf("Received tokenize result for envelope=%s", event.EnvelopeID)
+				_, err = canonSvc.ProcessTokenizeResult(ctx, &event)
+				if err != nil {
+					log.Printf("Failed to process tokenize result: %v", err)
+					return err
+				}
+				return nil
+			},
+		)
+		if err != nil {
+			log.Printf("Kafka tokenize result consumer failed: %v", err)
+		}
+	}()
 
 	bucket := os.Getenv("S3_BUCKET")
 	region := os.Getenv("AWS_REGION")
@@ -78,13 +101,9 @@ func main() {
 		log.Fatal("Failed to init encryption key: ", err)
 	}
 
-	// Start background workers (backfill scheduler + poll worker).
-	//services.StartBackfillScheduler(ctx)
-	//services.StartPollWorker(ctx)
-
-	h := &handlers.Handler{ //need to add h
+	h := &handlers.Handler{
 		S3store: s3store,
-		//Kafka:   producer,
+		Kafka:   producer,
 	}
 	routes.Routes(server, h)
 

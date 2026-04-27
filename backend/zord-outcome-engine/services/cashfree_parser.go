@@ -5,7 +5,6 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -41,8 +40,9 @@ var cashfreeHeaders = []string{
 	"settled_amount", "service_charge", "service_tax", "settlement_date", "transaction_type",
 }
 
+
 // Parse reads raw file bytes and returns one ParsedRowResult per data row.
-func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID) ([]ParsedRowResult, error) {
+func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID, profile models.MappingProfile) ([]ParsedRowResult, error) {
 	reader := csv.NewReader(bytes.NewReader(fileBytes))
 	
 	// Read header and validate
@@ -87,14 +87,14 @@ func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 		}
 		rowIndex++
 
-		result := parseCashfreeRow(row, rowIndex, sourceFileRef, envelopeID)
+		result := parseCashfreeRow(row, rowIndex, sourceFileRef, envelopeID, header, profile)
 		results = append(results, result)
 	}
 
 	return results, nil
 }
 
-func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelopeID uuid.UUID) ParsedRowResult {
+func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelopeID uuid.UUID, headerRow []string, profile models.MappingProfile) ParsedRowResult {
 	confidence := 1.0
 	var warnings []string
 
@@ -158,10 +158,6 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		statusCandidate = "UNKNOWN"
 	}
 
-	settledMinor := int64(math.Round(settledAmount * 100))
-	feeMinor := int64(math.Round(serviceCharge * 100))
-	taxMinor := int64(math.Round(serviceTax * 100))
-
 	shape := models.UniversalSettlementShape{
 		ArtifactFamily:           "PSP_SETTLEMENT_RECON",
 		SourceSystem:             "cashfree",
@@ -173,13 +169,10 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		ExternalReference:        strPtr(extRef),
 		ClientReferenceCandidate: strPtr(batchRef),
 		BatchReference:           strPtr(batchRef),
-		AmountMinor:              int64(math.Round(orderAmount * 100)),
-		SettledAmountMinor:       &settledMinor,
-		FeeAmountMinor:           &feeMinor,
-		DeductionAmountMinor:     &taxMinor,
-		// Cashfree India settlement exports do not include a currency column.
-		// All domestic Cashfree settlements are in Indian Rupees.
-		// When multi-currency support is needed, add currency to the profile config.
+		Amount:                   orderAmount,
+		SettledAmount:            &settledAmount,
+		FeeAmount:                &serviceCharge,
+		DeductionAmount:          &serviceTax,
 		CurrencyCode:             "INR",
 		StatusCandidate:          statusCandidate,
 		ObservationKind:          observationKind,
@@ -191,6 +184,22 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		CarrierCandidates:        make(map[string]interface{}),
 		PartyReferenceCandidates: make(map[string]interface{}),
 		BeneficiaryIdentityCandidates: make(map[string]interface{}),
+		PIIData:                  make(map[string]string),
+	}
+
+	for i, colHeader := range headerRow {
+		h := strings.ToLower(strings.TrimSpace(colHeader))
+		if i < len(row) {
+			val := strings.TrimSpace(row[i])
+			if val != "" {
+				for _, piiField := range profile.PIIFields {
+					if h == piiField {
+						shape.PIIData[h] = val
+						break
+					}
+				}
+			}
+		}
 	}
 
 	return ParsedRowResult{

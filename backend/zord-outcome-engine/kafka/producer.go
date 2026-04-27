@@ -1,6 +1,9 @@
 package kafka
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
 	"log"
 	"time"
 
@@ -65,6 +68,26 @@ func NewProducer(brokers []string) (*Producer, error) {
 }
 
 // Publish Logic
+func (p *Producer) Publish(ctx context.Context, topic string, key string, payload interface{}) error {
+	if p == nil || p.producer == nil {
+		return fmt.Errorf("kafka producer not initialized")
+	}
+
+	value, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal kafka payload: %w", err)
+	}
+
+	msg := &sarama.ProducerMessage{
+		Topic: topic,
+		Key:   sarama.StringEncoder(key),
+		Value: sarama.ByteEncoder(value),
+	}
+
+	p.producer.Input() <- msg
+	return nil
+}
+
 func (p *Producer) Close() error {
 
 	if p == nil || p.producer == nil {

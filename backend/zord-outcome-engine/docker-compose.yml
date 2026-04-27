@@ -22,6 +22,9 @@ services:
       - JAEGER_ENDPOINT=http://host.docker.internal:14268/api/traces 
       - AWS_REGION=ap-south-1
       - AWS_EC2_METADATA_DISABLED=true
+      - ZORD_PII_ENCLAVE_URL=http://host.docker.internal:8087
+      - KAFKA_TOPIC_PII_TOKENIZE_REQUEST=pii.tokenize.request
+      - KAFKA_TOPIC_PII_TOKENIZE_RESULT=pii.tokenize.result
       - S3_BUCKET=swaroop-vault2
     depends_on:
       postgres:

@@ -7,6 +7,7 @@ export const BACKEND_SERVICES = {
     BASE_URL: process.env.ZORD_EDGE_URL || 'http://localhost:8080',
     ENDPOINTS: {
       HEALTH: '/v1/health',
+      OVERVIEW: '/v1/overview',
       INGEST: '/v1/ingest',
       TENANT_REGISTER: '/v1/tenantReg',
       TENANTS: '/v1/tenants',

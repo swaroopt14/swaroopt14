@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS payment_intents (
 
     amount NUMERIC NOT NULL,
     currency CHAR(3) NOT NULL,
-    deadline_at TIMESTAMPTZ,
+    intended_execution_at TIMESTAMPTZ,
 
     constraints JSONB,
     beneficiary_type TEXT,
@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS payment_intents (
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     client_payout_ref TEXT,
+    provider_hint TEXT,
     request_fingerprint TEXT,
     routing_hints_json JSONB,
     governance_state TEXT,
@@ -110,6 +111,8 @@ CREATE TABLE IF NOT EXISTS outbox (
     -- tracing / observability
     trace_id UUID NOT NULL,  
     envelope_id UUID NOT NULL,
+    provider_hint TEXT,
+    intended_execution_at TIMESTAMPTZ,
     batchid TEXT,
 
     CONSTRAINT fk_outbox_intent

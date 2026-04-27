@@ -3,10 +3,8 @@ package services
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
-	"time"
 
 	"zord-outcome-engine/models"
 
@@ -41,7 +39,7 @@ type ParsedRowResult struct {
 type RazorpayParser struct{}
 
 // Parse processes the raw XLSX bytes and converts each row into a UniversalSettlementShape.
-func (p *RazorpayParser) Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID) ([]ParsedRowResult, error) {
+func (p *RazorpayParser) Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID, profile models.MappingProfile) ([]ParsedRowResult, error) {
 	// 1. Initialize excelize reader from raw bytes.
 	f, err := excelize.OpenReader(bytes.NewReader(fileBytes))
 	if err != nil {
@@ -73,7 +71,7 @@ func (p *RazorpayParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 	var results []ParsedRowResult
 	for i, row := range rows[1:] {
 		rowIndex := i + 1
-		result := parseRazorpayRow(row, rowIndex, sourceFileRef, envelopeID)
+		result := parseRazorpayRow(row, rowIndex, sourceFileRef, envelopeID, rows[0], profile)
 		results = append(results, result)
 	}
 	return results, nil
@@ -94,7 +92,7 @@ func validateRazorpayHeaders(headerRow []string) error {
 }
 
 // parseRazorpayRow performs the actual field mapping and normalization for a single row.
-func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelopeID uuid.UUID) ParsedRowResult {
+func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelopeID uuid.UUID, headerRow []string, profile models.MappingProfile) ParsedRowResult {
 	confidence := 1.0
 	var warnings []string
 
@@ -104,12 +102,10 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		rawCols[h] = cellStr(row, i)
 	}
 
-	// Handle Amount Conversion: Convert decimal string to Minor units (int64).
-	//need to confirm this part
+	// Handle Amount Conversion: Convert decimal string to Decimal.
 	amount := parseDecimal(cellStr(row, 2))
 	fee := parseDecimal(cellStr(row, 4))
 	tax := parseDecimal(cellStr(row, 5))
-	debit := parseDecimal(cellStr(row, 6))
 	credit := parseDecimal(cellStr(row, 7))
 
 	// Handle Date Normalization: Try multiple formats, fallback to Now() if missing/corrupt.
@@ -156,17 +152,13 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		observationKind = "REVERSAL"
 	}
 
-	// Determine Status based on directional credit/debit.
+	// Determine Status based on entity type.
 	statusCandidate := "SETTLED"
-	if debit > 0 {
+	if txEntity == "refund" {
 		statusCandidate = "REVERSED"
 	}
 
 	// Construct the Universal Shape.
-	creditMinor := int64(math.Round(credit * 100))
-	feeMinor := int64(math.Round(fee * 100))
-	taxMinor := int64(math.Round(tax * 100))
-
 	shape := models.UniversalSettlementShape{
 		ArtifactFamily:           "PSP_SETTLEMENT_RECON",
 		SourceSystem:             "razorpay",
@@ -178,14 +170,14 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		ExternalReference:        strPtr(extRef),
 		ClientReferenceCandidate: strPtr(clientRefCand),
 		BatchReference:           strPtr(batchRef),
-		AmountMinor:              int64(math.Round(amount * 100)),
-		SettledAmountMinor:       &creditMinor,
-		FeeAmountMinor:           &feeMinor,
-		DeductionAmountMinor:     &taxMinor,
+		Amount:                   amount,
+		SettledAmount:            &credit,
+		FeeAmount:                &fee,
+		DeductionAmount:          &tax,
 		CurrencyCode:             cellStr(row, 3),
 		StatusCandidate:          statusCandidate,
 		ObservationKind:          observationKind,
-		ReversalFlag:             debit > 0,
+		ReversalFlag:             txEntity == "refund",
 		ObservationTimestamp:     observationTS,
 		ValueDate:                &valueDate,
 		ParseConfidence:          confidence,
@@ -198,6 +190,22 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	}
 	shape.PartyReferenceCandidates = make(map[string]interface{})
 	shape.BeneficiaryIdentityCandidates = make(map[string]interface{})
+	shape.PIIData = make(map[string]string)
+
+	for i, colHeader := range headerRow {
+		h := strings.ToLower(strings.TrimSpace(colHeader))
+		if i < len(row) {
+			val := strings.TrimSpace(row[i])
+			if val != "" {
+				for _, piiField := range profile.PIIFields {
+					if h == piiField {
+						shape.PIIData[h] = val
+						break
+					}
+				}
+			}
+		}
+	}
 
 	return ParsedRowResult{
 		RowIndex:   rowIndex,
@@ -208,31 +216,3 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	}
 }
 
-func cellStr(row []string, idx int) string {
-	if idx < 0 || idx >= len(row) {
-		return ""
-	}
-	return strings.TrimSpace(row[idx])
-}
-
-func parseDecimal(s string) float64 {
-	if s == "" {
-		return 0
-	}
-	v, _ := strconv.ParseFloat(s, 64)
-	return v
-}
-
-func parseSettlementDate(s string) (time.Time, string) {
-	if s == "" {
-		return time.Now().UTC(), "empty"
-	}
-	// Common Razorpay recon date formats.
-	layouts := []string{"02/01/2006 15:04:05", "2006-01-02 15:04:05"}
-	for _, layout := range layouts {
-		if t, err := time.Parse(layout, s); err == nil {
-			return t.UTC(), ""
-		}
-	}
-	return time.Now().UTC(), "format error"
-}

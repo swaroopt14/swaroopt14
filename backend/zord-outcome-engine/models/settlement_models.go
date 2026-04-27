@@ -5,11 +5,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 // SettlementIngestJob tracks the processing of each settlement artifact.
 type SettlementIngestJob struct {
-	JobID                  uuid.UUID  `json:"job_id" db:"job_id"`
+	JobID                  string  `json:"job_id" db:"job_id"`
 	TenantID               uuid.UUID  `json:"tenant_id" db:"tenant_id"`
 	SettlementEnvelopeID   uuid.UUID  `json:"settlement_envelope_id" db:"settlement_envelope_id"`
 	ArtifactFamily         string     `json:"artifact_family" db:"artifact_family"`
@@ -32,7 +33,7 @@ type SettlementIngestJob struct {
 // SettlementParsedRow represents an intermediate parse layer for transparency.
 type SettlementParsedRow struct {
 	ParsedRowID           uuid.UUID       `json:"parsed_row_id" db:"parsed_row_id"`
-	JobID                 uuid.UUID       `json:"job_id" db:"job_id"`
+	JobID                 string       `json:"job_id" db:"job_id"`
 	TenantID              uuid.UUID       `json:"tenant_id" db:"tenant_id"`
 	SettlementEnvelopeID  uuid.UUID       `json:"settlement_envelope_id" db:"settlement_envelope_id"`
 	SourceFileRef         string          `json:"source_file_ref" db:"source_file_ref"`
@@ -53,7 +54,7 @@ type CanonicalSettlementObservation struct {
 	TenantID                   uuid.UUID  `json:"tenant_id" db:"tenant_id"`
 	TraceID                    uuid.UUID  `json:"trace_id" db:"trace_id"`
 	SettlementEnvelopeID       uuid.UUID  `json:"settlement_envelope_id" db:"settlement_envelope_id"`
-	JobID                      uuid.UUID  `json:"job_id" db:"job_id"`
+	JobID                      string  `json:"job_id" db:"job_id"`
 	SourceFileRef              string     `json:"source_file_ref" db:"source_file_ref"`
 	SourceRowRef               string     `json:"source_row_ref" db:"source_row_ref"`
 	SourceSystem               string     `json:"source_system" db:"source_system"`
@@ -69,10 +70,10 @@ type CanonicalSettlementObservation struct {
 	SellerIDToken              *string    `json:"seller_id_token,omitempty" db:"seller_id_token"`
 	VendorIDToken              *string    `json:"vendor_id_token,omitempty" db:"vendor_id_token"`
 	BeneficiaryFingerprint     string     `json:"beneficiary_fingerprint" db:"beneficiary_fingerprint"`
-	AmountMinor                int64      `json:"amount_minor" db:"amount_minor"`
-	SettledAmountMinor         *int64     `json:"settled_amount_minor,omitempty" db:"settled_amount_minor"`
-	FeeAmountMinor             *int64     `json:"fee_amount_minor,omitempty" db:"fee_amount_minor"`
-	DeductionAmountMinor       *int64     `json:"deduction_amount_minor,omitempty" db:"deduction_amount_minor"`
+	Amount                     decimal.Decimal `json:"amount" db:"amount"`
+	SettledAmount              *decimal.Decimal `json:"settled_amount,omitempty" db:"settled_amount"`
+	FeeAmount                  *decimal.Decimal `json:"fee_amount,omitempty" db:"fee_amount"`
+	DeductionAmount            *decimal.Decimal `json:"deduction_amount,omitempty" db:"deduction_amount"`
 	CurrencyCode               string     `json:"currency_code" db:"currency_code"`
 	SettlementStatus           string     `json:"settlement_status" db:"settlement_status"`
 	ProviderStatusCode         *string    `json:"provider_status_code,omitempty" db:"provider_status_code"`
@@ -93,6 +94,7 @@ type CanonicalSettlementObservation struct {
 	MappingConfidence          float64    `json:"mapping_confidence" db:"mapping_confidence"`
 	CarrierRichnessScore       float64    `json:"carrier_richness_score" db:"carrier_richness_score"`
 	AttachmentReadinessScore   float64    `json:"attachment_readiness_score" db:"attachment_readiness_score"`
+	Beneficiary                json.RawMessage `json:"beneficiary,omitempty" db:"beneficiary"`
 	CanonicalHash              string     `json:"canonical_hash" db:"canonical_hash"`
 	CanonicalSnapshotRef       *string    `json:"canonical_snapshot_ref,omitempty" db:"canonical_snapshot_ref"`
 	CreatedAt                  time.Time  `json:"created_at" db:"created_at"`
@@ -103,7 +105,7 @@ type CanonicalSettlementObservation struct {
 type CanonicalSettlementBatch struct {
 	SettlementBatchID           uuid.UUID `json:"settlement_batch_id" db:"settlement_batch_id"`
 	TenantID                    uuid.UUID `json:"tenant_id" db:"tenant_id"`
-	JobID                       uuid.UUID `json:"job_id" db:"job_id"`
+	JobID                       string `json:"job_id" db:"job_id"`
 	SourceFileRef               string    `json:"source_file_ref" db:"source_file_ref"`
 	SourceSystem                string    `json:"source_system" db:"source_system"`
 	ConnectorID                 *uuid.UUID `json:"connector_id,omitempty" db:"connector_id"`
@@ -114,8 +116,8 @@ type CanonicalSettlementBatch struct {
 	FailedCountEstimate         int       `json:"failed_count_estimate" db:"failed_count_estimate"`
 	PendingCountEstimate        int       `json:"pending_count_estimate" db:"pending_count_estimate"`
 	ReversalCountEstimate       int       `json:"reversal_count_estimate" db:"reversal_count_estimate"`
-	TotalAmountMinor            int64     `json:"total_amount_minor" db:"total_amount_minor"`
-	TotalSettledAmountMinor     int64     `json:"total_settled_amount_minor" db:"total_settled_amount_minor"`
+	TotalAmount                 decimal.Decimal   `json:"total_amount" db:"total_amount"`
+	TotalSettledAmount          decimal.Decimal   `json:"total_settled_amount" db:"total_settled_amount"`
 	CurrencyCode                string    `json:"currency_code" db:"currency_code"`
 	ParseConfidenceOverall      float64   `json:"parse_confidence_overall" db:"parse_confidence_overall"`
 	AttachmentReadinessOverall  float64   `json:"attachment_readiness_overall" db:"attachment_readiness_overall"`
@@ -144,7 +146,7 @@ type SettlementOutboxEvent struct {
 	OutboxEventID uuid.UUID       `json:"outbox_event_id" db:"outbox_event_id"`
 	TenantID      uuid.UUID       `json:"tenant_id" db:"tenant_id"`
 	TraceID       uuid.UUID       `json:"trace_id" db:"trace_id"`
-	JobID         uuid.UUID       `json:"job_id" db:"job_id"`
+	JobID         string       `json:"job_id" db:"job_id"`
 	EntityFamily  string          `json:"entity_family" db:"entity_family"`
 	EntityID      uuid.UUID       `json:"entity_id" db:"entity_id"`
 	EventType     string          `json:"event_type" db:"event_type"`
@@ -170,10 +172,10 @@ type UniversalSettlementShape struct {
 	BatchReference               *string                `json:"batch_reference"`
 	PartyReferenceCandidates     map[string]interface{} `json:"party_reference_candidates"`
 	BeneficiaryIdentityCandidates map[string]interface{} `json:"beneficiary_identity_candidates"`
-	AmountMinor                  int64                  `json:"amount_minor"`
-	SettledAmountMinor           *int64                 `json:"settled_amount_minor"`
-	FeeAmountMinor               *int64                 `json:"fee_amount_minor"`
-	DeductionAmountMinor         *int64                 `json:"deduction_amount_minor"`
+	Amount                       decimal.Decimal        `json:"amount"`
+	SettledAmount                *decimal.Decimal       `json:"settled_amount"`
+	FeeAmount                    *decimal.Decimal       `json:"fee_amount"`
+	DeductionAmount              *decimal.Decimal       `json:"deduction_amount"`
 	CurrencyCode                 string                 `json:"currency_code"`
 	StatusCandidate              string                 `json:"status_candidate"`
 	ObservationKind              string                 `json:"observation_kind"`
@@ -186,4 +188,5 @@ type UniversalSettlementShape struct {
 	ParseConfidence              float64                `json:"parse_confidence"`
 	CarrierCandidates            map[string]interface{} `json:"carrier_candidates"`
 	RawEnvelopeRef               uuid.UUID              `json:"raw_envelope_ref"`
+	PIIData                      map[string]string      `json:"pii_data,omitempty"`
 }

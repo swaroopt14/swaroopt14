@@ -20,7 +20,6 @@ type RAGService interface {
 var uuidLeakRe = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b`)
 
 var sensitiveExtractionRe = regexp.MustCompile(`(?i)\b(api[_\s-]?key|password|secret|access[_\s-]?token|private[_\s-]?key)\b`)
-var statusCaptureRe = regexp.MustCompile(`(?i)\bstatus=([A-Za-z0-9_ -]+)`)
 var corridorIDRe = regexp.MustCompile(`(?i)\bcorridor[_\s-]?id\s*[:=]?\s*([A-Za-z0-9._-]+)\b`)
 
 type DefaultRAGService struct {
@@ -30,7 +29,28 @@ type DefaultRAGService struct {
 	defaultK     int
 	intelligence *client.IntelligenceClient
 }
+type vizKind string
 
+const (
+	vizCorridorHealth vizKind = "corridor_health"
+	vizTopFailures    vizKind = "top_failures"
+	vizSLABreach      vizKind = "sla_breach"
+	vizApprovalMix    vizKind = "approval_mix"
+)
+
+func detectVizKind(q string) vizKind {
+	s := strings.ToLower(q)
+	switch {
+	case strings.Contains(s, "failure") || strings.Contains(s, "error"):
+		return vizTopFailures
+	case strings.Contains(s, "sla") || strings.Contains(s, "breach"):
+		return vizSLABreach
+	case strings.Contains(s, "approval") || strings.Contains(s, "severity") || strings.Contains(s, "pending action"):
+		return vizApprovalMix
+	default:
+		return vizCorridorHealth
+	}
+}
 func NewDefaultRAGService(model string, defaultK int, retriever EvidenceRetriever, llm *LLMService, intelligence *client.IntelligenceClient) *DefaultRAGService {
 
 	return &DefaultRAGService{
@@ -153,9 +173,11 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	}
 	var viz *dto.Visualization
 	if scope.WantsVisualization {
-		viz = s.buildVisualizationFromIntelligence(req)
-		if viz == nil && len(chunks) > 0 {
-			viz = buildVisualization(chunks, req.Query)
+		kind := detectVizKind(req.Query)
+		var vizNarrative string
+		viz, vizNarrative = s.buildDetailedVisualizationFromIntelligence(req, kind)
+		if strings.TrimSpace(vizNarrative) != "" {
+			answer = strings.TrimSpace(answer + " " + vizNarrative)
 		}
 	}
 
@@ -278,117 +300,6 @@ func sourceGroup(sourceType string) string {
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
 }
-func buildVisualization(chunks []model.RetrievedChunk, _ string) *dto.Visualization {
-	counts := map[string]int{}
-
-	for _, c := range chunks {
-		m := statusCaptureRe.FindStringSubmatch(c.Text)
-		if len(m) < 2 {
-			continue
-		}
-		label := strings.ToUpper(strings.TrimSpace(m[1]))
-		if label == "" || label == "-" {
-			continue
-		}
-		// keep short stable label
-		label = strings.Fields(label)[0]
-		counts[label]++
-	}
-
-	if len(counts) == 0 {
-		return nil
-	}
-
-	type kv struct {
-		k string
-		v int
-	}
-	items := make([]kv, 0, len(counts))
-	for k, v := range counts {
-		items = append(items, kv{k: k, v: v})
-	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].v == items[j].v {
-			return items[i].k < items[j].k
-		}
-		return items[i].v > items[j].v
-	})
-
-	series := make([]dto.VisualizationPoint, 0, len(items))
-	for _, it := range items {
-		series = append(series, dto.VisualizationPoint{
-			Label: it.k,
-			Value: float64(it.v),
-		})
-	}
-
-	return &dto.Visualization{
-		Title:  "Current Status Breakdown",
-		XAxis:  "Status",
-		YAxis:  "Count",
-		Series: series,
-	}
-}
-
-func (s *DefaultRAGService) buildVisualizationFromIntelligence(req dto.QueryRequest) *dto.Visualization {
-	if s.intelligence == nil || strings.TrimSpace(req.TenantID) == "" {
-		return nil
-	}
-	queryLower := strings.ToLower(req.Query)
-	corridorID := extractCorridorID(req.Query)
-
-	if strings.Contains(queryLower, "failure") || strings.Contains(queryLower, "error") {
-		rows, err := s.intelligence.FetchTopFailures(req.TenantID, corridorID)
-		if err != nil || len(rows) == 0 {
-			return nil
-		}
-		series := make([]dto.VisualizationPoint, 0, len(rows))
-		for _, r := range rows {
-			label := utils.SanitizeAnswerText(r.ReasonCode)
-			if strings.TrimSpace(label) == "" {
-				continue
-			}
-			series = append(series, dto.VisualizationPoint{
-				Label: label,
-				Value: float64(r.Count),
-			})
-		}
-		if len(series) == 0 {
-			return nil
-		}
-		return &dto.Visualization{
-			Title:  "Top Failure Reasons",
-			XAxis:  "Reason",
-			YAxis:  "Count",
-			Series: series,
-		}
-	}
-
-	rows, err := s.intelligence.FetchCorridorHealth(req.TenantID)
-	if err != nil || len(rows) == 0 {
-		return nil
-	}
-	series := make([]dto.VisualizationPoint, 0, len(rows))
-	for _, r := range rows {
-		label := utils.SanitizeAnswerText(r.CorridorID)
-		if strings.TrimSpace(label) == "" || uuidLeakRe.MatchString(label) {
-			continue
-		}
-		series = append(series, dto.VisualizationPoint{
-			Label: label,
-			Value: round2(r.SuccessRate * 100.0),
-		})
-	}
-	if len(series) == 0 {
-		return nil
-	}
-	return &dto.Visualization{
-		Title:  "Corridor Success Rate",
-		XAxis:  "Corridor",
-		YAxis:  "Success (%)",
-		Series: series,
-	}
-}
 
 func extractCorridorID(q string) string {
 	m := corridorIDRe.FindStringSubmatch(q)
@@ -396,4 +307,132 @@ func extractCorridorID(q string) string {
 		return ""
 	}
 	return strings.TrimSpace(m[1])
+}
+func (s *DefaultRAGService) buildDetailedVisualizationFromIntelligence(req dto.QueryRequest, kind vizKind) (*dto.Visualization, string) {
+	if s.intelligence == nil || strings.TrimSpace(req.TenantID) == "" {
+		return nil, ""
+	}
+	corridorID := extractCorridorID(req.Query)
+
+	switch kind {
+	case vizTopFailures:
+		rows, err := s.intelligence.FetchTopFailures(req.TenantID, corridorID)
+		if err != nil || len(rows) == 0 {
+			return nil, "I could not find enough failure distribution data to render a chart right now."
+		}
+		series := make([]dto.VisualizationPoint, 0, len(rows))
+		for _, r := range rows {
+			label := utils.SanitizeAnswerText(r.ReasonCode)
+			if strings.TrimSpace(label) == "" {
+				continue
+			}
+			series = append(series, dto.VisualizationPoint{Label: label, Value: float64(r.Count)})
+		}
+		if len(series) == 0 {
+			return nil, "I could not find enough failure distribution data to render a chart right now."
+		}
+		top := rows[0]
+		insight := fmt.Sprintf("The largest failure contributor is %s with %d cases.", utils.SanitizeAnswerText(top.ReasonCode), top.Count)
+		return &dto.Visualization{
+			Title:    "Top Failure Reasons",
+			XAxis:    "Reason",
+			YAxis:    "Count",
+			Series:   series,
+			Subtitle: "Distribution of most frequent failure categories",
+			Insights: []string{insight},
+		}, insight
+
+	case vizSLABreach:
+		sla, err := s.intelligence.FetchSLABreach(req.TenantID)
+		if err != nil || sla == nil || sla.TotalProcessed == 0 {
+			return nil, "I could not find enough SLA breach data to render a chart right now."
+		}
+		series := []dto.VisualizationPoint{
+			{Label: "Breached", Value: float64(sla.Breached)},
+			{Label: "On Time", Value: float64(sla.OnTime)},
+			{Label: "Breach Rate (%)", Value: round2(sla.BreachRate * 100)},
+		}
+		insight := fmt.Sprintf("SLA breach rate is %.2f%% across %d processed cases.", sla.BreachRate*100, sla.TotalProcessed)
+		return &dto.Visualization{
+			Title:    "SLA Breach Overview",
+			XAxis:    "SLA Metric",
+			YAxis:    "Count / Rate",
+			Series:   series,
+			Subtitle: "Current SLA breach distribution for the tenant",
+			Insights: []string{insight},
+		}, insight
+
+	case vizApprovalMix:
+		summary, err := s.intelligence.FetchPendingApprovalSummary(req.TenantID)
+		if err != nil || summary == nil {
+			return nil, "I could not find pending approval severity data to render a chart right now."
+		}
+		series := []dto.VisualizationPoint{
+			{Label: "High", Value: float64(summary.HighSeverity)},
+			{Label: "Medium", Value: float64(summary.MediumSeverity)},
+			{Label: "Low", Value: float64(summary.LowSeverity)},
+		}
+		insight := fmt.Sprintf("There are %d pending approvals; %d are expiring within 1 hour.", summary.TotalPending, summary.ExpiringIn1h)
+		return &dto.Visualization{
+			Title:    "Pending Approval Severity Mix",
+			XAxis:    "Severity",
+			YAxis:    "Count",
+			Series:   series,
+			Subtitle: "Current pending approval workload by severity",
+			Insights: []string{insight},
+		}, insight
+
+	default:
+		rows, err := s.intelligence.FetchCorridorHealth(req.TenantID)
+		if err != nil || len(rows) == 0 {
+			return nil, "I could not find enough corridor health data to render a chart right now."
+		}
+
+		filtered := rows
+		if strings.TrimSpace(corridorID) != "" {
+			tmp := make([]client.CorridorHealthRow, 0, len(rows))
+			for _, r := range rows {
+				if strings.EqualFold(strings.TrimSpace(r.CorridorID), strings.TrimSpace(corridorID)) {
+					tmp = append(tmp, r)
+				}
+			}
+			if len(tmp) > 0 {
+				filtered = tmp
+			}
+		}
+
+		sort.Slice(filtered, func(i, j int) bool { return filtered[i].SuccessRate > filtered[j].SuccessRate })
+
+		series := make([]dto.VisualizationPoint, 0, len(filtered))
+		for _, r := range filtered {
+			label := utils.SanitizeAnswerText(r.CorridorID)
+			if strings.TrimSpace(label) == "" || uuidLeakRe.MatchString(label) {
+				continue
+			}
+			series = append(series, dto.VisualizationPoint{
+				Label: label,
+				Value: round2(r.SuccessRate * 100),
+			})
+		}
+		if len(series) == 0 {
+			return nil, "I could not find enough corridor health data to render a chart right now."
+		}
+
+		worst := filtered[0]
+		for _, r := range filtered {
+			if r.SuccessRate < worst.SuccessRate {
+				worst = r
+			}
+		}
+		insight := fmt.Sprintf("Lowest corridor performance is %s at %.2f%% success.", utils.SanitizeAnswerText(worst.CorridorID), worst.SuccessRate*100)
+
+		return &dto.Visualization{
+			Title:    "Corridor Success Rate",
+			XAxis:    "Corridor",
+			YAxis:    "Success (%)",
+			Series:   series,
+			Subtitle: "Success-rate comparison across available corridors",
+			Insights: []string{insight},
+		}, insight
+	}
 }

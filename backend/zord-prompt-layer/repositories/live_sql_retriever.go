@@ -467,10 +467,6 @@ func (r *LiveSQLRetriever) fetchFromEdge(
 		}
 		rows.Close()
 	}
-
-	if len(out) > topK && topK > 0 {
-		out = out[:topK]
-	}
 	return out, nil
 }
 
@@ -757,14 +753,8 @@ func (r *LiveSQLRetriever) fetchFromRelay(tenantID, intentID, traceID string, to
 		rows.Close()
 	}
 
-	if len(out) > topK {
-		out = out[:topK]
-	}
 	return out, nil
 }
-
-// ADD these two new functions:
-
 func (r *LiveSQLRetriever) fetchFromIntelligence(tenantID string, topK int, failureOnly bool, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 	defer cancel()
@@ -903,9 +893,6 @@ func (r *LiveSQLRetriever) fetchFromIntelligence(tenantID string, topK int, fail
 		rows.Close()
 	}
 
-	if len(out) > topK {
-		out = out[:topK]
-	}
 	return out, nil
 }
 
@@ -1010,9 +997,6 @@ func (r *LiveSQLRetriever) fetchFromEvidence(tenantID string, topK int, failureO
 		rows.Close()
 	}
 
-	if len(out) > topK {
-		out = out[:topK]
-	}
 	return out, nil
 }
 func rankAndTrimBalanced(chunks []model.RetrievedChunk, topK int) []model.RetrievedChunk {
@@ -1022,7 +1006,7 @@ func rankAndTrimBalanced(chunks []model.RetrievedChunk, topK int) []model.Retrie
 
 	buckets := map[string][]model.RetrievedChunk{}
 	for _, c := range chunks {
-		k := c.SourceType
+		k := sourceServiceBucket(c.SourceType)
 		buckets[k] = append(buckets[k], c)
 	}
 
@@ -1054,4 +1038,22 @@ func rankAndTrimBalanced(chunks []model.RetrievedChunk, topK int) []model.Retrie
 		}
 	}
 	return out
+}
+
+func sourceServiceBucket(sourceType string) string {
+	s := strings.ToLower(strings.TrimSpace(sourceType))
+	switch {
+	case strings.HasPrefix(s, "edge_"):
+		return "edge"
+	case strings.HasPrefix(s, "intent_"):
+		return "intent"
+	case strings.HasPrefix(s, "relay_"):
+		return "relay"
+	case strings.HasPrefix(s, "intelligence_"):
+		return "intelligence"
+	case strings.HasPrefix(s, "evidence_"):
+		return "evidence"
+	default:
+		return s
+	}
 }

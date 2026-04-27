@@ -46,6 +46,9 @@ func CanonicalizeIntent(input models.ParsedIncomingIntent) models.ParsedIncoming
 	// idempotency_key
 	out.IdempotencyKey = strings.TrimSpace(out.IdempotencyKey)
 
+	// intended_execution_at
+	out.IntendedExecutionAt = strings.TrimSpace(out.IntendedExecutionAt)
+
 	// remitter, constraints, metadata → untouched
 	return out
 }

@@ -38,7 +38,7 @@ type OutboxEvent struct {
 	SalientHash      string          `json:"salient_hash,omitempty" db:"salient_hash"`
 	IntentType       string          `json:"intent_type,omitempty" db:"intent_type"`
 	CanonicalVersion string          `json:"canonical_version,omitempty" db:"canonical_version"`
-	DeadlineAt       *time.Time      `json:"deadline_at,omitempty" db:"deadline_at"`
+	IntendedExecutionAt   *time.Time      `json:"intended_execution_at,omitempty" db:"intended_execution_at"`
 	Constraints      json.RawMessage `json:"constraints,omitempty" db:"constraints"`
 	BeneficiaryType  string          `json:"beneficiary_type,omitempty" db:"beneficiary_type"`
 	PIITokens        json.RawMessage `json:"pii_tokens,omitempty" db:"pii_tokens"`
@@ -52,6 +52,7 @@ type OutboxEvent struct {
 	GovernanceSnapshotRef string `json:"governance_snapshot_ref,omitempty" db:"governance_snapshot_ref"`
 
 	ClientPayoutRef       string          `json:"client_payout_ref,omitempty" db:"client_payout_ref"`
+	ProviderHint          string          `json:"provider_hint,omitempty" db:"provider_hint"`
 	RequestFingerprint    string          `json:"request_fingerprint,omitempty" db:"request_fingerprint"`
 	RoutingHintsJSON      json.RawMessage `json:"routing_hints_json,omitempty" db:"routing_hints_json"`
 	GovernanceState       string          `json:"governance_state,omitempty" db:"governance_state"`

@@ -35,6 +35,7 @@ import (
 	"zord-outcome-engine/models"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 // AttachmentEngine is the main service struct for Service 5C.
@@ -63,6 +64,27 @@ func (e *AttachmentEngine) RunForBatch(
 	}
 
 	return e.runAttachment(ctx, tenantID, models.JobScopeSettlementBatch, batchRef, observations)
+}
+
+// RunForJob triggers an attachment job for all canonical settlement observations
+// produced by one settlement ingest job.
+func (e *AttachmentEngine) RunForJob(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	jobID string,
+) (*models.AttachmentJob, error) {
+	log.Printf("attachment.engine.start scope=INGEST_JOB tenant=%s job_id=%s", tenantID, jobID)
+
+	observations, err := loadObservationsByJobID(ctx, tenantID, jobID)
+	if err != nil {
+		return nil, fmt.Errorf("attachment.RunForJob: load observations: %w", err)
+	}
+	if len(observations) == 0 {
+		return nil, fmt.Errorf("attachment.RunForJob: no observations found for job_id=%s", jobID)
+	}
+
+	// Scope type stays batch for reporting compatibility; scope_ref stores job_id.
+	return e.runAttachment(ctx, tenantID, models.JobScopeSettlementBatch, jobID, observations)
 }
 
 // RunForSingleObservation triggers an attachment job for one specific observation.
@@ -128,9 +150,10 @@ func (e *AttachmentEngine) runAttachment(
 
 	// ── Steps 3-7: Process each observation ──────────────────────────────
 	var (
-		allDecisions  []models.AttachmentDecision
-		allVariances  []models.VarianceRecord
-		allCandidates []models.AttachmentCandidate
+		allDecisions        []models.AttachmentDecision
+		allVariances        []models.VarianceRecord
+		allCandidates       []models.AttachmentCandidate
+		totalIntendedAmount decimal.Decimal
 	)
 
 	counters := struct {
@@ -244,6 +267,7 @@ func (e *AttachmentEngine) runAttachment(
 		if winnerIntentID != nil {
 			winnerIntent := findIntentByID(intents, *winnerIntentID)
 			if winnerIntent != nil {
+				totalIntendedAmount = totalIntendedAmount.Add(winnerIntent.Amount)
 				amtVariance, severity, flags, reasons := ComputeVariance(VarianceInputs{
 					Intent:      *winnerIntent,
 					Observation: obs,
@@ -295,7 +319,7 @@ func (e *AttachmentEngine) runAttachment(
 	}
 
 	// Compute and persist batch attachment summary.
-	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, observations, allDecisions, allVariances)
+	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, observations, allDecisions, allVariances, totalIntendedAmount)
 	if err := insertBatchSummary(ctx, batchSummary); err != nil {
 		log.Printf("attachment.engine.batch_summary_failed job=%s err=%v", job.AttachmentJobID, err)
 	}
@@ -317,7 +341,7 @@ func (e *AttachmentEngine) runAttachment(
 // ─────────────────────────────────────────────────────────────────────────────
 
 // findCandidateIntents builds the candidate intent set for one settlement observation.
-// Multi-index search: tenant + beneficiary fingerprint, amount, currency, client ref, batch ref.
+// Multi-index search: tenant + references, source system, and amount/currency/time.
 func findCandidateIntents(
 	ctx context.Context,
 	tenantID uuid.UUID,
@@ -327,7 +351,8 @@ func findCandidateIntents(
 	// Build a union query that finds intents matching ANY of:
 	//   (a) same client_payout_ref
 	//   (b) same client_batch_ref
-	//   (c) same beneficiary_fingerprint + amount + currency (within time window)
+	//   (c) same amount + currency (within time window)
+	//   (d) same source system hint (provider_hint)
 	// Deduplication is handled via DISTINCT on intent_id.
 
 	query := `
@@ -344,13 +369,12 @@ func findCandidateIntents(
 		  AND (
 		    ($2 != '' AND client_payout_ref = $2)
 		    OR ($3 != '' AND client_batch_ref = $3)
-		    OR ($9 != '' AND provider_hint = $9)
+		    OR ($8 != '' AND provider_hint = $8)
 		    OR (
-		      beneficiary_fingerprint = $4
-		      AND amount = $5
-		      AND currency_code = $6
+		      amount = $4
+		      AND currency_code = $5
 		      AND (intended_execution_at IS NULL
-		           OR intended_execution_at BETWEEN $7 AND $8)
+		           OR intended_execution_at BETWEEN $6 AND $7)
 		    )
 		  )
 		ORDER BY intent_id
@@ -367,21 +391,15 @@ func findCandidateIntents(
 	if obs.BatchReference != nil {
 		batchRef = *obs.BatchReference
 	}
-	providerRef := ""
-	if obs.ProviderReference != nil {
-		providerRef = *obs.ProviderReference
-	}
-
 	rows, err := db.DB.QueryContext(ctx, query,
 		tenantID,
 		clientRef,
 		batchRef,
-		obs.BeneficiaryFingerprint,
 		obs.Amount,
 		obs.CurrencyCode,
 		windowStart,
 		windowEnd,
-		providerRef,
+		obs.SourceSystem,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("findCandidateIntents: query: %w", err)
@@ -531,6 +549,7 @@ func computeBatchSummary(
 	observations []models.CanonicalSettlementObservation,
 	decisions []models.AttachmentDecision,
 	variances []models.VarianceRecord,
+	totalIntendedAmount decimal.Decimal,
 ) models.BatchAttachmentSummary {
 
 	summary := models.BatchAttachmentSummary{
@@ -539,6 +558,7 @@ func computeBatchSummary(
 		SourceReference:          scopeRef,
 		AttachmentJobID:          jobID,
 		TotalIntentCount:         len(observations),
+		TotalIntendedAmount:      totalIntendedAmount,
 		CreatedAt:                time.Now().UTC(),
 		UpdatedAt:                time.Now().UTC(),
 	}
@@ -800,6 +820,37 @@ func loadObservationsByBatch(ctx context.Context, tenantID uuid.UUID, batchRef s
 		WHERE tenant_id = $1 AND batch_reference = $2
 		ORDER BY observation_timestamp`,
 		tenantID, batchRef,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanObservations(rows)
+}
+
+func loadObservationsByJobID(ctx context.Context, tenantID uuid.UUID, jobID string) ([]models.CanonicalSettlementObservation, error) {
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT
+			settlement_observation_id, tenant_id, trace_id,
+			settlement_envelope_id, job_id,
+			source_file_ref, source_row_ref, source_system,
+			observation_kind, source_strength_class,
+			client_reference_candidate, provider_reference, bank_reference,
+			external_reference, batch_reference,
+			beneficiary_fingerprint,
+			amount, settled_amount, fee_amount, deduction_amount,
+			currency_code, settlement_status,
+			retry_flag, reversal_flag, return_flag,
+			observation_timestamp, value_date,
+			provider_ref_status,
+			mapping_profile_id, mapping_profile_version,
+			parse_confidence, mapping_confidence,
+			carrier_richness_score, attachment_readiness_score,
+			canonical_hash, created_at, updated_at
+		FROM canonical_settlement_observations
+		WHERE tenant_id = $1 AND job_id = $2
+		ORDER BY observation_timestamp`,
+		tenantID, jobID,
 	)
 	if err != nil {
 		return nil, err

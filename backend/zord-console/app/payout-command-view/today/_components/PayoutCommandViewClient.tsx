@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   buildSimulatedHomeOverviewSnapshot,
@@ -54,8 +55,47 @@ type WorkspaceLiveAnswer = {
   visualization: unknown
 }
 
+type WorkspaceConversationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  body: string
+  timestamp: string
+  status: 'typing' | 'done' | 'error'
+  confidence?: string | null
+  citationSnippet?: string | null
+  hasVisualization?: boolean
+}
+
 const PROMPT_LAYER_DEMO_TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const WORKSPACE_LIVE_ANSWER_TITLE = 'Latest answer'
+
+function formatChatTimestamp() {
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(new Date())
+}
+
+function buildWorkspaceIntroConversation(tab: WorkspaceTab): WorkspaceConversationMessage[] {
+  const copy = workspacePromptCopy[tab]
+  return [
+    {
+      id: `${tab}-intro-question`,
+      role: 'assistant',
+      body: copy.question,
+      timestamp: '11:32 AM',
+      status: 'done',
+    },
+    {
+      id: `${tab}-intro-supporting`,
+      role: 'assistant',
+      body: copy.supporting,
+      timestamp: '11:32 AM',
+      status: 'done',
+    },
+  ]
+}
 
 function mapWorkspaceLiveAnswer(raw: unknown): WorkspaceLiveAnswer | null {
   if (!raw || typeof raw !== 'object') return null
@@ -138,6 +178,10 @@ export default function PayoutCommandViewClient() {
   const [workspacePromptInput, setWorkspacePromptInput] = useState('')
   const [workspaceAnswerStatus, setWorkspaceAnswerStatus] = useState<HomeCommandStatus>('idle')
   const [workspaceLiveAnswer, setWorkspaceLiveAnswer] = useState<WorkspaceLiveAnswer | null>(null)
+  const [workspaceConnectionState, setWorkspaceConnectionState] = useState<'idle' | 'connected' | 'error'>('idle')
+  const [workspaceConversation, setWorkspaceConversation] = useState<WorkspaceConversationMessage[]>(() =>
+    buildWorkspaceIntroConversation('Today'),
+  )
   const [isAskZordOpen, setIsAskZordOpen] = useState(false)
   const [askZordInput, setAskZordInput] = useState('')
   const [askZordStatus, setAskZordStatus] = useState<HomeCommandStatus>('idle')
@@ -269,10 +313,31 @@ export default function PayoutCommandViewClient() {
     const suggestedSet = workspacePromptCopy[activeTab].suggestions
     setSelectedSuggestion(suggestedSet.includes(cleanedPrompt) ? cleanedPrompt : null)
     setWorkspacePromptInput('')
+    setWorkspaceConnectionState('idle')
     setWorkspaceAnswerStatus('loading')
 
     const requestId = workspaceRequestIdRef.current + 1
     workspaceRequestIdRef.current = requestId
+    const assistantMessageId = `assistant-${requestId}`
+    const timestamp = formatChatTimestamp()
+
+    setWorkspaceConversation((current) => [
+      ...current,
+      {
+        id: `user-${requestId}`,
+        role: 'user',
+        body: cleanedPrompt,
+        timestamp,
+        status: 'done',
+      },
+      {
+        id: assistantMessageId,
+        role: 'assistant',
+        body: 'Reading routed value, callback timing, and proof readiness from prompt-layer evidence…',
+        timestamp,
+        status: 'typing',
+      },
+    ])
 
     try {
       const response = await fetch('/api/prompt-layer/query', {
@@ -295,6 +360,25 @@ export default function PayoutCommandViewClient() {
         throw new Error(typeof payload?.details === 'string' ? payload.details : 'Prompt-layer request failed')
       }
 
+      const finalBody = mappedAnswer?.body ?? nextScenario.assistant
+      const citationSnippet = mappedAnswer?.citations[0]?.snippet ?? null
+      const hasVisualization = mappedAnswer?.visualization != null
+
+      setWorkspaceConversation((current) =>
+        current.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                body: finalBody,
+                status: 'done',
+                confidence: mappedAnswer?.confidence ?? null,
+                citationSnippet,
+                hasVisualization,
+              }
+            : message,
+        ),
+      )
+
       setWorkspaceLiveAnswer(
         mappedAnswer ?? {
           title: WORKSPACE_LIVE_ANSWER_TITLE,
@@ -304,9 +388,25 @@ export default function PayoutCommandViewClient() {
           visualization: null,
         },
       )
+      setWorkspaceConnectionState('connected')
       setWorkspaceAnswerStatus('complete')
     } catch {
       if (workspaceRequestIdRef.current !== requestId) return
+      const fallbackBody = `Prompt-layer was unavailable, so showing simulation insight.\n\n${nextScenario.assistant}`
+      setWorkspaceConversation((current) =>
+        current.map((message) =>
+          message.id === assistantMessageId
+            ? {
+                ...message,
+                body: fallbackBody,
+                status: 'error',
+                confidence: null,
+                citationSnippet: null,
+                hasVisualization: false,
+              }
+            : message,
+        ),
+      )
       setWorkspaceLiveAnswer({
         title: WORKSPACE_LIVE_ANSWER_TITLE,
         body: nextScenario.assistant,
@@ -314,16 +414,10 @@ export default function PayoutCommandViewClient() {
         citations: [],
         visualization: null,
       })
+      setWorkspaceConnectionState('error')
       setWorkspaceAnswerStatus('complete')
     }
   }, [activeTab])
-
-  useEffect(() => {
-    if (activeDock !== 'workspace') return
-    if (workspaceAnswerStatus === 'loading') return
-    if (workspaceLiveAnswer) return
-    void runWorkspaceSimulation(workspacePromptCopy[activeTab].question)
-  }, [activeDock, activeTab, runWorkspaceSimulation, workspaceAnswerStatus, workspaceLiveAnswer])
 
   const runAskZord = useCallback((rawPrompt: string) => {
     const cleanedPrompt = rawPrompt.trim()
@@ -389,6 +483,8 @@ export default function PayoutCommandViewClient() {
             setWorkspaceScenario(workspaceSimulationScenarios[tab][0])
             setWorkspaceAnswerStatus('idle')
             setWorkspaceLiveAnswer(null)
+            setWorkspaceConnectionState('idle')
+            setWorkspaceConversation(buildWorkspaceIntroConversation(tab))
           }}
           scenario={workspaceScenario}
           selectedPromptLabel={selectedSuggestion}
@@ -403,6 +499,8 @@ export default function PayoutCommandViewClient() {
           latestAnswerConfidence={workspaceLiveAnswer?.confidence ?? null}
           latestAnswerCitationSnippet={workspaceLiveAnswer?.citations[0]?.snippet ?? null}
           latestAnswerHasVisualization={workspaceLiveAnswer?.visualization != null}
+          connectionState={workspaceConnectionState}
+          conversation={workspaceConversation}
         />
       )
     }
@@ -420,7 +518,7 @@ export default function PayoutCommandViewClient() {
     }
 
     return <ProofSurface />
-  }, [activeDock, activePrompt.suggestions, activeTab, homeActiveChartPoint, homeCommandResponse, homeCommandStatus, homePromptInput, homeScenario, homeSnapshot, homeTimeframe, runHomeSimulation, runWorkspaceSimulation, selectedSuggestion, workspaceAnswerStatus, workspaceLiveAnswer, workspacePromptInput, workspaceScenario])
+  }, [activeDock, activePrompt.suggestions, activeTab, homeActiveChartPoint, homeCommandResponse, homeCommandStatus, homePromptInput, homeScenario, homeSnapshot, homeTimeframe, runHomeSimulation, runWorkspaceSimulation, selectedSuggestion, workspaceAnswerStatus, workspaceConnectionState, workspaceConversation, workspaceLiveAnswer, workspacePromptInput, workspaceScenario])
 
   return (
     <main className="min-h-screen bg-[#ebebeb]" style={{ fontFamily: DASHBOARD_FONT_STACK }}>
@@ -449,6 +547,8 @@ export default function PayoutCommandViewClient() {
                       setWorkspacePromptInput('')
                       setWorkspaceAnswerStatus('idle')
                       setWorkspaceLiveAnswer(null)
+                      setWorkspaceConnectionState('idle')
+                      setWorkspaceConversation(buildWorkspaceIntroConversation('Today'))
                     }
                     if (item.id === 'home') {
                       setHomePromptInput('')
@@ -515,6 +615,12 @@ export default function PayoutCommandViewClient() {
                 <span className="h-2.5 w-2.5 rounded-full bg-[#4ADE80]" />
                 Ask Zord
               </button>
+              <Link
+                href="/payout-command-view/batch-command-center"
+                className="inline-flex items-center rounded-[12px] border border-[#111111] bg-white px-3 py-2.5 text-[13px] font-medium text-[#111111]"
+              >
+                Batch Center
+              </Link>
               <button
                 type="button"
                 className="flex items-center gap-3 rounded-[12px] bg-[#111111] px-4 py-2.5 text-sm font-medium text-white shadow-[0_8px_20px_rgba(0,0,0,0.08)]"

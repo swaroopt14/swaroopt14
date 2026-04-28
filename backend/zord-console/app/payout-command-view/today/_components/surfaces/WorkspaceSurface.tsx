@@ -1,8 +1,20 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import type { WorkspaceSimulation, WorkspaceTab } from '../model'
 import { workspaceTabs, workspaceTiles } from '../model'
 import { Glyph } from '../shared'
+
+type WorkspaceConversationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  body: string
+  timestamp: string
+  status: 'typing' | 'done' | 'error'
+  confidence?: string | null
+  citationSnippet?: string | null
+  hasVisualization?: boolean
+}
 
 export function WorkspaceSurface({
   activeTab,
@@ -20,6 +32,8 @@ export function WorkspaceSurface({
   latestAnswerConfidence,
   latestAnswerCitationSnippet,
   latestAnswerHasVisualization,
+  connectionState,
+  conversation,
 }: {
   activeTab: WorkspaceTab
   setActiveTab: (tab: WorkspaceTab) => void
@@ -36,12 +50,22 @@ export function WorkspaceSurface({
   latestAnswerConfidence: string | null
   latestAnswerCitationSnippet: string | null
   latestAnswerHasVisualization: boolean
+  connectionState: 'idle' | 'connected' | 'error'
+  conversation: readonly WorkspaceConversationMessage[]
 }) {
   const heroBars = [0.14, 0.18, 0.22, 0.28, 0.4, 0.56, 0.72, 0.86, 1, 0.9, 0.8, 0.68, 0.56, 0.44, 0.36, 0.42, 0.48, 0.44, 0.36, 0.3]
   const heroActiveStart = 4
   const heroActiveEnd = 15
   const previousCycleBars = scenario.heroBars.slice(0, 6)
   const currentCycleBars = scenario.heroBars.slice(-6)
+  const hasUserConversation = conversation.some((message) => message.role === 'user')
+  const chatContainerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const container = chatContainerRef.current
+    if (!container) return
+    container.scrollTop = container.scrollHeight
+  }, [conversation])
 
   return (
     <div className="mt-8 rounded-[2.2rem] border border-[#E5E5E5] bg-[#f4f4f1] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.08)] sm:p-5">
@@ -230,8 +254,8 @@ export function WorkspaceSurface({
                   </div>
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-[#4ADE80]/28 bg-[#4ADE80]/14 px-3 py-2 text-[12px] font-medium text-[#14532d]">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#4ADE80]" />
-                  Live operating context
+                  <span className={`h-2.5 w-2.5 rounded-full ${connectionState === 'error' ? 'bg-[#e11d48]' : 'bg-[#4ADE80]'}`} />
+                  {connectionState === 'connected' ? 'Live operating context · Connected' : connectionState === 'error' ? 'Live operating context · Fallback mode' : 'Live operating context'}
                 </div>
               </div>
 
@@ -240,78 +264,113 @@ export function WorkspaceSurface({
                   <span className="h-2 w-2 rounded-full bg-[#4ADE80]" />
                   Live reasoning prompt
                 </div>
-                <div className="mt-4 space-y-3">
-                  <div className="ml-auto max-w-[90%] rounded-[14px] bg-[#111111] px-4 py-3 text-[1.03rem] leading-7 tracking-[-0.02em] text-white">
-                    {scenario.question}
-                  </div>
-                  <div className="ml-auto text-[11px] text-[#8a8a86]">11:32 AM</div>
-                  <div className="max-w-[90%] rounded-[14px] bg-[#f7f7f4] px-4 py-3 text-[13px] leading-6 text-[#6f716d]">
-                    {scenario.supporting}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-5">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Suggested Questions</div>
-                <div className="mt-3 flex flex-wrap gap-2.5">
-                  {suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => onSuggestionClick(suggestion)}
-                      className={`rounded-full border px-4 py-2.5 text-[13px] transition ${
-                        selectedPromptLabel === suggestion
-                          ? 'border-[#4ADE80]/35 bg-[#effcf3] text-[#14532d]'
-                          : 'border-[#E5E5E5] bg-[#f7f7f4] text-[#6f716d] hover:border-[#4ADE80]/30 hover:text-[#14532d]'
-                      }`}
-                    >
-                      {suggestion}
-                    </button>
+                <div
+                  ref={chatContainerRef}
+                  className={`mt-4 space-y-3 overflow-y-auto pr-1 ${
+                    hasUserConversation ? 'max-h-[30rem] min-h-[22rem]' : 'max-h-[17rem]'
+                  }`}
+                >
+                  {conversation.map((message) => (
+                    <div key={message.id} className={message.role === 'user' ? 'ml-auto max-w-[90%]' : 'max-w-[90%]'}>
+                      <div
+                        className={
+                          message.role === 'user'
+                            ? 'rounded-[14px] bg-[#111111] px-4 py-3 text-[15px] leading-6 tracking-[-0.02em] text-white'
+                            : `rounded-[14px] border px-4 py-3 text-[13px] leading-6 ${
+                                message.status === 'error'
+                                  ? 'border-[#fecdd3] bg-[#fff1f2] text-[#9f1239]'
+                                  : 'border-[#E5E5E5] bg-[#f7f7f4] text-[#6f716d]'
+                              }`
+                        }
+                      >
+                        {message.body}
+                      </div>
+                      <div className={`mt-1 text-[11px] text-[#8a8a86] ${message.role === 'user' ? 'text-right' : ''}`}>
+                        {message.timestamp}
+                        {message.status === 'typing' ? ' · Thinking…' : null}
+                      </div>
+                      {message.role === 'assistant' && message.citationSnippet ? (
+                        <div className="mt-2 rounded-[10px] border border-[#d4deec] bg-white/80 px-3 py-2 text-[12px] leading-5 text-[#5d6e87]">
+                          {message.citationSnippet}
+                        </div>
+                      ) : null}
+                      {message.role === 'assistant' && message.confidence ? (
+                        <div className="mt-2 inline-flex rounded-full border border-[#4ADE80]/35 bg-[#4ADE80]/16 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#166534]">
+                          {message.confidence}
+                        </div>
+                      ) : null}
+                    </div>
                   ))}
                 </div>
               </div>
 
-              <div className="mt-5 rounded-[1.2rem] border border-[#cfdaea] bg-[#eaf1fc] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5c7194]">{latestAnswerTitle}</div>
-                  {latestAnswerConfidence ? (
-                    <span className="rounded-full border border-[#4ADE80]/35 bg-[#4ADE80]/16 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#166534]">
-                      {latestAnswerConfidence}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-3 text-[14px] leading-7 text-[#243550]">
-                  {latestAnswerStatus === 'loading' ? 'Reading prompt-layer evidence…' : latestAnswerBody}
-                </div>
-                {latestAnswerCitationSnippet ? (
-                  <div className="mt-3 rounded-[10px] border border-[#d4deec] bg-white/70 px-3 py-2 text-[12px] leading-5 text-[#5d6e87]">
-                    {latestAnswerCitationSnippet}
+              {!hasUserConversation ? (
+                <>
+                  <div className="mt-5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Suggested Questions</div>
+                    <div className="mt-3 flex flex-wrap gap-2.5">
+                      {suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          onClick={() => onSuggestionClick(suggestion)}
+                          className={`rounded-full border px-4 py-2.5 text-[13px] transition ${
+                            selectedPromptLabel === suggestion
+                              ? 'border-[#4ADE80]/35 bg-[#effcf3] text-[#14532d]'
+                              : 'border-[#E5E5E5] bg-[#f7f7f4] text-[#6f716d] hover:border-[#4ADE80]/30 hover:text-[#14532d]'
+                          }`}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                ) : null}
-                {latestAnswerHasVisualization ? (
-                  <div className="mt-2 text-[11px] text-[#5c7194]">Visualization payload detected and ready for chart rendering.</div>
-                ) : null}
-              </div>
+
+                  <div className="mt-5 rounded-[1.2rem] border border-[#cfdaea] bg-[#eaf1fc] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5c7194]">{latestAnswerTitle}</div>
+                      {latestAnswerConfidence ? (
+                        <span className="rounded-full border border-[#4ADE80]/35 bg-[#4ADE80]/16 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#166534]">
+                          {latestAnswerConfidence}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 text-[14px] leading-7 text-[#243550]">
+                      {latestAnswerStatus === 'loading' ? 'Reading prompt-layer evidence…' : latestAnswerBody}
+                    </div>
+                    {latestAnswerCitationSnippet ? (
+                      <div className="mt-3 rounded-[10px] border border-[#d4deec] bg-white/70 px-3 py-2 text-[12px] leading-5 text-[#5d6e87]">
+                        {latestAnswerCitationSnippet}
+                      </div>
+                    ) : null}
+                    {latestAnswerHasVisualization ? (
+                      <div className="mt-2 text-[11px] text-[#5c7194]">Visualization payload detected and ready for chart rendering.</div>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
             </div>
 
-            <div className="mt-5 flex-1">
-              <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Operator Modules</div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {workspaceTiles.map((tile, index) => (
-                  <article key={tile.title} className="rounded-[1.25rem] border border-[#E5E5E5] bg-[#F7F7F4] px-5 py-5 shadow-[0_10px_24px_rgba(0,0,0,0.04)]">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[#4ADE80]/18 text-[#166534]">
-                        <Glyph name={tile.icon} className="h-4 w-4" />
+            {!hasUserConversation ? (
+              <div className="mt-5 flex-1">
+                <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Operator Modules</div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {workspaceTiles.map((tile, index) => (
+                    <article key={tile.title} className="rounded-[1.25rem] border border-[#E5E5E5] bg-[#F7F7F4] px-5 py-5 shadow-[0_10px_24px_rgba(0,0,0,0.04)]">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[#4ADE80]/18 text-[#166534]">
+                          <Glyph name={tile.icon} className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[1.05rem] font-medium tracking-[-0.03em] text-[#111111]">{tile.title}</div>
+                          <p className="mt-3 text-[13px] leading-6 text-[#6f716d]">{scenario.moduleBodies[index] ?? tile.body}</p>
+                        </div>
                       </div>
-                      <div className="min-w-0">
-                        <div className="text-[1.05rem] font-medium tracking-[-0.03em] text-[#111111]">{tile.title}</div>
-                        <p className="mt-3 text-[13px] leading-6 text-[#6f716d]">{scenario.moduleBodies[index] ?? tile.body}</p>
-                      </div>
-                    </div>
-                  </article>
-                ))}
+                    </article>
+                  ))}
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
 
           <div className="mt-4 rounded-[1.35rem] border border-black/5 bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">

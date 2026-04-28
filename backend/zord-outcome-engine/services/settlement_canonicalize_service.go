@@ -27,6 +27,8 @@ var enclaveHTTPClient = &http.Client{
 	Transport: otelhttp.NewTransport(http.DefaultTransport),
 }
 
+var errQueuedForAsyncTokenization = fmt.Errorf("queued for async tokenization")
+
 // SettlementCanonicalizeService converts parsed results into normalized canonical observations.
 type SettlementCanonicalizeService struct {
 	TokenizeQueue *KafkaTokenizeQueue
@@ -111,8 +113,14 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		// 3. Tokenize.
 		obs, err = s.tokenizeObservation(ctx, obs, shape)
 		if err != nil {
+			if err == errQueuedForAsyncTokenization {
+				// Async tokenization was successfully queued; continue with
+				// canonical persistence and downstream batch/outbox emission.
+				err = nil
+			} else {
 			log.Printf("settlement.canonicalize.tokenization_info job_id=%s row=%s msg=%v", jobID, sourceRowRef, err)
 			continue
+			}
 		}
 
 		// 4. Insert into Postgres.
@@ -494,8 +502,9 @@ func (s *SettlementCanonicalizeService) tokenizeObservation(
 			return obs, err
 		}
 
-		// return dummy/nil-like to skip persistence in sync loop
-		return models.CanonicalSettlementObservation{}, fmt.Errorf("queued for async tokenization")
+		// Keep canonicalization pipeline moving while async tokenization updates
+		// beneficiary fields later via ProcessTokenizeResult upsert.
+		return obs, errQueuedForAsyncTokenization
 	}
 
 	log.Printf("settlement.tokenize.response.sync observation_id=%s tokens=%+v", obs.SettlementObservationID, tokenMap)

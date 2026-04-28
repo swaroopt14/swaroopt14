@@ -205,7 +205,7 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 			svc.MarkJobFailed(bgCtx, bgJobID, "PARSER_NOT_FOUND")
 			return
 		}
-		
+
 		results, err := parser.Parse(data, bgRef, bgEnvelope, pspProfile)
 		if err != nil {
 			svc.MarkJobFailed(bgCtx, bgJobID, "HEADER_MISMATCH")
@@ -253,7 +253,7 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 			// Trigger attachment engine automatically on success
 			log.Printf("settlement.upload.attachment_start job_id=%s", bgJobID)
 			engine := &services.AttachmentEngine{}
-			if _, err := engine.RunForBatch(bgCtx, bgTenant, bgJobID); err != nil {
+			if _, err := engine.RunForJob(bgCtx, bgTenant, bgJobID); err != nil {
 				log.Printf("settlement.upload.attachment_error job_id=%s err=%v", bgJobID, err)
 			}
 		}

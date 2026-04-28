@@ -15,6 +15,38 @@ Frontend surfaces covered:
 6. `Reconciliation & Finality`
 7. Cross-page `Ask Zord` prompt layer
 
+### 1.1 Service-Seven Runtime (Intelligence + Bulk)
+
+Frontend runtime integration now assumes the following upstream baseline for Service Seven:
+
+```env
+HTTP_PORT=8080
+ENVIRONMENT=development
+DATABASE_URL=postgres://zpi:zpi_secret@localhost:5440/zord_intelligence
+KAFKA_BROKERS=localhost:9092
+KAFKA_GROUP_ID=zord-intelligence-group
+INTELLIGENCE_MODE=GRADE_A
+TOPIC_INTENT_CREATED=canonical.intent.created
+TOPIC_DISPATCH_CREATED=dispatch.attempt.created
+TOPIC_OUTCOME_NORMALIZED=outcome.event.normalized
+TOPIC_FINALITY_CERT=finality.certificate.issued
+TOPIC_FINAL_CONTRACT=final.contract.updated
+TOPIC_EVIDENCE_READY=evidence.pack.ready
+TOPIC_DLQ=dlq.event
+TOPIC_STATEMENT_MATCH=statement.match.event
+TOPIC_CORRIDOR_HEALTH_TICK=corridor.health.tick
+TOPIC_SLA_TIMER_TICK=sla.timer.tick
+TOPIC_SETTLEMENT_CREATED=canonical.settlement.created
+TOPIC_ATTACHMENT_DECISION=attachment.decision.created
+TOPIC_VARIANCE_RECORD=variance.record.created
+TOPIC_BATCH_SUMMARY=batch.summary.updated
+TOPIC_GOVERNANCE_DECISION=governance.decision.created
+TOPIC_ACTUATION_ALERT=zpi.actuation.alert
+TOPIC_ACTUATION_RETRY=zpi.actuation.retry
+TOPIC_ACTUATION_EVIDENCE=zpi.actuation.evidence
+TOPIC_ACTUATION_BATCH_PATCH=zpi.actuation.batch_patch
+```
+
 ## 2) Service Ownership
 
 | Service | Ownership | Responsibility |
@@ -424,6 +456,95 @@ The new frontend has many graphs. To keep frontend fast and stable, backend shou
 - `confidence` should be normalized to one of: `low`, `medium`, `high`.
 - `citations[].snippet` should remain short enough to render in card UI (recommend < 280 chars).
 - If `visualization` is present, payload must include `type`, `title`, and renderable `data`.
+
+### 5.3 Prompt Layer runtime (current backend contract)
+
+**Upstream**: `POST http://localhost:8086/query`  
+**Headers**: `Content-Type: application/json`
+
+**Request**
+```json
+{
+  "query": "Summarize failure status and evidence readiness for tenant 11111111-1111-4111-8111-111111111111",
+  "tenant_id": "11111111-1111-4111-8111-111111111111",
+  "top_k": 6
+}
+```
+
+**Response**
+```json
+{
+  "answer": "The system encountered a problem during a crucial step where it validates incoming information...",
+  "confidence": "medium",
+  "entities_found": {},
+  "citations": [
+    {
+      "source_type": "intent_dlq_items",
+      "record_id": "",
+      "chunk_id": "",
+      "snippet": "DLQ item: stage=semantic_validation reason_code=MISSING_PROVIDER_REFERENCE replayable=true created_at=2026-04-22 11:32:19.516814+00 error_detail=Provider reference absent in payload",
+      "score": 0.75
+    }
+  ],
+  "next_actions": []
+}
+```
+
+When visualization is requested, backend may append:
+
+```json
+{
+  "visualization": {
+    "type": "bar|line|pie|network|table",
+    "title": "string",
+    "data": {}
+  }
+}
+```
+
+### 5.4 Service-Seven Intelligence endpoints (exact frontend consumption)
+
+All UI intelligence calls should route through frontend proxy:  
+`/api/intelligence/*` -> upstream `http://localhost:8080/v1/intelligence/*`
+
+| Method | Endpoint | Frontend usage |
+|---|---|---|
+| `GET` | `/v1/intelligence/mode` | Capability catalogue and mode awareness |
+| `GET` | `/v1/intelligence/mode/status?tenant_id=X` | Topic health strip |
+| `GET` | `/v1/intelligence/kpis?tenant_id=X` | KPI cards |
+| `GET` | `/v1/intelligence/corridors/health?tenant_id=X` | Corridor posture |
+| `GET` | `/v1/intelligence/failures/top?tenant_id=X` | Failure leaderboard |
+| `GET` | `/v1/intelligence/sla?tenant_id=X` | SLA performance |
+| `GET` | `/v1/intelligence/sla-breach?tenant_id=X` | Grade-B breach lens |
+| `GET` | `/v1/intelligence/retry-recovery?tenant_id=X` | Recovery impact trend |
+| `GET` | `/v1/intelligence/statement-match?tenant_id=X` | Statement matching health |
+| `GET` | `/v1/intelligence/provider-ref-missing?tenant_id=X` | Missing provider reference risk |
+| `GET` | `/v1/intelligence/fusion-conflicts?tenant_id=X` | Multi-signal conflict lens |
+| `GET` | `/v1/intelligence/ml/anomaly?tenant_id=X` | Anomaly score |
+| `GET` | `/v1/intelligence/ml/sla-risk?tenant_id=X` | SLA risk prediction |
+| `GET` | `/v1/intelligence/ml/failure-shift?tenant_id=X` | Failure-shift detection |
+| `GET` | `/v1/intelligence/leakage?tenant_id=X` | Leakage snapshot |
+| `GET` | `/v1/intelligence/ambiguity?tenant_id=X` | Ambiguity snapshot |
+| `GET` | `/v1/intelligence/defensibility?tenant_id=X` | Defensibility snapshot |
+| `GET` | `/v1/intelligence/rca?tenant_id=X&corridor_id=Y` | Corridor RCA |
+| `GET` | `/v1/intelligence/pattern?tenant_id=X` | Pattern intelligence |
+| `GET` | `/v1/intelligence/recommendation?tenant_id=X` | Recommendation cards |
+| `GET` | `/v1/intelligence/batches?tenant_id=X` | Batch intelligence list |
+| `GET` | `/v1/intelligence/batches/{batch_id}?tenant_id=X` | Batch intelligence detail |
+| `GET` | `/v1/intelligence/{type}/history?tenant_id=X&limit=N` | Snapshot history |
+| `GET` | `/v1/intelligence/explanations/{snapshot_id}` | Explanation detail |
+| `POST` | `/v1/intelligence/explain-batch` | Generate batch explanation |
+
+### 5.5 Bulk ingest endpoint (batch command center)
+
+Frontend route for upload in batch center:
+
+- `POST /api/bulk-ingest` -> upstream `POST http://localhost:8080/v1/bulk-ingest`
+- Form body: `file` (multipart)
+- Header pass-through:
+  - `Authorization` (or server-side env key fallback)
+  - `X-Zord-Source-Type`
+  - `X-Zord-Source-Class`
 
 ## 6) Frontend Performance + Contract Rules
 

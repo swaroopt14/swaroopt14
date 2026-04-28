@@ -1,6 +1,26 @@
-version: '3.8'
-
 services:
+
+  # ── App ──────────────────────────────────────────────────────────────────────
+  zord-intelligence:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zord-intelligence-service
+    ports:
+      - "8089:8089"
+    environment:
+      - HTTP_PORT=8089
+      - ENVIRONMENT=development
+      - DATABASE_URL=postgres://zpi:zpi_secret@postgres:5432/zord_intelligence?sslmode=disable
+      - KAFKA_BROKERS=kafka:29092
+      - KAFKA_GROUP_ID=zord-intelligence-group
+      - INTELLIGENCE_MODE=GRADE_A
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
 
   # ── PostgreSQL ───────────────────────────────────────────────────────────────
   postgres:

@@ -1,6 +1,61 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
+
+const (
+	LeafTypeRawSettlementLine              = "RAW_SETTLEMENT_LINE"
+	LeafTypeCanonicalSettlementObservation = "CANONICAL_SETTLEMENT_OBSERVATION"
+	LeafTypeAttachmentDecision             = "ATTACHMENT_DECISION"
+	LeafTypeVarianceDecision               = "VARIANCE_DECISION"
+	LeafTypeEnvelopeHash                   = "ENVELOPE_HASH"
+	LeafTypeCanonicalIntentHash            = "CANONICAL_INTENT_HASH"
+	LeafTypeGovernanceDecision             = "GOVERNANCE_DECISION_AT_CANONICAL"
+	LeafTypeFinalEvidenceView              = "FINAL_EVIDENCE_VIEW"
+)
+
+// RequiredLeafTypes are the 7 externally-supplied leaves that must be present
+// before GeneratePack() is triggered. Leaf 8 (FINAL_EVIDENCE_VIEW) is auto-added.
+var RequiredLeafTypes = []string{
+	LeafTypeRawSettlementLine,
+	LeafTypeCanonicalSettlementObservation,
+	LeafTypeAttachmentDecision,
+	LeafTypeVarianceDecision,
+	LeafTypeEnvelopeHash,
+	LeafTypeCanonicalIntentHash,
+	LeafTypeGovernanceDecision,
+}
+
+// PendingLeafCandidate represents a buffered leaf waiting for the full set.
+type PendingLeafCandidate struct {
+	ID            string    `json:"id" db:"id"`
+	TenantID      string    `json:"tenant_id" db:"tenant_id"`
+	IntentID      *string   `json:"intent_id" db:"intent_id"` // null for edge events
+	EnvelopeID    *string   `json:"envelope_id" db:"envelope_id"` // used to correlate edge
+	LeafType      string    `json:"leaf_type" db:"leaf_type"`
+	Hash          string    `json:"hash" db:"hash"`
+	SchemaVersion string    `json:"schema_version" db:"schema_version"`
+	SourceTopic   string    `json:"source_topic" db:"source_topic"`
+	CreatedAt     time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// RelayEvent is a compatible subset of the normalized outbox event
+// published by zord-relay to Kafka.
+type RelayEvent struct {
+	EventID         string          `json:"event_id"`
+	EnvelopeID      string          `json:"envelope_id"`
+	TenantID        string          `json:"tenant_id"`
+	AggregateType   string          `json:"aggregate_type"`
+	AggregateID     string          `json:"aggregate_id"`
+	EventType       string          `json:"event_type"`
+	Payload         json.RawMessage `json:"payload"`
+	EnvelopeHash    []byte          `json:"envelope_hash,omitempty"`
+	CanonicalHash   string          `json:"canonical_hash,omitempty"`
+	GovernanceState string          `json:"governance_state,omitempty"`
+}
 
 // EvidenceItem is one proof artifact that becomes a typed leaf in the Merkle tree.
 // leaf_hash = SHA256(type || ref || hash || schema_version)

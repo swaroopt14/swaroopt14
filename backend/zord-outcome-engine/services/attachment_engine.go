@@ -35,6 +35,7 @@ import (
 	"zord-outcome-engine/models"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"github.com/shopspring/decimal"
 )
 
@@ -324,10 +325,28 @@ func (e *AttachmentEngine) runAttachment(
 		log.Printf("attachment.engine.batch_summary_failed job=%s err=%v", job.AttachmentJobID, err)
 	}
 
-	// ── Step 8: Emit downstream events ───────────────────────────────────
+	// ── Step 8: Emit downstream events (internal ops topics) ────────────
 	outboxSvc := &AttachmentOutboxService{}
 	if err := outboxSvc.EmitForJob(ctx, job, allDecisions, allVariances); err != nil {
 		log.Printf("attachment.engine.outbox_failed job=%s err=%v", job.AttachmentJobID, err)
+	}
+
+	// ── Step 8b: Emit Merkle leaf bundles for zord-evidence ───────────────
+	// Build observation map keyed by settlement_observation_id.
+	obsMap := make(map[uuid.UUID]*models.CanonicalSettlementObservation, len(observations))
+	rowRefs := make([]string, 0, len(observations))
+	for i := range observations {
+		obsMap[observations[i].SettlementObservationID] = &observations[i]
+		rowRefs = append(rowRefs, observations[i].SourceRowRef)
+	}
+	// Load corresponding parsed rows so we can include raw_line_hash in Leaf 1.
+	parsedByRowRef, err := loadParsedRowsBySourceRowRefs(ctx, tenantID, rowRefs)
+	if err != nil {
+		log.Printf("attachment.engine.parsed_rows_load_warn job=%s err=%v (leaf 1 may be absent)", job.AttachmentJobID, err)
+		parsedByRowRef = map[string]*models.SettlementParsedRow{}
+	}
+	if err := outboxSvc.EmitLeafBundlesForJob(ctx, job, allDecisions, allVariances, obsMap, parsedByRowRef); err != nil {
+		log.Printf("attachment.engine.leaf_bundle_failed job=%s err=%v", job.AttachmentJobID, err)
 	}
 
 	log.Printf("attachment.engine.done job=%s exact=%d high=%d ambiguous=%d unresolved=%d conflicted=%d",
@@ -969,3 +988,52 @@ func defaultRuleProfile(tenantID uuid.UUID) *models.AttachmentRuleProfile {
 }
 
 // strPtr and safeDeref are defined in settlement_ingest_service.go (same package).
+
+// loadParsedRowsBySourceRowRefs fetches settlement_parsed_rows for all given
+// source_row_ref values in a single query and returns a map keyed by source_row_ref.
+// This avoids N+1 queries when building leaf bundles after an attachment run.
+func loadParsedRowsBySourceRowRefs(
+	ctx context.Context,
+	tenantID uuid.UUID,
+	rowRefs []string,
+) (map[string]*models.SettlementParsedRow, error) {
+	if len(rowRefs) == 0 {
+		return map[string]*models.SettlementParsedRow{}, nil
+	}
+
+	// Build a parameterised ANY($2) query.
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT
+			parsed_row_id, job_id, tenant_id, settlement_envelope_id,
+			source_file_ref, source_row_ref,
+			raw_line_hash,
+			mapping_profile_id, mapping_profile_version,
+			parse_confidence, created_at
+		FROM settlement_parsed_rows
+		WHERE tenant_id = $1
+		  AND source_row_ref = ANY($2)`,
+		tenantID,
+		pq.Array(rowRefs),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("loadParsedRowsBySourceRowRefs: query: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]*models.SettlementParsedRow)
+	for rows.Next() {
+		pr := &models.SettlementParsedRow{}
+		if err := rows.Scan(
+			&pr.ParsedRowID, &pr.JobID, &pr.TenantID, &pr.SettlementEnvelopeID,
+			&pr.SourceFileRef, &pr.SourceRowRef,
+			&pr.RawLineHash,
+			&pr.MappingProfileID, &pr.MappingProfileVersion,
+			&pr.ParseConfidence, &pr.CreatedAt,
+		); err != nil {
+			log.Printf("loadParsedRowsBySourceRowRefs: scan: %v", err)
+			continue
+		}
+		result[pr.SourceRowRef] = pr
+	}
+	return result, rows.Err()
+}

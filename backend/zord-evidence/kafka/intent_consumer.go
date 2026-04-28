@@ -1,0 +1,68 @@
+package kafka
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"log"
+	"zord-evidence/models"
+)
+
+// StartIntentConsumer starts a consumer for payments.intent.events.v1
+func StartIntentConsumer(
+	ctx context.Context,
+	brokers []string,
+	groupID string,
+	topic string,
+	pg PackGenerator,
+) error {
+	log.Printf("intent.consumer.start group=%s topic=%s brokers=%v", groupID, topic, brokers)
+	return StartConsumer(ctx, brokers, groupID, topic, buildIntentHandler(pg))
+}
+
+func buildIntentHandler(pg PackGenerator) MessageHandler {
+	return func(ctx context.Context, key string, raw []byte) error {
+		var relayEvt models.RelayEvent
+		if err := json.Unmarshal(raw, &relayEvt); err != nil {
+			log.Printf("intent.consumer.parse_failed key=%s err=%v", key, err)
+			return nil
+		}
+
+		if relayEvt.TenantID == "" || relayEvt.AggregateID == "" || relayEvt.EnvelopeID == "" {
+			log.Printf("intent.consumer.missing_ids tenant=%s intent=%s env=%s", relayEvt.TenantID, relayEvt.AggregateID, relayEvt.EnvelopeID)
+			return nil
+		}
+
+		// Leaf 6: Canonical Intent Hash
+		l6 := models.PendingLeafCandidate{
+			TenantID:      relayEvt.TenantID,
+			IntentID:      &relayEvt.AggregateID,
+			LeafType:      models.LeafTypeCanonicalIntentHash,
+			Hash:          relayEvt.CanonicalHash,
+			SchemaVersion: "v1",
+			SourceTopic:   "payments.intent.events.v1",
+		}
+
+		// Leaf 7: Governance Decision (Computed from GovernanceState)
+		// Plan: SHA256("GOVERNANCE_CANONICAL_V1:" + governance_state)
+		govInput := "GOVERNANCE_CANONICAL_V1:" + relayEvt.GovernanceState
+		h := sha256.New()
+		h.Write([]byte(govInput))
+		govHash := hex.EncodeToString(h.Sum(nil))
+
+		l7 := models.PendingLeafCandidate{
+			TenantID:      relayEvt.TenantID,
+			IntentID:      &relayEvt.AggregateID,
+			LeafType:      models.LeafTypeGovernanceDecision,
+			Hash:          govHash,
+			SchemaVersion: "v1",
+			SourceTopic:   "payments.intent.events.v1",
+		}
+
+		pendingLeaves := []models.PendingLeafCandidate{l6, l7}
+
+		// Pass intent_id and envelope_id to link any buffered edge leaves
+		return pg.HandleLeafUpdate(ctx, relayEvt.TenantID, relayEvt.EnvelopeID, relayEvt.AggregateID, pendingLeaves)
+	}
+}

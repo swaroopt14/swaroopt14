@@ -141,6 +141,11 @@ func main() {
 	routes.Routes(server, h)
 	routes.AttachmentRoutes(server, h)
 
+	// ── Relay outbox routes (outcome_outbox → zord-relay → Kafka) ─────────
+	outboxRepo := storage.NewOutboxPullRepo(db.DB)
+	outboxHandler := handlers.NewOutboxHandler(outboxRepo)
+	routes.OutboxRoutes(server, outboxHandler)
+
 	log.Println("Starting Zord Outcome Engine service on port 8081 with observability enabled")
 
 	srv := &http.Server{

@@ -146,6 +146,7 @@ services:
       kafka-topics --bootstrap-server broker1:9092 --create --if-not-exists --topic payments.intent.events.v1 --partitions 6 --replication-factor 1
       kafka-topics --bootstrap-server broker1:9092 --create --if-not-exists --topic payments.ledger.events.v1 --partitions 6 --replication-factor 1
       kafka-topics --bootstrap-server broker1:9092 --create --if-not-exists --topic payments.dispatch.events.v1 --partitions 6 --replication-factor 1
+      kafka-topics --bootstrap-server broker1:9092 --create --if-not-exists --topic payments.outcome.events.v1 --partitions 6 --replication-factor 1
       kafka-topics --bootstrap-server broker1:9092 --create --if-not-exists --topic relay.dlq.publish_failure --partitions 3 --replication-factor 1 --config retention.ms=604800000
       kafka-topics --bootstrap-server broker1:9092 --create --if-not-exists --topic relay.dlq.poison --partitions 3 --replication-factor 1 --config retention.ms=604800000
       echo 'Topics created.'

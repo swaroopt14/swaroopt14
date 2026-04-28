@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ var validModes = []string{"INTELLIGENCE_ATTACH", "SECONDARY_DISPATCH", "FULL_CON
 
 type EvidenceService struct {
 	repo                *repositories.EvidenceRepository
+	pendingLeafRepo     repositories.PendingLeafRepository
 	s3                  storage.S3Store
 	signer              *Signer
 	archiveCrypto       *ArchiveCrypto
@@ -33,6 +35,7 @@ type EvidenceService struct {
 
 func NewEvidenceService(
 	repo *repositories.EvidenceRepository,
+	pendingLeafRepo repositories.PendingLeafRepository,
 	s3 storage.S3Store,
 	signer *Signer,
 	archiveCrypto *ArchiveCrypto,
@@ -42,6 +45,7 @@ func NewEvidenceService(
 ) *EvidenceService {
 	return &EvidenceService{
 		repo:                repo,
+		pendingLeafRepo:     pendingLeafRepo,
 		s3:                  s3,
 		signer:              signer,
 		archiveCrypto:       archiveCrypto,
@@ -49,6 +53,95 @@ func NewEvidenceService(
 		replayCompareStrict: strict,
 		publisher:           publisher,
 	}
+}
+
+// HandleLeafUpdate orchestrates the buffered leaf ingestion and pack generation.
+func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID string, newLeaves []models.PendingLeafCandidate) error {
+	// 0. If intentID is missing but envelopeID is present, try to resolve it from existing leaves
+	if intentID == "" && envelopeID != "" {
+		resolved, err := s.pendingLeafRepo.ResolveIntentID(ctx, tenantID, envelopeID)
+		if err != nil {
+			log.Printf("evidence.service.resolve_intent_failed env=%s err=%v", envelopeID, err)
+		} else if resolved != "" {
+			intentID = resolved
+			// Update the new leaves to have the resolved intentID
+			for i := range newLeaves {
+				newLeaves[i].IntentID = &intentID
+			}
+		}
+	}
+
+	// 1. Link envelope if intentID is present
+	if intentID != "" && envelopeID != "" {
+		if err := s.pendingLeafRepo.LinkEnvelopeToIntent(ctx, tenantID, envelopeID, intentID); err != nil {
+			return err
+		}
+	}
+
+	// 2. Upsert new leaves
+	for i := range newLeaves {
+		if err := s.pendingLeafRepo.UpsertLeaf(ctx, &newLeaves[i]); err != nil {
+			return err
+		}
+	}
+
+	// 3. Check readiness if we have an intentID
+	if intentID == "" {
+		return nil
+	}
+
+	leaves, err := s.pendingLeafRepo.GetLeavesForIntent(ctx, tenantID, intentID)
+	if err != nil {
+		return err
+	}
+
+	// 4. Map leaf types to items
+	leafMap := make(map[string]models.PendingLeafCandidate)
+	for _, l := range leaves {
+		leafMap[l.LeafType] = l
+	}
+
+	// 5. Check if all 7 required external leaves are present
+	allPresent := true
+	var items []models.EvidenceItem
+	var missing []string
+	for _, requiredType := range models.RequiredLeafTypes {
+		if l, ok := leafMap[requiredType]; ok {
+			items = append(items, models.EvidenceItem{
+				Type:          l.LeafType,
+				Ref:           intentID,
+				Hash:          l.Hash,
+				SchemaVersion: l.SchemaVersion,
+			})
+		} else {
+			allPresent = false
+			missing = append(missing, requiredType)
+		}
+	}
+
+	if !allPresent {
+		log.Printf("evidence.service.readiness_check intent=%s missing_leaves=%v present_count=%d", intentID, missing, len(items))
+		return nil // Not ready yet
+	}
+	log.Printf("evidence.service.readiness_check intent=%s ALL_LEAVES_PRESENT — triggering generation", intentID)
+
+	// 6. Generate the pack!
+	req := models.GenerateEvidenceRequest{
+		TenantID:       tenantID,
+		IntentID:       intentID,
+		Mode:           "INTELLIGENCE_ATTACH",
+		RulesetVersion: "v1",
+		SchemaVersions: map[string]string{"v1": "v1"},
+		Items:          items,
+	}
+
+	_, err = s.GeneratePack(ctx, req)
+	if err != nil {
+		return fmt.Errorf("generate pack from buffered leaves: %w", err)
+	}
+
+	// 7. Cleanup
+	return s.pendingLeafRepo.DeleteForIntent(ctx, tenantID, intentID)
 }
 
 // GeneratePack is the core of Service 6 (spec §13 steps 1–11).
@@ -72,7 +165,7 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 
 	// --- Steps 5–6: compute typed leaf hashes, sort deterministically ---
 	items := req.Items
-	leaves := make([]utils.MerkleLeaf, 0, len(items))
+	leaves := make([]utils.MerkleLeaf, 0, len(items)+1)
 	for i := range items {
 		// Spec §11.1: leaf_hash = SHA256(type || stable_ref || item_hash || version)
 		stableHash := strings.TrimSpace(items[i].Hash)
@@ -81,7 +174,29 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		leaves = append(leaves, utils.MerkleLeaf{Index: i, LeafHash: items[i].LeafHash})
 	}
 
-	// --- Step 7: build Merkle tree ---
+	// --- Step 7: build Interim Merkle tree (7 leaves) ---
+	interimMerkleRoot := utils.BuildMerkleRoot(leaves)
+
+	// --- Step 7.5: Auto-append FINAL_EVIDENCE_VIEW (Leaf 8) ---
+	// Hash = SHA256(evidence_pack_id | interim_merkle_root)
+	leaf8Input := packID + "|" + interimMerkleRoot
+	leaf8Hash := utils.SHA256Hex(leaf8Input)
+	
+	leaf8 := models.EvidenceItem{
+		Type:          models.LeafTypeFinalEvidenceView,
+		Ref:           packID,
+		Hash:          leaf8Hash,
+		SchemaVersion: "v1",
+	}
+	
+	// Final leaf hash for leaf 8
+	leaf8FinalInput := strings.Join([]string{leaf8.Type, leaf8.Ref, leaf8.Hash, leaf8.SchemaVersion}, "||")
+	leaf8.LeafHash = utils.SHA256Hex(leaf8FinalInput)
+	
+	items = append(items, leaf8)
+	leaves = append(leaves, utils.MerkleLeaf{Index: len(items) - 1, LeafHash: leaf8.LeafHash})
+
+	// --- Step 8: build Final Merkle tree (8 leaves) ---
 	merkleRoot := utils.BuildMerkleRoot(leaves)
 
 	// --- Step 9: sign the pack commitment ---
@@ -134,9 +249,12 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 	}
 
 	// --- Step 10b: persist metadata to Postgres ---
+	log.Printf("evidence.service.generate_pack saving metadata pack=%s intent=%s items=%d", packID, req.IntentID, len(items))
 	if err := s.repo.SavePack(ctx, pack, objectRef); err != nil {
+		log.Printf("evidence.service.generate_pack save_failed pack=%s err=%v", packID, err)
 		return nil, fmt.Errorf("save pack metadata: %w", err)
 	}
+	log.Printf("evidence.service.generate_pack save_ok pack=%s", packID)
 
 	// --- Persist §14.3 archive metadata row ---
 	archiveHash := sha256Hex(encryptedArchive)

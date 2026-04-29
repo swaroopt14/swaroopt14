@@ -1,5 +1,8 @@
-# Use the official Node.js runtime as the base image
-FROM node:18-alpine AS base
+# Use a public mirror by default to avoid Docker Hub auth DNS failures.
+# You can override at build time:
+# docker compose build --build-arg NODE_BASE_IMAGE=node:18-alpine
+ARG NODE_BASE_IMAGE=public.ecr.aws/docker/library/node:18-alpine
+FROM ${NODE_BASE_IMAGE} AS base
 
 # Install dependencies only when needed
 FROM base AS deps

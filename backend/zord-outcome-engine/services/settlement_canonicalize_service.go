@@ -1,16 +1,12 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -19,32 +15,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
-
-var enclaveHTTPClient = &http.Client{
-	Timeout:   10 * time.Second,
-	Transport: otelhttp.NewTransport(http.DefaultTransport),
-}
-
-var errQueuedForAsyncTokenization = fmt.Errorf("queued for async tokenization")
 
 // SettlementCanonicalizeService converts parsed results into normalized canonical observations.
 type SettlementCanonicalizeService struct {
-	TokenizeQueue *KafkaTokenizeQueue
-}
-
-func (s *SettlementCanonicalizeService) computeBeneficiaryFingerprint(tokens map[string]string) string {
-	// Formula: SHA256(account_number_token + ifsc_token + vpa_token)
-	raw := tokens["account_number"] + tokens["ifsc"] + tokens["vpa"]
-	hash := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(hash[:])
-}
-
-type enclaveTokenizeRequest struct {
-	TenantID string            `json:"tenant_id"`
-	TraceID  string            `json:"trace_id"`
-	PII      map[string]string `json:"pii"`
 }
 
 // RunForJob executes the canonicalization pipeline for a specific ingest job.
@@ -61,6 +35,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT 
 			parsed_row_id, settlement_envelope_id, source_file_ref, source_row_ref,
+			ingest_run_id, settlement_batch_id,
 			parsed_candidates_json, parse_confidence, parse_warnings_json
 		FROM settlement_parsed_rows
 		WHERE job_id = $1 AND tenant_id = $2
@@ -73,9 +48,11 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 	defer rows.Close()
 
 	var (
-		observations       []models.CanonicalSettlementObservation
-		canonicalized      int
-		canonicalizeFailed int
+		observations            []models.CanonicalSettlementObservation
+		canonicalized           int
+		canonicalizeFailed      int
+		ingestRunIDForJob       string
+		settlementBatchIDForJob string
 	)
 
 	// Grouping for batch context.
@@ -83,18 +60,26 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 
 	for rows.Next() {
 		var (
-			parsedRowID     uuid.UUID
-			envelopeID      uuid.UUID
-			sourceFileRef   string
-			sourceRowRef    string
-			shapeJSON       []byte
-			parseConfidence float64
-			warningsJSON    []byte
+			parsedRowID       uuid.UUID
+			envelopeID        uuid.UUID
+			sourceFileRef     string
+			sourceRowRef      string
+			ingestRunID       string
+			settlementBatchID string
+			shapeJSON         []byte
+			parseConfidence   float64
+			warningsJSON      []byte
 		)
 
-		if err := rows.Scan(&parsedRowID, &envelopeID, &sourceFileRef, &sourceRowRef, &shapeJSON, &parseConfidence, &warningsJSON); err != nil {
+		if err := rows.Scan(&parsedRowID, &envelopeID, &sourceFileRef, &sourceRowRef, &ingestRunID, &settlementBatchID, &shapeJSON, &parseConfidence, &warningsJSON); err != nil {
 			log.Printf("settlement.canonicalize.scan_error job_id=%s err=%v", jobID, err)
 			continue
+		}
+		if ingestRunIDForJob == "" {
+			ingestRunIDForJob = ingestRunID
+		}
+		if settlementBatchIDForJob == "" {
+			settlementBatchIDForJob = settlementBatchID
 		}
 
 		// Unmarshal the shape into UniversalSettlementShape.
@@ -102,7 +87,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		if err := json.Unmarshal(shapeJSON, &shape); err != nil {
 			log.Printf("settlement.canonicalize.unmarshal_failed job_id=%s row=%s", jobID, sourceRowRef)
 			svc := &SettlementIngestService{}
-			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "SHAPE_UNMARSHAL_FAILED", profile)
+			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "SHAPE_UNMARSHAL_FAILED", profile, ingestRunID, settlementBatchID)
 			canonicalizeFailed++
 			continue
 		}
@@ -110,29 +95,15 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		// 2. Build canonical observation.
 		obs := buildCanonicalObservation(tenantID, jobID, parsedRowID, envelopeID, shape, parseConfidence, profile)
 
-		// 3. Tokenize.
-		obs, err = s.tokenizeObservation(ctx, obs, shape)
-		if err != nil {
-			if err == errQueuedForAsyncTokenization {
-				// Async tokenization was successfully queued; continue with
-				// canonical persistence and downstream batch/outbox emission.
-				err = nil
-			} else {
-			log.Printf("settlement.canonicalize.tokenization_info job_id=%s row=%s msg=%v", jobID, sourceRowRef, err)
-			continue
-			}
-		}
-
-		// 4. Insert into Postgres.
+		// 3. Insert into Postgres.
 		_, err = db.DB.ExecContext(ctx, `
 			INSERT INTO canonical_settlement_observations (
 				settlement_observation_id, tenant_id, trace_id,
-				settlement_envelope_id, job_id,
+				settlement_envelope_id, job_id, ingest_run_id, settlement_batch_id,
 				source_file_ref, source_row_ref, source_system,
 				observation_kind, source_strength_class,
 				client_reference_candidate, provider_reference, bank_reference,
 				external_reference, batch_reference,
-				beneficiary_fingerprint,
 				amount, settled_amount, fee_amount, deduction_amount,
 				currency_code, settlement_status,
 				retry_flag, reversal_flag, return_flag,
@@ -141,40 +112,33 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				mapping_profile_id, mapping_profile_version,
 				parse_confidence, mapping_confidence,
 				carrier_richness_score, attachment_readiness_score,
-				beneficiary,
 				canonical_hash,
 				created_at, updated_at
 			) VALUES (
 				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 				$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 				$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-				$31,$32,$33,$34,$35,
-				$36,$37,$38
+				$31,$32,$33,$34,$35,$36,$37,$38
 			) ON CONFLICT (settlement_observation_id) DO NOTHING`,
 			obs.SettlementObservationID, obs.TenantID, obs.TraceID,
-			obs.SettlementEnvelopeID, obs.JobID,
+			obs.SettlementEnvelopeID, obs.JobID, ingestRunID, settlementBatchID,
 			obs.SourceFileRef, obs.SourceRowRef, obs.SourceSystem,
 			obs.ObservationKind, obs.SourceStrengthClass,
 			obs.ClientReferenceCandidate, obs.ProviderReference, obs.BankReference,
 			obs.ExternalReference, obs.BatchReference,
-			obs.BeneficiaryFingerprint,
-			obs.Amount, obs.SettledAmount, obs.FeeAmount, obs.DeductionAmount,
-			obs.CurrencyCode, obs.SettlementStatus,
-			obs.RetryFlag, obs.ReversalFlag, obs.ReturnFlag,
-			obs.ObservationTimestamp, obs.ValueDate,
-			obs.ProviderRefStatus,
-			obs.MappingProfileID, obs.MappingProfileVersion,
-			obs.ParseConfidence, obs.MappingConfidence,
-			obs.CarrierRichnessScore, obs.AttachmentReadinessScore,
-			obs.Beneficiary,
-			obs.CanonicalHash,
+			obs.Amount, obs.SettledAmount, obs.FeeAmount,
+			obs.DeductionAmount, obs.CurrencyCode, obs.SettlementStatus, obs.RetryFlag,
+			obs.ReversalFlag, obs.ReturnFlag, obs.ObservationTimestamp, obs.ValueDate,
+			obs.ProviderRefStatus, obs.MappingProfileID, obs.MappingProfileVersion,
+			obs.ParseConfidence, obs.MappingConfidence, obs.CarrierRichnessScore,
+			obs.AttachmentReadinessScore, obs.CanonicalHash,
 			obs.CreatedAt, obs.UpdatedAt,
 		)
 
 		if err != nil {
 			log.Printf("settlement.canonicalize.insert_failed job_id=%s row=%s err=%v", jobID, sourceRowRef, err)
 			svc := &SettlementIngestService{}
-			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "INSERT_FAILED", profile)
+			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "INSERT_FAILED", profile, ingestRunID, settlementBatchID)
 			canonicalizeFailed++
 			continue
 		}
@@ -195,7 +159,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 	}
 
 	// ── STEP 4: BATCH AGGREGATION ──────────────────────────────────────────
-	// We group the successfully processed observations by their BatchReference 
+	// We group the successfully processed observations by their BatchReference
 	// (e.g. settlement_id) to provide a summary view in canonical_settlement_batches.
 	for batchRefKey, group := range batchGroups {
 		if len(group) == 0 {
@@ -237,7 +201,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 
 		_, err = db.DB.ExecContext(ctx, `
 			INSERT INTO canonical_settlement_batches (
-				settlement_batch_id, tenant_id, job_id,
+				settlement_batch_id, tenant_id, job_id, ingest_run_id, settlement_batch_id_ref,
 				source_file_ref, source_system,
 				source_batch_ref, artifact_family,
 				row_count, success_count_estimate, failed_count_estimate,
@@ -247,7 +211,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				parse_confidence_overall, attachment_readiness_overall,
 				created_at, updated_at
 			) VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
 			) ON CONFLICT (job_id, source_batch_ref) DO UPDATE SET
 				row_count = EXCLUDED.row_count,
 				success_count_estimate = EXCLUDED.success_count_estimate,
@@ -257,7 +221,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				parse_confidence_overall = EXCLUDED.parse_confidence_overall,
 				attachment_readiness_overall = EXCLUDED.attachment_readiness_overall,
 				updated_at = EXCLUDED.updated_at`,
-			batchID, tenantID, jobID,
+			batchID, tenantID, jobID, ingestRunIDForJob, settlementBatchIDForJob,
 			firstObs.SourceFileRef, firstObs.SourceSystem,
 			sourceBatchRef, profile.ArtifactFamily,
 			len(group), successCount, 0,
@@ -274,9 +238,9 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 
 	// 5. Update job with canonicalization counts.
 	_, _ = db.DB.ExecContext(ctx, `
-		UPDATE settlement_ingest_jobs
+		UPDATE settlement_ingest_runs
 		SET row_count_canonicalized = $1
-		WHERE job_id = $2`,
+		WHERE ingest_run_id = $2`,
 		canonicalized, jobID,
 	)
 
@@ -315,7 +279,6 @@ func buildCanonicalObservation(
 		BankReference:            shape.BankReference,
 		ExternalReference:        shape.ExternalReference,
 		BatchReference:           shape.BatchReference,
-		BeneficiaryFingerprint:   computeBeneficiaryFingerprint(shape),
 		Amount:                   shape.Amount,
 		SettledAmount:            shape.SettledAmount,
 		FeeAmount:                shape.FeeAmount,
@@ -341,16 +304,16 @@ func buildCanonicalObservation(
 	return obs
 }
 
-func computeBeneficiaryFingerprint(shape models.UniversalSettlementShape) string {
-	parts := []string{
-		shape.SourceSystem,
-		safeDeref(shape.ProviderReference),
-		safeDeref(shape.BatchReference),
-	}
-	combined := strings.Join(parts, "|")
-	hash := sha256.Sum256([]byte(combined))
-	return hex.EncodeToString(hash[:])
-}
+// func computeBeneficiaryFingerprint(shape models.UniversalSettlementShape) string {
+// 	parts := []string{
+// 		shape.SourceSystem,
+// 		safeDeref(shape.ProviderReference),
+// 		safeDeref(shape.BatchReference),
+// 	}
+// 	combined := strings.Join(parts, "|")
+// 	hash := sha256.Sum256([]byte(combined))
+// 	return hex.EncodeToString(hash[:])
+// }
 
 func safeDeref(s *string) string {
 	if s == nil {
@@ -449,212 +412,4 @@ func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.Univ
 	return hex.EncodeToString(hash[:])
 }
 
-// ─── Tokenization Logic ────────────────────────────────────────────────────────
 
-func (s *SettlementCanonicalizeService) tokenizeObservation(
-	ctx context.Context,
-	obs models.CanonicalSettlementObservation,
-	shape models.UniversalSettlementShape,
-) (models.CanonicalSettlementObservation, error) {
-
-	piiPayload := shape.PIIData
-	if piiPayload == nil {
-		piiPayload = make(map[string]string)
-	}
-
-	tokenReq := enclaveTokenizeRequest{
-		TenantID: obs.TenantID.String(),
-		TraceID:  obs.TraceID.String(),
-		PII:      piiPayload,
-	}
-
-	log.Printf("settlement.tokenize.request.sync observation_id=%s data=%+v enclave_url=%s", obs.SettlementObservationID, tokenReq, os.Getenv("ZORD_PII_ENCLAVE_URL"))
-
-	tokenMap, err := callEnclaveTokenize(ctx, tokenReq)
-	if err != nil {
-		log.Printf("⚠️ Sync tokenization failed for observation_id=%s, falling back to Kafka: %v", obs.SettlementObservationID, err)
-
-		// KAFKA FALLBACK
-		if s.TokenizeQueue == nil {
-			return obs, err // Fail if no fallback available
-		}
-
-		// Convert obs to map to avoid decimal unmarshaling issues and match intent engine pattern
-		obsMap := make(map[string]any)
-		obsBytes, _ := json.Marshal(obs)
-		json.Unmarshal(obsBytes, &obsMap)
-
-		req := models.TokenizeRequestEvent{
-			EventType:      "PII_TOKENIZE_REQUEST",
-			TraceID:        obs.TraceID.String(),
-			EnvelopeID:     obs.SettlementEnvelopeID.String(),
-			TenantID:       obs.TenantID.String(),
-			ObjectRef:      obs.JobID,
-			IdempotencyKey: obs.SettlementObservationID.String(),
-			Source:         "OUTCOME_ENGINE",
-			SourceSystem:   obs.SourceSystem,
-			ReceivedAt:     time.Now().UTC(),
-			Canonical:      obsMap,
-		}
-
-		err = s.TokenizeQueue.PublishTokenizeRequest(ctx, req)
-		if err != nil {
-			return obs, err
-		}
-
-		// Keep canonicalization pipeline moving while async tokenization updates
-		// beneficiary fields later via ProcessTokenizeResult upsert.
-		return obs, errQueuedForAsyncTokenization
-	}
-
-	log.Printf("settlement.tokenize.response.sync observation_id=%s tokens=%+v", obs.SettlementObservationID, tokenMap)
-
-	// Calculate and store fingerprint
-	obs.BeneficiaryFingerprint = s.computeBeneficiaryFingerprint(tokenMap)
-
-	// Persist tokens in beneficiary JSONB field
-	beneficiaryJSON, _ := json.Marshal(tokenMap)
-	obs.Beneficiary = beneficiaryJSON
-
-	return obs, nil
-}
-
-func (s *SettlementCanonicalizeService) ProcessTokenizeResult(
-	ctx context.Context,
-	event *models.TokenizeResultEvent,
-) (models.CanonicalSettlementObservation, error) {
-
-	log.Printf("settlement.tokenize.callback.async envelope_id=%s tokens=%+v", event.EnvelopeID, event.Tokens)
-
-	log.Printf("ProcessTokenizeResult: EnvelopeID=%s", event.EnvelopeID)
-
-	// Check if this belongs to outcome engine by trying to parse settlement_observation_id
-	obsIDStr, ok := event.Canonical["settlement_observation_id"].(string)
-	if !ok || obsIDStr == "" {
-		log.Printf("ProcessTokenizeResult: Ignoring event, not a settlement observation (no settlement_observation_id)")
-		return models.CanonicalSettlementObservation{}, nil
-	}
-
-	// Reconstruct observation from map
-	var obs models.CanonicalSettlementObservation
-	obsBytes, err := json.Marshal(event.Canonical)
-	if err != nil {
-		return obs, err
-	}
-
-	if err := json.Unmarshal(obsBytes, &obs); err != nil {
-		log.Printf("ProcessTokenizeResult: Failed to unmarshal settlement observation: %v", err)
-		// If it's a decimal error (like the one reported), we should skip it as it's likely from intent engine
-		if strings.Contains(err.Error(), "can't convert") {
-			log.Printf("ProcessTokenizeResult: Ignoring event due to structural mismatch (likely intent engine message)")
-			return models.CanonicalSettlementObservation{}, nil
-		}
-		return obs, err
-	}
-
-	tokenMap := event.Tokens
-
-	// Calculate and store fingerprint
-	obs.BeneficiaryFingerprint = s.computeBeneficiaryFingerprint(tokenMap)
-
-	// Persist tokens in beneficiary JSONB field
-	beneficiaryJSON, err := json.Marshal(tokenMap)
-	if err != nil {
-		return obs, err
-	}
-	obs.Beneficiary = beneficiaryJSON
-
-	// Persist into Postgres (Async path)
-	_, err = db.DB.ExecContext(ctx, `
-		INSERT INTO canonical_settlement_observations (
-			settlement_observation_id, tenant_id, trace_id,
-			settlement_envelope_id, job_id,
-			source_file_ref, source_row_ref, source_system,
-			observation_kind, source_strength_class,
-			client_reference_candidate, provider_reference, bank_reference,
-			external_reference, batch_reference,
-			beneficiary_fingerprint,
-			amount, settled_amount, fee_amount, deduction_amount,
-			currency_code, settlement_status,
-			retry_flag, reversal_flag, return_flag,
-			observation_timestamp, value_date,
-			provider_ref_status,
-			mapping_profile_id, mapping_profile_version,
-			parse_confidence, mapping_confidence,
-			carrier_richness_score, attachment_readiness_score,
-			beneficiary,
-			canonical_hash,
-			created_at, updated_at
-		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-			$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-			$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-			$31,$32,$33,$34,$35,
-			$36,$37,$38
-		) ON CONFLICT (settlement_observation_id) DO UPDATE SET
-			beneficiary = EXCLUDED.beneficiary,
-			beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
-			updated_at = NOW()`,
-		obs.SettlementObservationID, obs.TenantID, obs.TraceID,
-		obs.SettlementEnvelopeID, obs.JobID,
-		obs.SourceFileRef, obs.SourceRowRef, obs.SourceSystem,
-		obs.ObservationKind, obs.SourceStrengthClass,
-		obs.ClientReferenceCandidate, obs.ProviderReference, obs.BankReference,
-		obs.ExternalReference, obs.BatchReference,
-		obs.BeneficiaryFingerprint,
-		obs.Amount, obs.SettledAmount, obs.FeeAmount, obs.DeductionAmount,
-		obs.CurrencyCode, obs.SettlementStatus,
-		obs.RetryFlag, obs.ReversalFlag, obs.ReturnFlag,
-		obs.ObservationTimestamp, obs.ValueDate,
-		obs.ProviderRefStatus,
-		obs.MappingProfileID, obs.MappingProfileVersion,
-		obs.ParseConfidence, obs.MappingConfidence,
-		obs.CarrierRichnessScore, obs.AttachmentReadinessScore,
-		obs.Beneficiary,
-		obs.CanonicalHash,
-		obs.CreatedAt, obs.UpdatedAt,
-	)
-
-	return obs, err
-}
-
-func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[string]string, error) {
-	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("ZORD_PII_ENCLAVE_URL")), "/")
-	if baseURL == "" {
-		return nil, fmt.Errorf("ZORD_PII_ENCLAVE_URL is not set")
-	}
-
-	targetURL := baseURL + "/v1/tokenize"
-	log.Printf("callEnclaveTokenize: TargetURL=%s", targetURL)
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, err
-	}
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := enclaveHTTPClient.Do(httpReq)
-	if err != nil {
-		log.Printf("callEnclaveTokenize: HTTP call failed: %v", err)
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("enclave tokenize failed: status=%d body=%s", resp.StatusCode, string(raw))
-	}
-
-	var out struct {
-		Tokens map[string]string `json:"tokens"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, err
-	}
-	return out.Tokens, nil
-}

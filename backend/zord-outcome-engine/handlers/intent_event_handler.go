@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"context"
+
 	"github.com/google/uuid"
 	"zord-outcome-engine/models"
 )
@@ -31,7 +31,7 @@ func HandleIntentEvent(msg []byte) error {
 	if err != nil {
 		return err
 	}
-	if err := upsertCanonicalIntent(context.Background(), intent); err != nil {
+	if err := upsertCanonicalIntent(nil, intent); err != nil {
 		return err
 	}
 	log.Printf("canonical_intents upserted from topic event_id=%s intent_id=%s", event.EventID, payload.IntentID)

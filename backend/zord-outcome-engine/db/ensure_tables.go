@@ -6,6 +6,19 @@ import (
 	"fmt"
 )
 
+/*
+Old idempotency used a single settlement_ingest_jobs table plus CheckByFingerprint,
+JobIDExists, and a single-table ingest_fingerprint uniqueness check to suppress
+duplicate uploads and guard force-reprocess batch reuse.
+
+That is being replaced with a two-table model: settlement_batches stores the
+client-visible batch identity, while settlement_ingest_runs stores each versioned
+processing attempt for that batch.
+
+What is not changing: parsing, canonicalization, outbox emission, and attachment
+engine business behavior all remain the same; this change only swaps the ingest
+idempotency and run-tracking model underneath them.
+*/
 var DB *sql.DB
 
 func EnsureTables(ctx context.Context) error {
@@ -133,39 +146,63 @@ CREATE TABLE IF NOT EXISTS finality_certificates(
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
 		`
-CREATE TABLE IF NOT EXISTS settlement_ingest_jobs(
-	job_id TEXT PRIMARY KEY,
-	tenant_id UUID NOT NULL,
-	settlement_envelope_id UUID NOT NULL,
-	artifact_family TEXT NOT NULL,
-	source_system TEXT NOT NULL,
-	connector_id UUID,
-	mapping_profile_id TEXT NOT NULL,
-	mapping_profile_version TEXT NOT NULL,
-	job_status TEXT NOT NULL,
-	row_count_expected INT,
-	row_count_parsed INT NOT NULL DEFAULT 0,
-	row_count_canonicalized INT NOT NULL DEFAULT 0,
-	row_count_failed INT NOT NULL DEFAULT 0,
-	parse_confidence_overall NUMERIC(5,4) NOT NULL DEFAULT 0,
-	started_at TIMESTAMPTZ,
-	completed_at TIMESTAMPTZ,
-	failure_reason_code TEXT,
-	file_sha256        TEXT NOT NULL DEFAULT '',
-	external_batch_id  TEXT,
-	ingest_fingerprint TEXT NOT NULL DEFAULT '',
-	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+CREATE TABLE IF NOT EXISTS settlement_batches (
+	settlement_batch_id     TEXT PRIMARY KEY,
+	tenant_id               UUID NOT NULL,
+	psp                     TEXT NOT NULL,
+	client_batch_id         TEXT NOT NULL,
+	current_active_run_id   TEXT,
+	latest_run_number       INT NOT NULL DEFAULT 0,
+	status                  TEXT NOT NULL DEFAULT 'ACTIVE',
+	created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS settlement_ingest_jobs_fingerprint_uq
-			ON settlement_ingest_jobs(ingest_fingerprint);`,
-		`CREATE INDEX IF NOT EXISTS settlement_ingest_jobs_tenant_idx ON settlement_ingest_jobs(tenant_id);`,
-		`CREATE INDEX IF NOT EXISTS settlement_ingest_jobs_envelope_idx ON settlement_ingest_jobs(settlement_envelope_id);`,
-		`CREATE INDEX IF NOT EXISTS settlement_ingest_jobs_status_idx ON settlement_ingest_jobs(job_status);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS settlement_batches_tenant_psp_client_uq
+			ON settlement_batches(tenant_id, psp, client_batch_id);`,
+		`CREATE INDEX IF NOT EXISTS settlement_batches_tenant_idx
+			ON settlement_batches(tenant_id);`,
+		`
+CREATE TABLE IF NOT EXISTS settlement_ingest_runs (
+	ingest_run_id            TEXT PRIMARY KEY,
+	settlement_batch_id      TEXT NOT NULL REFERENCES settlement_batches(settlement_batch_id),
+	tenant_id                UUID NOT NULL,
+	psp                      TEXT NOT NULL,
+	settlement_envelope_id   UUID NOT NULL,
+	artifact_family          TEXT NOT NULL,
+	source_system            TEXT NOT NULL,
+	connector_id             UUID,
+	mapping_profile_id       TEXT NOT NULL,
+	mapping_profile_version  TEXT NOT NULL,
+	file_sha256              TEXT NOT NULL DEFAULT '',
+	run_number               INT NOT NULL DEFAULT 1,
+	force_reprocess          BOOLEAN NOT NULL DEFAULT FALSE,
+	reprocess_reason         TEXT,
+	run_status               TEXT NOT NULL DEFAULT 'PARSING',
+	row_count_expected       INT,
+	row_count_parsed         INT NOT NULL DEFAULT 0,
+	row_count_canonicalized  INT NOT NULL DEFAULT 0,
+	row_count_failed         INT NOT NULL DEFAULT 0,
+	parse_confidence_overall NUMERIC(5,4) NOT NULL DEFAULT 0,
+	started_at               TIMESTAMPTZ,
+	completed_at             TIMESTAMPTZ,
+	failure_reason_code      TEXT,
+	created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);`,
+		`CREATE INDEX IF NOT EXISTS settlement_ingest_runs_batch_idx
+			ON settlement_ingest_runs(settlement_batch_id);`,
+		`CREATE INDEX IF NOT EXISTS settlement_ingest_runs_tenant_idx
+			ON settlement_ingest_runs(tenant_id);`,
+		`CREATE INDEX IF NOT EXISTS settlement_ingest_runs_status_idx
+			ON settlement_ingest_runs(run_status);`,
+		`CREATE INDEX IF NOT EXISTS settlement_ingest_runs_envelope_idx
+			ON settlement_ingest_runs(settlement_envelope_id);`,
 
 		`
 CREATE TABLE IF NOT EXISTS settlement_parsed_rows(
 	parsed_row_id UUID PRIMARY KEY,
-	job_id TEXT NOT NULL REFERENCES settlement_ingest_jobs(job_id),
+	job_id TEXT NOT NULL,
+	ingest_run_id TEXT NOT NULL,
+	settlement_batch_id TEXT NOT NULL,
 	tenant_id UUID NOT NULL,
 	settlement_envelope_id UUID NOT NULL,
 	source_file_ref TEXT NOT NULL,
@@ -180,6 +217,7 @@ CREATE TABLE IF NOT EXISTS settlement_parsed_rows(
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
 		`CREATE INDEX IF NOT EXISTS settlement_parsed_rows_job_idx ON settlement_parsed_rows(job_id);`,
+		`CREATE INDEX IF NOT EXISTS settlement_parsed_rows_run_idx ON settlement_parsed_rows(ingest_run_id);`,
 
 		`
 CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
@@ -187,7 +225,9 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	tenant_id UUID NOT NULL,
 	trace_id UUID NOT NULL,
 	settlement_envelope_id UUID NOT NULL,
-	job_id TEXT NOT NULL REFERENCES settlement_ingest_jobs(job_id),
+	job_id TEXT NOT NULL,
+	ingest_run_id TEXT NOT NULL,
+	settlement_batch_id TEXT NOT NULL,
 	source_file_ref TEXT NOT NULL,
 	source_row_ref TEXT NOT NULL,
 	source_system TEXT NOT NULL,
@@ -202,7 +242,6 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	merchant_id_token TEXT,
 	seller_id_token TEXT,
 	vendor_id_token TEXT,
-	beneficiary_fingerprint TEXT,
 	amount NUMERIC(20,2) NOT NULL,
 	settled_amount NUMERIC(20,2),
 	fee_amount NUMERIC(20,2),
@@ -227,7 +266,6 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	mapping_confidence NUMERIC(5,4) NOT NULL DEFAULT 0,
 	carrier_richness_score NUMERIC(5,4) NOT NULL DEFAULT 0,
 	attachment_readiness_score NUMERIC(5,4) NOT NULL DEFAULT 0,
-	beneficiary JSONB,
 	canonical_hash TEXT NOT NULL,
 	canonical_snapshot_ref TEXT,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -235,6 +273,8 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 );`,
 		`CREATE INDEX IF NOT EXISTS canonical_settlement_observations_tenant_idx ON canonical_settlement_observations(tenant_id);`,
 		`CREATE INDEX IF NOT EXISTS canonical_settlement_observations_job_idx ON canonical_settlement_observations(job_id);`,
+		`CREATE INDEX IF NOT EXISTS canonical_obs_run_idx ON canonical_settlement_observations(ingest_run_id);`,
+		`CREATE INDEX IF NOT EXISTS canonical_obs_batch_idx ON canonical_settlement_observations(settlement_batch_id);`,
 		`CREATE INDEX IF NOT EXISTS canonical_settlement_observations_envelope_idx ON canonical_settlement_observations(settlement_envelope_id);`,
 		`CREATE INDEX IF NOT EXISTS canonical_settlement_observations_trace_idx ON canonical_settlement_observations(trace_id);`,
 
@@ -242,7 +282,9 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 	settlement_batch_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	job_id TEXT NOT NULL REFERENCES settlement_ingest_jobs(job_id),
+	job_id TEXT NOT NULL,
+	ingest_run_id TEXT NOT NULL,
+	settlement_batch_id_ref TEXT NOT NULL,
 	source_file_ref TEXT NOT NULL,
 	source_system TEXT NOT NULL,
 	connector_id UUID,
@@ -267,7 +309,9 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 CREATE TABLE IF NOT EXISTS settlement_parse_errors(
 	error_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	job_id TEXT NOT NULL REFERENCES settlement_ingest_jobs(job_id),
+	job_id TEXT NOT NULL,
+	ingest_run_id TEXT NOT NULL,
+	settlement_batch_id TEXT NOT NULL,
 	settlement_envelope_id UUID NOT NULL,
 	source_row_ref TEXT,
 	error_stage TEXT NOT NULL,
@@ -278,6 +322,7 @@ CREATE TABLE IF NOT EXISTS settlement_parse_errors(
 	mapping_profile_version TEXT NOT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
+		`CREATE INDEX IF NOT EXISTS settlement_parse_errors_run_idx ON settlement_parse_errors(ingest_run_id);`,
 
 		`
 CREATE TABLE IF NOT EXISTS settlement_outbox_events(
@@ -285,6 +330,8 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 	tenant_id UUID NOT NULL,
 	trace_id UUID NOT NULL,
 	job_id TEXT NOT NULL,
+	ingest_run_id TEXT NOT NULL,
+	settlement_batch_id TEXT NOT NULL,
 	entity_family TEXT NOT NULL,
 	entity_id UUID NOT NULL,
 	event_type TEXT NOT NULL,
@@ -296,6 +343,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 	published_at TIMESTAMPTZ
 );`,
 		`CREATE INDEX IF NOT EXISTS settlement_outbox_events_status_idx ON settlement_outbox_events(status, next_retry_at);`,
+		`CREATE INDEX IF NOT EXISTS settlement_outbox_run_idx ON settlement_outbox_events(ingest_run_id);`,
 
 		// ── attachment_jobs ──────────────────────────────────────────────────
 		// One row per attachment run (batch or single). Provides replayability

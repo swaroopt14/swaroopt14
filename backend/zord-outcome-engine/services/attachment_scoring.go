@@ -149,13 +149,6 @@ func ScoreCandidate(
 
 	// ── LAYER 2: Composite / soft matching ───────────────────────────────
 
-	// Beneficiary fingerprint
-	if obs.BeneficiaryFingerprint == intent.BeneficiaryFingerprint &&
-		obs.BeneficiaryFingerprint != "" {
-		bd.BeneficiaryMatchScore = ScoreBeneficiaryFpMatch
-		cs.BeneficiaryFpMatch = true
-	}
-
 	// Amount (exact match — no tolerance by default unless profile says otherwise)
 	obsAmount := obs.Amount
 	if obs.SettledAmount != nil {

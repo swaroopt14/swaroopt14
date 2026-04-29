@@ -344,13 +344,12 @@ func findCandidateIntents(
 		  AND (
 		    ($2 != '' AND client_payout_ref = $2)
 		    OR ($3 != '' AND client_batch_ref = $3)
-		    OR ($9 != '' AND provider_hint = $9)
+		    OR ($8 != '' AND provider_hint = $8)
 		    OR (
-		      beneficiary_fingerprint = $4
-		      AND amount = $5
-		      AND currency_code = $6
+		      amount = $4
+		      AND currency_code = $5
 		      AND (intended_execution_at IS NULL
-		           OR intended_execution_at BETWEEN $7 AND $8)
+		           OR intended_execution_at BETWEEN $6 AND $7)
 		    )
 		  )
 		ORDER BY intent_id
@@ -376,7 +375,6 @@ func findCandidateIntents(
 		tenantID,
 		clientRef,
 		batchRef,
-		obs.BeneficiaryFingerprint,
 		obs.Amount,
 		obs.CurrencyCode,
 		windowStart,
@@ -472,7 +470,6 @@ func buildUnresolvedDecision(tenantID uuid.UUID, obsID uuid.UUID, jobID uuid.UUI
 
 func buildSupportingCarriers(obs models.CanonicalSettlementObservation) map[string]interface{} {
 	carriers := map[string]interface{}{
-		"beneficiary_fingerprint": obs.BeneficiaryFingerprint,
 		"amount":                  obs.Amount,
 		"currency_code":           obs.CurrencyCode,
 		"attachment_readiness":    obs.AttachmentReadinessScore,
@@ -856,7 +853,6 @@ func scanObservations(rows *sql.Rows) ([]models.CanonicalSettlementObservation, 
 			&o.ObservationKind, &o.SourceStrengthClass,
 			&o.ClientReferenceCandidate, &o.ProviderReference, &o.BankReference,
 			&o.ExternalReference, &o.BatchReference,
-			&o.BeneficiaryFingerprint,
 			&o.Amount, &o.SettledAmount, &o.FeeAmount, &o.DeductionAmount,
 			&o.CurrencyCode, &o.SettlementStatus,
 			&o.RetryFlag, &o.ReversalFlag, &o.ReturnFlag,

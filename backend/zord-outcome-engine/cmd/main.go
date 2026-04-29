@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -14,9 +13,7 @@ import (
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/handlers"
 	"zord-outcome-engine/kafka"
-	"zord-outcome-engine/models"
 	"zord-outcome-engine/routes"
-	"zord-outcome-engine/services"
 	"zord-outcome-engine/storage"
 
 	"github.com/gin-gonic/gin"
@@ -42,7 +39,6 @@ func main() {
 	}
 
 	brokers := strings.Split(os.Getenv("KAFKA_BROKERS"), ",")
-
 	producer, err := kafka.NewProducer(brokers)
 	if err != nil {
 		log.Fatalf("Kafka producer creation failure: %v", err)
@@ -60,45 +56,8 @@ func main() {
 		intentTopic = "payments.intent.events.v1"
 	}
 
-	// -------- TOKENIZE RESULT CONSUMER --------
-	resultTopic := os.Getenv("KAFKA_TOPIC_PII_TOKENIZE_RESULT")
-	if resultTopic == "" {
-		resultTopic = "pii.tokenize.result"
-	}
-
-	tokenizeQueue := services.NewKafkaTokenizeQueue(producer)
-	canonSvc := &services.SettlementCanonicalizeService{
-		TokenizeQueue: tokenizeQueue,
-	}
 	groupID := "outcome-engine-dispatch-group"
 	intentGroupID := "outcome-engine-intent-group"
-
-	// Tokenize result consumer — runs in its own goroutine.
-	go func() {
-		err := kafka.StartConsumer(
-			ctx,
-			brokers,
-			"outcome-engine-tokenize-result-group",
-			resultTopic,
-			func(msg []byte) error {
-				var event models.TokenizeResultEvent
-				if err := json.Unmarshal(msg, &event); err != nil {
-					log.Printf("Invalid tokenize result event: %v", err)
-					return err
-				}
-				log.Printf("Received tokenize result for envelope=%s", event.EnvelopeID)
-				_, err := canonSvc.ProcessTokenizeResult(ctx, &event)
-				if err != nil {
-					log.Printf("Failed to process tokenize result: %v", err)
-					return err
-				}
-				return nil
-			},
-		)
-		if err != nil {
-			log.Printf("Kafka tokenize result consumer failed: %v", err)
-		}
-	}()
 
 	// Dispatch consumer — runs in its own goroutine.
 	go func() {
@@ -116,7 +75,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("Kafka consumers started dispatch_topic=%s intent_topic=%s tokenization_topic=%s", dispatchTopic, intentTopic, resultTopic)
+	log.Printf("Kafka consumers started dispatch_topic=%s intent_topic=%s", dispatchTopic, intentTopic)
 
 	bucket := os.Getenv("S3_BUCKET")
 	region := os.Getenv("AWS_REGION")

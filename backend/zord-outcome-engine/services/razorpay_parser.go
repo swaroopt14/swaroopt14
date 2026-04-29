@@ -190,22 +190,6 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	}
 	shape.PartyReferenceCandidates = make(map[string]interface{})
 	shape.BeneficiaryIdentityCandidates = make(map[string]interface{})
-	shape.PIIData = make(map[string]string)
-
-	for i, colHeader := range headerRow {
-		h := strings.ToLower(strings.TrimSpace(colHeader))
-		if i < len(row) {
-			val := strings.TrimSpace(row[i])
-			if val != "" {
-				for _, piiField := range profile.PIIFields {
-					if h == piiField {
-						shape.PIIData[h] = val
-						break
-					}
-				}
-			}
-		}
-	}
 
 	return ParsedRowResult{
 		RowIndex:   rowIndex,

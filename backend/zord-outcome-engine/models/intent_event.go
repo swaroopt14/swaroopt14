@@ -28,7 +28,6 @@ type IntentPayload struct {
 	ClientPayoutRef        string     `json:"client_payout_ref,omitempty"`
 	ClientBatchRef         string     `json:"client_batch_ref,omitempty"`
 	BusinessIdempotencyKey string     `json:"business_idempotency_key,omitempty"`
-	BeneficiaryFingerprint string     `json:"beneficiary_fingerprint,omitempty"`
 	ProofReadinessScore    float64    `json:"proof_readiness_score,omitempty"`
 	MatchabilityScore      float64    `json:"matchability_score,omitempty"`
 	CanonicalHash          string     `json:"canonical_hash,omitempty"`

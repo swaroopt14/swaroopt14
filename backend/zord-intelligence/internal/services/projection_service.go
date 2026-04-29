@@ -125,10 +125,16 @@ func (s *ProjectionService) HandleIntentCreated(
 	ctx context.Context,
 	e models.IntentCreatedEvent,
 ) error {
-	if e.TenantID == "" || e.CorridorID == "" || e.EventID == "" {
-		log.Printf("invalid event: missing required fields tenant=%s corridor=%s event_id=%s",
-			e.TenantID, e.CorridorID, e.EventID)
+	if e.TenantID == "" || e.EventID == "" {
+		log.Printf("invalid event: missing required fields tenant=%s event_id=%s",
+			e.TenantID, e.EventID)
 		return nil
+	}
+
+	// corridor_id might be null for now (Grade A/B pivot transition)
+	corridorID := e.CorridorID
+	if corridorID == "" {
+		corridorID = "UNKNOWN"
 	}
 
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
@@ -138,14 +144,14 @@ func (s *ProjectionService) HandleIntentCreated(
 	if processed {
 		return nil
 	}
-
+	log.Printf("HandleIntentCreated intent=%s tenant=%s", e.EventID, e.TenantID)
 	window := todayWindow(e.CreatedAt)
 
 	// Step 1: atomically add to the pending backlog (race-safe SQL upsert)
 	if err := s.projRepo.AtomicIncrementPending(
-		ctx, e.TenantID, e.CorridorID, window.start, window.end,
+		ctx, e.TenantID, corridorID, window.start, window.end,
 	); err != nil {
-		return fmt.Errorf("HandleIntentCreated pending corridor=%s: %w", e.CorridorID, err)
+		return fmt.Errorf("HandleIntentCreated pending corridor=%s: %w", corridorID, err)
 	}
 
 	// Step 2: seed the SLA timer (BUG FIX — this was missing before)
@@ -154,16 +160,20 @@ func (s *ProjectionService) HandleIntentCreated(
 	// (e.g. transient DB hiccup), we want Kafka to commit the offset — the
 	// backlog data is correct. An ops alert about SLA seeding is better than
 	// reprocessing the event and double-counting the backlog.
+
+	// Fix — ensure event has the defaulted corridorID for downstream logic
+	e.CorridorID = corridorID
+
 	if err := s.slaRepo.SeedTimer(ctx, e); err != nil {
 		log.Printf("HandleIntentCreated: SeedTimer failed intent=%s corridor=%s: %v",
-			e.IntentID, e.CorridorID, err)
+			e.IntentID, corridorID, err)
 	}
 
 	if err := s.policyService.EvaluateForEvent(
-		ctx, e.TenantID, e.CorridorID, "canonical.intent.created", e.EventID,
+		ctx, e.TenantID, corridorID, "canonical.intent.created", e.EventID,
 	); err != nil {
 		log.Printf("HandleIntentCreated: EvaluateForEvent failed tenant=%s corridor=%s: %v",
-			e.TenantID, e.CorridorID, err)
+			e.TenantID, corridorID, err)
 	}
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleIntentCreated MarkProcessed event_id=%s: %w", e.EventID, err)

@@ -72,7 +72,6 @@ type CanonicalIntent struct {
 	ClientPayoutRef        *string         `json:"client_payout_ref,omitempty" db:"client_payout_ref"`
 	ClientBatchRef         *string         `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
 	BusinessIdempotencyKey *string         `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
-	BeneficiaryFingerprint string          `json:"beneficiary_fingerprint" db:"beneficiary_fingerprint"`
 	Amount                 decimal.Decimal `json:"amount" db:"amount"`
 	CurrencyCode           string          `json:"currency_code" db:"currency_code"`
 	IntendedExecutionAt    *time.Time      `json:"intended_execution_at,omitempty" db:"intended_execution_at"`
@@ -128,7 +127,6 @@ type AttachmentCandidate struct {
 	ProviderRefMatchFlag   bool `json:"provider_ref_match_flag" db:"provider_ref_match_flag"`
 	BankRefMatchFlag       bool `json:"bank_ref_match_flag" db:"bank_ref_match_flag"`
 	BatchMatchFlag         bool `json:"batch_match_flag" db:"batch_match_flag"`
-	BeneficiaryFpMatchFlag bool `json:"beneficiary_fp_match_flag" db:"beneficiary_fp_match_flag"`
 	AmountMatchFlag        bool `json:"amount_match_flag" db:"amount_match_flag"`
 	CurrencyMatchFlag      bool `json:"currency_match_flag" db:"currency_match_flag"`
 	TimeWindowMatchFlag    bool `json:"time_window_match_flag" db:"time_window_match_flag"`

@@ -55,6 +55,7 @@ type CanonicalIntent struct {
 	MappingProfileID      string          `json:"mapping_profile_id,omitempty" db:"mapping_profile_id"`
 	MappingProfileVersion string          `json:"mapping_profile_version,omitempty" db:"mapping_profile_version"`
 	SourceSystem          string          `json:"source_system,omitempty" db:"source_system"`
+	CorridorID            *string         `json:"corridor_id"`
 
 	// Service 2 mandatory fields
 	BusinessIdempotencyKey    string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`

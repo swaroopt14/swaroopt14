@@ -160,7 +160,7 @@ VALUES (
 		intent.GovernanceReasonCodesJSON, // $44
 		intent.DuplicateReasonCode,       // $45
 		intent.ClientBatchRef,            // $46
-		intent.BatchID,                   //$47
+		intent.BatchID,                    //$47
 	)
 
 	if err != nil {

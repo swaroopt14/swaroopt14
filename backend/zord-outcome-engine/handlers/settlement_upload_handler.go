@@ -100,66 +100,58 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 	}
 	forceReprocess := strings.ToLower(strings.TrimSpace(
 		c.GetHeader("X-Zord-Force-Reprocess"))) == "true"
+	// X-Zord-Force-Reprocess-Reason is required when force reprocessing.
+	// Allowed values: CLIENT_CORRECTED_FILE | PARSER_FIX | BACKFILL | MANUAL
+	reprocessReason := strings.TrimSpace(c.GetHeader("X-Zord-Force-Reprocess-Reason"))
 
-	// ── FINGERPRINT COMPUTATION ──────────────────────────────────────────────────
-	baseRaw := tenantID.String() + "|" + psp + "|" + fileHash
-	baseSum := sha256.Sum256([]byte(baseRaw))
-	normalFingerprint := hex.EncodeToString(baseSum[:])
-
-	fingerprint := normalFingerprint
-	if forceReprocess {
-		forceRaw := baseRaw + "|force|" + fmt.Sprintf("%d", time.Now().UnixNano())
-		forceSum := sha256.Sum256([]byte(forceRaw))
-		fingerprint = hex.EncodeToString(forceSum[:])
-	}
-
-	// ── IDEMPOTENCY CHECK ────────────────────────────────────────────────────────
+	// ── OPTION C IDEMPOTENCY ─────────────────────────────────────────────────
 	svc := &services.SettlementIngestService{S3: h.S3store}
 
-	if !forceReprocess {
-		existing, err := svc.CheckByFingerprint(c.Request.Context(), normalFingerprint)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if existing != nil {
-			log.Printf("settlement.upload.duplicate tenant_id=%s fingerprint=%s existing_job_id=%s",
-				tenantID, normalFingerprint, existing.JobID)
-			c.JSON(http.StatusOK, gin.H{
-				"job_id":               existing.JobID,
-				"status":               existing.JobStatus,
-				"already_processed":    true,
-				"ingest_fingerprint":   existing.Fingerprint,
-				"original_received_at": existing.CreatedAt,
-				"message":              "file already ingested for this tenant and psp — use X-Zord-Force-Reprocess: true to reprocess",
-			})
-			return
-		}
+	clientBatchID := externalBatchIDRaw
+	if clientBatchID == "" {
+		clientBatchID = uuid.New().String()
 	}
 
-	// ── JOB ID RESOLUTION ────────────────────────────────────────────────────────
-	var jobID string
-	var externalBatchIDPtr *string
+	existingBatch, err := svc.FindBatchByClientID(c.Request.Context(), tenantID, psp, clientBatchID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
-	if externalBatchIDRaw != "" {
-		exists, checkErr := svc.JobIDExists(c.Request.Context(), externalBatchIDRaw)
-		if checkErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": checkErr.Error()})
-			return
-		}
-		if exists {
-			// If the Job ID already exists, we must block its reuse.
-			// Even in forceReprocess mode, the system requires a new Batch-ID
-			// to preserve audit trails of the previous failed/cancelled attempts.
-			c.JSON(http.StatusConflict, gin.H{
-				"error": "batch_id already used as job_id for a previous ingest — provide a new batch_id to ingest this file",
+	if existingBatch != nil {
+		sameFile := existingBatch.ActiveRunFileSHA256 == fileHash
+
+		if sameFile && !forceReprocess {
+			log.Printf("settlement.upload.duplicate tenant_id=%s batch=%s active_run=%s",
+				tenantID, clientBatchID, existingBatch.CurrentActiveRunID)
+			c.JSON(http.StatusOK, gin.H{
+				"settlement_batch_id": existingBatch.SettlementBatchID,
+				"active_run_id":       existingBatch.CurrentActiveRunID,
+				"client_batch_id":     clientBatchID,
+				"status":              existingBatch.ActiveRunStatus,
+				"already_processed":   true,
+				"message":             "file already ingested for this batch - use X-Zord-Force-Reprocess: true to reprocess",
 			})
 			return
 		}
-		jobID = externalBatchIDRaw
-		externalBatchIDPtr = &externalBatchIDRaw
-	} else {
-		jobID = uuid.New().String()
+
+		if !sameFile && !forceReprocess {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":               "BATCH_CONTENT_CHANGED",
+				"settlement_batch_id": existingBatch.SettlementBatchID,
+				"client_batch_id":     clientBatchID,
+				"message":             "a different file was previously ingested for this batch - add X-Zord-Force-Reprocess: true and X-Zord-Force-Reprocess-Reason header to reprocess",
+			})
+			return
+		}
+
+		if reprocessReason == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":   "X-Zord-Force-Reprocess-Reason header is required when force reprocessing",
+				"allowed": []string{"CLIENT_CORRECTED_FILE", "PARSER_FIX", "BACKFILL", "MANUAL"},
+			})
+			return
+		}
 	}
 
 	// Persist the raw file payload to S3. This is our immutable source of truth
@@ -170,45 +162,67 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		return
 	}
 
-	// ── PHASE 2: JOB REGISTRATION ───────────────────────────────────────────
-	if err := svc.RegisterJob(
-		c.Request.Context(), jobID, tenantID, envelopeID,
-		profile, fileHash, externalBatchIDPtr, fingerprint,
-	); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register job: " + err.Error()})
+	ingestRunID, settlementBatchID, runNumber, err := svc.RegisterBatchAndRun(
+		c.Request.Context(),
+		tenantID, psp, clientBatchID,
+		existingBatch,
+		envelopeID, profile, fileHash,
+		forceReprocess, reprocessReason,
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register run: " + err.Error()})
 		return
 	}
 
-	// ── RETURN EARLY RESPONSE ────────────────────────────────────────────────
+	previousRunID := ""
+	if existingBatch != nil {
+		previousRunID = existingBatch.CurrentActiveRunID
+	}
+
 	c.JSON(http.StatusAccepted, gin.H{
-		"job_id":                 jobID,
+		"ingest_run_id":          ingestRunID,
+		"settlement_batch_id":    settlementBatchID,
+		"client_batch_id":        clientBatchID,
 		"settlement_envelope_id": envelopeID,
 		"status":                 "ACCEPTED",
 		"psp":                    psp,
 		"mapping_profile_id":     profile.ProfileID,
+		"run_number":             runNumber,
+		"force_reprocess":        forceReprocess,
 		"file": gin.H{
 			"name":       header.Filename,
 			"size_bytes": fileSize,
 			"sha256":     fileHash,
 		},
 		"processing_status": "PARSING_IN_PROGRESS",
-		"poll_url":          fmt.Sprintf("/v1/settlement/jobs/%s", jobID),
+		"poll_url":          fmt.Sprintf("/v1/settlement/jobs/%s", ingestRunID),
 		"received_at":       time.Now().UTC().Format(time.RFC3339),
 	})
 
 	// ── ASYNC BACKGROUND PIPELINE ───────────────────────────────────────────
 	// Push parsing and canonicalization to background to free up HTTP worker.
-	go func(bgCtx context.Context, pspProfile models.MappingProfile, bgJobID string, bgTenant uuid.UUID, bgEnvelope uuid.UUID, bgRef string, data []byte) {
+	go func(
+		bgCtx context.Context,
+		pspProfile models.MappingProfile,
+		bgIngestRunID string,
+		bgSettlementBatchID string,
+		bgPreviousRunID string,
+		bgRunNumber int,
+		bgTenant uuid.UUID,
+		bgEnvelope uuid.UUID,
+		bgRef string,
+		data []byte,
+	) {
 		// ── PHASE 3: PARSING ─────────────────────────────────────────────────────
 		parser, err := services.GetParser(pspProfile.ParserKey)
 		if err != nil {
-			svc.MarkJobFailed(bgCtx, bgJobID, "PARSER_NOT_FOUND")
+			svc.MarkJobFailed(bgCtx, bgIngestRunID, "PARSER_NOT_FOUND")
 			return
 		}
 
 		results, err := parser.Parse(data, bgRef, bgEnvelope, pspProfile)
 		if err != nil {
-			svc.MarkJobFailed(bgCtx, bgJobID, "HEADER_MISMATCH")
+			svc.MarkJobFailed(bgCtx, bgIngestRunID, "HEADER_MISMATCH")
 			return
 		}
 
@@ -221,12 +235,12 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 
 			if result.Failed {
 				rowCountFailed++
-				_ = svc.PersistParseError(bgCtx, bgTenant, bgJobID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile)
+				_ = svc.PersistParseError(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile, bgIngestRunID, bgSettlementBatchID)
 				continue
 			}
 
-			if err := svc.PersistParsedRow(bgCtx, bgTenant, bgJobID, bgEnvelope, bgRef, rowRef, result, pspProfile); err != nil {
-				log.Printf("settlement.upload.row_persist_error job_id=%s row=%s err=%v", bgJobID, rowRef, err)
+			if err := svc.PersistParsedRow(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, bgRef, rowRef, result, pspProfile, bgIngestRunID, bgSettlementBatchID); err != nil {
+				log.Printf("settlement.upload.row_persist_error job_id=%s row=%s err=%v", bgIngestRunID, rowRef, err)
 				continue
 			}
 
@@ -238,24 +252,25 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		if rowCountParsed > 0 {
 			avgConfidence = confidenceSum / float64(rowCountParsed)
 		}
-		if err := svc.FinalizeJob(bgCtx, bgJobID, rowCountParsed, rowCountFailed, avgConfidence); err != nil {
-			log.Printf("settlement.upload.finalize_error job_id=%s err=%v", bgJobID, err)
+		if err := svc.FinalizeJob(bgCtx, bgIngestRunID, rowCountParsed, rowCountFailed, avgConfidence); err != nil {
+			log.Printf("settlement.upload.finalize_error job_id=%s err=%v", bgIngestRunID, err)
 		}
 
 		// ── PHASE 5: CANONICALIZATION & OUTPUTS ──────────────────────────────────
-		log.Printf("settlement.upload.canonicalize_start job_id=%s", bgJobID)
-		canonSvc := &services.SettlementCanonicalizeService{
-			TokenizeQueue: services.NewKafkaTokenizeQueue(h.Kafka),
-		}
-		if err := canonSvc.RunForJob(bgCtx, bgJobID, bgTenant, pspProfile); err != nil {
-			log.Printf("settlement.upload.canonicalize_error job_id=%s err=%v", bgJobID, err)
+		log.Printf("settlement.upload.canonicalize_start job_id=%s", bgIngestRunID)
+		canonSvc := &services.SettlementCanonicalizeService{}
+		if err := canonSvc.RunForJob(bgCtx, bgIngestRunID, bgTenant, pspProfile); err != nil {
+			log.Printf("settlement.upload.canonicalize_error job_id=%s err=%v", bgIngestRunID, err)
 		} else {
+			if err := svc.ActivateRun(bgCtx, bgSettlementBatchID, bgIngestRunID, bgPreviousRunID, bgRunNumber); err != nil {
+				log.Printf("settlement.upload.activate_run_error run_id=%s err=%v", bgIngestRunID, err)
+			}
 			// Trigger attachment engine automatically on success
-			log.Printf("settlement.upload.attachment_start job_id=%s", bgJobID)
+			log.Printf("settlement.upload.attachment_start job_id=%s", bgIngestRunID)
 			engine := &services.AttachmentEngine{}
 			if _, err := engine.RunForJob(bgCtx, bgTenant, bgJobID); err != nil {
 				log.Printf("settlement.upload.attachment_error job_id=%s err=%v", bgJobID, err)
 			}
 		}
-	}(context.Background(), profile, jobID, tenantID, envelopeID, objRef, fileBytes)
+	}(context.Background(), profile, ingestRunID, settlementBatchID, previousRunID, runNumber, tenantID, envelopeID, objRef, fileBytes)
 }

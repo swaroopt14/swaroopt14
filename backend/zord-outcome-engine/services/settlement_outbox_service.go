@@ -28,6 +28,17 @@ func (s *SettlementOutboxService) EmitForJob(
 	log.Printf("settlement.outbox.start job_id=%s count=%d", jobID, len(observations))
 	var lastErr error
 	batchCount := 0
+	var settlementBatchID string
+
+	if err := db.DB.QueryRowContext(ctx, `
+		SELECT settlement_batch_id
+		FROM settlement_ingest_runs
+		WHERE ingest_run_id = $1 AND tenant_id = $2
+		LIMIT 1`,
+		jobID, tenantID,
+	).Scan(&settlementBatchID); err != nil {
+		return fmt.Errorf("outbox batch lookup failed: %w", err)
+	}
 
 	// ── EVENT TYPE 1: Observation Created ──────────────────────────────────
 	// These events are used to notify systems that a new settled item is available.
@@ -46,7 +57,7 @@ func (s *SettlementOutboxService) EmitForJob(
 			"canonical_hash":             obs.CanonicalHash,
 		}
 
-		if err := s.insertEvent(ctx, tenantID, jobID, "settlement_observation", obs.SettlementObservationID, "canonical.settlement.created", payload); err != nil {
+		if err := s.insertEvent(ctx, tenantID, jobID, settlementBatchID, "settlement_observation", obs.SettlementObservationID, "canonical.settlement.created", payload); err != nil {
 			lastErr = err
 		}
 	}
@@ -70,7 +81,7 @@ func (s *SettlementOutboxService) EmitForJob(
 			"event":           "batch_ready",
 		}
 
-		if err := s.insertEvent(ctx, tenantID, jobID, "settlement_observation", uuid.New(), "canonical.settlement.batch_ready", payload); err != nil {
+		if err := s.insertEvent(ctx, tenantID, jobID, settlementBatchID, "settlement_observation", uuid.New(), "canonical.settlement.batch_ready", payload); err != nil {
 			lastErr = err
 		}
 		batchCount++
@@ -82,7 +93,7 @@ func (s *SettlementOutboxService) EmitForJob(
 
 func (s *SettlementOutboxService) insertEvent(
 	ctx context.Context,
-	tenantID uuid.UUID, jobID string,
+	tenantID uuid.UUID, jobID string, settlementBatchID string,
 	family string,
 	entityID uuid.UUID,
 	eventType string,
@@ -96,12 +107,12 @@ func (s *SettlementOutboxService) insertEvent(
 
 	_, err = db.DB.ExecContext(ctx, `
 		INSERT INTO settlement_outbox_events (
-			outbox_event_id, tenant_id, trace_id, job_id,
+			outbox_event_id, tenant_id, trace_id, job_id, ingest_run_id, settlement_batch_id,
 			entity_family, entity_id,
 			event_type, payload_json,
 			status, attempts, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		uuid.New(), tenantID, uuid.New(), jobID,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+		uuid.New(), tenantID, uuid.New(), jobID, jobID, settlementBatchID,
 		family, entityID,
 		eventType, payloadJSON,
 		"PENDING", 0, time.Now().UTC(),

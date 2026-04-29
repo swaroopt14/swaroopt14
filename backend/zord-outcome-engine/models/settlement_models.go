@@ -69,7 +69,6 @@ type CanonicalSettlementObservation struct {
 	MerchantIDToken            *string    `json:"merchant_id_token,omitempty" db:"merchant_id_token"`
 	SellerIDToken              *string    `json:"seller_id_token,omitempty" db:"seller_id_token"`
 	VendorIDToken              *string    `json:"vendor_id_token,omitempty" db:"vendor_id_token"`
-	BeneficiaryFingerprint     string     `json:"beneficiary_fingerprint" db:"beneficiary_fingerprint"`
 	Amount                     decimal.Decimal `json:"amount" db:"amount"`
 	SettledAmount              *decimal.Decimal `json:"settled_amount,omitempty" db:"settled_amount"`
 	FeeAmount                  *decimal.Decimal `json:"fee_amount,omitempty" db:"fee_amount"`
@@ -94,7 +93,6 @@ type CanonicalSettlementObservation struct {
 	MappingConfidence          float64    `json:"mapping_confidence" db:"mapping_confidence"`
 	CarrierRichnessScore       float64    `json:"carrier_richness_score" db:"carrier_richness_score"`
 	AttachmentReadinessScore   float64    `json:"attachment_readiness_score" db:"attachment_readiness_score"`
-	Beneficiary                json.RawMessage `json:"beneficiary,omitempty" db:"beneficiary"`
 	CanonicalHash              string     `json:"canonical_hash" db:"canonical_hash"`
 	CanonicalSnapshotRef       *string    `json:"canonical_snapshot_ref,omitempty" db:"canonical_snapshot_ref"`
 	CreatedAt                  time.Time  `json:"created_at" db:"created_at"`
@@ -188,5 +186,4 @@ type UniversalSettlementShape struct {
 	ParseConfidence              float64                `json:"parse_confidence"`
 	CarrierCandidates            map[string]interface{} `json:"carrier_candidates"`
 	RawEnvelopeRef               uuid.UUID              `json:"raw_envelope_ref"`
-	PIIData                      map[string]string      `json:"pii_data,omitempty"`
 }

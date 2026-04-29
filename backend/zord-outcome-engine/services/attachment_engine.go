@@ -509,7 +509,6 @@ func buildUnresolvedDecision(tenantID uuid.UUID, obsID uuid.UUID, jobID uuid.UUI
 
 func buildSupportingCarriers(obs models.CanonicalSettlementObservation) map[string]interface{} {
 	carriers := map[string]interface{}{
-		"beneficiary_fingerprint": obs.BeneficiaryFingerprint,
 		"amount":                  obs.Amount,
 		"currency_code":           obs.CurrencyCode,
 		"attachment_readiness":    obs.AttachmentReadinessScore,
@@ -926,7 +925,6 @@ func scanObservations(rows *sql.Rows) ([]models.CanonicalSettlementObservation, 
 			&o.ObservationKind, &o.SourceStrengthClass,
 			&o.ClientReferenceCandidate, &o.ProviderReference, &o.BankReference,
 			&o.ExternalReference, &o.BatchReference,
-			&o.BeneficiaryFingerprint,
 			&o.Amount, &o.SettledAmount, &o.FeeAmount, &o.DeductionAmount,
 			&o.CurrencyCode, &o.SettlementStatus,
 			&o.RetryFlag, &o.ReversalFlag, &o.ReturnFlag,

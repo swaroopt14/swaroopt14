@@ -184,22 +184,6 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		CarrierCandidates:        make(map[string]interface{}),
 		PartyReferenceCandidates: make(map[string]interface{}),
 		BeneficiaryIdentityCandidates: make(map[string]interface{}),
-		PIIData:                  make(map[string]string),
-	}
-
-	for i, colHeader := range headerRow {
-		h := strings.ToLower(strings.TrimSpace(colHeader))
-		if i < len(row) {
-			val := strings.TrimSpace(row[i])
-			if val != "" {
-				for _, piiField := range profile.PIIFields {
-					if h == piiField {
-						shape.PIIData[h] = val
-						break
-					}
-				}
-			}
-		}
 	}
 
 	return ParsedRowResult{

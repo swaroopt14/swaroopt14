@@ -149,17 +149,7 @@ func ScoreCandidate(
 
 	// ── LAYER 2: Composite / soft matching ───────────────────────────────
 
-	// Beneficiary fingerprint
-	if obs.BeneficiaryFingerprint == intent.BeneficiaryFingerprint &&
-		obs.BeneficiaryFingerprint != "" {
-		bd.BeneficiaryMatchScore = ScoreBeneficiaryFpMatch
-		cs.BeneficiaryFpMatch = true
-	}
-
-	// Amount match:
-	// - Primary check uses observed row amount.
-	// - If settled_amount is present, accept that as an alternate match value.
-	// This avoids false negatives when providers emit both gross and settled values.
+	// Amount (exact match — no tolerance by default unless profile says otherwise)
 	obsAmount := obs.Amount
 	amountTolerance := decimal.Zero
 	if profile != nil && profile.AmountTolerancePolicyJSON != nil {

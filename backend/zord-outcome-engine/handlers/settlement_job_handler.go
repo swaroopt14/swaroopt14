@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,13 +13,18 @@ import (
 )
 
 // SettlementJobStatusResponse is the response body for GET /v1/settlement/jobs/:job_id.
-// It returns everything the caller needs to understand the current state of an ingest job.
+// It returns everything the caller needs to understand the current state of an ingest run.
 type SettlementJobStatusResponse struct {
-	JobID                  uuid.UUID  `json:"job_id"`
+	IngestRunID            string     `json:"ingest_run_id"`
+	SettlementBatchID      string     `json:"settlement_batch_id"`
+	ClientBatchID          string     `json:"client_batch_id"`
 	TenantID               uuid.UUID  `json:"tenant_id"`
 	SourceSystem           string     `json:"source_system"`
 	MappingProfileID       string     `json:"mapping_profile_id"`
-	JobStatus              string     `json:"job_status"`
+	RunNumber              int        `json:"run_number"`
+	ForceReprocess         bool       `json:"force_reprocess"`
+	ActiveRunID            string     `json:"current_active_run_id"`
+	RunStatus              string     `json:"run_status"`
 	RowCountParsed         int        `json:"row_count_parsed"`
 	RowCountFailed         int        `json:"row_count_failed"`
 	RowCountCanonicalized  int        `json:"row_count_canonicalized"`
@@ -41,38 +47,50 @@ func (h *Handler) GetSettlementJobHandler(c *gin.Context) {
 		return
 	}
 
-	// Parse and validate job_id from path param.
-	jobID, err := uuid.Parse(c.Param("job_id"))
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid job_id"})
+	jobID := strings.TrimSpace(c.Param("job_id"))
+	if jobID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job_id is required"})
 		return
 	}
 
 	log.Printf("settlement.job.get tenant_id=%s job_id=%s", tenantID, jobID)
 
-	// Query the settlement_ingest_jobs table.
-	// tenant_id is included in the WHERE clause to enforce tenant isolation —
-	// a tenant cannot query another tenant's job even if they know the job_id.
+	// Query the settlement_ingest_runs table and join settlement_batches so the
+	// caller gets both run-level and batch-level status in one round trip.
 	var resp SettlementJobStatusResponse
 	err = db.DB.QueryRowContext(c.Request.Context(), `
         SELECT
-            job_id, tenant_id, source_system, mapping_profile_id,
-            job_status,
-            row_count_parsed, row_count_failed, row_count_canonicalized,
-            parse_confidence_overall,
-            failure_reason_code,
-            started_at, completed_at, created_at
-        FROM settlement_ingest_jobs
-        WHERE job_id = $1 AND tenant_id = $2
+            r.ingest_run_id,
+            r.tenant_id,
+            r.source_system,
+            r.mapping_profile_id,
+            r.run_status,
+            r.run_number,
+            r.force_reprocess,
+            r.row_count_parsed,
+            r.row_count_failed,
+            r.row_count_canonicalized,
+            r.parse_confidence_overall,
+            r.failure_reason_code,
+            r.started_at,
+            r.completed_at,
+            r.created_at,
+            b.settlement_batch_id,
+            b.client_batch_id,
+            b.current_active_run_id
+        FROM settlement_ingest_runs r
+        JOIN settlement_batches b ON b.settlement_batch_id = r.settlement_batch_id
+        WHERE r.ingest_run_id = $1 AND r.tenant_id = $2
         LIMIT 1`,
 		jobID, tenantID,
 	).Scan(
-		&resp.JobID, &resp.TenantID, &resp.SourceSystem, &resp.MappingProfileID,
-		&resp.JobStatus,
+		&resp.IngestRunID, &resp.TenantID, &resp.SourceSystem, &resp.MappingProfileID,
+		&resp.RunStatus, &resp.RunNumber, &resp.ForceReprocess,
 		&resp.RowCountParsed, &resp.RowCountFailed, &resp.RowCountCanonicalized,
 		&resp.ParseConfidenceOverall,
 		&resp.FailureReasonCode,
 		&resp.StartedAt, &resp.CompletedAt, &resp.CreatedAt,
+		&resp.SettlementBatchID, &resp.ClientBatchID, &resp.ActiveRunID,
 	)
 
 	if err == sql.ErrNoRows {

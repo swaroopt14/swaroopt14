@@ -76,7 +76,7 @@ func (r *PaymentIntentRepo) Save(
     amount, currency, intended_execution_at,
     constraints, beneficiary_type, pii_tokens, beneficiary,
     status, confidence_score,
-    canonical_snapshot_ref, nir_snapshot_ref, governance_snapshot_ref,
+    canonical_snapshot_ref, nir_snapshot_ref, governance_snapshot_ref, governance_hash,
     canonical_hash,
     created_at,
     client_payout_ref, provider_hint, request_fingerprint, routing_hints_json,
@@ -106,9 +106,8 @@ VALUES (
     $38,$39,
     $40,$41,$42,
     $43,
-    $44,
-    $45,
-    $46, $47
+    $44, $45,
+    $46, $47, $48
 ) `
 
 	_, err = tx.ExecContext(
@@ -160,7 +159,8 @@ VALUES (
 		intent.GovernanceReasonCodesJSON, // $44
 		intent.DuplicateReasonCode,       // $45
 		intent.ClientBatchRef,            // $46
-		intent.BatchID,                   //$47
+		intent.BatchID,                   // $47
+		intent.GovernanceHash,            // $48
 	)
 
 	if err != nil {
@@ -195,6 +195,7 @@ INSERT INTO outbox (
     canonical_snapshot_ref,
     nir_snapshot_ref,
     governance_snapshot_ref,
+    governance_hash,
     client_payout_ref,
     provider_hint,
     request_fingerprint,
@@ -228,7 +229,7 @@ INSERT INTO outbox (
     $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
     $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,
     $40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
-    $50,$51,$52
+    $50,$51,$52,$53
 )`
 
 	outbox.ContractID = intent.ContractID
@@ -288,6 +289,7 @@ INSERT INTO outbox (
 		outbox.NextRetryAt,               // $50
 		outbox.CreatedAt,                 // $51
 		outbox.BatchID,                   // $52
+		outbox.GovernanceHash,            // $53
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)
@@ -371,6 +373,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		canonical_snapshot_ref,
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
+		COALESCE(governance_hash, '') as governance_hash,
 		batchid
 	FROM payment_intents
 	WHERE tenant_id = $1
@@ -427,6 +430,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.CanonicalSnapshotRef,
 		&intent.NIRSnapshotRef,
 		&intent.GovernanceSnapshotRef,
+		&intent.GovernanceHash,
 		&intent.BatchID,
 	)
 
@@ -563,6 +567,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		canonical_snapshot_ref,
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
+		COALESCE(governance_hash, '') as governance_hash,
 		batchid
 	FROM payment_intents
 	WHERE tenant_id = $1
@@ -619,6 +624,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.CanonicalSnapshotRef,
 		&intent.NIRSnapshotRef,
 		&intent.GovernanceSnapshotRef,
+		&intent.GovernanceHash,
 		&intent.BatchID,
 	)
 

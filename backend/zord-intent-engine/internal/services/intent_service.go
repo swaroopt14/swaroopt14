@@ -513,6 +513,12 @@ func (s *IntentService) ProcessIncomingIntent(
 		return nil, dlq, nil
 	}
 
+	// Generate governance hash since pre-guards have passed
+	govHashData := "preguards:PASSED|tenant:" + in.TenantID.String() + "|envelope:" + in.EnvelopeID.String()
+	govHashBytes := sha256.Sum256([]byte(govHashData))
+	govHashStr := hex.EncodeToString(govHashBytes[:])
+	canonicalInput.GovernanceHash = govHashStr
+
 	// -------- STEP 8: TOKENIZATION --------
 
 	tokenReq := enclaveTokenizeRequest{
@@ -694,6 +700,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		MappingProfileID:      nir.ProfileID,
 		MappingProfileVersion: nir.ProfileVersion,
 		SourceSystem:          in.SourceSystem,
+		GovernanceHash:        govHashStr,
 
 		// Service 2 fields
 		BusinessIdempotencyKey:  bIdemKey,
@@ -996,8 +1003,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		MappingProfileID:      nir.ProfileID,
 		MappingProfileVersion: nir.ProfileVersion, // Flowed from async NIR
 		SourceSystem:          event.SourceSystem,
-
-		// Service 2 fields
+		GovernanceHash:        event.Canonical.GovernanceHash,
 		BusinessIdempotencyKey:  bIdemKey,
 		BeneficiaryFingerprint:  bFingerprint,
 		ProofReadinessScore:     pScore,

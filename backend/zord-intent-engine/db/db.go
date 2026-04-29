@@ -36,6 +36,7 @@ func CreateTables() error {
     canonical_snapshot_ref TEXT NOT NULL,
     nir_snapshot_ref TEXT,
     governance_snapshot_ref TEXT,
+    governance_hash TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     -- 🆕 Additional Canonical Schema fields
     client_payout_ref TEXT,
@@ -116,6 +117,7 @@ func CreateTables() error {
     canonical_snapshot_ref TEXT,
     nir_snapshot_ref TEXT,
     governance_snapshot_ref TEXT,
+    governance_hash TEXT,
     client_payout_ref TEXT,
     provider_hint TEXT,
     request_fingerprint TEXT,

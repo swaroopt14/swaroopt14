@@ -50,6 +50,7 @@ type OutboxEvent struct {
 	CanonicalSnapshotRef  string `json:"canonical_snapshot_ref,omitempty" db:"canonical_snapshot_ref"`
 	NIRSnapshotRef        string `json:"nir_snapshot_ref,omitempty" db:"nir_snapshot_ref"`
 	GovernanceSnapshotRef string `json:"governance_snapshot_ref,omitempty" db:"governance_snapshot_ref"`
+	GovernanceHash        string `json:"governance_hash,omitempty" db:"governance_hash"`
 
 	ClientPayoutRef       string          `json:"client_payout_ref,omitempty" db:"client_payout_ref"`
 	ProviderHint          string          `json:"provider_hint,omitempty" db:"provider_hint"`

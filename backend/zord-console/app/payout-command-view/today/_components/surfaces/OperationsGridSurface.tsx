@@ -14,8 +14,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { EntityLogo, inferBankNameFromReference } from '@/app/app-final/_components/entity-logo'
-import { chartTooltipStyle } from '../model'
+import { EntityLogo, inferBankNameFromReference } from '../entity-logo'
+import { chartTooltipStyle } from '@/services/payout-command/model'
 import { Glyph, LightCard, SurfaceEyebrow } from '../shared'
 
 type TraceTab = 'Intent Table' | 'DLQ Queue' | 'Heat Map' | 'Web Map' | 'Bar Analysis'
@@ -1195,7 +1195,7 @@ export function OperationsGridSurface() {
           <div className="mt-4 rounded-[1rem] border border-black/8 bg-white p-3">
             <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[#8a8a86]">External narrative</div>
             <div className="mt-2 text-[13px] leading-6 text-[#6f716d]">
-              Request received -> Provider processed -> Bank confirmation pending -> Finality expected in the same close window.
+              Request received → Provider processed → Bank confirmation pending → Finality expected in the same close window.
             </div>
           </div>
         </LightCard>

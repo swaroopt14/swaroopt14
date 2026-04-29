@@ -27,7 +27,7 @@ services:
       - PII_TOKEN_SECRET=your-secret-key-for-pii-tokenization-change-in-production
       - ENVIRONMENT=production
 
-      - AWS_REGION=ap-southeast-2
+      - AWS_REGION=ap-south-1
       - AWS_EC2_METADATA_DISABLED=true
       - S3_BUCKET=swaroop-vault
     depends_on:

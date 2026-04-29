@@ -71,6 +71,9 @@ leased AS (
 		o.aggregate_type,
 		o.aggregate_id,
 		o.event_type,
+		o.amount,
+		o.currency,
+		NULL as corridor_id,
 		o.retry_count,
 		o.next_attempt_at,
 		o.payload,
@@ -90,6 +93,9 @@ SELECT
 	aggregate_type,
 	aggregate_id,
 	event_type,
+	amount,
+	currency,
+	corridor_id,
 	retry_count,
 	next_attempt_at,
 	payload,
@@ -116,6 +122,7 @@ ORDER BY created_at ASC;
 		var evt models.OutboxEvent
 		var nextRetry sql.NullTime
 		var lu sql.NullTime
+		var corridorId sql.NullString
 
 		if err := rows.Scan(
 			&evt.EventID,
@@ -126,6 +133,9 @@ ORDER BY created_at ASC;
 			&evt.AggregateType,
 			&evt.AggregateID,
 			&evt.EventType,
+			&evt.Amount,
+			&evt.Currency,
+			&corridorId,
 			&evt.RetryCount,
 			&nextRetry,
 			&evt.Payload,
@@ -137,6 +147,13 @@ ORDER BY created_at ASC;
 			&evt.BatchID,
 		); err != nil {
 			return "", nil, nil, err
+		}
+
+		evt.IntentID = evt.AggregateID.String()
+		if corridorId.Valid {
+			evt.CorridorID = &corridorId.String
+		} else {
+			evt.CorridorID = nil
 		}
 
 		if nextRetry.Valid {

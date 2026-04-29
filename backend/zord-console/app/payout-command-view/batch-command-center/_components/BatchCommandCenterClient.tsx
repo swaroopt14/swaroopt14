@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
-import { DASHBOARD_FONT_STACK, type GlyphName } from '../../today/_components/model'
+import { DASHBOARD_FONT_STACK, type GlyphName } from '@/services/payout-command/model'
 import { ClientChart, Glyph } from '../../today/_components/shared'
 import {
   buildDefaultBatchRows,
@@ -19,7 +19,7 @@ import {
   type BatchRowStatus,
   type BatchSummary,
   type BatchTimelineStep,
-} from './model'
+} from '@/services/payout-command/batch-model'
 
 type StatusFilter = 'All' | BatchRowStatus
 type SortMode = 'Latest' | 'Oldest'

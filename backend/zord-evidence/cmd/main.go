@@ -72,33 +72,37 @@ func main() {
 	}
 
 	repo := repositories.NewEvidenceRepository(database)
-	evidenceSvc := services.NewEvidenceService(repo, s3store, signer, archiveCrypto, cfg.ArchivePrefix, cfg.ReplayCompareStrict, publisher)
+	pendingLeafRepo := repositories.NewPendingLeafRepository(database)
+	evidenceSvc := services.NewEvidenceService(repo, pendingLeafRepo, s3store, signer, archiveCrypto, cfg.ArchivePrefix, cfg.ReplayCompareStrict, publisher)
 	h := handlers.NewEvidenceHandler(evidenceSvc)
 
-	// --- Kafka consumer for inbound enrichment hooks ---
+	// --- Kafka consumers for Merkle leaf buffering ---
 	if len(cfg.KafkaBrokers) > 0 && cfg.KafkaBrokers[0] != "" {
-
-		topics := []string{
-			"payments.intent.events.v1",
-			"payments.ledger.events.v1",
+		// 1. Edge Consumer: captures ENVELOPE_HASH (Leaf 5)
+		log.Printf("evidence.main.edge_consumer_bootstrap group=%s topic=%s brokers=%v",
+			cfg.EdgeKafkaGroup, cfg.EdgeKafkaTopic, cfg.KafkaBrokers)
+		if err := kafka.StartEdgeConsumer(ctx, cfg.KafkaBrokers, cfg.EdgeKafkaGroup, cfg.EdgeKafkaTopic, evidenceSvc); err != nil {
+			log.Printf("warn: edge consumer init failed: %v", err)
 		}
-		log.Printf("evidence.main.consumer_bootstrap group=%s topics=%v brokers=%v", cfg.KafkaConsumerGroup, topics, cfg.KafkaBrokers)
 
-		if err := kafka.StartConsumerForTopics(ctx, cfg.KafkaBrokers, cfg.KafkaConsumerGroup, topics, func(_ context.Context, key string, payload []byte) error {
-			log.Printf("evidence.main.message_handler_invoked key=%s payload_bytes=%d", key, len(payload))
+		// 2. Intent Consumer: captures leaf 6, computes leaf 7, links envelope_id
+		log.Printf("evidence.main.intent_consumer_bootstrap group=%s topic=%s brokers=%v",
+			cfg.IntentKafkaGroup, cfg.IntentKafkaTopic, cfg.KafkaBrokers)
+		if err := kafka.StartIntentConsumer(ctx, cfg.KafkaBrokers, cfg.IntentKafkaGroup, cfg.IntentKafkaTopic, evidenceSvc); err != nil {
+			log.Printf("warn: intent consumer init failed: %v", err)
+		}
 
-			m, err := kafka.ParsePayloadMap(payload)
-			if err != nil {
-				log.Printf("evidence.main.payload_parse_failed key=%s err=%v", key, err)
-				return nil
-			}
-			log.Printf("evidence.main.payload_parse_ok key=%s fields=%d", key, len(m))
-
-			// v1: consume both topics for enrichment pipeline hooks.
-			return nil
-
-		}); err != nil {
-			log.Printf("warn: kafka consumer init failed (continuing without consumer): %v", err)
+		// 3. Outcome consumer: captures leaves 1-4 → triggers GeneratePack()
+		log.Printf("evidence.main.outcome_consumer_bootstrap group=%s topic=%s brokers=%v",
+			cfg.OutcomeKafkaGroup, cfg.OutcomeKafkaTopic, cfg.KafkaBrokers)
+		if err := kafka.StartOutcomeConsumer(
+			ctx,
+			cfg.KafkaBrokers,
+			cfg.OutcomeKafkaGroup,
+			cfg.OutcomeKafkaTopic,
+			evidenceSvc,
+		); err != nil {
+			log.Printf("warn: outcome consumer init failed (continuing without outcome consumer): %v", err)
 		}
 	} else {
 		log.Printf("Kafka brokers not configured, skipping consumer")

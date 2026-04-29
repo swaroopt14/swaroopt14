@@ -18,9 +18,11 @@ type IntentPayload struct {
 	IntentID               string     `json:"intent_id"`
 	TenantID               string     `json:"tenant_id"`
 	IntentType             string     `json:"intent_type"`
+	ProviderHint           string     `json:"provider_hint,omitempty"`
 	SourceSystem           string     `json:"source_system"`
 	Amount                 string     `json:"amount"`
 	Currency               string     `json:"currency"`
+	IntendedExecutionAt    *time.Time `json:"intended_execution_at,omitempty"`
 	DeadlineAt             *time.Time `json:"deadline_at,omitempty"`
 	CreatedAt              time.Time  `json:"created_at"`
 	ClientPayoutRef        string     `json:"client_payout_ref,omitempty"`

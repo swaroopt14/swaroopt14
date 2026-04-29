@@ -18,12 +18,20 @@ type Config struct {
 	KafkaEnabled        bool // false when KAFKA_BROKERS is unset or empty
 	KafkaTopic          string
 	KafkaConsumerGroup  string
-	S3Bucket            string
+	// OutcomeKafkaTopic is the topic zord-relay publishes outcome leaf bundles to.
+	// Consumed by the OutcomeConsumer goroutine.
+	OutcomeKafkaTopic  string
+	OutcomeKafkaGroup  string
+	EdgeKafkaTopic     string
+	EdgeKafkaGroup     string
+	IntentKafkaTopic   string
+	IntentKafkaGroup   string
+	S3Bucket           string
 	S3Region            string
 	ArchivePrefix       string
 	ArchiveEncryptKey   string
 	ReplayCompareStrict bool
-	SigningPrivateKey   string
+	SigningPrivateKey    string
 	ReadTimeout         time.Duration
 	WriteTimeout        time.Duration
 }
@@ -73,6 +81,12 @@ func Load() (*Config, error) {
 		KafkaEnabled:        kafkaEnabled,
 		KafkaTopic:          getenv("EVIDENCE_KAFKA_TOPIC", "z.outcome.events.v1"),
 		KafkaConsumerGroup:  getenv("EVIDENCE_KAFKA_GROUP", "zord-evidence-group"),
+		OutcomeKafkaTopic:   getenv("OUTCOME_KAFKA_TOPIC", "payments.outcome.events.v1"),
+		OutcomeKafkaGroup:   getenv("OUTCOME_KAFKA_GROUP", "evidence-outcome-consumer-group"),
+		EdgeKafkaTopic:      getenv("EDGE_KAFKA_TOPIC", "payments.ledger.events.v1"),
+		EdgeKafkaGroup:      getenv("EDGE_KAFKA_GROUP", "evidence-edge-consumer-group"),
+		IntentKafkaTopic:    getenv("INTENT_KAFKA_TOPIC", "payments.intent.events.v1"),
+		IntentKafkaGroup:    getenv("INTENT_KAFKA_GROUP", "evidence-intent-consumer-group"),
 		S3Bucket:            getenv("S3_BUCKET", ""),
 		S3Region:            getenv("AWS_REGION", ""),
 		ArchivePrefix:       getenv("EVIDENCE_ARCHIVE_PREFIX", "evidence-packs"),

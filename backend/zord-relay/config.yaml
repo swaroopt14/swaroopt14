@@ -48,6 +48,14 @@ services:
     http_timeout: 15s
     default_topic: payments.ledger.events.v1
 
+  - name: outcome-engine
+    base_url: http://zord-outcome-engine-service:8081
+    auth_token: "dev-dummy-token-123"
+    http_timeout: 15s
+    # All Merkle leaf-bundle events land on this dedicated topic.
+    # zord-evidence consumes it with group: evidence-outcome-consumer-group.
+    default_topic: payments.outcome.events.v1
+
 tracing:
   enabled: true
   otlp_endpoint: "http://tempo.observability.svc.cluster.local:4318"

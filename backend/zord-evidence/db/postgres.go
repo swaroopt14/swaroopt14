@@ -30,6 +30,22 @@ func Connect(dsn string) (*sql.DB, error) {
 // Schema is aligned with the Intelligence Pivot spec §14.1–14.5.
 func EnsureTables(ctx context.Context, d *sql.DB) error {
 	stmts := []string{
+		// Internal buffer for Merkle leaf candidates before pack generation
+		`CREATE TABLE IF NOT EXISTS pending_leaf_candidates (
+			id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			tenant_id      TEXT        NOT NULL,
+			intent_id      TEXT,       -- NULL initially for edge events
+			envelope_id    TEXT,       -- Used to correlate edge events
+			leaf_type      TEXT        NOT NULL,
+			hash           TEXT        NOT NULL,
+			schema_version TEXT        NOT NULL DEFAULT 'v1',
+			source_topic   TEXT        NOT NULL,
+			created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS plc_intent_type_idx ON pending_leaf_candidates(tenant_id, intent_id, leaf_type) WHERE intent_id IS NOT NULL;`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS plc_envelope_type_idx ON pending_leaf_candidates(tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL;`,
+
 		// §14.1 — main metadata table
 		`CREATE TABLE IF NOT EXISTS evidence_packs (
 			evidence_pack_id      TEXT PRIMARY KEY,

@@ -340,7 +340,10 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 	attempts INT NOT NULL DEFAULT 0,
 	next_retry_at TIMESTAMPTZ,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	published_at TIMESTAMPTZ
+	published_at TIMESTAMPTZ,
+	lease_id UUID,
+    leased_by TEXT,
+    lease_until TIMESTAMPTZ
 );`,
 		`CREATE INDEX IF NOT EXISTS settlement_outbox_events_status_idx ON settlement_outbox_events(status, next_retry_at);`,
 		`CREATE INDEX IF NOT EXISTS settlement_outbox_run_idx ON settlement_outbox_events(ingest_run_id);`,
@@ -547,12 +550,47 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			attempts          INT NOT NULL DEFAULT 0,
 			next_retry_at     TIMESTAMPTZ,
 			created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			published_at      TIMESTAMPTZ
+			published_at      TIMESTAMPTZ,
+			lease_id          UUID,
+			leased_by         TEXT,
+			lease_until       TIMESTAMPTZ
 		);`,
 		`CREATE INDEX IF NOT EXISTS attachment_outbox_status_idx
 			ON attachment_outbox_events(status, next_retry_at);`,
 		`CREATE INDEX IF NOT EXISTS attachment_outbox_job_idx
 			ON attachment_outbox_events(attachment_job_id);`,
+
+		// ── outcome_outbox ────────────────────────────────────────────────────
+		// Relay-facing outbox: carries Merkle leaf bundle events destined for
+		// zord-evidence (Service 6) via zord-relay → payments.outcome.events.v1.
+		// Schema mirrors the intent-engine outbox so the same OutboxPullRepo
+		// and OutboxHandler can serve it with zero code duplication.
+		`CREATE TABLE IF NOT EXISTS outcome_outbox (
+			event_id        UUID PRIMARY KEY,
+			envelope_id     UUID,
+			trace_id        UUID NOT NULL,
+			tenant_id       UUID NOT NULL,
+			contract_id     TEXT,
+			aggregate_type  TEXT NOT NULL,
+			aggregate_id    UUID NOT NULL,
+			event_type      TEXT NOT NULL,
+			schema_version  TEXT NOT NULL DEFAULT 'v1',
+			payload         JSONB NOT NULL,
+			payload_hash    BYTEA,
+			status          TEXT NOT NULL DEFAULT 'PENDING',
+			retry_count     INT  NOT NULL DEFAULT 0,
+			next_attempt_at TIMESTAMPTZ,
+			created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			sent_at         TIMESTAMPTZ,
+			lease_id        UUID,
+			leased_by       TEXT,
+			lease_until     TIMESTAMPTZ,
+			batchid         TEXT
+		);`,
+		`CREATE INDEX IF NOT EXISTS outcome_outbox_status_idx
+			ON outcome_outbox(status, next_attempt_at);`,
+		`CREATE INDEX IF NOT EXISTS outcome_outbox_tenant_idx
+			ON outcome_outbox(tenant_id);`,
 	}
 
 	for _, s := range stmts {

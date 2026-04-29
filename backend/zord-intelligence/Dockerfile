@@ -26,6 +26,6 @@ COPY --from=builder /out/zord-intelligence /app/zord-intelligence
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 USER 65532:65532
 
-EXPOSE 8087
+EXPOSE 8089
 
 ENTRYPOINT ["/app/zord-intelligence"]

@@ -6,9 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/shopspring/decimal"
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/models"
+
+	"github.com/shopspring/decimal"
 )
 
 func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) error {
@@ -46,7 +47,7 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 		intent.BeneficiaryFingerprint, intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
 		intent.ProofReadinessScore, intent.MatchabilityScore,
-		intent.CanonicalHash, intent.GovernanceState, 
+		intent.CanonicalHash, intent.GovernanceState,
 		intent.CreatedAt,
 	)
 	return err
@@ -92,8 +93,15 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 	if payload.IntentType != "" {
 		payoutType = &payload.IntentType
 	}
+	intendedExecutionAt := payload.IntendedExecutionAt
+	if intendedExecutionAt == nil {
+		intendedExecutionAt = payload.DeadlineAt
+	}
+
 	var providerHint *string
-	if payload.SourceSystem != "" {
+	if payload.ProviderHint != "" {
+		providerHint = &payload.ProviderHint
+	} else if payload.SourceSystem != "" {
 		providerHint = &payload.SourceSystem
 	}
 	// var signatureCarrier *string
@@ -122,7 +130,7 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 		BeneficiaryFingerprint: payload.BeneficiaryFingerprint,
 		Amount:                 amount,
 		CurrencyCode:           payload.Currency,
-		IntendedExecutionAt:    payload.DeadlineAt,
+		IntendedExecutionAt:    intendedExecutionAt,
 		PayoutType:             payoutType,
 		ProviderHint:           providerHint,
 		ProofReadinessScore:    payload.ProofReadinessScore,
@@ -130,6 +138,6 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 		CanonicalHash:          payload.CanonicalHash,
 		GovernanceState:        payload.GovernanceState,
 		// ZordSignatureCarrier:   signatureCarrier,
-		CreatedAt:              createdAt,
+		CreatedAt: createdAt,
 	}, nil
 }

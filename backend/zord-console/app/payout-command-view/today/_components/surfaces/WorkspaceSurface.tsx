@@ -1,8 +1,42 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import type { WorkspaceSimulation, WorkspaceTab } from '../model'
 import { workspaceTabs, workspaceTiles } from '../model'
 import { Glyph } from '../shared'
+
+type WorkspaceConversationMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  body: string
+  timestamp: string
+  status: 'typing' | 'done' | 'error'
+  confidence?: string | null
+  citationSnippet?: string | null
+  hasVisualization?: boolean
+}
+
+function connectionBadgeCopy(connectionState: 'idle' | 'connected' | 'error') {
+  if (connectionState === 'connected') return 'Live operating context · Connected'
+  if (connectionState === 'error') return 'Live operating context · Fallback mode'
+  return 'Live operating context'
+}
+
+function messageRoleCopy(role: WorkspaceConversationMessage['role']) {
+  return role === 'user' ? 'Operator' : 'Zord'
+}
+
+function messageBubbleClass(message: WorkspaceConversationMessage) {
+  if (message.role === 'user') {
+    return 'bg-[#111111] text-white shadow-[0_18px_30px_rgba(0,0,0,0.14)]'
+  }
+
+  if (message.status === 'error') {
+    return 'border border-[#f6cbd1] bg-[linear-gradient(180deg,#fff7f8_0%,#fff2f4_100%)] text-[#8f1736]'
+  }
+
+  return 'border border-[#ecece7] bg-[linear-gradient(180deg,#ffffff_0%,#fbfbf8_100%)] text-[#40413d] shadow-[0_8px_18px_rgba(0,0,0,0.04)]'
+}
 
 export function WorkspaceSurface({
   activeTab,
@@ -20,6 +54,8 @@ export function WorkspaceSurface({
   latestAnswerConfidence,
   latestAnswerCitationSnippet,
   latestAnswerHasVisualization,
+  connectionState,
+  conversation,
 }: {
   activeTab: WorkspaceTab
   setActiveTab: (tab: WorkspaceTab) => void
@@ -36,12 +72,24 @@ export function WorkspaceSurface({
   latestAnswerConfidence: string | null
   latestAnswerCitationSnippet: string | null
   latestAnswerHasVisualization: boolean
+  connectionState: 'idle' | 'connected' | 'error'
+  conversation: readonly WorkspaceConversationMessage[]
 }) {
   const heroBars = [0.14, 0.18, 0.22, 0.28, 0.4, 0.56, 0.72, 0.86, 1, 0.9, 0.8, 0.68, 0.56, 0.44, 0.36, 0.42, 0.48, 0.44, 0.36, 0.3]
   const heroActiveStart = 4
   const heroActiveEnd = 15
   const previousCycleBars = scenario.heroBars.slice(0, 6)
   const currentCycleBars = scenario.heroBars.slice(-6)
+  const hasUserConversation = conversation.some((message) => message.role === 'user')
+  const chatContainerRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    const container = chatContainerRef.current
+    if (!container) return
+    container.scrollTop = container.scrollHeight
+  }, [conversation])
+
+  const latestMessage = conversation[conversation.length - 1]
 
   return (
     <div className="mt-8 rounded-[2.2rem] border border-[#E5E5E5] bg-[#f4f4f1] p-4 shadow-[0_18px_42px_rgba(0,0,0,0.08)] sm:p-5">
@@ -230,112 +278,184 @@ export function WorkspaceSurface({
                   </div>
                 </div>
                 <div className="inline-flex items-center gap-2 rounded-full border border-[#4ADE80]/28 bg-[#4ADE80]/14 px-3 py-2 text-[12px] font-medium text-[#14532d]">
-                  <span className="h-2.5 w-2.5 rounded-full bg-[#4ADE80]" />
-                  Live operating context
+                  <span className={`h-2.5 w-2.5 rounded-full ${connectionState === 'error' ? 'bg-[#e11d48]' : 'bg-[#4ADE80]'}`} />
+                  {connectionBadgeCopy(connectionState)}
                 </div>
               </div>
 
-              <div className="mt-5 rounded-[1.35rem] border border-[#E5E5E5] bg-[#fcfcfa] p-4 sm:p-5">
-                <div className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#166534]">
-                  <span className="h-2 w-2 rounded-full bg-[#4ADE80]" />
-                  Live reasoning prompt
+              <div className="mt-5 rounded-[1.5rem] border border-[#ebeae4] bg-[linear-gradient(180deg,#fcfcfa_0%,#f8f8f5_100%)] p-4 sm:p-5">
+                <div className="flex flex-col gap-3 border-b border-[#ebeae4] pb-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#166534]">
+                      <span className="h-2 w-2 rounded-full bg-[#4ADE80]" />
+                      Live reasoning thread
+                    </div>
+                    <div className="mt-2 text-[13px] leading-6 text-[#6f716d]">
+                      Use the workspace like a shared ops conversation. Zord responds from payout posture, callback timing, and proof-readiness context.
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap gap-2 text-[11px] text-[#7d7e79]">
+                    <span className="rounded-full border border-[#e8e7e2] bg-white px-3 py-1.5">Context retained per tab</span>
+                    <span className="rounded-full border border-[#e8e7e2] bg-white px-3 py-1.5">Citations on live answers</span>
+                  </div>
                 </div>
-                <div className="mt-4 space-y-3">
-                  <div className="ml-auto max-w-[90%] rounded-[14px] bg-[#111111] px-4 py-3 text-[1.03rem] leading-7 tracking-[-0.02em] text-white">
-                    {scenario.question}
-                  </div>
-                  <div className="ml-auto text-[11px] text-[#8a8a86]">11:32 AM</div>
-                  <div className="max-w-[90%] rounded-[14px] bg-[#f7f7f4] px-4 py-3 text-[13px] leading-6 text-[#6f716d]">
-                    {scenario.supporting}
-                  </div>
+
+                <div
+                  ref={chatContainerRef}
+                  className={`mt-4 space-y-4 overflow-y-auto pr-1 ${
+                    hasUserConversation ? 'max-h-[31rem] min-h-[22rem]' : 'max-h-[18rem]'
+                  }`}
+                >
+                  {conversation.map((message, index) => (
+                    <div key={message.id} className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      {message.role === 'assistant' ? (
+                        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] border border-[#d8ead7] bg-[#ecfdf3] text-[#166534]">
+                          <Glyph name="zap" className="h-3.5 w-3.5" />
+                        </div>
+                      ) : null}
+
+                      <div className={`${message.role === 'user' ? 'max-w-[88%]' : 'max-w-[92%]'}`}>
+                        <div className={`mb-2 flex items-center gap-2 text-[11px] ${message.role === 'user' ? 'justify-end text-[#8a8a86]' : 'text-[#8a8a86]'}`}>
+                          <span className="font-medium text-[#676863]">{messageRoleCopy(message.role)}</span>
+                          <span>{message.timestamp}</span>
+                          {message.status === 'typing' ? <span className="text-[#166534]">Thinking…</span> : null}
+                        </div>
+
+                        <div className={`rounded-[18px] px-4 py-3.5 text-[14px] leading-7 ${messageBubbleClass(message)}`}>
+                          {message.body}
+                        </div>
+
+                        {message.role === 'assistant' && message.citationSnippet ? (
+                          <div className="mt-2 rounded-[12px] border border-[#dce5ef] bg-[#f5f9ff] px-3 py-2.5 text-[12px] leading-5 text-[#5d6e87]">
+                            <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#6f85a7]">Supporting context</div>
+                            {message.citationSnippet}
+                          </div>
+                        ) : null}
+
+                        {message.role === 'assistant' && (message.confidence || message.hasVisualization) ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {message.confidence ? (
+                              <div className="inline-flex rounded-full border border-[#4ADE80]/35 bg-[#4ADE80]/16 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#166534]">
+                                {message.confidence}
+                              </div>
+                            ) : null}
+                            {message.hasVisualization ? (
+                              <div className="inline-flex rounded-full border border-[#d4deec] bg-white px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#5d6e87]">
+                                Chart payload ready
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+
+                      {message.role === 'user' ? (
+                        <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] bg-[#111111] text-[11px] font-semibold text-white shadow-[0_10px_18px_rgba(0,0,0,0.14)]">
+                          OP
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+
+                  {!hasUserConversation && latestMessage ? (
+                    <div className="rounded-[16px] border border-dashed border-[#e6e4de] bg-white/70 px-4 py-3 text-[12px] leading-6 text-[#8a8a86]">
+                      Start with one of the suggested prompts below or ask a specific payout question. Zord will keep the thread scoped to the active workspace tab.
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
-              <div className="mt-5">
-                <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Suggested Questions</div>
-                <div className="mt-3 flex flex-wrap gap-2.5">
-                  {suggestions.map((suggestion) => (
-                    <button
-                      key={suggestion}
-                      type="button"
-                      onClick={() => onSuggestionClick(suggestion)}
-                      className={`rounded-full border px-4 py-2.5 text-[13px] transition ${
-                        selectedPromptLabel === suggestion
-                          ? 'border-[#4ADE80]/35 bg-[#effcf3] text-[#14532d]'
-                          : 'border-[#E5E5E5] bg-[#f7f7f4] text-[#6f716d] hover:border-[#4ADE80]/30 hover:text-[#14532d]'
-                      }`}
-                    >
-                      {suggestion}
-                    </button>
+              {!hasUserConversation ? (
+                <>
+                  <div className="mt-5">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Suggested Questions</div>
+                    <div className="mt-3 flex flex-wrap gap-2.5">
+                      {suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion}
+                          type="button"
+                          onClick={() => onSuggestionClick(suggestion)}
+                          className={`rounded-full border px-4 py-2.5 text-[13px] transition ${
+                            selectedPromptLabel === suggestion
+                              ? 'border-[#4ADE80]/35 bg-[#effcf3] text-[#14532d] shadow-[0_8px_18px_rgba(74,222,128,0.08)]'
+                              : 'border-[#E5E5E5] bg-[#f7f7f4] text-[#6f716d] hover:border-[#4ADE80]/30 hover:bg-white hover:text-[#14532d]'
+                          }`}
+                        >
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-5 rounded-[1.2rem] border border-[#cfdaea] bg-[#eaf1fc] p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5c7194]">{latestAnswerTitle}</div>
+                      {latestAnswerConfidence ? (
+                        <span className="rounded-full border border-[#4ADE80]/35 bg-[#4ADE80]/16 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#166534]">
+                          {latestAnswerConfidence}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-3 text-[14px] leading-7 text-[#243550]">
+                      {latestAnswerStatus === 'loading' ? 'Reading prompt-layer evidence…' : latestAnswerBody}
+                    </div>
+                    {latestAnswerCitationSnippet ? (
+                      <div className="mt-3 rounded-[10px] border border-[#d4deec] bg-white/70 px-3 py-2 text-[12px] leading-5 text-[#5d6e87]">
+                        {latestAnswerCitationSnippet}
+                      </div>
+                    ) : null}
+                    {latestAnswerHasVisualization ? (
+                      <div className="mt-2 text-[11px] text-[#5c7194]">Visualization payload detected and ready for chart rendering.</div>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+            </div>
+
+            {!hasUserConversation ? (
+              <div className="mt-5 flex-1">
+                <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Operator Modules</div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {workspaceTiles.map((tile, index) => (
+                    <article key={tile.title} className="rounded-[1.25rem] border border-[#E5E5E5] bg-[#F7F7F4] px-5 py-5 shadow-[0_10px_24px_rgba(0,0,0,0.04)]">
+                      <div className="flex items-start gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[#4ADE80]/18 text-[#166534]">
+                          <Glyph name={tile.icon} className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-[1.05rem] font-medium tracking-[-0.03em] text-[#111111]">{tile.title}</div>
+                          <p className="mt-3 text-[13px] leading-6 text-[#6f716d]">{scenario.moduleBodies[index] ?? tile.body}</p>
+                        </div>
+                      </div>
+                    </article>
                   ))}
                 </div>
               </div>
-
-              <div className="mt-5 rounded-[1.2rem] border border-[#cfdaea] bg-[#eaf1fc] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#5c7194]">{latestAnswerTitle}</div>
-                  {latestAnswerConfidence ? (
-                    <span className="rounded-full border border-[#4ADE80]/35 bg-[#4ADE80]/16 px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] text-[#166534]">
-                      {latestAnswerConfidence}
-                    </span>
-                  ) : null}
-                </div>
-                <div className="mt-3 text-[14px] leading-7 text-[#243550]">
-                  {latestAnswerStatus === 'loading' ? 'Reading prompt-layer evidence…' : latestAnswerBody}
-                </div>
-                {latestAnswerCitationSnippet ? (
-                  <div className="mt-3 rounded-[10px] border border-[#d4deec] bg-white/70 px-3 py-2 text-[12px] leading-5 text-[#5d6e87]">
-                    {latestAnswerCitationSnippet}
-                  </div>
-                ) : null}
-                {latestAnswerHasVisualization ? (
-                  <div className="mt-2 text-[11px] text-[#5c7194]">Visualization payload detected and ready for chart rendering.</div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="mt-5 flex-1">
-              <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Operator Modules</div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {workspaceTiles.map((tile, index) => (
-                  <article key={tile.title} className="rounded-[1.25rem] border border-[#E5E5E5] bg-[#F7F7F4] px-5 py-5 shadow-[0_10px_24px_rgba(0,0,0,0.04)]">
-                    <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[#4ADE80]/18 text-[#166534]">
-                        <Glyph name={tile.icon} className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="text-[1.05rem] font-medium tracking-[-0.03em] text-[#111111]">{tile.title}</div>
-                        <p className="mt-3 text-[13px] leading-6 text-[#6f716d]">{scenario.moduleBodies[index] ?? tile.body}</p>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </div>
+            ) : null}
           </div>
 
-          <div className="mt-4 rounded-[1.35rem] border border-black/5 bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
-            <div className="flex items-center gap-3 rounded-[1rem] border border-white/10 bg-[#232323] p-3">
-              <div className="flex h-14 w-14 items-center justify-center rounded-[0.85rem] bg-[#4ADE80] text-[#111111]">
+          <div className="mt-4 rounded-[1.5rem] border border-black/5 bg-[#1F1F1F] p-3 shadow-[0_10px_32px_rgba(0,0,0,0.14)]">
+            <div className="flex flex-col gap-3 rounded-[1.15rem] border border-white/10 bg-[linear-gradient(180deg,#242424_0%,#202020_100%)] p-3 sm:flex-row sm:items-center">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[0.95rem] bg-[#4ADE80] text-[#111111] shadow-[0_10px_24px_rgba(74,222,128,0.22)]">
                 <Glyph name="zap" className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
-                <input
-                  value={promptInput}
-                  onChange={(event) => onPromptInputChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') onPromptSubmit()
-                  }}
-                  placeholder="Ask anything or search"
-                  className="w-full bg-transparent text-center text-[15px] text-white/90 outline-none placeholder:text-white/42"
-                />
-                <div className="mt-1 text-center text-[11px] text-white/42">Route posture, bank coordination, and proof readiness</div>
+                <div className="rounded-[1rem] border border-[#3b82f6]/80 bg-[#1d1d1d] px-4 py-4 shadow-[inset_0_0_0_1px_rgba(59,130,246,0.18)]">
+                  <input
+                    value={promptInput}
+                    onChange={(event) => onPromptInputChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') onPromptSubmit()
+                    }}
+                    placeholder="Ask anything about payouts, callbacks, owners, or proof readiness"
+                    className="w-full bg-transparent text-[18px] font-medium tracking-[-0.02em] text-white/92 outline-none placeholder:text-white/52 sm:text-[20px]"
+                  />
+                </div>
               </div>
               <div className="flex items-center gap-2">
-                <button type="button" onClick={onPromptSubmit} className="flex h-12 w-12 items-center justify-center rounded-[0.85rem] border border-white/8 bg-transparent text-white" aria-label="Run workspace prompt">
+                <button type="button" onClick={onPromptSubmit} className="flex h-12 w-12 items-center justify-center rounded-[0.95rem] border border-white/8 bg-transparent text-white transition hover:bg-white/6" aria-label="Run workspace prompt">
                   <Glyph name="arrow-up-right" className="h-[18px] w-[18px]" />
                 </button>
-                <button type="button" className="flex h-12 w-12 items-center justify-center rounded-[0.85rem] border border-white/8 bg-transparent text-white" aria-label="Workspace tools">
+                <button type="button" className="flex h-12 w-12 items-center justify-center rounded-[0.95rem] border border-white/8 bg-transparent text-white transition hover:bg-white/6" aria-label="Workspace tools">
                   <Glyph name="grid" className="h-[18px] w-[18px]" />
                 </button>
               </div>

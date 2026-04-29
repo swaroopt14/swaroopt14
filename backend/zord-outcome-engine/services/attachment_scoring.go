@@ -14,8 +14,8 @@ import (
 	"math"
 	"time"
 
-	"zord-outcome-engine/models"
 	"github.com/shopspring/decimal"
+	"zord-outcome-engine/models"
 )
 
 const (
@@ -93,7 +93,7 @@ type CandidateScore struct {
 	// ParseConfPenalised is set when obs.ParseConfidence < 0.6.
 	// Used by classifyConfidence to prevent low-trust observations
 	// from reaching the HIGH bucket regardless of composite score.
-	ParseConfPenalised     bool
+	ParseConfPenalised bool
 }
 
 // ScoreCandidate evaluates one (settlement observation, intent) pair and returns
@@ -151,17 +151,19 @@ func ScoreCandidate(
 
 	// Amount (exact match — no tolerance by default unless profile says otherwise)
 	obsAmount := obs.Amount
-	if obs.SettledAmount != nil {
-		obsAmount = *obs.SettledAmount
-	}
 	amountTolerance := decimal.Zero
 	if profile != nil && profile.AmountTolerancePolicyJSON != nil {
 		// amountTolerance = ... (unmarshal from JSON if needed)
 		amountTolerance = decimal.Zero
 	}
-	
-	diff := obsAmount.Sub(intent.Amount).Abs()
-	if diff.LessThanOrEqual(amountTolerance) {
+
+	primaryDiff := obsAmount.Sub(intent.Amount).Abs()
+	settledDiffMatch := false
+	if obs.SettledAmount != nil {
+		settledDiff := obs.SettledAmount.Sub(intent.Amount).Abs()
+		settledDiffMatch = settledDiff.LessThanOrEqual(amountTolerance)
+	}
+	if primaryDiff.LessThanOrEqual(amountTolerance) || settledDiffMatch {
 		bd.AmountMatchScore = ScoreAmountMatch
 		cs.AmountMatch = true
 	}
@@ -368,10 +370,15 @@ func ComputeVariance(in VarianceInputs) (amountVariance decimal.Decimal, severit
 
 	// ── Amount variance ───────────────────────────────────────────────────
 	obsAmount := in.Observation.Amount
-	if in.Observation.SettledAmount != nil {
-		obsAmount = *in.Observation.SettledAmount
-	}
 	amountVariance = in.Intent.Amount.Sub(obsAmount)
+	if in.Observation.SettledAmount != nil {
+		settledVariance := in.Intent.Amount.Sub(*in.Observation.SettledAmount)
+		// Use the closer amount signal to avoid false variance when
+		// providers emit both gross amount and settled/net amount.
+		if settledVariance.Abs().LessThan(amountVariance.Abs()) {
+			amountVariance = settledVariance
+		}
+	}
 	if !amountVariance.IsZero() {
 		reasons = append(reasons, "AMOUNT_MISMATCH")
 	}

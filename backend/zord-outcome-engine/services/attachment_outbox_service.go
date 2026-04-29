@@ -17,6 +17,8 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -221,6 +223,193 @@ func (s *AttachmentOutboxService) insertEvent(
 	if err != nil {
 		log.Printf("attachment.outbox.insert_failed type=%s err=%v", eventType, err)
 		return fmt.Errorf("attachment outbox insert failed: %w", err)
+	}
+	return nil
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MERKLE LEAF BUNDLE EMISSION
+//
+// EmitLeafBundlesForJob emits one "outcome.leaf_bundle.created" event per
+// attached (winner-resolved) decision into outcome_outbox.  zord-relay picks
+// these up and publishes them to payments.outcome.events.v1.  zord-evidence
+// consumes that topic and calls GeneratePack() immediately — no buffering
+// required because all 4 leaf candidates arrive in a single event.
+//
+// Leaf types per event:
+//   1. RAW_SETTLEMENT_LINE              — from settlement_parsed_rows
+//   2. CANONICAL_SETTLEMENT_OBSERVATION — from canonical_settlement_observations
+//   3. ATTACHMENT_DECISION              — candidate_set_hash
+//   4. VARIANCE_DECISION                — deterministic hash of delta fields
+//
+// Only decisions with a resolved intent_id (EXACT / HIGH_CONFIDENCE) produce
+// a leaf bundle.  AMBIGUOUS / UNRESOLVED / CONFLICTED have no winner, so no
+// variance record and no intent_id to key the pack on.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// leafCandidate is the wire format for one Merkle leaf inside a bundle event.
+type leafCandidate struct {
+	Type          string `json:"type"`
+	Ref           string `json:"ref"`
+	Hash          string `json:"hash"`
+	SchemaVersion string `json:"schema_version"`
+}
+
+// leafBundlePayload is the full payload of an outcome.leaf_bundle.created event.
+type leafBundlePayload struct {
+	EventType               string           `json:"event_type"`
+	TenantID                string           `json:"tenant_id"`
+	IntentID                string           `json:"intent_id"`
+	SettlementObservationID string           `json:"settlement_observation_id"`
+	AttachmentJobID         string           `json:"attachment_job_id"`
+	DecisionType            string           `json:"decision_type"`
+	Leaves                  []leafCandidate  `json:"leaves"`
+}
+
+// EmitLeafBundlesForJob emits outcome_outbox events for all winner-resolved
+// decisions produced by a completed attachment job.
+//
+// obsMap          — map[settlement_observation_id]*CanonicalSettlementObservation
+// parsedByRowRef  — map[source_row_ref]*SettlementParsedRow
+func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
+	ctx context.Context,
+	job *models.AttachmentJob,
+	decisions []models.AttachmentDecision,
+	variances []models.VarianceRecord,
+	obsMap map[uuid.UUID]*models.CanonicalSettlementObservation,
+	parsedByRowRef map[string]*models.SettlementParsedRow,
+) error {
+	// Build fast lookup: decision_id → variance_record
+	vrByDecision := make(map[uuid.UUID]*models.VarianceRecord, len(variances))
+	for i := range variances {
+		vrByDecision[variances[i].AttachmentDecisionID] = &variances[i]
+	}
+
+	var lastErr error
+	emitted := 0
+
+	for _, d := range decisions {
+		// Only emit for decisions that resolved to a specific intent.
+		if d.IntentID == nil {
+			continue
+		}
+
+		obs, ok := obsMap[d.SettlementObservationID]
+		if !ok {
+			log.Printf("leaf_bundle.obs_missing decision=%s obs=%s", d.AttachmentDecisionID, d.SettlementObservationID)
+			continue
+		}
+
+		// ── Leaf 2: CANONICAL_SETTLEMENT_OBSERVATION ──────────────────────
+		leaves := []leafCandidate{
+			{
+				Type:          "CANONICAL_SETTLEMENT_OBSERVATION",
+				Ref:           obs.SettlementObservationID.String(),
+				Hash:          obs.CanonicalHash,
+				SchemaVersion: "v1",
+			},
+			// ── Leaf 3: ATTACHMENT_DECISION ───────────────────────────────
+			{
+				Type:          "ATTACHMENT_DECISION",
+				Ref:           d.AttachmentDecisionID.String(),
+				Hash:          d.CandidateSetHash,
+				SchemaVersion: "v1",
+			},
+		}
+
+		// ── Leaf 1: RAW_SETTLEMENT_LINE ───────────────────────────────────
+		// Linked via source_row_ref shared between parsed_rows and observations.
+		if pr, ok := parsedByRowRef[obs.SourceRowRef]; ok && pr.RawLineHash != nil && *pr.RawLineHash != "" {
+			leaves = append(leaves, leafCandidate{
+				Type:          "RAW_SETTLEMENT_LINE",
+				Ref:           pr.ParsedRowID.String(),
+				Hash:          *pr.RawLineHash,
+				SchemaVersion: "v1",
+			})
+		}
+
+		// ── Leaf 4: VARIANCE_DECISION ─────────────────────────────────────
+		if vr, ok := vrByDecision[d.AttachmentDecisionID]; ok {
+			leaves = append(leaves, leafCandidate{
+				Type:          "VARIANCE_DECISION",
+				Ref:           vr.VarianceRecordID.String(),
+				Hash:          computeVarianceLeafHash(vr),
+				SchemaVersion: "v1",
+			})
+		}
+
+		bundle := leafBundlePayload{
+			EventType:               "outcome.leaf_bundle.created",
+			TenantID:                d.TenantID.String(),
+			IntentID:                d.IntentID.String(),
+			SettlementObservationID: d.SettlementObservationID.String(),
+			AttachmentJobID:         d.AttachmentJobID.String(),
+			DecisionType:            d.DecisionType,
+			Leaves:                  leaves,
+		}
+
+		bundleJSON, err := json.Marshal(bundle)
+		if err != nil {
+			log.Printf("leaf_bundle.marshal_failed decision=%s err=%v", d.AttachmentDecisionID, err)
+			lastErr = err
+			continue
+		}
+
+		if err := s.insertOutcomeOutboxEvent(ctx, d, bundleJSON); err != nil {
+			lastErr = err
+			continue
+		}
+		emitted++
+	}
+
+	log.Printf("leaf_bundle.emitted job=%s count=%d", job.AttachmentJobID, emitted)
+	return lastErr
+}
+
+// computeVarianceLeafHash returns a deterministic SHA-256 hex hash of the
+// variance record fields that matter for evidence integrity:
+//
+//	SHA256( variance_record_id | amount_variance | variance_severity )
+func computeVarianceLeafHash(vr *models.VarianceRecord) string {
+	raw := fmt.Sprintf("%s|%s|%s",
+		vr.VarianceRecordID.String(),
+		vr.AmountVariance.String(),
+		vr.VarianceSeverity,
+	)
+	sum := sha256.Sum256([]byte(raw))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// insertOutcomeOutboxEvent writes one leaf-bundle event to outcome_outbox so
+// that zord-relay can pick it up and publish to payments.outcome.events.v1.
+func (s *AttachmentOutboxService) insertOutcomeOutboxEvent(
+	ctx context.Context,
+	d models.AttachmentDecision,
+	payloadJSON []byte,
+) error {
+	_, err := db.DB.ExecContext(ctx, `
+		INSERT INTO outcome_outbox (
+			event_id, envelope_id, trace_id, tenant_id,
+			aggregate_type, aggregate_id,
+			event_type, schema_version,
+			payload, status, retry_count, created_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+		uuid.New(),            // event_id
+		d.AttachmentJobID,     // envelope_id  — job that produced this bundle
+		uuid.New(),            // trace_id
+		d.TenantID,            // tenant_id
+		"attachment_leaf_bundle",   // aggregate_type
+		d.AttachmentDecisionID,     // aggregate_id
+		"outcome.leaf_bundle.created", // event_type
+		"v1",                  // schema_version
+		payloadJSON,           // payload (JSONB)
+		"PENDING",             // status
+		0,                     // retry_count
+		time.Now().UTC(),      // created_at
+	)
+	if err != nil {
+		log.Printf("leaf_bundle.outbox_insert_failed decision=%s err=%v", d.AttachmentDecisionID, err)
+		return fmt.Errorf("outcome_outbox insert failed: %w", err)
 	}
 	return nil
 }

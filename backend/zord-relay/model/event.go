@@ -30,8 +30,11 @@ type OutboxEvent struct {
 	SchemaVersion string `json:"schema_version,omitempty"`
 
 	// --- Payload ---
-	Payload     json.RawMessage `json:"payload"`
-	PayloadHash []byte          `json:"payload_hash"`
+	Payload      json.RawMessage `json:"payload"`
+	PayloadHash     []byte          `json:"payload_hash"`
+	EnvelopeHash    []byte          `json:"envelope_hash,omitempty"`
+	CanonicalHash   string          `json:"canonical_hash,omitempty"`
+	GovernanceState string          `json:"governance_state,omitempty"`
 
 	// --- Lease ---
 	LeaseID    string     `json:"lease_id"`

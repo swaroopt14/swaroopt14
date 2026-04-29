@@ -268,8 +268,8 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 			// Trigger attachment engine automatically on success
 			log.Printf("settlement.upload.attachment_start job_id=%s", bgIngestRunID)
 			engine := &services.AttachmentEngine{}
-			if _, err := engine.RunForBatch(bgCtx, bgTenant, bgIngestRunID); err != nil {
-				log.Printf("settlement.upload.attachment_error job_id=%s err=%v", bgIngestRunID, err)
+			if _, err := engine.RunForJob(bgCtx, bgTenant, bgJobID); err != nil {
+				log.Printf("settlement.upload.attachment_error job_id=%s err=%v", bgJobID, err)
 			}
 		}
 	}(context.Background(), profile, ingestRunID, settlementBatchID, previousRunID, runNumber, tenantID, envelopeID, objRef, fileBytes)

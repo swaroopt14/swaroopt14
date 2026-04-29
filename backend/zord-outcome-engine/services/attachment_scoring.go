@@ -29,7 +29,6 @@ const (
 	ScoreBankRefExact         = 85.0
 
 	// ── Layer 2: Composite / soft scores ──────────────────────────────────
-	ScoreBeneficiaryFpMatch = 50.0
 	ScoreAmountMatch        = 30.0
 	ScoreCurrencyMatch      = 10.0
 	ScoreTimeWindowMatch    = 20.0
@@ -58,7 +57,6 @@ type ScoreBreakdown struct {
 	ClientRefScore         float64 `json:"client_ref_score"`
 	ProviderRefScore       float64 `json:"provider_ref_score"`
 	BankRefScore           float64 `json:"bank_ref_score"`
-	BeneficiaryMatchScore  float64 `json:"beneficiary_match_score"`
 	AmountMatchScore       float64 `json:"amount_match_score"`
 	CurrencyMatchScore     float64 `json:"currency_match_score"`
 	TimeWindowScore        float64 `json:"time_window_score"`
@@ -83,7 +81,6 @@ type CandidateScore struct {
 	ProviderRefMatch   bool
 	BankRefMatch       bool
 	BatchMatch         bool
-	BeneficiaryFpMatch bool
 	AmountMatch        bool
 	CurrencyMatch      bool
 	TimeWindowMatch    bool
@@ -210,7 +207,6 @@ func ScoreCandidate(
 		bd.ClientRefScore +
 		bd.ProviderRefScore +
 		bd.BankRefScore +
-		bd.BeneficiaryMatchScore +
 		bd.AmountMatchScore +
 		bd.CurrencyMatchScore +
 		bd.TimeWindowScore +
@@ -227,8 +223,8 @@ func ScoreCandidate(
 	cs.Breakdown = bd
 	cs.Total = total
 
-	// Composite: beneficiary + amount + currency qualifies.
-	cs.CompositeMatch = cs.BeneficiaryFpMatch && cs.AmountMatch && cs.CurrencyMatch
+	// Composite: amount + currency qualifies.
+	cs.CompositeMatch = cs.AmountMatch && cs.CurrencyMatch
 
 	// ── CONFIDENCE BUCKET ─────────────────────────────────────────────────
 	cs.ConfidenceBucket = classifyConfidence(cs)

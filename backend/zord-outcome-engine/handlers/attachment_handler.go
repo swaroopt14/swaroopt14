@@ -240,10 +240,6 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "tenant_id is required"})
 		return
 	}
-	if intent.BeneficiaryFingerprint == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "beneficiary_fingerprint is required"})
-		return
-	}
 
 	intent.CreatedAt = time.Now().UTC()
 
@@ -251,23 +247,22 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 		INSERT INTO canonical_intents (
 			intent_id, tenant_id,
 			client_payout_ref, client_batch_ref, business_idempotency_key,
-			beneficiary_fingerprint, amount, currency_code,
+			amount, currency_code,
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state, 
 			created_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
 		) ON CONFLICT (intent_id) DO UPDATE SET
 			client_payout_ref       = EXCLUDED.client_payout_ref,
 			client_batch_ref        = EXCLUDED.client_batch_ref,
-			beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
 			amount                  = EXCLUDED.amount,
 			currency_code           = EXCLUDED.currency_code,
 			governance_state        = EXCLUDED.governance_state`,
 		intent.IntentID, intent.TenantID,
 		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
-		intent.BeneficiaryFingerprint, intent.Amount, intent.CurrencyCode,
+		intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
 		intent.ProofReadinessScore, intent.MatchabilityScore,
 		intent.CanonicalHash, intent.GovernanceState, 

@@ -36,7 +36,6 @@ func EnsureTables(ctx context.Context) error {
 			client_payout_ref        TEXT,
 			client_batch_ref         TEXT,
 			business_idempotency_key TEXT,
-			beneficiary_fingerprint  TEXT NOT NULL,
 			amount             NUMERIC(20,2) NOT NULL,
 			currency_code            TEXT NOT NULL,
 			intended_execution_at    TIMESTAMPTZ,
@@ -53,8 +52,6 @@ func EnsureTables(ctx context.Context) error {
 			ON canonical_intents(tenant_id);`,
 		`CREATE INDEX IF NOT EXISTS canonical_intents_client_ref_idx
 			ON canonical_intents(client_payout_ref) WHERE client_payout_ref IS NOT NULL;`,
-		`CREATE INDEX IF NOT EXISTS canonical_intents_beneficiary_idx
-			ON canonical_intents(tenant_id, beneficiary_fingerprint);`,
 		`CREATE INDEX IF NOT EXISTS canonical_intents_amount_currency_idx
 			ON canonical_intents(tenant_id, amount, currency_code);`,
 		`CREATE TABLE IF NOT EXISTS dispatch_index(
@@ -390,7 +387,6 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			provider_ref_match_flag     BOOLEAN NOT NULL DEFAULT FALSE,
 			bank_ref_match_flag         BOOLEAN NOT NULL DEFAULT FALSE,
 			batch_match_flag            BOOLEAN NOT NULL DEFAULT FALSE,
-			beneficiary_fp_match_flag   BOOLEAN NOT NULL DEFAULT FALSE,
 			amount_match_flag           BOOLEAN NOT NULL DEFAULT FALSE,
 			currency_match_flag         BOOLEAN NOT NULL DEFAULT FALSE,
 			time_window_match_flag      BOOLEAN NOT NULL DEFAULT FALSE,

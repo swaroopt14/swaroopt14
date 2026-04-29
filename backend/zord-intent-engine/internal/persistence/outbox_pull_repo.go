@@ -82,7 +82,9 @@ leased AS (
 		o.lease_id::text,
 		o.leased_by,
 		o.lease_until,
-		o.batchid
+		o.batchid,
+		o.canonical_hash,
+		o.governance_state
 )
 SELECT
 	event_id,
@@ -104,7 +106,9 @@ SELECT
 	lease_id,
 	leased_by,
 	lease_until,
-	batchid
+	batchid,
+	canonical_hash,
+	governance_state
 FROM leased
 ORDER BY created_at ASC;
 `
@@ -123,6 +127,8 @@ ORDER BY created_at ASC;
 		var nextRetry sql.NullTime
 		var lu sql.NullTime
 		var corridorId sql.NullString
+		var canonicalHash sql.NullString
+		var governanceState sql.NullString
 
 		if err := rows.Scan(
 			&evt.EventID,
@@ -145,6 +151,8 @@ ORDER BY created_at ASC;
 			&evt.LeasedBy,
 			&lu,
 			&evt.BatchID,
+			&canonicalHash,
+			&governanceState,
 		); err != nil {
 			return "", nil, nil, err
 		}
@@ -154,6 +162,12 @@ ORDER BY created_at ASC;
 			evt.CorridorID = &corridorId.String
 		} else {
 			evt.CorridorID = nil
+		}
+		if canonicalHash.Valid {
+			evt.CanonicalHash = canonicalHash.String
+		}
+		if governanceState.Valid {
+			evt.GovernanceState = governanceState.String
 		}
 
 		if nextRetry.Valid {

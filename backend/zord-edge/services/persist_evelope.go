@@ -93,3 +93,16 @@ func RawIntent(ctx context.Context,
 	}
 	return nil
 }
+
+func CheckBatchIDExists(ctx context.Context, batchID *string) (bool, error) {
+	if batchID == nil {
+		return false, nil
+	}
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM ingress_envelopes WHERE batchid = $1)`
+	err := db.DB.QueryRowContext(ctx, query, *batchID).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
+}

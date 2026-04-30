@@ -55,6 +55,7 @@ func CanonicalIntentToOutboxEvent(
 		CanonicalSnapshotRef:  intent.CanonicalSnapshotRef,
 		NIRSnapshotRef:        intent.NIRSnapshotRef,
 		GovernanceSnapshotRef: intent.GovernanceSnapshotRef,
+		GovernanceHash:        intent.GovernanceHash,
 
 		ClientPayoutRef:       intent.ClientPayoutRef,
 		ProviderHint:          intent.ProviderHint,

@@ -115,6 +115,18 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		prefixed := "batch_" + batchIDHeader
 		finalBatchID = &prefixed
 		fileEnvelopeID = prefixed
+
+		exists, err := services.CheckBatchIDExists(c.Request.Context(), finalBatchID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify batch_id uniqueness"})
+			return
+		}
+		if exists {
+			c.JSON(http.StatusConflict, gin.H{
+				"error": "batch_id must be strictly unique for each file ingest",
+			})
+			return
+		}
 	}
 
 	// ── Force-Reprocess guard ─────────────────────────────────────────────────
@@ -225,11 +237,14 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 			return
 		}
 
-		results := make([]BulkResult, totalDataRows)
-		jobs := make(chan BulkJob, totalDataRows+1)
+		var resultsMu sync.Mutex
+		resultsMap := make(map[int]BulkResult)
+		jobs := make(chan BulkJob, 500)
 
 		workerCount := runtime.NumCPU() * 2
 		var wg sync.WaitGroup
+
+		ctx := context.WithoutCancel(c.Request.Context())
 
 		for w := 0; w < workerCount; w++ {
 			wg.Add(1)
@@ -247,7 +262,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 					receivedAt := time.Now().UTC()
 
 					storageAck, duplicateID, err := h.processBulkIntentRow(
-						c.Request.Context(),
+						ctx,
 						job.Payload,
 						tenantID,
 						tenantName,
@@ -269,42 +284,40 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 						func(s string) *string { return &s }("CSV"),
 					)
 
+					resultsMu.Lock()
 					if err != nil {
 						if errors.Is(err, services.ErrFingerprintMismatch) {
-							results[job.Row-1] = BulkResult{
+							resultsMap[job.Row] = BulkResult{
 								Row:    job.Row,
 								Status: "CONFLICT",
 								Error:  "idempotency key reuse with different payload",
 							}
-							continue
+						} else {
+							resultsMap[job.Row] = BulkResult{
+								Row:     job.Row,
+								Status:  "FAILED",
+								TraceID: traceID,
+								Error:   err.Error(),
+							}
 						}
-						results[job.Row-1] = BulkResult{
-							Row:     job.Row,
-							Status:  "FAILED",
-							TraceID: traceID,
-							Error:   err.Error(),
-						}
-						continue
-					}
-
-					if duplicateID != uuid.Nil {
-						results[job.Row-1] = BulkResult{
+					} else if duplicateID != uuid.Nil {
+						resultsMap[job.Row] = BulkResult{
 							Row:        job.Row,
 							Status:     "DUPLICATE",
 							TraceID:    traceID,
 							EnvelopeID: duplicateID.String(),
 							Error:      "duplicate idempotency key",
 						}
-						continue
+					} else {
+						resultsMap[job.Row] = BulkResult{
+							Row:        job.Row,
+							Status:     "Accepted",
+							TraceID:    traceID,
+							EnvelopeID: storageAck.EnvelopeId,
+							ReceivedAt: storageAck.ReceivedAt.Format(time.RFC3339Nano),
+						}
 					}
-
-					results[job.Row-1] = BulkResult{
-						Row:        job.Row,
-						Status:     "Accepted",
-						TraceID:    traceID,
-						EnvelopeID: storageAck.EnvelopeId,
-						ReceivedAt: storageAck.ReceivedAt.Format(time.RFC3339Nano),
-					}
+					resultsMu.Unlock()
 				}
 			}()
 		}
@@ -325,11 +338,13 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 				break
 			}
 			if err != nil {
-				results[i-1] = BulkResult{
+				resultsMu.Lock()
+				resultsMap[i] = BulkResult{
 					Row:    i,
 					Status: "FAILED",
 					Error:  "failed to parse CSV row: " + err.Error(),
 				}
+				resultsMu.Unlock()
 				continue
 			}
 
@@ -346,20 +361,24 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 			jsonPayload, err := buildRowPayload(headers, row)
 			if err != nil {
-				results[i-1] = BulkResult{
+				resultsMu.Lock()
+				resultsMap[i] = BulkResult{
 					Row:    i,
 					Status: "FAILED",
 					Error:  "failed to marshal JSON payload",
 				}
+				resultsMu.Unlock()
 				continue
 			}
 
 			if err := validator.ValidateIntentRequestJSON(jsonPayload); err != nil {
-				results[i-1] = BulkResult{
+				resultsMu.Lock()
+				resultsMap[i] = BulkResult{
 					Row:    i,
 					Status: "FAILED",
 					Error:  fmt.Sprintf("schema validation failed: %v", err),
 				}
+				resultsMu.Unlock()
 				continue
 			}
 
@@ -388,8 +407,14 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		wg.Wait()
 
 		var actualResults []BulkResult
-		for _, r := range results {
-			if r.Status != "" {
+		maxRow := 0
+		for k := range resultsMap {
+			if k > maxRow {
+				maxRow = k
+			}
+		}
+		for j := 1; j <= maxRow; j++ {
+			if r, ok := resultsMap[j]; ok && r.Status != "" {
 				actualResults = append(actualResults, r)
 			}
 		}
@@ -419,7 +444,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		scanRows.Close()
 
 		totalDataRows := totalRows - 1 // subtract header
-		rowCountEstimate = totalDataRows
+		xlsxRowCount := totalDataRows
 
 		if totalDataRows < 1 {
 			c.JSON(http.StatusBadRequest, gin.H{
@@ -434,11 +459,14 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 			return
 		}
 
-		results := make([]BulkResult, totalDataRows)
-		jobs := make(chan BulkJob, totalRows)
+		var resultsMu sync.Mutex
+		resultsMap := make(map[int]BulkResult)
+		jobs := make(chan BulkJob, 500)
 
 		workerCount := runtime.NumCPU() * 2
 		var wg sync.WaitGroup
+
+		ctx := context.WithoutCancel(c.Request.Context())
 
 		for w := 0; w < workerCount; w++ {
 			wg.Add(1)
@@ -456,7 +484,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 					receivedAt := time.Now().UTC()
 
 					storageAck, duplicateID, err := h.processBulkIntentRow(
-						c.Request.Context(),
+						ctx,
 						job.Payload,
 						tenantID,
 						tenantName,
@@ -474,46 +502,44 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 						&file.Filename,
 						&fileSizeBytes,
 						&fileHash,
-						&rowCountEstimate,
+						&xlsxRowCount,
 						func(s string) *string { return &s }("XLSX"),
 					)
 
+					resultsMu.Lock()
 					if err != nil {
 						if errors.Is(err, services.ErrFingerprintMismatch) {
-							results[job.Row-1] = BulkResult{
+							resultsMap[job.Row] = BulkResult{
 								Row:    job.Row,
 								Status: "CONFLICT",
 								Error:  "idempotency key reuse with different payload",
 							}
-							continue
+						} else {
+							resultsMap[job.Row] = BulkResult{
+								Row:     job.Row,
+								Status:  "FAILED",
+								TraceID: traceID,
+								Error:   err.Error(),
+							}
 						}
-						results[job.Row-1] = BulkResult{
-							Row:     job.Row,
-							Status:  "FAILED",
-							TraceID: traceID,
-							Error:   err.Error(),
-						}
-						continue
-					}
-
-					if duplicateID != uuid.Nil {
-						results[job.Row-1] = BulkResult{
+					} else if duplicateID != uuid.Nil {
+						resultsMap[job.Row] = BulkResult{
 							Row:        job.Row,
 							Status:     "DUPLICATE",
 							TraceID:    traceID,
 							EnvelopeID: duplicateID.String(),
 							Error:      "duplicate idempotency key",
 						}
-						continue
+					} else {
+						resultsMap[job.Row] = BulkResult{
+							Row:        job.Row,
+							Status:     "Accepted",
+							TraceID:    traceID,
+							EnvelopeID: storageAck.EnvelopeId,
+							ReceivedAt: storageAck.ReceivedAt.Format(time.RFC3339Nano),
+						}
 					}
-
-					results[job.Row-1] = BulkResult{
-						Row:        job.Row,
-						Status:     "Accepted",
-						TraceID:    traceID,
-						EnvelopeID: storageAck.EnvelopeId,
-						ReceivedAt: storageAck.ReceivedAt.Format(time.RFC3339Nano),
-					}
+					resultsMu.Unlock()
 				}
 			}()
 		}
@@ -544,11 +570,13 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		for i := 1; dataRows.Next(); i++ {
 			row, err := dataRows.Columns()
 			if err != nil {
-				results[i-1] = BulkResult{
+				resultsMu.Lock()
+				resultsMap[i] = BulkResult{
 					Row:    i,
 					Status: "FAILED",
 					Error:  "failed to read excel row: " + err.Error(),
 				}
+				resultsMu.Unlock()
 				continue
 			}
 
@@ -565,20 +593,24 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 			jsonPayload, err := buildRowPayload(headers, row)
 			if err != nil {
-				results[i-1] = BulkResult{
+				resultsMu.Lock()
+				resultsMap[i] = BulkResult{
 					Row:    i,
 					Status: "FAILED",
 					Error:  "failed to marshal JSON payload",
 				}
+				resultsMu.Unlock()
 				continue
 			}
 
 			if err := validator.ValidateIntentRequestJSON(jsonPayload); err != nil {
-				results[i-1] = BulkResult{
+				resultsMu.Lock()
+				resultsMap[i] = BulkResult{
 					Row:    i,
 					Status: "FAILED",
 					Error:  fmt.Sprintf("schema validation failed: %v", err),
 				}
+				resultsMu.Unlock()
 				continue
 			}
 
@@ -607,8 +639,14 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		wg.Wait()
 
 		var actualResults []BulkResult
-		for _, r := range results {
-			if r.Status != "" {
+		maxRow := 0
+		for k := range resultsMap {
+			if k > maxRow {
+				maxRow = k
+			}
+		}
+		for j := 1; j <= maxRow; j++ {
+			if r, ok := resultsMap[j]; ok && r.Status != "" {
 				actualResults = append(actualResults, r)
 			}
 		}
@@ -648,6 +686,13 @@ func (cw *countingWriter) Write(p []byte) (int, error) {
 // This avoids returning a noisy array of N duplicate rows when the client
 // simply re-uploaded a file they already sent.
 func respondBulkResults(c *gin.Context, results []BulkResult, fileName, fileHash string) {
+	// empty result set means all rows were skipped/empty, not a duplicate batch
+	if len(results) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "no processable rows found in file",
+		})
+		return
+	}
 	duplicateCount := 0
 	for _, r := range results {
 		if r.Status == "DUPLICATE" {
@@ -694,8 +739,11 @@ func buildRowPayload(headers, row []string) ([]byte, error) {
 	payloadMap := make(map[string]interface{})
 
 	for j, header := range headers {
-		if j >= len(row) {
-			continue
+		value := ""
+		if j < len(row) {
+			value = row[j]
+		} else {
+			log.Printf("buildRowPayload: row has %d cols, header expects %d, filling '%s' with empty string", len(row), len(headers), header)
 		}
 
 		keys := strings.Split(header, ".")
@@ -703,7 +751,7 @@ func buildRowPayload(headers, row []string) ([]byte, error) {
 
 		for k := 0; k < len(keys); k++ {
 			if k == len(keys)-1 {
-				current[keys[k]] = row[j]
+				current[keys[k]] = value
 			} else {
 				if _, exists := current[keys[k]]; !exists {
 					current[keys[k]] = make(map[string]interface{})
@@ -794,7 +842,7 @@ func (h *Handler) processBulkIntentRow(
 	}
 	if storageAck == nil {
 		log.Printf("S3 data is nil for bulk row, trace_id=%s", traceID)
-		return nil, uuid.Nil, err
+		return nil, uuid.Nil, fmt.Errorf("S3 store returned nil ack for trace_id=%s", traceID)
 	}
 
 	payloadHashSum := sha256.Sum256(rawPayload)

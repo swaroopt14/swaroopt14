@@ -71,6 +71,9 @@ leased AS (
 		o.aggregate_type,
 		o.aggregate_id,
 		o.event_type,
+		o.amount,
+		o.currency,
+		NULL as corridor_id,
 		o.retry_count,
 		o.next_attempt_at,
 		o.payload,
@@ -79,7 +82,9 @@ leased AS (
 		o.lease_id::text,
 		o.leased_by,
 		o.lease_until,
-		o.batchid
+		o.batchid,
+		o.canonical_hash,
+		o.governance_state
 )
 SELECT
 	event_id,
@@ -90,6 +95,9 @@ SELECT
 	aggregate_type,
 	aggregate_id,
 	event_type,
+	amount,
+	currency,
+	corridor_id,
 	retry_count,
 	next_attempt_at,
 	payload,
@@ -98,7 +106,9 @@ SELECT
 	lease_id,
 	leased_by,
 	lease_until,
-	batchid
+	batchid,
+	canonical_hash,
+	governance_state
 FROM leased
 ORDER BY created_at ASC;
 `
@@ -116,6 +126,9 @@ ORDER BY created_at ASC;
 		var evt models.OutboxEvent
 		var nextRetry sql.NullTime
 		var lu sql.NullTime
+		var corridorId sql.NullString
+		var canonicalHash sql.NullString
+		var governanceState sql.NullString
 
 		if err := rows.Scan(
 			&evt.EventID,
@@ -126,6 +139,9 @@ ORDER BY created_at ASC;
 			&evt.AggregateType,
 			&evt.AggregateID,
 			&evt.EventType,
+			&evt.Amount,
+			&evt.Currency,
+			&corridorId,
 			&evt.RetryCount,
 			&nextRetry,
 			&evt.Payload,
@@ -135,8 +151,23 @@ ORDER BY created_at ASC;
 			&evt.LeasedBy,
 			&lu,
 			&evt.BatchID,
+			&canonicalHash,
+			&governanceState,
 		); err != nil {
 			return "", nil, nil, err
+		}
+
+		evt.IntentID = evt.AggregateID.String()
+		if corridorId.Valid {
+			evt.CorridorID = &corridorId.String
+		} else {
+			evt.CorridorID = nil
+		}
+		if canonicalHash.Valid {
+			evt.CanonicalHash = canonicalHash.String
+		}
+		if governanceState.Valid {
+			evt.GovernanceState = governanceState.String
 		}
 
 		if nextRetry.Valid {

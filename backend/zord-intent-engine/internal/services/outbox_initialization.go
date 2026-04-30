@@ -27,6 +27,7 @@ func CanonicalIntentToOutboxEvent(
 		TenantID:      intent.TenantID,
 		AggregateType: "intent",
 		AggregateID:   intId,
+		IntentID:      intent.IntentID,
 		EventType:     eventType,
 
 		SchemaVersion: "v1",

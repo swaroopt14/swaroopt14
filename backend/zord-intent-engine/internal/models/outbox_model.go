@@ -16,6 +16,7 @@ type OutboxEvent struct {
 	ContractID    string    `json:"contract_id,omitempty" db:"contract_id"`
 	AggregateType string    `json:"aggregate_type" db:"aggregate_type"`
 	AggregateID   uuid.UUID `json:"aggregate_id" db:"aggregate_id"`
+	IntentID      string    `json:"intent_id"`
 	EventType     string    `json:"event_type" db:"event_type"`
 
 	SchemaVersion string          `json:"schema_version" db:"schema_version"`
@@ -32,6 +33,7 @@ type OutboxEvent struct {
 	LeaseUntil  *time.Time      `json:"lease_until,omitempty" db:"lease_until"`
 	PayloadHash []byte          `json:"payload_hash" db:"payload_hash"`
 	BatchID     *string         `json:"batchid,omitempty" db:"batchid"`
+	CorridorID  *string         `json:"corridor_id"`
 
 	// Intent Metadata (Synchronized from payment_intents)
 	IdempotencyKey   string          `json:"idempotency_key,omitempty" db:"idempotency_key"`

@@ -20,18 +20,17 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 		INSERT INTO canonical_intents (
 			intent_id, tenant_id,
 			client_payout_ref, client_batch_ref, business_idempotency_key,
-			beneficiary_fingerprint, amount, currency_code,
+			amount, currency_code,
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state, 
 			created_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
 		) ON CONFLICT (intent_id) DO UPDATE SET
 			client_payout_ref       = EXCLUDED.client_payout_ref,
 			client_batch_ref        = EXCLUDED.client_batch_ref,
 			business_idempotency_key= EXCLUDED.business_idempotency_key,
-			beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
 			amount                  = EXCLUDED.amount,
 			currency_code           = EXCLUDED.currency_code,
 			intended_execution_at   = EXCLUDED.intended_execution_at,
@@ -44,7 +43,7 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 			governance_state        = EXCLUDED.governance_state`,
 		intent.IntentID, intent.TenantID,
 		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
-		intent.BeneficiaryFingerprint, intent.Amount, intent.CurrencyCode,
+		intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
 		intent.ProofReadinessScore, intent.MatchabilityScore,
 		intent.CanonicalHash, intent.GovernanceState,
@@ -80,9 +79,6 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 	}
 	if strings.TrimSpace(payload.Currency) == "" {
 		return models.CanonicalIntent{}, fmt.Errorf("currency is required")
-	}
-	if strings.TrimSpace(payload.BeneficiaryFingerprint) == "" {
-		return models.CanonicalIntent{}, fmt.Errorf("beneficiary_fingerprint is required")
 	}
 	createdAt := payload.CreatedAt
 	if createdAt.IsZero() {
@@ -127,7 +123,6 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 		ClientPayoutRef:        clientPayoutRef,
 		ClientBatchRef:         clientBatchRef,
 		BusinessIdempotencyKey: bizIdemKey,
-		BeneficiaryFingerprint: payload.BeneficiaryFingerprint,
 		Amount:                 amount,
 		CurrencyCode:           payload.Currency,
 		IntendedExecutionAt:    intendedExecutionAt,

@@ -112,7 +112,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 	fileEnvelopeID := uuid.Must(uuid.NewV7()).String()
 
 	if batchIDHeader != "" {
-		prefixed := "batch_" + batchIDHeader
+		prefixed := batchIDHeader
 		finalBatchID = &prefixed
 		fileEnvelopeID = prefixed
 

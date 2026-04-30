@@ -12,8 +12,8 @@ WORKDIR /app
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json* ./
-# Install all dependencies (including devDependencies) for building
-RUN npm ci
+# Install all dependencies (including optional platform binaries needed by Next SWC)
+RUN npm ci --include=optional
 
 # Rebuild the source code only when needed
 FROM base AS builder

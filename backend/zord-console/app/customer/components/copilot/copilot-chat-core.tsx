@@ -585,17 +585,6 @@ export function CopilotChatCore({
     setItems((prev) => [...prev, { id: `u_${Date.now()}`, type: 'user', created_at: nowIso(), text }])
 
     try {
-      if (shouldGenerateTenantReview(text)) {
-        const simulated = buildMockTenantReview(text, tenantContext, intentFromUrl)
-        pushSystemMessage({
-          id: `sys_${Date.now()}_review`,
-          created_at: nowIso(),
-          text: simulated.response.answer,
-          mockReview: simulated.review,
-        })
-        return
-      }
-
       const tenantMatch = text.match(/tenant(?:\s+id)?\s*(?:is|=|:)?\s*([0-9a-fA-F-]{36})/i)
       const tenantId = tenantMatch?.[1] ?? null
       const baseUrl = process.env.NEXT_PUBLIC_PROMPT_LAYER_URL || '/api/prompt-layer'
@@ -619,16 +608,6 @@ export function CopilotChatCore({
       }
 
       if (!res.ok) {
-        if (hasMissingGeminiKey(body.details)) {
-          const demo = buildDemoMockAnswer(text)
-          pushSystemMessage({
-            id: `sys_${Date.now()}_demo`,
-            created_at: nowIso(),
-            text: formatResponseText(demo),
-          })
-          return
-        }
-
         const details = body.details ? `\nDetails: ${String(body.details)}` : ''
         throw new Error(`Prompt query failed.${details}`)
       }
@@ -650,16 +629,6 @@ export function CopilotChatCore({
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
-
-      if (hasMissingGeminiKey(message) || String(message).toLowerCase().includes('failed to fetch')) {
-        const demo = buildDemoMockAnswer(text)
-        pushSystemMessage({
-          id: `sys_${Date.now()}_demo_error`,
-          created_at: nowIso(),
-          text: formatResponseText(demo),
-        })
-        return
-      }
 
       pushSystemMessage({
         id: `sys_${Date.now()}_error`,

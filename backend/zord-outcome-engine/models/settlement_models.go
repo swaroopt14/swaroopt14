@@ -45,6 +45,7 @@ type SettlementParsedRow struct {
 	ParseConfidence       float64         `json:"parse_confidence" db:"parse_confidence"`
 	MappingProfileID      string          `json:"mapping_profile_id" db:"mapping_profile_id"`
 	MappingProfileVersion string          `json:"mapping_profile_version" db:"mapping_profile_version"`
+	ClientBatchID         string          `json:"client_batch_id" db:"client_batch_id"`
 	CreatedAt             time.Time       `json:"created_at" db:"created_at"`
 }
 
@@ -89,6 +90,7 @@ type CanonicalSettlementObservation struct {
 	ProviderRefConsistencyFlag *bool      `json:"provider_ref_consistency_flag,omitempty" db:"provider_ref_consistency_flag"`
 	MappingProfileID           string     `json:"mapping_profile_id" db:"mapping_profile_id"`
 	MappingProfileVersion      string     `json:"mapping_profile_version" db:"mapping_profile_version"`
+	ClientBatchID              string     `json:"client_batch_id" db:"client_batch_id"`
 	ParseConfidence            float64    `json:"parse_confidence" db:"parse_confidence"`
 	MappingConfidence          float64    `json:"mapping_confidence" db:"mapping_confidence"`
 	CarrierRichnessScore       float64    `json:"carrier_richness_score" db:"carrier_richness_score"`

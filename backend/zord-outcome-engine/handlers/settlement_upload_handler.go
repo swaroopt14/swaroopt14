@@ -215,6 +215,7 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		bgTenant uuid.UUID,
 		bgEnvelope uuid.UUID,
 		bgRef string,
+		bgClientBatchID string,
 		data []byte,
 	) {
 		// ── PHASE 3: PARSING ─────────────────────────────────────────────────────
@@ -239,11 +240,11 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 
 			if result.Failed {
 				rowCountFailed++
-				_ = svc.PersistParseError(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile, bgIngestRunID, bgSettlementBatchID)
+				_ = svc.PersistParseError(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID)
 				continue
 			}
 
-			if err := svc.PersistParsedRow(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, bgRef, rowRef, result, pspProfile, bgIngestRunID, bgSettlementBatchID); err != nil {
+			if err := svc.PersistParsedRow(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, bgRef, rowRef, result, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID); err != nil {
 				log.Printf("settlement.upload.row_persist_error job_id=%s row=%s err=%v", bgIngestRunID, rowRef, err)
 				continue
 			}
@@ -276,5 +277,5 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 				log.Printf("settlement.upload.attachment_error job_id=%s err=%v", bgIngestRunID, err)
 			}
 		}
-	}(context.Background(), profile, ingestRunID, settlementBatchID, previousRunID, runNumber, tenantID, envelopeID, objRef, fileBytes)
+	}(context.Background(), profile, ingestRunID, settlementBatchID, previousRunID, runNumber, tenantID, envelopeID, objRef, clientBatchID, fileBytes)
 }

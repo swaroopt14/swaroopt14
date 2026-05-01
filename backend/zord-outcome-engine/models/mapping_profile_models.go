@@ -38,7 +38,7 @@ var KnownProfiles = map[string]MappingProfile{
 	// razorpay is the key passed as ?psp=razorpay in the upload request
 	"razorpay": {
 		ProfileID:      "razorpay-recon-v1",
-		ProfileVersion: "1.0.0",
+		ProfileVersion: "V1.0.0",
 		SourceSystem:   "razorpay",
 		ArtifactFamily: "PSP_SETTLEMENT_RECON",
 		ParserKey:      "razorpay",
@@ -48,7 +48,7 @@ var KnownProfiles = map[string]MappingProfile{
 	// cashfree is the key passed as ?psp=cashfree in the upload request
 	"cashfree": {
 		ProfileID:      "cashfree-settlement-v1",
-		ProfileVersion: "1.0.0",
+		ProfileVersion: "V1.0.0",
 		SourceSystem:   "cashfree",
 		ArtifactFamily: "PSP_SETTLEMENT_RECON",
 		ParserKey:      "cashfree",

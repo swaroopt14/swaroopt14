@@ -125,13 +125,13 @@ func (s *SettlementIngestService) RegisterBatchAndRun(
         INSERT INTO settlement_ingest_runs (
             ingest_run_id, settlement_batch_id, tenant_id, psp,
             settlement_envelope_id, artifact_family, source_system,
-            mapping_profile_id, mapping_profile_version,
+            mapping_profile_id, mapping_profile_version, parser_version,
             file_sha256, run_number, force_reprocess, reprocess_reason,
             run_status, started_at, created_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
 		ingestRunID, settlementBatchID, tenantID, psp,
 		envelopeID, profile.ArtifactFamily, profile.SourceSystem,
-		profile.ProfileID, profile.ProfileVersion,
+		profile.ProfileID, profile.ProfileVersion, profile.ProfileVersion,
 		fileSHA256, runNumber, forceReprocess, reprocessReasonVal,
 		"PARSING", now, now,
 	)
@@ -208,13 +208,16 @@ func (s *SettlementIngestService) PersistParsedRow(
 	profile models.MappingProfile,
 	ingestRunID string,
 	settlementBatchID string,
+	clientBatchID string,
 ) error {
 	parsedRowID := uuid.New()
 	rawColsJSON, _ := json.Marshal(result.RawColumns)
 	shapeJSON, _ := json.Marshal(result.Shape)
 
-	hash := sha256.Sum256(rawColsJSON)
-	rawLineHash := hex.EncodeToString(hash[:])
+	contentHash := sha256.Sum256(rawColsJSON)
+	lineageStr := hex.EncodeToString(contentHash[:]) + rowRef + profile.ProfileVersion
+	finalHash := sha256.Sum256([]byte(lineageStr))
+	rawLineHash := hex.EncodeToString(finalHash[:])
 
 	var warningsJSON []byte
 	if len(result.Warnings) > 0 {
@@ -227,13 +230,13 @@ func (s *SettlementIngestService) PersistParsedRow(
 			tenant_id, settlement_envelope_id,
 			source_file_ref, source_row_ref, raw_line_hash,
 			raw_columns_json, parsed_candidates_json, parse_warnings_json,
-			parse_confidence, mapping_profile_id, mapping_profile_version, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+			parse_confidence, mapping_profile_id, mapping_profile_version, parser_version, client_batch_id, created_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
 		parsedRowID, jobID, ingestRunID, settlementBatchID,
 		tenantID, envelopeID,
 		objRef, rowRef, rawLineHash,
 		rawColsJSON, shapeJSON, warningsJSON,
-		result.Confidence, profile.ProfileID, profile.ProfileVersion, time.Now().UTC(),
+		result.Confidence, profile.ProfileID, profile.ProfileVersion, profile.ProfileVersion, clientBatchID, time.Now().UTC(),
 	)
 	return err
 }
@@ -278,18 +281,19 @@ func (s *SettlementIngestService) PersistParseError(
 	profile models.MappingProfile,
 	ingestRunID string,
 	settlementBatchID string,
+	clientBatchID string,
 ) error {
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO settlement_parse_errors (
 			error_id, tenant_id, job_id, ingest_run_id, settlement_batch_id,
 			settlement_envelope_id,
 			source_row_ref, error_stage, reason_code,
-			severity, mapping_profile_id, mapping_profile_version, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			severity, mapping_profile_id, mapping_profile_version, parser_version, client_batch_id, created_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 		uuid.New(), tenantID, jobID, ingestRunID, settlementBatchID,
 		envID,
 		rowRef, errorStage, reason,
-		"ERROR", profile.ProfileID, profile.ProfileVersion, time.Now().UTC(),
+		"ERROR", profile.ProfileID, profile.ProfileVersion, profile.ProfileVersion, clientBatchID, time.Now().UTC(),
 	)
 	return err
 }

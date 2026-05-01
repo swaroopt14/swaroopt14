@@ -18,17 +18,32 @@ package services
 //
 // RECOMMENDATION CARDS:
 // Each card has:
-//   - priority:   CRITICAL | HIGH | MEDIUM | LOW
-//   - action:     the Decision constant (e.g. "REQUEST_SOURCE_PATCH")
-//   - title:      short human-readable description
-//   - reason:     what triggered this recommendation (links to source snapshot)
-//   - source:     which intelligence layer flagged this
+//   - priority:        CRITICAL | HIGH | MEDIUM | LOW
+//   - action:          the Decision constant (e.g. "REQUEST_SOURCE_PATCH")
+//   - title:           short human-readable description
+//   - reason:          what triggered this recommendation (links to source snapshot)
+//   - source:          which intelligence layer flagged this
 //   - amount_at_stake_minor: the financial impact (0 if not money-related)
+//   - priority_score:  ML doc rule-based score 0.0–1.0
+//
+// PRIORITY SCORE FORMULA (ML doc §8.4):
+//   priority_score = (impact × confidence × urgency × recurrence × actionability) / effort
+//
+//   urgency:       CRITICAL=1.0, HIGH=0.8, MEDIUM=0.5, LOW=0.2
+//   impact:        0.30 base + clamp(amount_at_stake / 5_000_000, 0, 0.70)
+//   confidence:    0.85 — deterministic signals carry high certainty
+//   recurrence:    0.70 — intelligence issues recur without intervention
+//   actionability: 0.90 — every ZPI action maps to a concrete next step
+//   effort:        1.0  — normalisation denominator (Phase 7 will calibrate per action)
+//
+// Within each priority tier, cards are sorted by priority_score descending
+// so the most impactful action in each tier rises to the top.
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -52,7 +67,7 @@ func NewRecommendationIntelligenceService(
 // RecommendationSnapshot is the shape written into intelligence_snapshots.snapshot_json
 // for snapshot_type = RECOMMENDATION.
 type RecommendationSnapshot struct {
-	// Ranked list of recommendation cards (sorted by priority then amount_at_stake)
+	// Ranked list of recommendation cards (sorted by priority then priority_score)
 	Cards []RecommendationCard `json:"cards"`
 
 	// Summary counts by priority
@@ -72,14 +87,52 @@ type RecommendationSnapshot struct {
 
 // RecommendationCard is one actionable recommendation.
 type RecommendationCard struct {
-	CardID             string `json:"card_id"`            // "rec_" + uuid — stable ID for UI dedup
-	Priority           string `json:"priority"`           // CRITICAL | HIGH | MEDIUM | LOW
-	Action             string `json:"action"`             // Decision constant
-	Title              string `json:"title"`              // short title for UI card
-	Reason             string `json:"reason"`             // what triggered this
-	SourceLayer        string `json:"source_layer"`       // LEAKAGE | AMBIGUITY | DEFENSIBILITY | RCA | PATTERN
-	SourceSnapshotID   string `json:"source_snapshot_id"` // which snapshot this came from
-	AmountAtStakeMinor int64  `json:"amount_at_stake_minor,omitempty"`
+	CardID             string  `json:"card_id"`            // "rec_" + uuid — stable ID for UI dedup
+	Priority           string  `json:"priority"`           // CRITICAL | HIGH | MEDIUM | LOW
+	Action             string  `json:"action"`             // Decision constant
+	Title              string  `json:"title"`              // short title for UI card
+	Reason             string  `json:"reason"`             // what triggered this
+	SourceLayer        string  `json:"source_layer"`       // LEAKAGE | AMBIGUITY | DEFENSIBILITY | RCA | PATTERN
+	SourceSnapshotID   string  `json:"source_snapshot_id"` // which snapshot this came from
+	AmountAtStakeMinor int64   `json:"amount_at_stake_minor,omitempty"`
+	PriorityScore      float64 `json:"priority_score"` // rule-based 0.0–1.0 score (ML doc §8.4)
+}
+
+// computePriorityScore implements the ML doc §8.4 rule-based priority formula:
+//
+//	priority_score = (impact × confidence × urgency × recurrence × actionability) / effort
+//
+// Returns a value in [0.0, 1.0] rounded to 3 decimal places.
+func (s *RecommendationIntelligenceService) computePriorityScore(
+	priority string,
+	amountAtStakeMinor int64,
+) float64 {
+	urgencyMap := map[string]float64{
+		"CRITICAL": 1.0,
+		"HIGH":     0.8,
+		"MEDIUM":   0.5,
+		"LOW":      0.2,
+	}
+	urgency, ok := urgencyMap[priority]
+	if !ok {
+		urgency = 0.2
+	}
+
+	// impact: base 0.30 + financial exposure contribution (scales to 1.0 at ₹50L)
+	impact := 0.30 + math.Min(float64(amountAtStakeMinor)/5_000_000.0, 0.70)
+
+	const (
+		confidence    = 0.85 // deterministic signals have well-known accuracy
+		recurrence    = 0.70 // intelligence issues typically persist until fixed
+		actionability = 0.90 // every ZPI card maps to a concrete remediation step
+		effort        = 1.0  // normalisation denominator; Phase 7 will calibrate
+	)
+
+	score := (impact * confidence * urgency * recurrence * actionability) / effort
+	if score > 1.0 {
+		score = 1.0
+	}
+	return math.Round(score*1000) / 1000
 }
 
 // ComputeAndSave reads the latest snapshots from each intelligence layer
@@ -153,7 +206,9 @@ func (s *RecommendationIntelligenceService) ComputeAndSave(
 	// If no cards at all, still write an empty recommendation snapshot
 	// so the API has something to return (empty is better than 404).
 
-	// Sort cards: CRITICAL first, then HIGH, MEDIUM, LOW; within tier by amount desc
+	// Sort cards: CRITICAL first, then HIGH, MEDIUM, LOW;
+	// within the same tier, sort by priority_score descending so the
+	// highest-impact action in each tier rises to the top.
 	priorityOrder := map[string]int{"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3}
 	sort.Slice(cards, func(i, j int) bool {
 		pi := priorityOrder[cards[i].Priority]
@@ -161,7 +216,7 @@ func (s *RecommendationIntelligenceService) ComputeAndSave(
 		if pi != pj {
 			return pi < pj
 		}
-		return cards[i].AmountAtStakeMinor > cards[j].AmountAtStakeMinor
+		return cards[i].PriorityScore > cards[j].PriorityScore
 	})
 
 	// Build summary
@@ -193,7 +248,7 @@ func (s *RecommendationIntelligenceService) ComputeAndSave(
 	}
 
 	snapID := "snap_" + uuid.New().String()
-	modelVer := "deterministic_v1"
+	modelVer := "rule_based_v1"
 	return s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
 		SnapshotID:         snapID,
 		TenantID:           tenantID,
@@ -231,6 +286,7 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 			SourceLayer:        "LEAKAGE",
 			SourceSnapshotID:   snap.SnapshotID,
 			AmountAtStakeMinor: lsnap.TotalAmountMinor,
+			PriorityScore:      s.computePriorityScore("CRITICAL", lsnap.TotalAmountMinor),
 		})
 	}
 
@@ -245,6 +301,7 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 			SourceLayer:        "LEAKAGE",
 			SourceSnapshotID:   snap.SnapshotID,
 			AmountAtStakeMinor: lsnap.UnmatchedAmountMinor,
+			PriorityScore:      s.computePriorityScore("HIGH", lsnap.UnmatchedAmountMinor),
 		})
 	}
 
@@ -259,6 +316,7 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 			SourceLayer:        "LEAKAGE",
 			SourceSnapshotID:   snap.SnapshotID,
 			AmountAtStakeMinor: lsnap.ReversalExposureMinor,
+			PriorityScore:      s.computePriorityScore("HIGH", lsnap.ReversalExposureMinor),
 		})
 	}
 
@@ -272,6 +330,7 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 			Reason:           fmt.Sprintf("Leakage rate %.1f%% exceeds 2.5%% — prepare-and-sign would improve traceability", lsnap.LeakagePercentage*100),
 			SourceLayer:      "LEAKAGE",
 			SourceSnapshotID: snap.SnapshotID,
+			PriorityScore:    s.computePriorityScore("MEDIUM", 0),
 		})
 	}
 
@@ -311,6 +370,7 @@ func (s *RecommendationIntelligenceService) cardFromRCA(
 		Reason:           rsnap.RecommendedAction,
 		SourceLayer:      "RCA",
 		SourceSnapshotID: snap.SnapshotID,
+		PriorityScore:    s.computePriorityScore("HIGH", 0),
 	}
 }
 
@@ -336,6 +396,7 @@ func (s *RecommendationIntelligenceService) cardFromPattern(
 		SourceLayer:        "PATTERN",
 		SourceSnapshotID:   snap.SnapshotID,
 		AmountAtStakeMinor: psnap.TotalVarianceMinor,
+		PriorityScore:      s.computePriorityScore("MEDIUM", psnap.TotalVarianceMinor),
 	}
 }
 
@@ -360,6 +421,7 @@ func (s *RecommendationIntelligenceService) cardsFromAmbiguity(
 			SourceLayer:        "AMBIGUITY",
 			SourceSnapshotID:   snap.SnapshotID,
 			AmountAtStakeMinor: asnap.ValueAtRiskMinor,
+			PriorityScore:      s.computePriorityScore("CRITICAL", asnap.ValueAtRiskMinor),
 		})
 	} else if asnap.AmbiguityRate > 0.05 {
 		cards = append(cards, RecommendationCard{
@@ -371,6 +433,7 @@ func (s *RecommendationIntelligenceService) cardsFromAmbiguity(
 			SourceLayer:        "AMBIGUITY",
 			SourceSnapshotID:   snap.SnapshotID,
 			AmountAtStakeMinor: asnap.ValueAtRiskMinor,
+			PriorityScore:      s.computePriorityScore("HIGH", asnap.ValueAtRiskMinor),
 		})
 	}
 
@@ -383,6 +446,7 @@ func (s *RecommendationIntelligenceService) cardsFromAmbiguity(
 			Reason:           "PSP is not returning UTR/RRN — renegotiate contract to require reference fields",
 			SourceLayer:      "AMBIGUITY",
 			SourceSnapshotID: snap.SnapshotID,
+			PriorityScore:    s.computePriorityScore("HIGH", 0),
 		})
 	}
 
@@ -409,6 +473,7 @@ func (s *RecommendationIntelligenceService) cardsFromDefensibility(
 			Reason:           "Governance coverage and evidence pack rate are below audit thresholds",
 			SourceLayer:      "DEFENSIBILITY",
 			SourceSnapshotID: snap.SnapshotID,
+			PriorityScore:    s.computePriorityScore("HIGH", 0),
 		})
 	}
 
@@ -421,6 +486,7 @@ func (s *RecommendationIntelligenceService) cardsFromDefensibility(
 			Reason:           "Rejected governance decisions indicate compliance violations",
 			SourceLayer:      "DEFENSIBILITY",
 			SourceSnapshotID: snap.SnapshotID,
+			PriorityScore:    s.computePriorityScore("CRITICAL", 0),
 		})
 	}
 
@@ -433,6 +499,7 @@ func (s *RecommendationIntelligenceService) cardsFromDefensibility(
 			Reason:           "Low replay coverage means disputes will be hard to defend",
 			SourceLayer:      "DEFENSIBILITY",
 			SourceSnapshotID: snap.SnapshotID,
+			PriorityScore:    s.computePriorityScore("MEDIUM", 0),
 		})
 	}
 

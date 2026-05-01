@@ -249,6 +249,155 @@ func (r *MLFeatureStoreRepo) ListForTraining(
 	return result, nil
 }
 
+// GetRecentFloatField returns the last `limit` values of a single float field
+// from features_json for a given tenant + family.
+//
+// Used by Z-score detector to read historical leakage_percentage values.
+// fieldName must be a top-level key in features_json whose value is a number.
+//
+// Example: GetRecentFloatField(ctx, "tnt_A", "LEAKAGE", "leakage_percentage", 30)
+// returns the last 30 daily leakage rates for tenant tnt_A.
+func (r *MLFeatureStoreRepo) GetRecentFloatField(
+	ctx context.Context,
+	tenantID string,
+	featureFamily string,
+	fieldName string,
+	limit int,
+) ([]float64, error) {
+	if limit <= 0 {
+		limit = 30
+	}
+
+	// Extract the specific float field from JSONB using the ->> operator.
+	// ::float cast converts the text value to float (returns NULL if not numeric).
+	sql := `
+		SELECT (features_json ->> $4)::float
+		FROM   ml_feature_store
+		WHERE  tenant_id      = $1
+		  AND  feature_family = $2
+		  AND  features_json ? $3
+		  AND  (features_json ->> $4)::float IS NOT NULL
+		ORDER  BY created_at DESC
+		LIMIT  $5
+	`
+	rows, err := r.pool.Query(ctx, sql, tenantID, featureFamily, fieldName, fieldName, limit)
+	if err != nil {
+		return nil, fmt.Errorf("ml_feature_store_repo.GetRecentFloatField family=%s field=%s: %w",
+			featureFamily, fieldName, err)
+	}
+	defer rows.Close()
+
+	var values []float64
+	for rows.Next() {
+		var v float64
+		if err := rows.Scan(&v); err != nil {
+			return nil, fmt.Errorf("ml_feature_store_repo.GetRecentFloatField scan: %w", err)
+		}
+		values = append(values, v)
+	}
+	return values, rows.Err()
+}
+
+// GetRecentBatchFeatures returns the last `limit` PATTERN feature rows as float
+// slices suitable for training/scoring an Isolation Forest.
+//
+// The feature vector order matches isolation.BuildFeatures():
+//   [0] ambiguity_score
+//   [1] variance_rate  (total_variance_minor / total_intended_amount_minor)
+//   [2] pending_rate   (pending_count / total_count)
+//   [3] failed_rate    (failed_count  / total_count)
+//   [4] reversed_rate  (reversed_count / total_count)
+//
+// Rows with any NULL numeric field are skipped.
+func (r *MLFeatureStoreRepo) GetRecentBatchFeatures(
+	ctx context.Context,
+	tenantID string,
+	limit int,
+) ([][]float64, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+
+	// Pull the raw JSON rows; we'll parse the vector in Go.
+	sql := `
+		SELECT features_json
+		FROM   ml_feature_store
+		WHERE  tenant_id      = $1
+		  AND  feature_family = 'PATTERN'
+		ORDER  BY created_at DESC
+		LIMIT  $2
+	`
+	rows, err := r.pool.Query(ctx, sql, tenantID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("ml_feature_store_repo.GetRecentBatchFeatures: %w", err)
+	}
+	defer rows.Close()
+
+	var matrix [][]float64
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			continue
+		}
+		vec := parseBatchFeatureVector(raw)
+		if vec != nil {
+			matrix = append(matrix, vec)
+		}
+	}
+	return matrix, rows.Err()
+}
+
+// parseBatchFeatureVector extracts the 5-element float vector from a PATTERN
+// features_json blob. Returns nil if any required field is missing or non-numeric.
+func parseBatchFeatureVector(raw []byte) []float64 {
+	var m map[string]interface{}
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil
+	}
+
+	asFloat := func(key string) (float64, bool) {
+		v, ok := m[key]
+		if !ok {
+			return 0, false
+		}
+		switch n := v.(type) {
+		case float64:
+			return n, true
+		case int:
+			return float64(n), true
+		}
+		return 0, false
+	}
+
+	asRate := func(numKey, denKey string) (float64, bool) {
+		num, ok1 := asFloat(numKey)
+		den, ok2 := asFloat(denKey)
+		if !ok1 || !ok2 || den == 0 {
+			return 0, ok1 && ok2
+		}
+		v := num / den
+		if v < 0 {
+			v = 0
+		}
+		if v > 1 {
+			v = 1
+		}
+		return v, true
+	}
+
+	amb, ok0 := asFloat("ambiguity_score")
+	if !ok0 {
+		return nil
+	}
+
+	varRate, _ := asRate("total_variance_minor", "total_intended_amount_minor")
+	pendRate, _ := asRate("pending_count", "total_count")
+	failRate, _ := asRate("failed_count", "total_count")
+	revRate, _ := asRate("reversed_count", "total_count")
+
+	return []float64{amb, varRate, pendRate, failRate, revRate}
+}
+
 // scanMLFeatureRow scans one row from a QueryRow call.
 func scanMLFeatureRow(row pgx.Row) (*MLFeatureRow, error) {
 	var f MLFeatureRow

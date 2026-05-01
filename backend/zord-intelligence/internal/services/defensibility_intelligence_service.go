@@ -203,23 +203,73 @@ func (s *DefensibilityIntelligenceService) buildSnapshot(dv *models.Defensibilit
 	return snap
 }
 
-// computeScore applies the spec §10.3 scoring rubric.
+// computeScore applies the ML doc §7.3 defensibility scoring formula.
 // Returns a score 0–100.
+//
+// FORMULA (from ML spec, 7 components, total = 100):
+//   0.20 × pack_completeness_score    — do evidence packs exist and are they complete?
+//   0.15 × governance_coverage        — what % of intents have governance decisions?
+//   0.15 × attachment_confidence      — proxy: governance_approved / total (high approval = confident attachment)
+//   0.15 × carrier_richness           — proxy: (1 - missing_ref_rate via AML/KYC coverage)
+//   0.15 × settlement_evidence        — what % have replay equivalence (best settlement proof proxy)?
+//   0.10 × replay_equivalence_flag    — are packs replay-equivalent (strongest audit signal)?
+//   0.10 × low_ambiguity_score        — how free of ambiguity is this tenant? (1 - ambiguity proxy)
+//
+// WHY THIS REPLACES THE PROXY:
+// The old formula used governance_approved as a 35-point proxy for carrier/attachment
+// quality. The ML doc prescribes explicit weights per dimension so that each
+// improvement is precisely reflected in the score (e.g. fixing evidence packs
+// alone can add up to 20 points, not an indeterminate slice of 35).
 func (s *DefensibilityIntelligenceService) computeScore(dv *models.DefensibilityValue) float64 {
 	if dv.TotalIntents == 0 {
 		return 0
 	}
 	n := float64(dv.TotalIntents)
 
-	score := 0.0
-	score += (float64(dv.WithEvidencePack) / n) * 20        // pack exists? +20
-	score += (float64(dv.WithGovernanceDecision) / n) * 15  // governance present? +15
-	score += (float64(dv.WithReplayEquivalence) / n) * 10   // replay equivalent? +10
-	score += (float64(dv.WithKYCChecked) / n) * 10          // KYC checked? (part of governance +10)
-	score += (float64(dv.WithAMLChecked) / n) * 10          // AML checked? +10
-	// Remaining 35 points come from attachment/carrier quality (tracked via ambiguity projection).
-	// We approximate by using governance_approved_count as a proxy for full coverage.
-	score += (float64(dv.GovernanceApprovedCount) / n) * 35
+	// Component 1 (weight 0.20): pack completeness
+	// EvidencePackRate is already 0–1; multiply by 100 then re-weight.
+	packCompleteness := float64(dv.WithEvidencePack) / n // 0–1
+
+	// Component 2 (weight 0.15): governance coverage
+	govCoverage := float64(dv.WithGovernanceDecision) / n // 0–1
+
+	// Component 3 (weight 0.15): attachment confidence proxy
+	// governance_approved / total is our best proxy for high-confidence attachment
+	// (approved = governance confirmed the payment identity chain is sound).
+	attachConfidence := float64(dv.GovernanceApprovedCount) / n // 0–1
+
+	// Component 4 (weight 0.15): carrier richness proxy
+	// KYC + AML coverage together indicate reference/carrier quality.
+	// Average of both rates gives a 0–1 coverage score.
+	kycRate := float64(dv.WithKYCChecked) / n
+	amlRate := float64(dv.WithAMLChecked) / n
+	carrierRichness := (kycRate + amlRate) / 2.0 // 0–1
+
+	// Component 5 (weight 0.15): settlement evidence (replay equivalence as best proxy)
+	// replay_equivalence means the evidence pack can reproduce the exact outcome —
+	// the gold standard for settlement evidence.
+	settlementEvidence := float64(dv.WithReplayEquivalence) / n // 0–1
+
+	// Component 6 (weight 0.10): replay equivalence flag (same data, explicit weight)
+	replayFlag := settlementEvidence // reuse — both measure replay readiness
+
+	// Component 7 (weight 0.10): low ambiguity score
+	// governance_rejected / total is the best available ambiguity signal:
+	// rejections signal that the payment identity was unclear or risky.
+	rejectionRate := float64(dv.GovernanceRejectedCount) / n
+	lowAmbiguity := 1.0 - rejectionRate // 0–1 (1.0 = no rejections = low ambiguity)
+	if lowAmbiguity < 0 {
+		lowAmbiguity = 0
+	}
+
+	// Weighted sum → scale to 0–100
+	score := (0.20*packCompleteness +
+		0.15*govCoverage +
+		0.15*attachConfidence +
+		0.15*carrierRichness +
+		0.15*settlementEvidence +
+		0.10*replayFlag +
+		0.10*lowAmbiguity) * 100
 
 	if score > 100 {
 		score = 100

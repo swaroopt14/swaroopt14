@@ -156,6 +156,12 @@ func main() {
 				)
 				// Persist DLQ entry only if not already persisted (no DLQID)
 				if dlq.DLQID == "" {
+					if dlq.TenantID == "" {
+						dlq.TenantID = job.TenantID.String()
+					}
+					if dlq.EnvelopeID == "" {
+						dlq.EnvelopeID = job.EnvelopeID.String()
+					}
 					_, err := dlqRepo.Save(ctx, *dlq)
 					if err != nil {
 						log.Printf("Worker %d: Failed to save DLQ entry: %v", id, err)

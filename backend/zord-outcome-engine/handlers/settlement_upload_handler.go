@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"zord-outcome-engine/db"
 	"zord-outcome-engine/models"
 	"zord-outcome-engine/services"
 
@@ -31,6 +32,9 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tenant_id"})
 		return
 	}
+
+	// Auto-seed default ruleset for this tenant if they don't have one
+	_ = db.SeedDefaultAttachmentRuleProfile(c.Request.Context(), tenantID)
 
 	// Read the PSP identifier from the query param.
 	// This tells the system which parser and mapping profile to use.

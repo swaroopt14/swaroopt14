@@ -27,20 +27,21 @@ type IncomingIntent struct {
 }
 
 type ParsedIncomingIntent struct {
-	SchemaVersion   string         `json:"schema_version"`
-	IntentType      string         `json:"intent_type"`
-	AccountNumber   string         `json:"account_number"`
-	Amount          Amount         `json:"amount"`
-	Beneficiary     Beneficiary    `json:"beneficiary"`
-	Remitter        Remitter       `json:"remitter,omitempty"`
-	Constraints     map[string]any `json:"constraints,omitempty"`
-	PurposeCode     string         `json:"purpose_code"`
-	IdempotencyKey  string         `json:"idempotency_key"`
-	ClientBatchRef  string         `json:"client_batch_ref,omitempty"`
-	ClientPayoutRef string         `json:"client_payout_ref,omitempty"`
-	ProviderHint    string         `json:"provider_hint,omitempty"`
-	IntendedExecutionAt string     `json:"intended_execution_at,omitempty"`
-	GovernanceHash  string         `json:"governance_hash,omitempty"`
+	SchemaVersion       string         `json:"schema_version"`
+	IntentType          string         `json:"intent_type"`
+	AccountNumber       string         `json:"account_number"`
+	Amount              Amount         `json:"amount"`
+	Beneficiary         Beneficiary    `json:"beneficiary"`
+	Remitter            Remitter       `json:"remitter,omitempty"`
+	Constraints         map[string]any `json:"constraints,omitempty"`
+	PurposeCode         string         `json:"purpose_code"`
+	IdempotencyKey      string         `json:"idempotency_key"`
+	ClientBatchRef      string         `json:"client_batch_ref,omitempty"`
+	ClientPayoutRef     string         `json:"client_payout_ref,omitempty"`
+	ProviderHint        string         `json:"provider_hint,omitempty"`
+	IntendedExecutionAt string         `json:"intended_execution_at,omitempty"`
+	GovernanceHash      string         `json:"governance_hash,omitempty"`
+	IntentID            string         `json:"intent_id,omitempty"`
 }
 
 // type IncomingIntent struct {

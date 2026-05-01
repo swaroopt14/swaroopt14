@@ -136,31 +136,31 @@ VALUES (
 		intent.CanonicalSnapshotRef,      // $21
 		intent.NIRSnapshotRef,            // $22
 		intent.GovernanceSnapshotRef,     // $23
-		intent.CanonicalHash,             // $24
-		intent.CreatedAt,                 // $25
-		intent.ClientPayoutRef,           // $26
-		intent.ProviderHint,              // $27
-		intent.RequestFingerprint,        // $28
-		intent.RoutingHintsJSON,          // $29
-		intent.GovernanceState,           // $30
-		intent.BusinessState,             // $31
-		intent.DuplicateRiskFlag,         // $32
-		intent.MappingProfileID,          // $33
-		intent.MappingProfileVersion,     // $34
-		intent.SourceSystem,              // $35
-		intent.UpdatedAt,                 // $36
-		intent.BusinessIdempotencyKey,    // $37
-		intent.BeneficiaryFingerprint,    // $38
-		intent.ProofReadinessScore,       // $39
-		intent.MatchabilityScore,         // $40
-		intent.IntentQualityScore,        // $41
-		intent.MappingConfidenceScore,    // $42
-		intent.SchemaCompletenessScore,   // $43
-		intent.GovernanceReasonCodesJSON, // $44
-		intent.DuplicateReasonCode,       // $45
-		intent.ClientBatchRef,            // $46
-		intent.BatchID,                   // $47
-		intent.GovernanceHash,            // $48
+		intent.GovernanceHash,            // $24
+		intent.CanonicalHash,             // $25
+		intent.CreatedAt,                 // $26
+		intent.ClientPayoutRef,           // $27
+		intent.ProviderHint,              // $28
+		intent.RequestFingerprint,        // $29
+		intent.RoutingHintsJSON,          // $30
+		intent.GovernanceState,           // $31
+		intent.BusinessState,             // $32
+		intent.DuplicateRiskFlag,         // $33
+		intent.MappingProfileID,          // $34
+		intent.MappingProfileVersion,     // $35
+		intent.SourceSystem,              // $36
+		intent.UpdatedAt,                 // $37
+		intent.BusinessIdempotencyKey,    // $38
+		intent.BeneficiaryFingerprint,    // $39
+		intent.ProofReadinessScore,       // $40
+		intent.MatchabilityScore,         // $41
+		intent.IntentQualityScore,        // $42
+		intent.MappingConfidenceScore,    // $43
+		intent.SchemaCompletenessScore,   // $44
+		intent.GovernanceReasonCodesJSON, // $45
+		intent.DuplicateReasonCode,       // $46
+		intent.ClientBatchRef,            // $47
+		intent.BatchID,                   // $48
 	)
 
 	if err != nil {
@@ -262,34 +262,34 @@ INSERT INTO outbox (
 		outbox.CanonicalSnapshotRef,      // $23
 		outbox.NIRSnapshotRef,            // $24
 		outbox.GovernanceSnapshotRef,     // $25
-		outbox.ClientPayoutRef,           // $26
-		outbox.ProviderHint,              // $27
-		outbox.RequestFingerprint,        // $28
-		outbox.RoutingHintsJSON,          // $29
-		outbox.GovernanceState,           // $30
-		outbox.BusinessState,             // $31
-		outbox.DuplicateRiskFlag,         // $32
-		outbox.MappingProfileID,          // $33
-		outbox.MappingProfileVersion,     // $34
-		outbox.SourceSystem,              // $35
-		outbox.BusinessIdempotencyKey,    // $36
-		outbox.BeneficiaryFingerprint,    // $37
-		outbox.ProofReadinessScore,       // $38
-		outbox.MatchabilityScore,         // $39
-		outbox.IntentQualityScore,        // $40
-		outbox.MappingConfidenceScore,    // $41
-		outbox.SchemaCompletenessScore,   // $42
-		outbox.GovernanceReasonCodesJSON, // $43
-		outbox.DuplicateReasonCode,       // $44
-		outbox.ClientBatchRef,            // $45
-		outbox.Payload,                   // $46
-		outbox.PayloadHash,               // $47
-		outbox.Status,                    // $48
-		outbox.RetryCount,                // $49
-		outbox.NextRetryAt,               // $50
-		outbox.CreatedAt,                 // $51
-		outbox.BatchID,                   // $52
-		outbox.GovernanceHash,            // $53
+		outbox.GovernanceHash,            // $26
+		outbox.ClientPayoutRef,           // $27
+		outbox.ProviderHint,              // $28
+		outbox.RequestFingerprint,        // $29
+		outbox.RoutingHintsJSON,          // $30
+		outbox.GovernanceState,           // $31
+		outbox.BusinessState,             // $32
+		outbox.DuplicateRiskFlag,         // $33
+		outbox.MappingProfileID,          // $34
+		outbox.MappingProfileVersion,     // $35
+		outbox.SourceSystem,              // $36
+		outbox.BusinessIdempotencyKey,    // $37
+		outbox.BeneficiaryFingerprint,    // $38
+		outbox.ProofReadinessScore,       // $39
+		outbox.MatchabilityScore,         // $40
+		outbox.IntentQualityScore,        // $41
+		outbox.MappingConfidenceScore,    // $42
+		outbox.SchemaCompletenessScore,   // $43
+		outbox.GovernanceReasonCodesJSON, // $44
+		outbox.DuplicateReasonCode,       // $45
+		outbox.ClientBatchRef,            // $46
+		outbox.Payload,                   // $47
+		outbox.PayloadHash,               // $48
+		outbox.Status,                    // $49
+		outbox.RetryCount,                // $50
+		outbox.NextRetryAt,               // $51
+		outbox.CreatedAt,                 // $52
+		outbox.BatchID,                   // $53
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)

@@ -312,7 +312,7 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 			{
 				Type:          "ATTACHMENT_DECISION",
 				Ref:           d.AttachmentDecisionID.String(),
-				Hash:          d.CandidateSetHash,
+				Hash:          computeAttachmentDecisionLeafHash(d),
 				SchemaVersion: "v1",
 			},
 		}
@@ -366,15 +366,35 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 	return lastErr
 }
 
+// computeAttachmentDecisionLeafHash returns a deterministic SHA-256 hex hash of the
+// attachment decision fields that matter for evidence integrity:
+//	SHA256( selected_intent | settlement_observation | candidate_set | match_score | ruleset_version )
+func computeAttachmentDecisionLeafHash(d models.AttachmentDecision) string {
+	intent := ""
+	if d.IntentID != nil {
+		intent = d.IntentID.String()
+	}
+	raw := fmt.Sprintf("%s|%s|%s|%f|%s",
+		intent,
+		d.SettlementObservationID.String(),
+		d.CandidateSetHash,
+		d.WinningScore,
+		d.MatchingRulesetVersion,
+	)
+	sum := sha256.Sum256([]byte(raw))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
 // computeVarianceLeafHash returns a deterministic SHA-256 hex hash of the
 // variance record fields that matter for evidence integrity:
-//
-//	SHA256( variance_record_id | amount_variance | variance_severity )
+//	SHA256( amount_variance | date_variance | status_variance | severity | reason_codes )
 func computeVarianceLeafHash(vr *models.VarianceRecord) string {
-	raw := fmt.Sprintf("%s|%s|%s",
-		vr.VarianceRecordID.String(),
+	raw := fmt.Sprintf("%s|%t|%t|%s|%s",
 		vr.AmountVariance.String(),
+		vr.ValueDateMismatchFlag,
+		vr.StatusVarianceFlag,
 		vr.VarianceSeverity,
+		string(vr.VarianceReasonCodesJSON),
 	)
 	sum := sha256.Sum256([]byte(raw))
 	return "sha256:" + hex.EncodeToString(sum[:])

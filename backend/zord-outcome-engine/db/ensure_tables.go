@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 )
 
@@ -595,4 +596,122 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		}
 	}
 	return nil
+}
+
+func SeedDefaultAttachmentRuleProfile(ctx context.Context, tenantID interface{}) error {
+	defaultRulesetJSON := []byte(`{
+  "profile_id": "default_profile",
+  "tenant_id": "YOUR_TENANT_UUID",
+  "version": "v1",
+
+  "exact_ref_priority_json": {
+    "priority_order": [
+      "zord_signature",
+      "client_payout_ref",
+      "provider_reference",
+      "bank_reference"
+    ]
+  },
+
+  "carrier_priority_json": {
+    "exact_ref": 100,
+    "client_ref": 90,
+    "provider_ref": 85,
+    "bank_ref": 85,
+    "zord_signature": 100,
+    "beneficiary_match": 50,
+    "amount_match": 50,
+    "currency_match": 40,
+    "batch_match": 30,
+    "time_window": 20,
+    "source_system": 10,
+    "parse_confidence_modifier": -20,
+    "source_strength_modifier": -15,
+    "conflict_penalty": -40
+  },
+
+  "time_window_policy_json": {
+    "max_hours_difference": 48,
+    "strict_same_day": false,
+    "allow_cross_period": true
+  },
+
+  "amount_tolerance_policy_json": {
+    "exact_match_required": true,
+    "tolerance_minor": 0,
+    "allow_percentage_tolerance": false,
+    "percentage_tolerance": 0
+  },
+
+  "batch_boundary_policy_json": {
+    "strict_batch_matching": false,
+    "allow_cross_batch_if_strong_match": true
+  },
+
+  "manual_review_thresholds_json": {
+    "high_confidence_score": 80,
+    "exact_match_score": 95,
+    "ambiguity_margin_threshold": 10,
+    "min_score_for_auto_attach": 70,
+    "max_candidates_for_auto_attach": 1
+  },
+
+  "ambiguity_margin_threshold": 0.15,
+  "requires_bank_ref_for_exact_flag": false,
+  "status": "ACTIVE"
+}`)
+
+	var ruleset struct {
+		ProfileID                   string          `json:"profile_id"`
+		Version                     string          `json:"version"`
+		ExactRefPriorityJSON        json.RawMessage `json:"exact_ref_priority_json"`
+		CarrierPriorityJSON         json.RawMessage `json:"carrier_priority_json"`
+		TimeWindowPolicyJSON        json.RawMessage `json:"time_window_policy_json"`
+		AmountTolerancePolicyJSON   json.RawMessage `json:"amount_tolerance_policy_json"`
+		BatchBoundaryPolicyJSON     json.RawMessage `json:"batch_boundary_policy_json"`
+		ManualReviewThresholdsJSON  json.RawMessage `json:"manual_review_thresholds_json"`
+		AmbiguityMarginThreshold    float64         `json:"ambiguity_margin_threshold"`
+		RequiresBankRefForExactFlag bool            `json:"requires_bank_ref_for_exact_flag"`
+		Status                      string          `json:"status"`
+	}
+
+	if err := json.Unmarshal(defaultRulesetJSON, &ruleset); err != nil {
+		return fmt.Errorf("failed to unmarshal default ruleset JSON: %w", err)
+	}
+
+	stmt := `
+		INSERT INTO attachment_rule_profiles (
+			profile_id, tenant_id, version,
+			exact_ref_priority_json, carrier_priority_json,
+			time_window_policy_json, amount_tolerance_policy_json,
+			batch_boundary_policy_json, manual_review_thresholds_json,
+			ambiguity_margin_threshold, requires_bank_ref_for_exact_flag,
+			status
+		) VALUES (
+			$1, $2, $3,
+			$4, $5,
+			$6, $7,
+			$8, $9,
+			$10, $11,
+			$12
+		) ON CONFLICT (profile_id, tenant_id, version) DO UPDATE SET
+			exact_ref_priority_json = EXCLUDED.exact_ref_priority_json,
+			carrier_priority_json = EXCLUDED.carrier_priority_json,
+			time_window_policy_json = EXCLUDED.time_window_policy_json,
+			amount_tolerance_policy_json = EXCLUDED.amount_tolerance_policy_json,
+			batch_boundary_policy_json = EXCLUDED.batch_boundary_policy_json,
+			manual_review_thresholds_json = EXCLUDED.manual_review_thresholds_json,
+			ambiguity_margin_threshold = EXCLUDED.ambiguity_margin_threshold,
+			requires_bank_ref_for_exact_flag = EXCLUDED.requires_bank_ref_for_exact_flag,
+			status = EXCLUDED.status;
+	`
+	_, err := DB.ExecContext(ctx, stmt,
+		ruleset.ProfileID, tenantID, ruleset.Version,
+		string(ruleset.ExactRefPriorityJSON), string(ruleset.CarrierPriorityJSON),
+		string(ruleset.TimeWindowPolicyJSON), string(ruleset.AmountTolerancePolicyJSON),
+		string(ruleset.BatchBoundaryPolicyJSON), string(ruleset.ManualReviewThresholdsJSON),
+		ruleset.AmbiguityMarginThreshold, ruleset.RequiresBankRefForExactFlag,
+		ruleset.Status,
+	)
+	return err
 }

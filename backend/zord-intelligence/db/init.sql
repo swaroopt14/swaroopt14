@@ -1119,3 +1119,140 @@ CREATE INDEX IF NOT EXISTS idx_proj_key_computed
 CREATE INDEX IF NOT EXISTS idx_proj_family_computed
     ON projection_state (tenant_id, projection_family, computed_at DESC)
     WHERE projection_family IS NOT NULL;
+
+
+-- ═══════════════════════════════════════════════════════════════════
+-- PHASE ML: Machine Learning Tables
+-- Three tables that support the ML layer added on top of the
+-- deterministic intelligence foundation.
+--
+-- Tables:
+--   ml_labels          — ground-truth labels derived from 5C/6 truth
+--   ml_model_registry  — trained model versions with weights + metrics
+--   ml_predictions     — per-scope ML predictions with explanations
+-- ═══════════════════════════════════════════════════════════════════
+
+-- ── ml_labels ───────────────────────────────────────────────────────
+-- Stores ground-truth labels for supervised ML training.
+-- Labels are derived deterministically from Service 5C / Service 6 truth.
+-- They are NEVER human-entered — only system-generated from provable state.
+--
+-- label_family values:
+--   LEAKAGE      — label_value = realized_leakage_minor (regression)
+--   AMBIGUITY    — label_value = 1 if batch became ambiguous, 0 otherwise
+--   FAILURE      — label_value = 1 if intent/batch failed
+--   DUPLICATE    — label_value = 1 if duplicate confirmed
+--   SLA_BREACH   — label_value = 1 if SLA was breached
+--   DEFENSIBILITY — label_value = defensibility_score achieved
+--
+-- label_source: which service / event produced this label:
+--   "attachment_decision"  (Service 5C)
+--   "variance_record"      (Service 5C)
+--   "evidence_pack"        (Service 6)
+--   "sla_timer"            (Service 7 internal)
+CREATE TABLE IF NOT EXISTS ml_labels (
+    label_id         TEXT        PRIMARY KEY,
+    tenant_id        TEXT        NOT NULL,
+    scope_type       TEXT        NOT NULL
+        CHECK (scope_type IN ('INTENT','BATCH','PROVIDER','CORRIDOR','SOURCE_SYSTEM','TENANT')),
+    scope_ref        TEXT        NOT NULL,
+    label_family     TEXT        NOT NULL
+        CHECK (label_family IN ('LEAKAGE','AMBIGUITY','FAILURE','DUPLICATE','SLA_BREACH','DEFENSIBILITY')),
+    label_value      FLOAT       NOT NULL,   -- numeric: 0/1 for binary, float for regression
+    label_confidence FLOAT       NOT NULL DEFAULT 1.0, -- how confident we are in this label (0–1)
+    label_source     TEXT        NOT NULL,   -- e.g. "attachment_decision", "variance_record"
+    source_refs_json JSONB,                  -- IDs of upstream records that produced this label
+    feature_row_id   TEXT,                   -- FK to ml_feature_store (nullable — linked later)
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ml_labels_tenant_family
+    ON ml_labels (tenant_id, label_family, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ml_labels_scope
+    ON ml_labels (tenant_id, scope_type, scope_ref, label_family);
+
+
+-- ── ml_model_registry ──────────────────────────────────────────────
+-- Stores every model version ever trained, with its weights and metrics.
+-- No model goes live without a registry entry (audit trail requirement).
+--
+-- status lifecycle: CANDIDATE → SHADOW → ACTIVE → RETIRED
+--   CANDIDATE: trained but not yet evaluated
+--   SHADOW:    running alongside current ACTIVE model for comparison
+--   ACTIVE:    the model currently used for live scoring
+--   RETIRED:   replaced by a newer version
+--
+-- artifact_json: the serialised model state.
+--   For Logistic Regression: {"weights":[...], "bias":0.0, "trained_on":N}
+--   For Isolation Forest: not stored here (retrained from feature_store on demand)
+--   For Z-score: stateless, no artifact needed
+--
+-- algorithm values must match the package name:
+--   "zscore_v1", "logistic_regression_v1", "isolation_forest_v1"
+CREATE TABLE IF NOT EXISTS ml_model_registry (
+    model_id               TEXT        PRIMARY KEY,
+    model_name             TEXT        NOT NULL,        -- human name e.g. "ambiguity_logistic_v1"
+    model_family           TEXT        NOT NULL
+        CHECK (model_family IN ('LEAKAGE','AMBIGUITY','DEFENSIBILITY','PATTERN','RECOMMENDATION')),
+    algorithm              TEXT        NOT NULL,        -- "zscore_v1" | "logistic_regression_v1" | "isolation_forest_v1"
+    target_label           TEXT        NOT NULL,        -- which label_family this model predicts
+    feature_version        TEXT        NOT NULL DEFAULT 'v1',
+    training_window_start  TIMESTAMPTZ,
+    training_window_end    TIMESTAMPTZ,
+    hyperparameters_json   JSONB,                       -- model weights / config (serialised)
+    metrics_json           JSONB,                       -- precision, recall, AUC, etc.
+    status                 TEXT        NOT NULL DEFAULT 'CANDIDATE'
+        CHECK (status IN ('CANDIDATE','SHADOW','ACTIVE','RETIRED')),
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    activated_at           TIMESTAMPTZ                  -- set when status → ACTIVE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ml_model_family_status
+    ON ml_model_registry (model_family, status, created_at DESC);
+
+-- Enforce only one ACTIVE model per family at a time.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ml_model_one_active_per_family
+    ON ml_model_registry (model_family)
+    WHERE status = 'ACTIVE';
+
+
+-- ── ml_predictions ─────────────────────────────────────────────────
+-- Stores one row per scoring event.
+-- Every time an ML model runs on a scope (tenant, batch, corridor),
+-- we write here so the score is auditable and queryable via API.
+--
+-- prediction_family matches model_family:
+--   LEAKAGE       — anomaly_score + anomaly_level from Z-score
+--   AMBIGUITY     — risk_prediction_score + risk_level from Logistic Regression
+--   PATTERN       — batch_anomaly_score + anomaly_type from Isolation Forest
+--   RECOMMENDATION — priority_score from rule-based scoring
+--
+-- explanation_json stores the top features / reasons for this prediction,
+-- so ops teams can understand WHY the model scored as it did.
+-- Example:
+--   {"top_features": ["ambiguity_rate=0.12","missing_ref_rate=0.34"],
+--    "z_score": 2.8, "mean": 0.021, "stddev": 0.008}
+CREATE TABLE IF NOT EXISTS ml_predictions (
+    prediction_id      TEXT        PRIMARY KEY,
+    tenant_id          TEXT        NOT NULL,
+    model_id           TEXT        NOT NULL,            -- FK to ml_model_registry
+    scope_type         TEXT        NOT NULL
+        CHECK (scope_type IN ('INTENT','BATCH','PROVIDER','CORRIDOR','SOURCE_SYSTEM','TENANT')),
+    scope_ref          TEXT        NOT NULL,
+    prediction_family  TEXT        NOT NULL
+        CHECK (prediction_family IN ('LEAKAGE','AMBIGUITY','DEFENSIBILITY','PATTERN','RECOMMENDATION')),
+    prediction_value   TEXT        NOT NULL,            -- e.g. "HIGH", "CRITICAL", "0.87"
+    prediction_score   FLOAT       NOT NULL,            -- 0.0–1.0 normalised
+    confidence         FLOAT       NOT NULL DEFAULT 1.0,
+    feature_row_id     TEXT,                            -- FK to ml_feature_store (nullable)
+    explanation_json   JSONB,                           -- top features + reason codes
+    snapshot_id        TEXT,                            -- FK to intelligence_snapshots (nullable)
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ml_predictions_tenant_family
+    ON ml_predictions (tenant_id, prediction_family, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_ml_predictions_scope
+    ON ml_predictions (tenant_id, scope_type, scope_ref, prediction_family, created_at DESC);

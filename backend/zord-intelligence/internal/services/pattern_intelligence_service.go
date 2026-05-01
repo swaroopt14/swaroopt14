@@ -28,9 +28,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zord/zord-intelligence/internal/ml/isolation"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
@@ -41,6 +43,7 @@ type PatternIntelligenceService struct {
 	snapshotRepo *persistence.IntelligenceSnapshotRepo
 	batchRepo    *persistence.BatchContractRepo
 	mlRepo       *persistence.MLFeatureStoreRepo
+	predRepo     *persistence.MLPredictionRepo
 }
 
 // NewPatternIntelligenceService creates a PatternIntelligenceService.
@@ -49,12 +52,14 @@ func NewPatternIntelligenceService(
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
 	batchRepo *persistence.BatchContractRepo,
 	mlRepo *persistence.MLFeatureStoreRepo,
+	predRepo *persistence.MLPredictionRepo,
 ) *PatternIntelligenceService {
 	return &PatternIntelligenceService{
 		projRepo:     projRepo,
 		snapshotRepo: snapshotRepo,
 		batchRepo:    batchRepo,
 		mlRepo:       mlRepo,
+		predRepo:     predRepo,
 	}
 }
 
@@ -82,6 +87,20 @@ type PatternSnapshot struct {
 
 	// ── Risk tier ─────────────────────────────────────────────────────────
 	RiskTier string `json:"risk_tier"` // CRITICAL | HIGH | MEDIUM | LOW | CLEAN
+
+	// ── ML: Isolation Forest anomaly detection ────────────────────────────
+	// Does this batch look unusual compared to all other batches we've seen?
+	// BatchAnomalyScore: 0.0 (normal) → 1.0 (highly anomalous)
+	// AnomalyLevel:      "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+	// AnomalyType:       which feature drove the anomaly (e.g. "HIGH_AMBIGUITY")
+	//
+	// Unlike BatchRiskScore (which checks fixed thresholds like "ambiguity > 30%"),
+	// Isolation Forest asks "is this batch unusual FOR YOUR POPULATION?"
+	// A batch with 40% ambiguity might be normal if all your batches have high
+	// ambiguity — IF will reflect that, while fixed thresholds won't.
+	BatchAnomalyScore float64 `json:"batch_anomaly_score"`
+	AnomalyLevel      string  `json:"anomaly_level"`
+	AnomalyType       string  `json:"anomaly_type"`
 
 	// ── Recommendations ───────────────────────────────────────────────────
 	PrepareAndSignRecommended bool   `json:"prepare_and_sign_recommended"`
@@ -137,10 +156,15 @@ func (s *PatternIntelligenceService) ComputeAndSave(
 		}
 	}
 
-	// Step 2: compute risk score and build snapshot
+	// Step 2: compute deterministic risk score and build snapshot
 	snap := s.buildSnapshot(batchID, batchHealth)
 
-	// Step 3: persist
+	// Step 3: ML — Isolation Forest anomaly detection
+	// Read historical batch feature vectors for this tenant, train an IF on them,
+	// then score the current batch to detect if it is anomalous vs the population.
+	s.attachIsolationForestAnomaly(ctx, tenantID, batchHealth, &snap)
+
+	// Step 4: persist snapshot
 	projKey := fmt.Sprintf("batch.health.%s", batchID)
 	projRefs := []string{projKey}
 	projRefsJSON, _ := json.Marshal(projRefs)
@@ -151,7 +175,7 @@ func (s *PatternIntelligenceService) ComputeAndSave(
 
 	scopeRef := batchID
 	snapID := "snap_" + uuid.New().String()
-	modelVer := "deterministic_v1"
+	modelVer := "isolation_forest_v1"
 	if err := s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
 		SnapshotID:         snapID,
 		TenantID:           tenantID,
@@ -168,11 +192,13 @@ func (s *PatternIntelligenceService) ComputeAndSave(
 		return fmt.Errorf("pattern_svc.ComputeAndSave Create snapshot batch=%s: %w", batchID, err)
 	}
 
-	// Step 4: persist ML features for batch quality forecasting (Phase 8)
+	// Step 5: persist ML features for future training
 	if err := s.persistMLFeatures(ctx, tenantID, batchID, snapID, batchHealth, windowStart, windowEnd); err != nil {
-		// non-fatal
-		_ = err
+		_ = err // non-fatal
 	}
+
+	// Step 6: persist the IF prediction to ml_predictions for audit trail
+	s.persistMLPrediction(ctx, tenantID, batchID, snapID, batchHealth, snap)
 
 	return nil
 }
@@ -364,6 +390,105 @@ func (s *PatternIntelligenceService) recommendedAction(snap *PatternSnapshot) st
 		return "OPEN_OPS_INCIDENT: financial variance detected — reconciliation review required"
 	}
 	return ""
+}
+
+// attachIsolationForestAnomaly trains an Isolation Forest on recent batch history
+// and scores the current batch. Mutates snap in-place.
+//
+// HOW ISOLATION FOREST WORKS HERE:
+//   1. Read last 200 PATTERN feature rows from the feature store (historical batches).
+//   2. Build 100 random isolation trees on a 256-point subsample.
+//   3. Score this batch: short average path length → anomaly.
+//   4. Attach score + level + anomaly type to the snapshot.
+//
+// WHY TRAIN FRESH EACH TIME?
+// Isolation Forest trains in O(n log n) — very fast for ≤200 batches.
+// Training fresh avoids stale models when the batch population changes.
+// No model persistence needed: the feature store IS the "model input".
+func (s *PatternIntelligenceService) attachIsolationForestAnomaly(
+	ctx context.Context,
+	tenantID string,
+	bh *models.BatchHealthValue,
+	snap *PatternSnapshot,
+) {
+	// Pull historical batch feature vectors
+	history, err := s.mlRepo.GetRecentBatchFeatures(ctx, tenantID, 200)
+	if err != nil {
+		log.Printf("pattern_svc: GetRecentBatchFeatures failed tenant=%s: %v", tenantID, err)
+		snap.AnomalyLevel = "INSUFFICIENT_DATA"
+		snap.AnomalyType = "error"
+		return
+	}
+
+	// Need at least 10 batches to build a meaningful forest
+	const minBatches = 10
+	if len(history) < minBatches {
+		snap.BatchAnomalyScore = 0.5
+		snap.AnomalyLevel = "INSUFFICIENT_DATA"
+		snap.AnomalyType = "not_enough_history"
+		return
+	}
+
+	// Build and train the Isolation Forest on historical data
+	forest := isolation.New(100, 256)
+	forest.Fit(history)
+
+	// Build feature vector for the current batch and score it
+	features := isolation.BuildFeatures(
+		bh.AmbiguityScore,
+		bh.TotalVarianceMinor,
+		bh.TotalIntendedAmountMinor,
+		bh.PendingCount,
+		bh.FailedCount,
+		bh.ReversedCount,
+		bh.TotalCount,
+	)
+
+	result := forest.Score(features)
+	snap.BatchAnomalyScore = result.Score
+	snap.AnomalyLevel = result.Level
+	snap.AnomalyType = result.AnomalyType
+}
+
+// persistMLPrediction writes the Isolation Forest result to ml_predictions.
+func (s *PatternIntelligenceService) persistMLPrediction(
+	ctx context.Context,
+	tenantID, batchID, snapID string,
+	bh *models.BatchHealthValue,
+	snap PatternSnapshot,
+) {
+	explanation := map[string]any{
+		"algorithm":    "isolation_forest_v1",
+		"anomaly_type": snap.AnomalyType,
+		"anomaly_level": snap.AnomalyLevel,
+		"features": map[string]any{
+			"ambiguity_score":  bh.AmbiguityScore,
+			"total_count":      bh.TotalCount,
+			"failed_count":     bh.FailedCount,
+			"pending_count":    bh.PendingCount,
+			"reversed_count":   bh.ReversedCount,
+			"variance_minor":   bh.TotalVarianceMinor,
+		},
+	}
+	expJSON, _ := json.Marshal(explanation)
+
+	pred := persistence.MLPrediction{
+		PredictionID:     "pred_" + uuid.New().String(),
+		TenantID:         tenantID,
+		ModelID:          "isolation_forest_v1_pattern",
+		ScopeType:        "BATCH",
+		ScopeRef:         batchID,
+		PredictionFamily: "PATTERN",
+		PredictionValue:  snap.AnomalyLevel,
+		PredictionScore:  snap.BatchAnomalyScore,
+		Confidence:       1.0,
+		ExplanationJSON:  expJSON,
+		SnapshotID:       &snapID,
+		CreatedAt:        time.Now().UTC(),
+	}
+	if err := s.predRepo.InsertPrediction(ctx, pred); err != nil {
+		log.Printf("pattern_svc: InsertPrediction failed tenant=%s batch=%s: %v", tenantID, batchID, err)
+	}
 }
 
 func (s *PatternIntelligenceService) persistMLFeatures(

@@ -82,6 +82,7 @@ func main() {
 	snapshotRepo := persistence.NewIntelligenceSnapshotRepo(pool)
 	batchRepo    := persistence.NewBatchContractRepo(pool)
 	mlRepo       := persistence.NewMLFeatureStoreRepo(pool)
+	predRepo     := persistence.NewMLPredictionRepo(pool)
 	explRepo     := persistence.NewIntelligenceExplanationRepo(pool)
 
 	// ── Step 5: Create services ────────────────────────────────────────────
@@ -89,11 +90,11 @@ func main() {
 	policyService := services.NewPolicyService(policyRepo, projRepo, actionService)
 
 	// ── PHASE 4 & 7: Six intelligence layer services + Explanation ────────
-	leakageSvc        := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo)
-	ambiguitySvc      := services.NewAmbiguityIntelligenceService(projRepo, snapshotRepo, mlRepo)
+	leakageSvc        := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
+	ambiguitySvc      := services.NewAmbiguityIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
 	defensibilitySvc  := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
 	rcaSvc            := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
-	patternSvc        := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo)
+	patternSvc        := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo)
 	recommendationSvc := services.NewRecommendationIntelligenceService(snapshotRepo)
 	explSvc           := services.NewExplanationService(explRepo, snapshotRepo, batchRepo)
 

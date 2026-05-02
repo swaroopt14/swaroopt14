@@ -32,13 +32,19 @@ export async function POST(req: Request) {
   for (const url of candidateUrls) {
     lastUrl = url
     try {
+      const auth = req.headers.get('authorization') || ''
+      const tenant = req.headers.get('x-tenant-id') || ''
       res = await fetch(url, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...(auth ? { authorization: auth } : {}),
+          ...(tenant ? { 'x-tenant-id': tenant } : {}),
+        },
         body: JSON.stringify(body),
-        // Avoid any unintended caching semantics.
         cache: 'no-store',
       })
+
 
       if (res.ok || res.status < 500) {
         break

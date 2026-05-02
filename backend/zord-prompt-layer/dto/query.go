@@ -2,7 +2,7 @@
 package dto
 
 type QueryRequest struct {
-	TenantID string `json:"tenant_id" binding:"required"`
+	TenantID string `json:"tenant_id,omitempty"`
 	Query    string `json:"query" binding:"required"`
 	IntentID string `json:"intent_id,omitempty"`
 	TraceID  string `json:"trace_id,omitempty"`

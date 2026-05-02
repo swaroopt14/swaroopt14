@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { chartTooltipStyle } from '../model'
+import { chartTooltipStyle } from '@/services/payout-command/model'
 import { ClientChart, LightCard, SurfaceEyebrow } from '../shared'
 
 const reconciliationTrend = [

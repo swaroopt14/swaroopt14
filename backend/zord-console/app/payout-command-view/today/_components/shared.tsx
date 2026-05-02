@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
-import type { GlyphName } from './model'
+import { useEffect, useState, type RefObject, type ReactNode } from 'react'
+import type { GlyphName } from '@/services/payout-command/model'
 
 export function Glyph({ name, className = '' }: { name: GlyphName; className?: string }) {
   const base = `inline-block ${className}`
@@ -66,4 +66,87 @@ export function LightCard({ children, className = '' }: { children: ReactNode; c
 
 export function SurfaceEyebrow({ children }: { children: ReactNode }) {
   return <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#9a9a95]">{children}</div>
+}
+
+type Rgba = {
+  r: number
+  g: number
+  b: number
+  a: number
+}
+
+function parseCssColor(color: string): Rgba | null {
+  const normalized = color.trim().toLowerCase()
+  if (!normalized || normalized === 'transparent') return null
+  const match = normalized.match(/^rgba?\((.+)\)$/)
+  if (!match) return null
+
+  const tokens = match[1].split(',').map((token) => token.trim())
+  if (tokens.length < 3) return null
+
+  const r = Number.parseFloat(tokens[0])
+  const g = Number.parseFloat(tokens[1])
+  const b = Number.parseFloat(tokens[2])
+  const a = tokens.length >= 4 ? Number.parseFloat(tokens[3]) : 1
+
+  if ([r, g, b, a].some((value) => Number.isNaN(value))) return null
+  return { r, g, b, a }
+}
+
+function toLinearChannel(value: number) {
+  const sRgb = value / 255
+  if (sRgb <= 0.04045) return sRgb / 12.92
+  return ((sRgb + 0.055) / 1.055) ** 2.4
+}
+
+function relativeLuminance({ r, g, b }: Pick<Rgba, 'r' | 'g' | 'b'>) {
+  return 0.2126 * toLinearChannel(r) + 0.7152 * toLinearChannel(g) + 0.0722 * toLinearChannel(b)
+}
+
+function resolveBackgroundColor(element: HTMLElement | null): Rgba {
+  let node: HTMLElement | null = element
+  while (node) {
+    const parsed = parseCssColor(window.getComputedStyle(node).backgroundColor)
+    if (parsed && parsed.a > 0.05) return parsed
+    node = node.parentElement
+  }
+  return { r: 255, g: 255, b: 255, a: 1 }
+}
+
+export function usePromptAutoContrast(containerRef: RefObject<HTMLElement>) {
+  const [isDarkBackground, setIsDarkBackground] = useState(false)
+
+  useEffect(() => {
+    const node = containerRef.current
+    if (!node || typeof window === 'undefined') return
+
+    const compute = () => {
+      const background = resolveBackgroundColor(node)
+      setIsDarkBackground(relativeLuminance(background) < 0.43)
+    }
+
+    compute()
+
+    const onResize = () => compute()
+    window.addEventListener('resize', onResize)
+
+    let observer: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => compute())
+      observer.observe(node)
+      if (node.parentElement) observer.observe(node.parentElement)
+    }
+
+    return () => {
+      window.removeEventListener('resize', onResize)
+      observer?.disconnect()
+    }
+  }, [containerRef])
+
+  return {
+    inputToneClass: isDarkBackground
+      ? 'text-white/92 placeholder:text-white/50 caret-[#4ADE80]'
+      : 'text-[#111111] placeholder:text-[#8a8a86] caret-[#111111]',
+    captionToneClass: isDarkBackground ? 'text-white/42' : 'text-[#8a8a86]',
+  }
 }

@@ -875,6 +875,17 @@ func (s *ProjectionService) HandleAttachmentDecision(
 			e.DecisionID, err)
 	}
 
+	// ── Step 2b: Increment DEFENSIBILITY denominator (Grade A path) ──────
+	// In Grade A mode there are no intent.created or evidence.pack.ready events,
+	// so total_intents must be driven from attachment decisions. Each decision
+	// is 1 intent. hasEvidencePack=false — evidence pack info is not in this event.
+	if err := s.projRepo.AtomicIncrementDefensibilityIntent(
+		ctx, e.TenantID, false, window.start, window.end,
+	); err != nil {
+		log.Printf("HandleAttachmentDecision: AtomicIncrementDefensibilityIntent failed decision=%s: %v",
+			e.DecisionID, err)
+	}
+
 	// ── Step 3: Recompute intelligence snapshots ──────────────────────────
 	// These are non-fatal — a failure to write a snapshot does not corrupt
 	// the projection data written above. The next event will retry.
@@ -1076,6 +1087,12 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 	}
 	if err := s.batchRepo.Upsert(ctx, bc); err != nil {
 		return fmt.Errorf("HandleBatchSummaryUpdated batchRepo.Upsert batch=%s: %w", e.BatchID, err)
+	}
+
+	// If batch reached a terminal state, the true ambiguity outcome is now known.
+	// Feed it back to the LR model as a labeled training example (online SGD).
+	if e.BatchFinalityStatus == "FULLY_SETTLED" || e.BatchFinalityStatus == "FAILED" {
+		s.ambiguitySvc.TrainOnLabel(ctx, e.TenantID, e.BatchID, e.AmbiguityScore, window.start, window.end)
 	}
 
 	// Step 2: Compute PATTERN intelligence snapshot

@@ -91,7 +91,7 @@ func main() {
 
 	// ── PHASE 4 & 7: Six intelligence layer services + Explanation ────────
 	leakageSvc        := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
-	ambiguitySvc      := services.NewAmbiguityIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
+	ambiguitySvc      := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo)
 	defensibilitySvc  := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
 	rcaSvc            := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
 	patternSvc        := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo)

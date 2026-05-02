@@ -43,9 +43,10 @@ type AmbiguityIntelligenceService struct {
 }
 
 // NewAmbiguityIntelligenceService creates an AmbiguityIntelligenceService.
-// The logistic regression model starts with domain-knowledge weights and
-// improves as labeled data accumulates in ml_labels.
+// On startup it tries to reload previously trained weights from ml_model_registry.
+// Falls back to domain-knowledge defaults if no saved model exists yet.
 func NewAmbiguityIntelligenceService(
+	ctx context.Context,
 	projRepo *persistence.ProjectionRepo,
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
 	mlRepo *persistence.MLFeatureStoreRepo,
@@ -56,8 +57,29 @@ func NewAmbiguityIntelligenceService(
 		snapshotRepo: snapshotRepo,
 		mlRepo:       mlRepo,
 		predRepo:     predRepo,
-		lrModel:      logistic.NewAmbiguityModel(), // domain-knowledge initial weights
+		lrModel:      loadOrDefaultAmbiguityModel(ctx, predRepo),
 	}
+}
+
+// loadOrDefaultAmbiguityModel loads the active AMBIGUITY model from ml_model_registry.
+// If none exists (cold start), returns the hardcoded domain-knowledge model.
+func loadOrDefaultAmbiguityModel(ctx context.Context, predRepo *persistence.MLPredictionRepo) *logistic.Model {
+	record, err := predRepo.GetActiveModel(ctx, "AMBIGUITY")
+	if err != nil {
+		log.Printf("ambiguity_svc: GetActiveModel failed, using default weights: %v", err)
+		return logistic.NewAmbiguityModel()
+	}
+	if record == nil {
+		log.Printf("ambiguity_svc: no saved AMBIGUITY model — using default weights")
+		return logistic.NewAmbiguityModel()
+	}
+	model, err := logistic.FromJSON(record.HyperparametersJSON)
+	if err != nil {
+		log.Printf("ambiguity_svc: FromJSON failed, using default weights: %v", err)
+		return logistic.NewAmbiguityModel()
+	}
+	log.Printf("ambiguity_svc: loaded saved AMBIGUITY model trained_on=%d", model.TrainedOn)
+	return model
 }
 
 // AmbiguitySnapshot is the shape written into intelligence_snapshots.snapshot_json
@@ -300,14 +322,14 @@ func (s *AmbiguityIntelligenceService) persistMLFeatures(
 	windowStart, windowEnd time.Time,
 ) error {
 	features := map[string]any{
-		"ambiguity_rate":             av.AmbiguityRate,
-		"avg_attachment_confidence":  av.AvgAttachmentConfidence,
-		"provider_ref_missing_rate":  av.ProviderRefMissingRate,
-		"value_at_risk_minor":        av.ValueAtRiskMinor,
-		"total_decisions":            av.TotalDecisions,
-		"ambiguous_intent_count":     av.AmbiguousIntentCount,
+		"ambiguity_rate":              av.AmbiguityRate,
+		"avg_attachment_confidence":   av.AvgAttachmentConfidence,
+		"provider_ref_missing_rate":   av.ProviderRefMissingRate,
+		"value_at_risk_minor":         av.ValueAtRiskMinor,
+		"total_decisions":             av.TotalDecisions,
+		"ambiguous_intent_count":      av.AmbiguousIntentCount,
 		"unresolved_settlement_count": av.UnresolvedSettlementCount,
-		"snapshot_id":                snapshotID,
+		"snapshot_id":                 snapshotID,
 	}
 	featJSON, err := json.Marshal(features)
 	if err != nil {
@@ -325,4 +347,160 @@ func (s *AmbiguityIntelligenceService) persistMLFeatures(
 		LabelJSON:     nil,
 		CreatedAt:     time.Now().UTC(),
 	})
+}
+
+// ── Training loop ─────────────────────────────────────────────────────────────
+
+// TrainOnLabel is called when a batch reaches a terminal state (FULLY_SETTLED or
+// FAILED). At that point the true ambiguity outcome is known and we can:
+//
+//  1. Label the feature row that was written on Day 0 (when decisions arrived)
+//  2. Write a row to ml_labels for audit/offline use
+//  3. Run one online SGD step on the in-memory LR model
+//  4. Every 10 training examples: persist the updated weights to ml_model_registry
+//
+// This is a best-effort operation — failures are logged but never returned as
+// errors to the caller, since they must not block the batch finality flow.
+func (s *AmbiguityIntelligenceService) TrainOnLabel(
+	ctx context.Context,
+	tenantID, batchID string,
+	finalAmbiguityScore float64,
+	windowStart, windowEnd time.Time,
+) {
+	// Step 1: find the most recent unlabeled AMBIGUITY feature row for this tenant.
+	// We take limit=1 (most recent) — that row represents the tenant state at the
+	// time the batch's attachment decisions were arriving.
+	rows, err := s.mlRepo.ListUnlabeled(ctx, tenantID, "AMBIGUITY", 1)
+	if err != nil {
+		log.Printf("ambiguity_svc.TrainOnLabel: ListUnlabeled failed tenant=%s: %v", tenantID, err)
+		return
+	}
+	if len(rows) == 0 {
+		// No unlabeled feature row — either cold start or already labeled.
+		return
+	}
+	featRow := rows[0]
+
+	// Step 2: compute binary label.
+	// label=1 means "this batch had real ambiguity that required intervention".
+	// threshold 0.20 aligns with ambiguityRiskTier MEDIUM boundary.
+	labelValue := 0.0
+	labelConf := 1.0
+	if finalAmbiguityScore > 0.20 {
+		labelValue = 1.0
+	}
+	if finalAmbiguityScore > 0.10 && finalAmbiguityScore <= 0.20 {
+		labelConf = 0.7 // borderline — lower confidence
+	}
+
+	// Step 3: stamp the label onto the feature row in ml_feature_store.
+	labelPayload, _ := json.Marshal(map[string]any{
+		"label":                 labelValue,
+		"final_ambiguity_score": finalAmbiguityScore,
+		"batch_id":              batchID,
+	})
+	if err := s.mlRepo.SetLabel(ctx, featRow.FeatureRowID, labelPayload); err != nil {
+		log.Printf("ambiguity_svc.TrainOnLabel: SetLabel failed tenant=%s: %v", tenantID, err)
+		return
+	}
+
+	// Step 4: write an audit row to ml_labels.
+	sourceRefs, _ := json.Marshal(map[string]string{"batch_id": batchID})
+	featRowID := featRow.FeatureRowID
+	if err := s.predRepo.InsertLabel(ctx, persistence.MLLabel{
+		LabelID:         "lbl_" + uuid.New().String(),
+		TenantID:        tenantID,
+		ScopeType:       "TENANT",
+		ScopeRef:        tenantID,
+		LabelFamily:     "AMBIGUITY",
+		LabelValue:      labelValue,
+		LabelConfidence: labelConf,
+		LabelSource:     "batch_finality",
+		SourceRefsJSON:  sourceRefs,
+		FeatureRowID:    &featRowID,
+		CreatedAt:       time.Now().UTC(),
+	}); err != nil {
+		log.Printf("ambiguity_svc.TrainOnLabel: InsertLabel failed tenant=%s: %v", tenantID, err)
+	}
+
+	// Step 5: rebuild the feature vector from the stored JSON so we can train.
+	features := rebuildFeaturesFromJSON(featRow.FeaturesJSON)
+	if features == nil {
+		log.Printf("ambiguity_svc.TrainOnLabel: could not rebuild features tenant=%s", tenantID)
+		return
+	}
+
+	// Step 6: one online SGD step — update in-memory model weights.
+	const learningRate = 0.01
+	s.lrModel.Train(features, labelValue, learningRate)
+	log.Printf("ambiguity_svc.TrainOnLabel: trained tenant=%s ambiguity_score=%.2f label=%.0f trained_on=%d",
+		tenantID, finalAmbiguityScore, labelValue, s.lrModel.TrainedOn)
+
+	// Step 7: persist weights every 10 training examples so restarts don't lose progress.
+	if s.lrModel.TrainedOn%10 == 0 {
+		s.saveModelWeights(ctx)
+	}
+}
+
+// saveModelWeights serializes the current LR weights and upserts them to
+// ml_model_registry as the ACTIVE AMBIGUITY model.
+// The unique index on (model_family) WHERE status='ACTIVE' ensures only one
+// active model exists at a time — the ON CONFLICT clause in UpsertModel handles rotation.
+func (s *AmbiguityIntelligenceService) saveModelWeights(ctx context.Context) {
+	weights, err := s.lrModel.ToJSON()
+	if err != nil {
+		log.Printf("ambiguity_svc.saveModelWeights: ToJSON failed: %v", err)
+		return
+	}
+	metrics, _ := json.Marshal(map[string]any{"trained_on": s.lrModel.TrainedOn})
+	now := time.Now().UTC()
+	if err := s.predRepo.UpsertModel(ctx, persistence.MLModelRecord{
+		ModelID:             "logistic_regression_v1_ambiguity",
+		ModelName:           "ambiguity_logistic_v1",
+		ModelFamily:         "AMBIGUITY",
+		Algorithm:           "logistic_regression_v1",
+		TargetLabel:         "AMBIGUITY",
+		FeatureVersion:      "v1",
+		TrainingWindowEnd:   &now,
+		HyperparametersJSON: weights,
+		MetricsJSON:         metrics,
+		Status:              "ACTIVE",
+		CreatedAt:           now,
+		ActivatedAt:         &now,
+	}); err != nil {
+		log.Printf("ambiguity_svc.saveModelWeights: UpsertModel failed trained_on=%d: %v",
+			s.lrModel.TrainedOn, err)
+		return
+	}
+	log.Printf("ambiguity_svc.saveModelWeights: weights saved to registry trained_on=%d", s.lrModel.TrainedOn)
+}
+
+// rebuildFeaturesFromJSON extracts the four LR features from a stored feature row's JSON.
+// Returns nil if the JSON cannot be parsed — caller should bail gracefully.
+func rebuildFeaturesFromJSON(featJSON json.RawMessage) []float64 {
+	var m map[string]any
+	if err := json.Unmarshal(featJSON, &m); err != nil {
+		return nil
+	}
+	getFloat := func(key string) float64 {
+		v, ok := m[key]
+		if !ok {
+			return 0
+		}
+		switch val := v.(type) {
+		case float64:
+			return val
+		case json.Number:
+			f, _ := val.Float64()
+			return f
+		}
+		return 0
+	}
+	return logistic.BuildFeatures(
+		getFloat("ambiguity_rate"),
+		getFloat("provider_ref_missing_rate"),
+		getFloat("avg_attachment_confidence"),
+		int64(getFloat("value_at_risk_minor")),
+		0, // totalIntendedMinor not stored at tenant scope; feature [3] stays 0
+	)
 }

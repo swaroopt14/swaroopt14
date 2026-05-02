@@ -2,8 +2,6 @@ package kafka
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log"
 	"zord-evidence/models"
@@ -39,23 +37,19 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 			TenantID:      relayEvt.TenantID,
 			IntentID:      &relayEvt.AggregateID,
 			LeafType:      models.LeafTypeCanonicalIntentHash,
+			ItemRef:       relayEvt.AggregateID,
 			Hash:          relayEvt.CanonicalHash,
 			SchemaVersion: "v1",
 			SourceTopic:   "payments.intent.events.v1",
 		}
 
-		// Leaf 7: Governance Decision (Computed from GovernanceState)
-		// Plan: SHA256("GOVERNANCE_CANONICAL_V1:" + governance_state)
-		govInput := "GOVERNANCE_CANONICAL_V1:" + relayEvt.GovernanceState
-		h := sha256.New()
-		h.Write([]byte(govInput))
-		govHash := hex.EncodeToString(h.Sum(nil))
-
+		// Leaf 7: Governance Decision (Directly from Outbox GovernanceHash)
 		l7 := models.PendingLeafCandidate{
 			TenantID:      relayEvt.TenantID,
 			IntentID:      &relayEvt.AggregateID,
 			LeafType:      models.LeafTypeGovernanceDecision,
-			Hash:          govHash,
+			ItemRef:       relayEvt.AggregateID,
+			Hash:          relayEvt.GovernanceHash,
 			SchemaVersion: "v1",
 			SourceTopic:   "payments.intent.events.v1",
 		}

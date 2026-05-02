@@ -18,8 +18,14 @@ func NewConsumer(handler MessageHandler) *Consumer {
 	return &Consumer{handler: handler}
 }
 
-func (c *Consumer) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
-func (c *Consumer) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+func (c *Consumer) Setup(sess sarama.ConsumerGroupSession) error {
+	log.Printf("evidence.kafka.session_setup claims=%v member_id=%s", sess.Claims(), sess.MemberID())
+	return nil
+}
+func (c *Consumer) Cleanup(sess sarama.ConsumerGroupSession) error {
+	log.Printf("evidence.kafka.session_cleanup member_id=%s", sess.MemberID())
+	return nil
+}
 
 func (c *Consumer) ConsumeClaim(sess sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
 	for msg := range claim.Messages() {
@@ -63,7 +69,7 @@ func StartConsumer(ctx context.Context, brokers []string, groupID, topic string,
 func StartConsumerForTopics(ctx context.Context, brokers []string, groupID string, topics []string, handler MessageHandler) error {
 	cfg := sarama.NewConfig()
 	cfg.Version = sarama.V2_6_0_0
-	cfg.Consumer.Offsets.Initial = sarama.OffsetNewest
+	cfg.Consumer.Offsets.Initial = sarama.OffsetOldest
 	cfg.Consumer.Group.Rebalance.Strategy = sarama.NewBalanceStrategyRoundRobin()
 
 	consumerGroup, err := sarama.NewConsumerGroup(brokers, groupID, cfg)

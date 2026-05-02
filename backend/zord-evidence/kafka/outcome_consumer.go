@@ -60,20 +60,19 @@ type leafBundleEvent struct {
 }
 
 // StartOutcomeConsumer starts a dedicated Kafka consumer group for
-// payments.outcome.events.v1 and routes events to the evidence service.
-// It is non-blocking: the consume loop runs in a goroutine managed by
-// the shared kafka.StartConsumer infrastructure.
+// outcome leaf bundles and routes events to the evidence service.
+// It can listen to multiple topics to handle environment-specific overrides.
 func StartOutcomeConsumer(
 	ctx context.Context,
 	brokers []string,
 	groupID string,
-	topic string,
+	topics []string,
 	pg PackGenerator,
 ) error {
-	log.Printf("outcome.consumer.start group=%s topic=%s brokers=%v", groupID, topic, brokers)
+	log.Printf("outcome.consumer.start group=%s topics=%v brokers=%v", groupID, topics, brokers)
 	// buildOutcomeHandler returns a MessageHandler (func(ctx, key, []byte) error)
-	// which is exactly what StartConsumer expects.
-	return StartConsumer(ctx, brokers, groupID, topic, buildOutcomeHandler(pg))
+	// which is exactly what StartConsumerForTopics expects.
+	return StartConsumerForTopics(ctx, brokers, groupID, topics, buildOutcomeHandler(pg))
 }
 
 // buildOutcomeHandler returns the MessageHandler func used by StartConsumer.
@@ -141,6 +140,7 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 			TenantID:      tenantID,
 			IntentID:      &intentID,
 			LeafType:      l.Type,
+			ItemRef:       l.Ref,
 			Hash:          l.Hash,
 			SchemaVersion: sv,
 			SourceTopic:   "payments.outcome.events.v1",

@@ -41,6 +41,7 @@ func buildEdgeHandler(pg PackGenerator) MessageHandler {
 				TenantID:      relayEvt.TenantID,
 				EnvelopeID:    &relayEvt.EnvelopeID,
 				LeafType:      models.LeafTypeEnvelopeHash,
+				ItemRef:       relayEvt.EnvelopeID,
 				Hash:          hashHex,
 				SchemaVersion: "v1",
 				SourceTopic:   "payments.ledger.events.v1",

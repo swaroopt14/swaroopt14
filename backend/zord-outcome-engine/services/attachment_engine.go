@@ -155,6 +155,7 @@ func (e *AttachmentEngine) runAttachment(
 		allVariances        []models.VarianceRecord
 		allCandidates       []models.AttachmentCandidate
 		totalIntendedAmount decimal.Decimal
+		clientBatchRef      *string
 	)
 
 	counters := struct {
@@ -268,6 +269,9 @@ func (e *AttachmentEngine) runAttachment(
 		if winnerIntentID != nil {
 			winnerIntent := findIntentByID(intents, *winnerIntentID)
 			if winnerIntent != nil {
+				if clientBatchRef == nil && winnerIntent.ClientBatchRef != nil {
+					clientBatchRef = winnerIntent.ClientBatchRef
+				}
 				totalIntendedAmount = totalIntendedAmount.Add(winnerIntent.Amount)
 				amtVariance, severity, flags, reasons := ComputeVariance(VarianceInputs{
 					Intent:      *winnerIntent,
@@ -320,7 +324,7 @@ func (e *AttachmentEngine) runAttachment(
 	}
 
 	// Compute and persist batch attachment summary.
-	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, observations, allDecisions, allVariances, totalIntendedAmount)
+	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, observations, allDecisions, allVariances, totalIntendedAmount)
 	if err := insertBatchSummary(ctx, batchSummary); err != nil {
 		log.Printf("attachment.engine.batch_summary_failed job=%s err=%v", job.AttachmentJobID, err)
 	}
@@ -563,6 +567,7 @@ func computeBatchSummary(
 	tenantID uuid.UUID,
 	jobID uuid.UUID,
 	scopeRef string,
+	clientBatchRef *string,
 	observations []models.CanonicalSettlementObservation,
 	decisions []models.AttachmentDecision,
 	variances []models.VarianceRecord,
@@ -572,6 +577,7 @@ func computeBatchSummary(
 	summary := models.BatchAttachmentSummary{
 		BatchAttachmentSummaryID: uuid.New(),
 		TenantID:                 tenantID,
+		BatchID:                  clientBatchRef,
 		SourceReference:          scopeRef,
 		AttachmentJobID:          jobID,
 		TotalIntentCount:         len(observations),

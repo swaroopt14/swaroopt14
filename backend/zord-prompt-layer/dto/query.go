@@ -2,7 +2,7 @@
 package dto
 
 type QueryRequest struct {
-	TenantID string `json:"tenant_id,omitempty"`
+	TenantID string `json:"tenant_id" binding:"required"`
 	Query    string `json:"query" binding:"required"`
 	IntentID string `json:"intent_id,omitempty"`
 	TraceID  string `json:"trace_id,omitempty"`
@@ -35,11 +35,30 @@ type VisualizationPoint struct {
 	Value float64 `json:"value"`
 }
 
+type VisualizationMetric struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+type VisualizationWindow struct {
+	FromUTC string `json:"from_utc,omitempty"`
+	ToUTC   string `json:"to_utc,omitempty"`
+	Label   string `json:"label,omitempty"`
+}
+
 type Visualization struct {
-	Title    string               `json:"title"`
-	XAxis    string               `json:"x_axis"`
-	YAxis    string               `json:"y_axis"`
-	Series   []VisualizationPoint `json:"series"`
-	Subtitle string               `json:"subtitle,omitempty"`
-	Insights []string             `json:"insights,omitempty"`
+	VisualizationID   string                `json:"visualization_id,omitempty"`
+	ChartType         string                `json:"chart_type,omitempty"` // bar|line|stacked_bar|donut|table
+	Title             string                `json:"title"`
+	Subtitle          string                `json:"subtitle,omitempty"`
+	Description       string                `json:"description,omitempty"`
+	XAxis             string                `json:"x_axis"`
+	YAxis             string                `json:"y_axis"`
+	Series            []VisualizationPoint  `json:"series"`
+	Legend            []string              `json:"legend,omitempty"`
+	Insights          []string              `json:"insights,omitempty"`
+	SummaryMetrics    []VisualizationMetric `json:"summary_metrics,omitempty"`
+	TimeWindow        *VisualizationWindow  `json:"time_window,omitempty"`
+	Confidence        string                `json:"confidence,omitempty"`
+	EmptyStateMessage string                `json:"empty_state_message,omitempty"`
 }

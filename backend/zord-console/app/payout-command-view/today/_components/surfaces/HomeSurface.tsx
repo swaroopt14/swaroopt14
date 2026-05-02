@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef, useState } from 'react'
 import { Bar, Cell, ComposedChart, Line, ResponsiveContainer, XAxis, YAxis } from 'recharts'
 import {
   clamp,
@@ -15,8 +16,8 @@ import {
   type HomeOverviewSnapshot,
   type HomeSimulation,
   type HomeTimeframe,
-} from '../model'
-import { ClientChart, Glyph, LightCard, SurfaceEyebrow } from '../shared'
+} from '@/services/payout-command/model'
+import { ClientChart, Glyph, LightCard, SurfaceEyebrow, usePromptAutoContrast } from '../shared'
 
 export function HomeSurface({
   scenario,
@@ -51,8 +52,13 @@ export function HomeSurface({
   commandStatus: HomeCommandStatus
   onDismissCommandResponse: () => void
 }) {
+  const promptRowRef = useRef<HTMLDivElement | null>(null)
+  const promptTone = usePromptAutoContrast(promptRowRef)
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [isPromptExpanded, setIsPromptExpanded] = useState(false)
+  const displayPoint = hoverIndex ?? activeChartPoint
   const [selectedRangeStart, selectedRangeEnd] = snapshot.range
-  const activeChartDatum = snapshot.chartData[clamp(activeChartPoint, 0, snapshot.chartData.length - 1)]
+  const activeChartDatum = snapshot.chartData[clamp(displayPoint, 0, snapshot.chartData.length - 1)]
   const totalChartBars = snapshot.chartData.length
   const rangeLeftPercent = (selectedRangeStart / totalChartBars) * 100
   const rangeWidthPercent = ((selectedRangeEnd - selectedRangeStart + 1) / totalChartBars) * 100
@@ -66,30 +72,53 @@ export function HomeSurface({
   const liveExpensesValue = formatUsdCompactK(snapshot.expensesBaseValue * (1 - hoverLift * 0.02))
   const liveBudgetValue = formatUsdCompactK(snapshot.budgetBaseValue * (1 + hoverLift * 0.022))
   const liveInsightValue = formatUsdCompactK(snapshot.insightBaseValue * (1 + hoverLift * 0.024))
+  const pendingAwaitingConfirmation = formatUsdCompactK(snapshot.salesBaseValue * (0.39 + clamp(hoverLift * 0.09, -0.06, 0.08)))
+  const verificationAffectedPct = `${Math.round(clamp(11 + hoverLift * 10, 6, 24))}%`
+  const confirmationRateFrom = `${Math.round(clamp(82 + hoverLift * 4, 78, 89))}%`
+  const confirmationRateTo = `${Math.round(clamp(91 + hoverLift * 6, 86, 98))}%`
+  const affectedTransactions = Math.round(clamp(148 + hoverLift * 62, 84, 236))
+  const confirmationMiniBars = snapshot.chartData
+    .slice(selectedRangeStart, selectedRangeEnd + 1)
+    .filter((_, index) => index % 2 === 0)
+    .slice(0, 16)
+    .map((entry) => entry.barValue / HOME_CHART_DOMAIN_MAX)
+
+  // Card visual derivations — all respond to chart hover via hoverLift
+  const recoveryTrendUp = hoverLift >= -0.04
+  const recoveryTrendLabel = `${recoveryTrendUp ? '+' : ''}${Math.round(hoverLift * 44 + 8)}%`
+  const upliftPct = `+${Math.round(clamp(hoverLift * 48 + 24, 10, 42))}%`
+  const burnBreakdown: Array<[string, string, number]> = [
+    ['Manual verification', '#111111', clamp(34 + Math.round(hoverLift * 6), 26, 42)],
+    ['Bank confirmation pending', '#4ADE80', clamp(28 - Math.round(hoverLift * 4), 20, 36)],
+    ['Payment partner issue', '#b7b7b7', clamp(24 + Math.round(hoverLift * 2), 18, 30)],
+    ['Other issues', '#D4D4D2', clamp(14 - Math.round(hoverLift * 4), 8, 20)],
+  ]
+  const burnTotal = burnBreakdown.reduce((s, [, , v]) => s + v, 0)
+
   const liveTooltipNote =
     timeframe === 'Week'
-      ? `Income change around ${monthLabel}. Includes holiday impact in this week window.`
+      ? `Value of disbursements successfully completed around ${monthLabel}. Includes holiday impact in this week window.`
       : timeframe === 'Quarter'
-        ? `Income growth during ${snapshot.quarterName} (${snapshot.quarterMonths.join(', ')}).`
+        ? `Value of disbursements successfully completed during ${snapshot.quarterName} (${snapshot.quarterMonths.join(', ')}).`
         : timeframe === 'Year'
-          ? `Income growth trend in ${snapshot.selectedYear}.`
-          : `Income growth around ${monthLabel} in the active month window.`
+          ? `Value of disbursements successfully completed during ${snapshot.selectedYear}.`
+          : `Value of disbursements successfully completed around ${monthLabel} in the active month window.`
 
   return (
-    <div className="mt-8">
+    <div className="mt-8 text-[15px]">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="text-[10px] font-medium uppercase tracking-[0.1em] text-[#8b8a86]">
-            Half-year payout statement
+          <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#8b8a86]">
+            Half-year disbursement statement
           </div>
-          <div className="mt-4 flex flex-wrap gap-4 text-[13px] text-[#6f716d]">
+          <div className="mt-4 flex flex-wrap gap-4 text-[14px] text-[#6f716d]">
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-[#d4d4d4]" />
-              <span>Without reroute</span>
+              <span>Without route optimization</span>
             </div>
             <div className="flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full bg-[#111111]" />
-              <span>Recovered after reroute</span>
+              <span>Confirmed after route optimization</span>
             </div>
           </div>
         </div>
@@ -110,7 +139,7 @@ export function HomeSurface({
         </div>
       </div>
 
-      <div className="mt-4 flex flex-col gap-3 text-[12px] text-[#7e7f79] sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-4 flex flex-col gap-3 text-[13px] text-[#7e7f79] sm:flex-row sm:items-center sm:justify-between">
         <div>{snapshot.timeframeLabel}</div>
         {timeframe === 'Year' ? (
           <div className="flex flex-wrap items-center gap-2">
@@ -162,8 +191,8 @@ export function HomeSurface({
         <div className="text-[4.8rem] font-light tracking-[-0.03em] text-[#111111] md:text-[6rem] lg:text-[6rem]">
           {snapshot.metricValue}
         </div>
-        <div className="mt-2 text-lg font-normal text-[#111111]">{snapshot.title}</div>
-        <p className="mx-auto mt-3 max-w-2xl text-[14px] leading-6 text-[#6f716d]">
+        <div className="mt-2 text-[1.35rem] font-normal text-[#111111]">{snapshot.title}</div>
+        <p className="mx-auto mt-3 max-w-2xl text-[15px] leading-7 text-[#6f716d]">
           {snapshot.summary}
         </p>
       </div>
@@ -192,7 +221,11 @@ export function HomeSurface({
           <div className="mt-2 text-[11px] font-normal leading-4 text-[#8b8a86]">{liveTooltipNote}</div>
         </div>
 
-        <ClientChart className="relative z-[1] h-[21rem] md:h-[23rem]">
+        <div
+          className="relative z-[1]"
+          onMouseLeave={() => setHoverIndex(null)}
+        >
+        <ClientChart className="h-[21rem] md:h-[23rem]">
           <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
             <ComposedChart
               data={snapshot.chartData}
@@ -200,6 +233,7 @@ export function HomeSurface({
               barGap={2}
               onMouseMove={(state) => {
                 if (typeof state?.activeTooltipIndex === 'number') {
+                  setHoverIndex(state.activeTooltipIndex)
                   onActiveChartPointChange(state.activeTooltipIndex)
                 }
               }}
@@ -249,6 +283,7 @@ export function HomeSurface({
             </ComposedChart>
           </ResponsiveContainer>
         </ClientChart>
+        </div>
 
         <div className="mt-3 h-[13px] rounded-[4px] bg-[#EBEBEA]">
           <div
@@ -269,123 +304,225 @@ export function HomeSurface({
         </div>
       </div>
 
-      <div className="mt-6 grid gap-4 xl:grid-cols-4">
-        <LightCard className="border-[#E5E5E5] shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="flex items-start justify-between gap-3">
-            <SurfaceEyebrow>Overnight recovery outlook</SurfaceEyebrow>
+      <div className="mt-7 grid gap-5 xl:grid-cols-2">
+
+        {/* ── Card 1: Overnight Recovery Outlook ───────────────────────────── */}
+        <LightCard className="flex min-h-[20.5rem] flex-col border-[#E5E5E5] bg-gradient-to-b from-white to-[#fcfcfb] p-6 shadow-[0_10px_26px_rgba(17,17,17,0.08)]">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#4ADE80]" />
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#4ADE80]">Live</span>
+            </div>
             <Glyph name="menu-dots" className="h-4 w-4 text-[#9a9a95]" />
           </div>
-          <div className="mt-4 text-[2.5rem] font-light tracking-[-0.04em] text-[#111111]">{liveSalesValue}</div>
-          <div className="mt-1 text-sm text-[#6f716d]">Expected cleared value</div>
-          <div className="mt-1 text-[11px] uppercase tracking-[0.08em] text-[#9a9a95]">Live window: {monthLabel}</div>
-          <div className="mt-5 flex items-center gap-3 text-[12px] text-[#8b8a86]">
+
+          <SurfaceEyebrow>Expected disbursement confirmation</SurfaceEyebrow>
+
+          <div className="mt-2 flex items-end gap-2">
+            <div className="text-[2.7rem] font-light leading-none tracking-[-0.04em] text-[#111111]">{liveSalesValue}</div>
+            <span className={`mb-0.5 inline-flex h-5 items-center rounded-full px-2 text-[10px] font-semibold ${recoveryTrendUp ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-[#FEE2E2] text-[#991B1B]'}`}>
+              {recoveryTrendLabel}
+            </span>
+          </div>
+          <div className="mt-1 text-[14px] text-[#6f716d]">Value expected to be confirmed in the next cycle</div>
+          <div className="mt-1 text-[12px] text-[#8a8a86]">
+            Pending awaiting confirmation: <span className="font-medium text-[#111111]">{pendingAwaitingConfirmation}</span>
+          </div>
+
+          <div className="mt-4 flex items-center gap-1.5 text-[12px]">
             {homeTimeframes.map((label) => (
-              <span key={`sales-range-${label}`} className={label === timeframe ? 'border-b border-[#111111] pb-0.5 text-[#111111]' : ''}>
+              <button
+                key={`sales-tf-${label}`}
+                type="button"
+                onClick={() => onTimeframeChange(label)}
+                aria-pressed={label === timeframe}
+                className={label === timeframe
+                  ? 'rounded-full bg-[#111111] px-2.5 py-0.5 text-white'
+                  : 'rounded-full px-2.5 py-0.5 text-[#9a9a95] hover:bg-[#f3f3f2] hover:text-[#111111]'}
+              >
                 {label}
-              </span>
+              </button>
             ))}
           </div>
-          <div className="mt-5 flex items-end gap-2">
-            {snapshot.forecastBars.map((bar, index) => (
-              <span
-                key={`forecast-${index}`}
-                className="w-[5px] rounded-full bg-[#111111]"
-                style={{ height: `${Math.max(bar, 0.24) * 6.1}rem`, opacity: 0.24 + index * 0.12 }}
+
+          <div className="mt-4 flex h-36 items-end gap-0.5">
+            {confirmationMiniBars.map((bar, i) => (
+              <div
+                key={`fc-${i}`}
+                className="flex-1 rounded-t-[6px] transition-all duration-300"
+                style={{
+                  height: `${Math.max(bar, 0.12) * 100}%`,
+                  background: i >= confirmationMiniBars.length - 4 ? '#111111' : '#d9dfe9',
+                }}
               />
             ))}
           </div>
-          <div className="mt-5 text-[12px] leading-5 text-[#6f716d]">
-            Opening projection of cleared payout value after overnight rerouting from degraded lanes into healthier PSP and rail corridors.
+          <div className="mt-1.5 text-[10px] text-[#9a9a95]">
+            Live tracking window: {timeframe === 'Week' ? monthLabel : timeframe === 'Quarter' ? snapshot.quarterName : timeframe === 'Year' ? `${snapshot.selectedYear}` : monthLabel}
           </div>
+
+          <p className="mt-4 text-[12px] leading-[1.7] text-[#6f716d]">
+            Estimated value of pending disbursements expected to be confirmed in the next cycle.
+          </p>
         </LightCard>
 
-        <LightCard className="border-[#E5E5E5] shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="flex items-start justify-between gap-3">
-            <SurfaceEyebrow>Exception burn rate</SurfaceEyebrow>
+        {/* ── Card 2: Exception Burn Rate ───────────────────────────────────── */}
+        <LightCard className="flex min-h-[20.5rem] flex-col border-[#E5E5E5] bg-gradient-to-b from-white to-[#fcfcfb] p-6 shadow-[0_16px_36px_rgba(17,17,17,0.14)]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="rounded-full border border-[#E5E5E5] bg-[#f8f8f6] px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em] text-[#8a8a86]">
+              Verification queue
+            </span>
             <Glyph name="menu-dots" className="h-4 w-4 text-[#9a9a95]" />
           </div>
-          <div className="mt-4 text-[2.5rem] font-light tracking-[-0.04em] text-[#111111]">{liveExpensesValue}</div>
-          <div className="mt-1 text-sm text-[#6f716d]">Run-rate ops spend</div>
-          <div className="mt-5 flex flex-wrap gap-3 text-[12px] text-[#6f716d]">
-            {[
-              ['Manual ops', '#111111'],
-              ['Bank follow-ups', '#4ADE80'],
-              ['PSP tickets', '#b7b7b7'],
-              ['Other', '#e0e0e0'],
-            ].map(([label, color]) => (
-              <div key={label} className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full" style={{ background: color }} />
-                <span>{label}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-8 h-20 rounded-[1rem] bg-[linear-gradient(135deg,#f6f6f6_0_14%,#ffffff_14%_28%,#f1f4f8_28%_42%,#ffffff_42%_56%,#f6f6f6_56%_70%,#ffffff_70%_84%,#f1f4f8_84%_100%)]" />
-          <div className="mt-4 text-[12px] leading-5 text-[#6f716d]">
-            Estimated spend tied to stuck payouts, bank escalations, and PSP tickets that still require manual touch.
-          </div>
-        </LightCard>
 
-        <LightCard className="border-[#E5E5E5] shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="flex items-start justify-between gap-3">
-            <SurfaceEyebrow>Net recovery uplift</SurfaceEyebrow>
-            <Glyph name="menu-dots" className="h-4 w-4 text-[#9a9a95]" />
-          </div>
-          <div className="mt-4 text-[2.5rem] font-light tracking-[-0.04em] text-[#111111]">{liveBudgetValue}</div>
-          <div className="mt-1 text-sm text-[#6f716d]">Recovered over baseline</div>
-          <div className="mt-5 flex items-center gap-5 text-[12px] text-[#6f716d]">
-            {[
-              ['Baseline', '#dedede'],
-              ['Rerouted', '#111111'],
-            ].map(([label, color]) => (
-              <div key={label} className="flex items-center gap-2">
-                <span className="h-3 w-3 rounded-full" style={{ background: color }} />
-                <span>{label}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-6 flex items-end gap-2">
-            {snapshot.budgetBars.map((bar, index) => (
-              <span
-                key={`budget-${index}`}
-                className="w-full rounded-full bg-[#111111]"
-                style={{ height: `${Math.max(bar, 0.16) * 4.8}rem`, opacity: 0.18 + (index % 4) * 0.16 }}
+          <SurfaceEyebrow>Disbursements requiring attention</SurfaceEyebrow>
+
+          <div className="mt-2 text-[2.7rem] font-light leading-none tracking-[-0.04em] text-[#111111]">{liveExpensesValue}</div>
+          <div className="mt-1 text-[14px] text-[#6f716d]">Disbursements that require follow-up before confirmation</div>
+
+          <div className="mt-4 flex h-2.5 overflow-hidden rounded-full">
+            {burnBreakdown.map(([label, color, width]) => (
+              <div
+                key={label}
+                className="transition-all duration-500"
+                style={{ width: `${(width / burnTotal) * 100}%`, background: color }}
               />
             ))}
           </div>
-          <div className="mt-4 text-[12px] leading-5 text-[#6f716d]">
-            Incremental value cleared after reroute versus the pre-reroute baseline for the same cohort and period.
+
+          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2">
+            {burnBreakdown.map(([label, color, width]) => (
+              <div key={label} className="flex items-center gap-1.5 text-[13px] text-[#6f716d]">
+                <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
+                <span className="truncate">{label}</span>
+                <span className="ml-auto shrink-0 tabular-nums text-[#9a9a95]">
+                  {Math.round((width / burnTotal) * 100)}%
+                </span>
+              </div>
+            ))}
           </div>
+          <div className="mt-2 text-[12px] text-[#8a8a86]">
+            % of total disbursements affected: <span className="font-medium text-[#111111]">{verificationAffectedPct}</span>
+          </div>
+
+          <p className="mt-4 text-[12px] leading-[1.7] text-[#6f716d]">
+            Breakdown of disbursements that need verification or follow-up before confirmation.
+          </p>
         </LightCard>
 
-        <LightCard className="border-[#E5E5E5] shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
-          <div className="flex items-start justify-between gap-3">
-            <SurfaceEyebrow>Morning action brief</SurfaceEyebrow>
+        {/* ── Card 3: Net Recovery Uplift ───────────────────────────────────── */}
+        <LightCard className="flex min-h-[20.5rem] flex-col border-[#E5E5E5] bg-gradient-to-b from-white to-[#fcfcfb] p-6 shadow-[0_10px_26px_rgba(17,17,17,0.08)]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="rounded-full bg-[#111111] px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em] text-white">
+              Proof layer
+            </span>
+            <Glyph name="menu-dots" className="h-4 w-4 text-[#9a9a95]" />
+          </div>
+
+          <SurfaceEyebrow>Confirmed disbursement value</SurfaceEyebrow>
+
+          <div className="mt-2 flex items-end gap-2">
+            <div className="text-[2.7rem] font-light leading-none tracking-[-0.04em] text-[#111111]">{liveBudgetValue}</div>
+            <span className="mb-0.5 inline-flex h-5 items-center rounded-full bg-[#DCFCE7] px-2 text-[10px] font-semibold text-[#166534]">
+              {upliftPct}
+            </span>
+          </div>
+          <div className="mt-1 text-[14px] text-[#6f716d]">Disbursements confirmed after resolving delays</div>
+
+          <div className="mt-4 space-y-2.5">
+            <div>
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.1em] text-[#C0C0BE]">Baseline</div>
+              <div className="flex h-8 items-end gap-0">
+                {snapshot.budgetBars.slice(0, 8).map((bar, i) => (
+                  <div
+                    key={`bl-${i}`}
+                    className="flex-1 rounded-t-[2px] bg-[#E5E5E4] transition-all duration-300"
+                    style={{ height: `${Math.max(bar, 0.12) * 100}%` }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.1em] text-[#111111]">Rerouted</div>
+              <div className="flex h-8 items-end gap-0">
+                {snapshot.budgetBars.slice(0, 8).map((bar, i) => (
+                  <div
+                    key={`rr-${i}`}
+                    className="flex-1 rounded-t-[2px] bg-[#111111] transition-all duration-300"
+                    style={{ height: `${Math.min(Math.max(bar * 1.28 + 0.1, 0.24), 1) * 100}%` }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="mt-2 text-[12px] text-[#8a8a86]">
+            Confirmation rate improved from <span className="font-medium text-[#111111]">{confirmationRateFrom}</span> →{' '}
+            <span className="font-medium text-[#111111]">{confirmationRateTo}</span>
+          </div>
+
+          <p className="mt-4 text-[12px] leading-[1.7] text-[#6f716d]">
+            Additional disbursement value confirmed after resolving pending or delayed transactions.
+          </p>
+        </LightCard>
+
+        {/* ── Card 4: Morning Action Brief ─────────────────────────────────── */}
+        <LightCard className="flex min-h-[20.5rem] flex-col border-[#E5E5E5] bg-gradient-to-b from-white to-[#fcfcfb] p-6 shadow-[0_12px_28px_rgba(17,17,17,0.1)]">
+          <div className="flex items-center justify-between gap-2">
+            <span className="rounded-full border border-[#E5E5E5] bg-[#f8f8f6] px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.1em] text-[#8a8a86]">
+              Intelligence
+            </span>
             <Glyph name="arrow-up-right" className="h-4 w-4 text-[#9a9a95]" />
           </div>
-          <div className="mt-4 max-w-[14rem] text-lg leading-7 text-[#111111]">
-            {snapshot.insightText}
-          </div>
-          <div className="mt-6 flex items-end justify-between gap-4">
-            <div>
-              <div className="text-[2rem] font-light tracking-[-0.04em] text-[#111111]">{liveInsightValue}</div>
-              <div className="text-sm text-[#6f716d]">high-value payouts in active review</div>
+
+          <SurfaceEyebrow>Action required</SurfaceEyebrow>
+
+          <p className="mt-2 max-w-[22rem] text-[16px] font-medium leading-[1.55] text-[#111111]">
+            Primary issue: delays from one bank exceeding expected confirmation time.
+          </p>
+          <p className="mt-2 max-w-[22rem] text-[14px] leading-[1.65] text-[#6f716d]">
+            Next step: review and follow up on delayed confirmations.
+          </p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-[0.8rem] border border-[#E5E5E5] bg-[#f8f8f7] px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.1em] text-[#8b8a86]">Primary Issue</div>
+              <div className="mt-1 text-[12px] font-medium text-[#111111]">Bank confirmation delay</div>
             </div>
-            <div className="relative h-24 w-24">
+            <div className="rounded-[0.8rem] border border-[#E5E5E5] bg-[#f8f8f7] px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.1em] text-[#8b8a86]">Next Action</div>
+              <div className="mt-1 text-[12px] font-medium text-[#111111]">Follow-up review required</div>
+            </div>
+          </div>
+
+          <div className="mt-auto pt-5 flex items-end justify-between gap-3">
+            <div>
+              <div className="text-[2.6rem] font-light leading-none tracking-[-0.04em] text-[#111111]">{liveInsightValue}</div>
+              <div className="mt-1.5 text-[13px] leading-5 text-[#6f716d]">in disbursements pending confirmation</div>
+              <div className="mt-1 text-[13px] leading-5 text-[#6f716d]">
+                Number of affected transactions: <span className="font-medium text-[#111111]">{affectedTransactions}</span>
+              </div>
+            </div>
+            <div className="relative h-[4.5rem] w-[4.5rem] shrink-0">
               <svg viewBox="0 0 120 72" className="h-full w-full" aria-hidden="true">
-                <path d="M12 60a48 48 0 0 1 96 0" fill="none" stroke="#d9d9d9" strokeWidth="8" strokeLinecap="round" />
+                <path d="M12 60a48 48 0 0 1 96 0" fill="none" stroke="#E5E5E4" strokeWidth="10" strokeLinecap="round" />
                 <path
                   d="M12 60a48 48 0 0 1 96 0"
                   fill="none"
                   stroke="#111111"
-                  strokeWidth="8"
+                  strokeWidth="10"
                   strokeLinecap="round"
                   pathLength={1}
                   strokeDasharray={`${snapshot.insightGaugeProgress} 1`}
                 />
               </svg>
+              <div className="absolute inset-0 flex items-end justify-center pb-1">
+                <span className="text-[11px] font-semibold tabular-nums text-[#111111]">
+                  {Math.round(snapshot.insightGaugeProgress * 100)}%
+                </span>
+              </div>
             </div>
           </div>
         </LightCard>
+
       </div>
 
       <div className="relative z-10 mx-auto -mt-10 w-full max-w-[62rem] px-4">
@@ -408,63 +545,90 @@ export function HomeSurface({
             </div>
           </div>
         ) : null}
-        <div className="rounded-[1.35rem] bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
-          <div className="mb-3 flex flex-wrap gap-2">
-            {homeSimulationScenarios.map((item) => (
+        {!isPromptExpanded ? (
+          <button
+            type="button"
+            onClick={() => setIsPromptExpanded(true)}
+            className="mx-auto flex w-full max-w-[24rem] items-center gap-3 rounded-[1rem] bg-[#1F1F1F] px-4 py-3 text-left text-white shadow-[0_8px_32px_rgba(0,0,0,0.10)]"
+            aria-label="Open Ask Zord prompt"
+          >
+            <span className="flex h-9 w-9 items-center justify-center rounded-[0.7rem] bg-[#4ADE80] text-[#111111]">
+              <Glyph name="zap" className="h-4 w-4" />
+            </span>
+            <span className="text-[14px] font-medium">Ask Zord</span>
+            <span className="ml-auto text-white/70">
+              <Glyph name="arrow-up-right" className="h-4 w-4" />
+            </span>
+          </button>
+        ) : (
+          <div className="rounded-[1.35rem] bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="text-[11px] uppercase tracking-[0.1em] text-white/60">Ask Zord</div>
               <button
-                key={`home-command-${item.prompt}`}
                 type="button"
-                onClick={() => onQuickPrompt(item.prompt)}
-                className={`rounded-[0.9rem] px-3 py-2 text-[12px] transition ${
-                  scenario.prompt === item.prompt ? 'bg-white/16 text-white' : 'bg-white/10 text-white/74 hover:bg-white/14 hover:text-white'
-                } ${commandStatus === 'loading' || commandStatus === 'typing' ? 'opacity-70' : ''}`}
+                onClick={() => setIsPromptExpanded(false)}
+                className="rounded-full border border-white/20 px-2.5 py-1 text-[11px] text-white/75 hover:text-white"
               >
-                {item.prompt}
+                Minimize
               </button>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3 rounded-[1rem] border border-white/8 bg-[#232323] p-3">
-            <div className={`flex h-14 w-14 items-center justify-center rounded-[0.85rem] bg-[#4ADE80] text-[#111111] ${commandStatus === 'loading' || commandStatus === 'typing' ? 'animate-pulse' : ''}`}>
-              <Glyph name="zap" className="h-5 w-5" />
             </div>
-            <div className="flex-1">
-              <input
-                value={promptInput}
-                onChange={(event) => onPromptInputChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') onPromptSubmit()
-                }}
-                placeholder="Ask anything about payouts, risk, or proof readiness"
-                className="w-full bg-transparent text-center text-[15px] text-white/90 outline-none placeholder:text-white/42"
-              />
-              <div className="mt-1 text-center text-[11px] tracking-[0.04em] text-white/38">
-                {commandStatus === 'loading'
-                  ? 'Reading route posture, recovery lift, and proof movement...'
-                  : commandStatus === 'typing'
-                    ? 'Composing a simulated operator answer...'
-                    : "Simulation-ready prompt layer on top of Zord's evidence graph - no runtime dependency on PSPs or banks."}
+            <div className="mb-3 flex flex-wrap gap-2">
+              {homeSimulationScenarios.map((item) => (
+                <button
+                  key={`home-command-${item.prompt}`}
+                  type="button"
+                  onClick={() => onQuickPrompt(item.prompt)}
+                  className={`rounded-[0.9rem] px-3 py-2 text-[12px] transition ${
+                    scenario.prompt === item.prompt ? 'bg-white/16 text-white' : 'bg-white/10 text-white/74 hover:bg-white/14 hover:text-white'
+                  } ${commandStatus === 'loading' || commandStatus === 'typing' ? 'opacity-70' : ''}`}
+                >
+                  {item.prompt}
+                </button>
+              ))}
+            </div>
+
+            <div ref={promptRowRef} className="flex items-center gap-3 rounded-[1rem] border border-white/8 bg-[#232323] p-3">
+              <div className={`flex h-14 w-14 items-center justify-center rounded-[0.85rem] bg-[#4ADE80] text-[#111111] ${commandStatus === 'loading' || commandStatus === 'typing' ? 'animate-pulse' : ''}`}>
+                <Glyph name="zap" className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <input
+                  value={promptInput}
+                  onChange={(event) => onPromptInputChange(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') onPromptSubmit()
+                  }}
+                  placeholder="Ask about disbursement status, delays, or confirmations"
+                  className={`w-full bg-transparent text-center text-[15px] !text-white placeholder:text-white/48 caret-[#4ADE80] outline-none ${promptTone.inputToneClass}`}
+                />
+                <div className={`mt-1 text-center text-[11px] tracking-[0.04em] ${promptTone.captionToneClass}`}>
+                  {commandStatus === 'loading'
+                    ? 'Reading route posture, recovery lift, and proof movement...'
+                    : commandStatus === 'typing'
+                      ? 'Composing a simulated operator answer...'
+                      : 'Simulation-ready prompt layer on top of Zord evidence graph - no runtime dependency on payment partners or banks.'}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onPromptSubmit}
+                  className="flex h-12 w-12 items-center justify-center rounded-[0.85rem] border border-white/8 bg-transparent text-white"
+                  aria-label="Home overview help"
+                >
+                  <Glyph name="arrow-up-right" className="h-[18px] w-[18px]" />
+                </button>
+                <button
+                  type="button"
+                  className="flex h-12 w-12 items-center justify-center rounded-[0.85rem] border border-white/8 bg-transparent text-white"
+                  aria-label="Home overview tools"
+                >
+                  <Glyph name="grid" className="h-[18px] w-[18px]" />
+                </button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onPromptSubmit}
-                className="flex h-12 w-12 items-center justify-center rounded-[0.85rem] border border-white/8 bg-transparent text-white"
-                aria-label="Home overview help"
-              >
-                <Glyph name="arrow-up-right" className="h-[18px] w-[18px]" />
-              </button>
-              <button
-                type="button"
-                className="flex h-12 w-12 items-center justify-center rounded-[0.85rem] border border-white/8 bg-transparent text-white"
-                aria-label="Home overview tools"
-              >
-                <Glyph name="grid" className="h-[18px] w-[18px]" />
-              </button>
-            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )

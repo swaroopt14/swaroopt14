@@ -43,6 +43,26 @@ function statusBadgeClass(status: BatchRowStatus) {
   return 'bg-[#eff6ff] text-[#1d4ed8] border-[#bfdbfe]'
 }
 
+function statusLabel(status: BatchRowStatus) {
+  if (status === 'Success') return 'Confirmed'
+  if (status === 'Failed') return 'Requires Review'
+  if (status === 'Pending') return 'Pending Confirmation'
+  return 'Processing'
+}
+
+function disbursementMethodFromProvider(provider: BatchRow['provider']) {
+  if (provider === 'RazorpayX' || provider === 'Stripe') return 'Bank Transfer'
+  if (provider === 'Cashfree' || provider === 'PayU') return 'LSM'
+  return 'Other'
+}
+
+function mandateStatusFromRow(row: BatchRow) {
+  if (row.status === 'Success') return 'Active'
+  if (row.status === 'Pending') return 'Pending'
+  if (row.status === 'Failed') return 'Failed'
+  return 'Pending'
+}
+
 function timelineStateClass(state: BatchTimelineStep['state']) {
   if (state === 'done') return 'bg-[#22c55e] border-[#22c55e] text-white'
   if (state === 'active') return 'bg-[#3b82f6] border-[#3b82f6] text-white'
@@ -307,6 +327,22 @@ export default function BatchCommandCenterClient() {
     return { totalAmount, settledAmount, failedAmount, pendingAmount }
   }, [averageAmount, processingCount, summary.failed, summary.success, summary.totalRows, summary.pending])
 
+  const settlementSummary = useMemo(() => {
+    const confirmed = amountSummary.settledAmount
+    const processedButUnconfirmed = amountSummary.pendingAmount * 0.68
+    const notFound = Math.max(0, amountSummary.pendingAmount * 0.32 + amountSummary.failedAmount * 0.55)
+    return { confirmed, processedButUnconfirmed, notFound }
+  }, [amountSummary.failedAmount, amountSummary.pendingAmount, amountSummary.settledAmount])
+
+  const mandateSummary = useMemo(() => {
+    const active = Math.round(summary.totalRows * 0.88)
+    const pending = Math.round(summary.totalRows * 0.07)
+    const failed = Math.max(0, summary.totalRows - active - pending)
+    return { active, pending, failed }
+  }, [summary.totalRows])
+
+  const reviewCount = summary.failed + Math.round(summary.pending * 0.35)
+
   const downloadReport = useCallback(() => {
     const csv = toCsv(filteredRows.length ? filteredRows : rows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -376,9 +412,9 @@ export default function BatchCommandCenterClient() {
                 <span>/</span>
                 <span className="text-[#111111]">Batch command center</span>
               </div>
-              <h1 className="mt-3 text-[2.25rem] font-medium tracking-[-0.05em] text-[#111111] md:text-[2.85rem]">Batch command center</h1>
+              <h1 className="mt-3 text-[2.25rem] font-medium tracking-[-0.05em] text-[#111111] md:text-[2.85rem]">Batch Disbursement & Settlement Overview</h1>
               <p className="mt-2 max-w-2xl text-[14px] leading-6 text-[#6f716d]">
-                Upload payout sheets, monitor progress and failure pressure, then action retries with full row-level evidence.
+                Track disbursement status, mandate readiness, and settlement confirmation for this batch.
               </p>
             </div>
 
@@ -437,26 +473,22 @@ export default function BatchCommandCenterClient() {
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#8a8a86]">Batch context</div>
-              <h1 className="mt-2 text-[2.1rem] font-medium tracking-[-0.04em] text-[#111111]">Vendor Payout – April 27</h1>
+              <h1 className="mt-2 text-[2.1rem] font-medium tracking-[-0.04em] text-[#111111]">Batch context</h1>
               <div className="mt-4 grid gap-2 text-[14px] text-[#5f5f5b] sm:grid-cols-2 xl:grid-cols-5">
                 <div>
-                  <span className="text-[#8a8a86]">Batch ID:</span> BATCH_78231
+                  <span className="text-[#8a8a86]">Batch ID:</span> SAP-2026-03-21-001
                 </div>
                 <div>
-                  <span className="text-[#8a8a86]">Total Rows:</span> {summary.totalRows.toLocaleString('en-IN')}
+                  <span className="text-[#8a8a86]">Source System:</span> Loan Management System
                 </div>
                 <div>
-                  <span className="text-[#8a8a86]">Created At:</span> 10:00 AM
+                  <span className="text-[#8a8a86]">Loan Type:</span> Personal Loans
                 </div>
                 <div>
-                  <span className="text-[#8a8a86]">Last Refresh:</span>{' '}
-                  {new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' }).format(lastRefreshedAt)}
+                  <span className="text-[#8a8a86]">Total Disbursements:</span> {summary.totalRows.toLocaleString('en-IN')}
                 </div>
-                <div className="inline-flex items-center gap-2">
-                  <span className="text-[#8a8a86]">Status:</span>
-                  <span className="inline-flex items-center rounded-full bg-[#eff6ff] px-2.5 py-1 text-[12px] font-medium text-[#1d4ed8]">
-                    ⚡ {processingCount > 0 ? 'Processing' : 'Finalized'}
-                  </span>
+                <div>
+                  <span className="text-[#8a8a86]">Total Value:</span> {formatInr(amountSummary.totalAmount)}
                 </div>
               </div>
             </div>
@@ -466,13 +498,13 @@ export default function BatchCommandCenterClient() {
             </div>
           </div>
 
-          <div className="mt-5 rounded-[1rem] border border-dashed border-[#d4d4d2] bg-[#fafaf8] p-4">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <div className="text-[13px] font-medium text-[#111111]">Upload payout sheet (CSV / Excel)</div>
-                <div className="mt-1 text-[12px] text-[#7a7a76]">
-                  Drop a file to stage a batch and preview operational rows before final dispatch.
-                </div>
+            <div className="mt-5 rounded-[1rem] border border-dashed border-[#d4d4d2] bg-[#fafaf8] p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-[13px] font-medium text-[#111111]">Data Sync</div>
+                  <div className="mt-1 text-[12px] text-[#7a7a76]">
+                    Last updated: 2 mins ago. Data synced from loan system, mandate system, and payment partners.
+                  </div>
                 {uploadedFileName ? (
                   <div className="mt-2 text-[12px] text-[#2b2b29]">
                     Loaded file: <span className="font-medium">{uploadedFileName}</span>
@@ -491,18 +523,41 @@ export default function BatchCommandCenterClient() {
                     {uploadRelayMessage}
                   </div>
                 ) : null}
-              </div>
-              <label className="inline-flex cursor-pointer items-center rounded-[10px] border border-[#111111] bg-white px-4 py-2.5 text-[13px] font-medium text-[#111111]">
-                {uploadState === 'uploading' ? 'Uploading…' : 'Choose file'}
+                </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={refreshSimulation}
+                  className="inline-flex items-center rounded-[10px] border border-[#111111] bg-white px-4 py-2.5 text-[13px] font-medium text-[#111111]"
+                >
+                  🔄 Refresh from Loan System
+                </button>
+                <button
+                  type="button"
+                  onClick={refreshSimulation}
+                  className="inline-flex items-center rounded-[10px] border border-[#111111] bg-white px-4 py-2.5 text-[13px] font-medium text-[#111111]"
+                >
+                  📄 Fetch Settlement Updates
+                </button>
+                <button
+                  type="button"
+                  onClick={refreshSimulation}
+                  className="inline-flex items-center rounded-[10px] border border-[#111111] bg-white px-4 py-2.5 text-[13px] font-medium text-[#111111]"
+                >
+                  🏦 Check Mandate Status (NACH)
+                </button>
+                <label className="inline-flex cursor-pointer items-center rounded-[10px] border border-[#111111] bg-white px-4 py-2.5 text-[13px] font-medium text-[#111111]">
+                  {uploadState === 'uploading' ? 'Uploading…' : 'Upload file'}
                 <input
                   type="file"
                   accept=".csv,.xls,.xlsx"
                   className="hidden"
                   onChange={(event) => void onUploadFile(event.target.files?.[0] ?? null)}
                 />
-              </label>
+                </label>
+              </div>
+              </div>
             </div>
-          </div>
             </section>
 
         <section className="sticky top-0 z-20 rounded-[1rem] border border-[#E5E5E5] bg-[#ebebeb]/95 px-4 py-3 backdrop-blur-sm">
@@ -518,6 +573,27 @@ export default function BatchCommandCenterClient() {
           </div>
         </section>
 
+        <section className="rounded-[1rem] border border-[#E5E5E5] bg-white p-5">
+          <div className="text-[12px] uppercase tracking-[0.1em] text-[#8a8a86]">Disbursement status</div>
+          <div className="mt-3 overflow-x-auto rounded-[0.8rem] border border-[#efefec]">
+            <table className="min-w-full text-left text-[13px]">
+              <thead className="bg-[#fafaf8] text-[#8a8a86]">
+                <tr>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Count</th>
+                  <th className="px-3 py-2">Value</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f0f0ed]">
+                <tr><td className="px-3 py-2 text-[#111111]">Confirmed</td><td className="px-3 py-2">{summary.success.toLocaleString('en-IN')}</td><td className="px-3 py-2">{formatInr(amountSummary.settledAmount)}</td></tr>
+                <tr><td className="px-3 py-2 text-[#111111]">Pending Confirmation</td><td className="px-3 py-2">{summary.pending.toLocaleString('en-IN')}</td><td className="px-3 py-2">{formatInr(amountSummary.pendingAmount)}</td></tr>
+                <tr><td className="px-3 py-2 text-[#111111]">Requires Review</td><td className="px-3 py-2">{reviewCount.toLocaleString('en-IN')}</td><td className="px-3 py-2">{formatInr(amountSummary.failedAmount)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 text-[12px] text-[#6f716d]">Most disbursements are completed successfully. Pending cases are mainly awaiting confirmation from banks.</div>
+        </section>
+
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <article className="rounded-[1rem] border border-[#E5E5E5] bg-white p-4">
             <div className="text-[12px] uppercase tracking-[0.1em] text-[#8a8a86]">Processed</div>
@@ -530,7 +606,7 @@ export default function BatchCommandCenterClient() {
             <div className="mt-2 text-[13px] text-[#6f716d]">{summary.success.toLocaleString('en-IN')}</div>
           </article>
           <article className="rounded-[1rem] border border-[#E5E5E5] bg-white p-4">
-            <div className="text-[12px] uppercase tracking-[0.1em] text-[#8a8a86]">Failed</div>
+            <div className="text-[12px] uppercase tracking-[0.1em] text-[#8a8a86]">Requires Review</div>
             <div className="mt-2 text-[2rem] font-light tracking-[-0.04em] text-[#b91c1c]">{formatPercent(progress.failedPct)}</div>
             <div className="mt-2 text-[13px] text-[#6f716d]">{summary.failed.toLocaleString('en-IN')}</div>
           </article>
@@ -539,6 +615,59 @@ export default function BatchCommandCenterClient() {
             <div className="mt-2 text-[2rem] font-light tracking-[-0.04em] text-[#b45309]">{formatPercent(progress.pendingPct)}</div>
             <div className="mt-2 text-[13px] text-[#6f716d]">{summary.pending.toLocaleString('en-IN')}</div>
           </article>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-2">
+          <article className="rounded-[1rem] border border-[#E5E5E5] bg-white p-5">
+            <div className="text-[12px] uppercase tracking-[0.1em] text-[#8a8a86]">Mandate readiness (NACH)</div>
+            <div className="mt-3 overflow-x-auto rounded-[0.8rem] border border-[#efefec]">
+              <table className="min-w-full text-left text-[13px]">
+                <thead className="bg-[#fafaf8] text-[#8a8a86]">
+                  <tr><th className="px-3 py-2">Status</th><th className="px-3 py-2">Count</th></tr>
+                </thead>
+                <tbody className="divide-y divide-[#f0f0ed]">
+                  <tr><td className="px-3 py-2 text-[#111111]">Active Mandates</td><td className="px-3 py-2">{mandateSummary.active.toLocaleString('en-IN')}</td></tr>
+                  <tr><td className="px-3 py-2 text-[#111111]">Pending Authorization</td><td className="px-3 py-2">{mandateSummary.pending.toLocaleString('en-IN')}</td></tr>
+                  <tr><td className="px-3 py-2 text-[#111111]">Failed / Rejected</td><td className="px-3 py-2">{mandateSummary.failed.toLocaleString('en-IN')}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 text-[12px] text-[#6f716d]">A portion of borrowers have not completed mandate authorization, which may impact future EMI collections.</div>
+          </article>
+
+          <article className="rounded-[1rem] border border-[#E5E5E5] bg-white p-5">
+            <div className="text-[12px] uppercase tracking-[0.1em] text-[#8a8a86]">Settlement confirmation</div>
+            <div className="mt-3 overflow-x-auto rounded-[0.8rem] border border-[#efefec]">
+              <table className="min-w-full text-left text-[13px]">
+                <thead className="bg-[#fafaf8] text-[#8a8a86]">
+                  <tr><th className="px-3 py-2">Category</th><th className="px-3 py-2">Value</th></tr>
+                </thead>
+                <tbody className="divide-y divide-[#f0f0ed]">
+                  <tr><td className="px-3 py-2 text-[#111111]">Confirmed (Bank Verified)</td><td className="px-3 py-2">{formatInr(settlementSummary.confirmed)}</td></tr>
+                  <tr><td className="px-3 py-2 text-[#111111]">Processed but Unconfirmed</td><td className="px-3 py-2">{formatInr(settlementSummary.processedButUnconfirmed)}</td></tr>
+                  <tr><td className="px-3 py-2 text-[#111111]">Not Found in Settlement</td><td className="px-3 py-2">{formatInr(settlementSummary.notFound)}</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 text-[12px] text-[#6f716d]">Some transactions are processed but not yet confirmed by the bank. These should be monitored but are not necessarily failures.</div>
+          </article>
+        </section>
+
+        <section className="rounded-[1rem] border border-[#E5E5E5] bg-white p-5">
+          <div className="text-[12px] uppercase tracking-[0.1em] text-[#8a8a86]">By disbursement method</div>
+          <div className="mt-3 overflow-x-auto rounded-[0.8rem] border border-[#efefec]">
+            <table className="min-w-full text-left text-[13px]">
+              <thead className="bg-[#fafaf8] text-[#8a8a86]">
+                <tr><th className="px-3 py-2">Method</th><th className="px-3 py-2">Confirmed</th><th className="px-3 py-2">Pending</th><th className="px-3 py-2">Issues</th></tr>
+              </thead>
+              <tbody className="divide-y divide-[#f0f0ed]">
+                <tr><td className="px-3 py-2 text-[#111111]">Bank Transfer</td><td className="px-3 py-2">{Math.round(summary.success * 0.6)}</td><td className="px-3 py-2">{Math.round(summary.pending * 0.35)}</td><td className="px-3 py-2">{Math.round(summary.failed * 0.2)}</td></tr>
+                <tr><td className="px-3 py-2 text-[#111111]">LSM</td><td className="px-3 py-2">{Math.round(summary.success * 0.26)}</td><td className="px-3 py-2">{Math.round(summary.pending * 0.42)}</td><td className="px-3 py-2">{Math.round(summary.failed * 0.4)}</td></tr>
+                <tr><td className="px-3 py-2 text-[#111111]">Other</td><td className="px-3 py-2">{Math.round(summary.success * 0.14)}</td><td className="px-3 py-2">{Math.round(summary.pending * 0.23)}</td><td className="px-3 py-2">{Math.round(summary.failed * 0.4)}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-3 text-[12px] text-[#6f716d]">Delays are higher in LSM transactions compared to direct bank transfers.</div>
         </section>
 
         <section className="grid gap-4 xl:grid-cols-2">
@@ -616,7 +745,7 @@ export default function BatchCommandCenterClient() {
                 )
               })}
             </div>
-            <div className="mt-4 text-[12px] text-[#7a7a76]">Click a reason to filter table rows and speed up operator triage.</div>
+            <div className="mt-4 text-[12px] text-[#7a7a76]">Top issues: Bank confirmation delay, mandate not authorized, settlement mismatch.</div>
           </article>
         </section>
 
@@ -628,7 +757,7 @@ export default function BatchCommandCenterClient() {
 
         {processingCount === 0 && summary.pending === 0 ? (
           <section className="rounded-[1rem] border border-[#bbf7d0] bg-[#f0fdf4] p-4 text-[14px] font-medium text-[#166534]">
-            ✔ All payouts finalized successfully.
+            ✔ All disbursements confirmed successfully.
           </section>
         ) : null}
 
@@ -685,11 +814,11 @@ export default function BatchCommandCenterClient() {
                 <tr>
                   <th className="px-4 py-3">Ref ID</th>
                   <th className="px-4 py-3">Amount</th>
-                  <th className="px-4 py-3">Beneficiary</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Stage</th>
-                  <th className="px-4 py-3">Reason</th>
-                  <th className="px-4 py-3">Time</th>
+                  <th className="px-4 py-3">Borrower Name</th>
+                  <th className="px-4 py-3">Disbursement Method</th>
+                  <th className="px-4 py-3">Mandate Status</th>
+                  <th className="px-4 py-3">Disbursement Status</th>
+                  <th className="px-4 py-3">Last Updated</th>
                   <th className="px-4 py-3">Action</th>
                 </tr>
               </thead>
@@ -705,11 +834,13 @@ export default function BatchCommandCenterClient() {
                         <td className="px-4 py-3 font-medium text-[#111111]">{row.refId}</td>
                         <td className="px-4 py-3 text-[#111111]">{formatInr(row.amount)}</td>
                         <td className="px-4 py-3">{row.beneficiary}</td>
+                        <td className="px-4 py-3 text-[#4f4f4b]">{disbursementMethodFromProvider(row.provider)}</td>
                         <td className="px-4 py-3">
-                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusBadgeClass(row.status)}`}>{row.status}</span>
+                          <span className="inline-flex rounded-full border border-[#E5E5E5] bg-[#fafaf8] px-2.5 py-1 text-[11px] font-medium text-[#4f4f4b]">{mandateStatusFromRow(row)}</span>
                         </td>
-                        <td className="px-4 py-3 text-[#4f4f4b]">{row.stage}</td>
-                        <td className="px-4 py-3 text-[#4f4f4b]">{row.reason}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusBadgeClass(row.status)}`}>{statusLabel(row.status)}</span>
+                        </td>
                         <td className="px-4 py-3 text-[#4f4f4b]">{row.time}</td>
                         <td className="px-4 py-3">
                           <button

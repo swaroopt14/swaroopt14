@@ -136,10 +136,10 @@ VALUES (
 		intent.CanonicalSnapshotRef,      // $21
 		intent.NIRSnapshotRef,            // $22
 		intent.GovernanceSnapshotRef,     // $23
-		intent.GovernanceHash,            // $24
-		intent.CanonicalHash,             // $25
-		intent.CreatedAt,                 // $26
-		intent.ClientPayoutRef,           // $27
+		intent.GovernanceHash,            // $24  ← matches column: governance_hash
+		intent.CanonicalHash,             // $25  ← matches column: canonical_hash
+		intent.CreatedAt,                 // $26  ← matches column: created_at
+		intent.ClientPayoutRef,           // $27  ← matches column: client_payout_ref
 		intent.ProviderHint,              // $28
 		intent.RequestFingerprint,        // $29
 		intent.RoutingHintsJSON,          // $30
@@ -262,8 +262,8 @@ INSERT INTO outbox (
 		outbox.CanonicalSnapshotRef,      // $23
 		outbox.NIRSnapshotRef,            // $24
 		outbox.GovernanceSnapshotRef,     // $25
-		outbox.GovernanceHash,            // $26
-		outbox.ClientPayoutRef,           // $27
+		outbox.GovernanceHash,            // $26  ← matches column: governance_hash
+		outbox.ClientPayoutRef,           // $27  ← matches column: client_payout_ref
 		outbox.ProviderHint,              // $28
 		outbox.RequestFingerprint,        // $29
 		outbox.RoutingHintsJSON,          // $30
@@ -280,16 +280,16 @@ INSERT INTO outbox (
 		outbox.IntentQualityScore,        // $41
 		outbox.MappingConfidenceScore,    // $42
 		outbox.SchemaCompletenessScore,   // $43
-		outbox.GovernanceReasonCodesJSON, // $44
+		outbox.GovernanceReasonCodesJSON, // $44  ← matches column: governance_reason_codes_json (JSON)
 		outbox.DuplicateReasonCode,       // $45
 		outbox.ClientBatchRef,            // $46
-		outbox.Payload,                   // $47
+		outbox.Payload,                   // $47  ← matches column: payload (JSON)
 		outbox.PayloadHash,               // $48
 		outbox.Status,                    // $49
 		outbox.RetryCount,                // $50
 		outbox.NextRetryAt,               // $51
 		outbox.CreatedAt,                 // $52
-		outbox.BatchID,                   // $53
+		outbox.BatchID,                   // $53  ← matches column: batchid
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)

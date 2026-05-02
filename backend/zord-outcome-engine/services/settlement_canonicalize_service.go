@@ -35,7 +35,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT 
 			parsed_row_id, settlement_envelope_id, source_file_ref, source_row_ref,
-			ingest_run_id, settlement_batch_id,
+			ingest_run_id, settlement_batch_id, client_batch_id,
 			parsed_candidates_json, parse_confidence, parse_warnings_json
 		FROM settlement_parsed_rows
 		WHERE job_id = $1 AND tenant_id = $2
@@ -66,12 +66,13 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			sourceRowRef      string
 			ingestRunID       string
 			settlementBatchID string
+			clientBatchID     string
 			shapeJSON         []byte
 			parseConfidence   float64
 			warningsJSON      []byte
 		)
 
-		if err := rows.Scan(&parsedRowID, &envelopeID, &sourceFileRef, &sourceRowRef, &ingestRunID, &settlementBatchID, &shapeJSON, &parseConfidence, &warningsJSON); err != nil {
+		if err := rows.Scan(&parsedRowID, &envelopeID, &sourceFileRef, &sourceRowRef, &ingestRunID, &settlementBatchID, &clientBatchID, &shapeJSON, &parseConfidence, &warningsJSON); err != nil {
 			log.Printf("settlement.canonicalize.scan_error job_id=%s err=%v", jobID, err)
 			continue
 		}
@@ -87,13 +88,13 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		if err := json.Unmarshal(shapeJSON, &shape); err != nil {
 			log.Printf("settlement.canonicalize.unmarshal_failed job_id=%s row=%s", jobID, sourceRowRef)
 			svc := &SettlementIngestService{}
-			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "SHAPE_UNMARSHAL_FAILED", profile, ingestRunID, settlementBatchID)
+			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "SHAPE_UNMARSHAL_FAILED", profile, ingestRunID, settlementBatchID, clientBatchID)
 			canonicalizeFailed++
 			continue
 		}
 
 		// 2. Build canonical observation.
-		obs := buildCanonicalObservation(tenantID, jobID, parsedRowID, envelopeID, shape, parseConfidence, profile)
+		obs := buildCanonicalObservation(tenantID, jobID, parsedRowID, envelopeID, shape, parseConfidence, profile, clientBatchID)
 
 		// 3. Insert into Postgres.
 		_, err = db.DB.ExecContext(ctx, `
@@ -109,16 +110,16 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				retry_flag, reversal_flag, return_flag,
 				observation_timestamp, value_date,
 				provider_ref_status,
-				mapping_profile_id, mapping_profile_version,
+				mapping_profile_id, mapping_profile_version, parser_version,
 				parse_confidence, mapping_confidence,
 				carrier_richness_score, attachment_readiness_score,
-				canonical_hash,
+				canonical_hash, client_batch_id,
 				created_at, updated_at
 			) VALUES (
 				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 				$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 				$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-				$31,$32,$33,$34,$35,$36,$37,$38
+				$31,$32,$33,$34,$35,$36,$37,$38,$39,$40
 			) ON CONFLICT (settlement_observation_id) DO NOTHING`,
 			obs.SettlementObservationID, obs.TenantID, obs.TraceID,
 			obs.SettlementEnvelopeID, obs.JobID, ingestRunID, settlementBatchID,
@@ -129,16 +130,16 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			obs.Amount, obs.SettledAmount, obs.FeeAmount,
 			obs.DeductionAmount, obs.CurrencyCode, obs.SettlementStatus, obs.RetryFlag,
 			obs.ReversalFlag, obs.ReturnFlag, obs.ObservationTimestamp, obs.ValueDate,
-			obs.ProviderRefStatus, obs.MappingProfileID, obs.MappingProfileVersion,
+			obs.ProviderRefStatus, obs.MappingProfileID, obs.MappingProfileVersion, obs.MappingProfileVersion,
 			obs.ParseConfidence, obs.MappingConfidence, obs.CarrierRichnessScore,
-			obs.AttachmentReadinessScore, obs.CanonicalHash,
+			obs.AttachmentReadinessScore, obs.CanonicalHash, obs.ClientBatchID,
 			obs.CreatedAt, obs.UpdatedAt,
 		)
 
 		if err != nil {
 			log.Printf("settlement.canonicalize.insert_failed job_id=%s row=%s err=%v", jobID, sourceRowRef, err)
 			svc := &SettlementIngestService{}
-			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "INSERT_FAILED", profile, ingestRunID, settlementBatchID)
+			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "INSERT_FAILED", profile, ingestRunID, settlementBatchID, clientBatchID)
 			canonicalizeFailed++
 			continue
 		}
@@ -262,6 +263,7 @@ func buildCanonicalObservation(
 	shape models.UniversalSettlementShape,
 	parseConfidence float64,
 	profile models.MappingProfile, // NEW
+	clientBatchID string,
 ) models.CanonicalSettlementObservation {
 	obs := models.CanonicalSettlementObservation{
 		SettlementObservationID:  uuid.New(),
@@ -293,6 +295,7 @@ func buildCanonicalObservation(
 		ProviderRefStatus:        computeProviderRefStatus(shape),
 		MappingProfileID:         profile.ProfileID,
 		MappingProfileVersion:    profile.ProfileVersion,
+		ClientBatchID:            clientBatchID,
 		ParseConfidence:          parseConfidence,
 		MappingConfidence:        computeMappingConfidence(shape),
 		CarrierRichnessScore:     computeCarrierRichnessScore(shape),

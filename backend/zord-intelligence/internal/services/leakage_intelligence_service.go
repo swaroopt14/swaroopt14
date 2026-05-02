@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zord/zord-intelligence/internal/ml/zscore"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
@@ -37,6 +38,7 @@ type LeakageIntelligenceService struct {
 	projRepo     *persistence.ProjectionRepo
 	snapshotRepo *persistence.IntelligenceSnapshotRepo
 	mlRepo       *persistence.MLFeatureStoreRepo
+	predRepo     *persistence.MLPredictionRepo
 }
 
 // NewLeakageIntelligenceService creates a LeakageIntelligenceService.
@@ -44,11 +46,13 @@ func NewLeakageIntelligenceService(
 	projRepo *persistence.ProjectionRepo,
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
 	mlRepo *persistence.MLFeatureStoreRepo,
+	predRepo *persistence.MLPredictionRepo,
 ) *LeakageIntelligenceService {
 	return &LeakageIntelligenceService{
 		projRepo:     projRepo,
 		snapshotRepo: snapshotRepo,
 		mlRepo:       mlRepo,
+		predRepo:     predRepo,
 	}
 }
 
@@ -89,6 +93,18 @@ type LeakageSnapshot struct {
 	// ── Risk tier ─────────────────────────────────────────────────────────
 	// Derived from leakage_percentage using fixed thresholds (spec §10.1).
 	RiskTier string `json:"risk_tier"` // "CRITICAL" | "HIGH" | "MEDIUM" | "LOW" | "CLEAN"
+
+	// ── ML: Z-score anomaly detection ─────────────────────────────────────
+	// Is today's leakage unusually high compared to the historical baseline?
+	// AnomalyScore: 0.0 (normal) → 1.0 (extreme anomaly)
+	// AnomalyLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | "INSUFFICIENT_DATA"
+	// AnomalyZScore: raw z-value (how many stddevs above the mean)
+	//
+	// These complement the deterministic RiskTier: RiskTier says "you are leaking 5%
+	// of volume", AnomalyLevel says "5% is 3 stddevs above YOUR normal — unusual for you."
+	AnomalyScore  float64 `json:"anomaly_score"`
+	AnomalyLevel  string  `json:"anomaly_level"`
+	AnomalyZScore float64 `json:"anomaly_z_score"`
 
 	// ── Recommended action ────────────────────────────────────────────────
 	// Human-readable suggestion fed to the Recommendation intelligence layer.
@@ -133,22 +149,28 @@ func (s *LeakageIntelligenceService) ComputeAndSave(
 		return nil
 	}
 
-	// Step 2: build the snapshot from projection data
+	// Step 2: build the deterministic snapshot from projection data
 	snap := s.buildSnapshot(leakage)
 
-	// Step 3: build projection refs (audit trail of which row fed this snapshot)
+	// Step 3: ML — Z-score anomaly detection
+	// Read the last 30 days of leakage_percentage from the feature store.
+	// Compute how many standard deviations today's rate is from the historical mean.
+	// This tells us "is today's leakage unusually high FOR THIS TENANT?"
+	s.attachZScoreAnomaly(ctx, tenantID, leakage.LeakagePercentage, &snap)
+
+	// Step 4: build projection refs (audit trail of which row fed this snapshot)
 	projRefs := []string{"leakage.total"}
 	projRefsJSON, _ := json.Marshal(projRefs)
 
-	// Step 4: marshal snapshot body
+	// Step 5: marshal snapshot body
 	snapJSON, err := json.Marshal(snap)
 	if err != nil {
 		return fmt.Errorf("leakage_svc.ComputeAndSave marshal snap tenant=%s: %w", tenantID, err)
 	}
 
-	// Step 5: persist to intelligence_snapshots
+	// Step 6: persist to intelligence_snapshots
 	snapID := "snap_" + uuid.New().String()
-	modelVer := "deterministic_v1"
+	modelVer := "zscore_v1"
 	if err := s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
 		SnapshotID:         snapID,
 		TenantID:           tenantID,
@@ -165,14 +187,15 @@ func (s *LeakageIntelligenceService) ComputeAndSave(
 		return fmt.Errorf("leakage_svc.ComputeAndSave Create snapshot tenant=%s: %w", tenantID, err)
 	}
 
-	// Step 6: persist ML features for future leakage forecasting (Phase 8)
-	// We capture features now so the training dataset accumulates from day 1.
+	// Step 7: persist ML features for future leakage forecasting.
 	// label_json is nil — the outcome (actual resolved leakage) comes later.
 	if err := s.persistMLFeatures(ctx, tenantID, snapID, leakage, windowStart, windowEnd); err != nil {
-		// Non-fatal: ML feature capture failure must not block the main flow.
 		log.Printf("leakage_svc: persistMLFeatures failed tenant=%s snap=%s: %v",
 			tenantID, snapID, err)
 	}
+
+	// Step 8: persist the Z-score prediction to ml_predictions for audit trail.
+	s.persistMLPrediction(ctx, tenantID, snapID, snap)
 
 	return nil
 }
@@ -301,6 +324,66 @@ func (s *LeakageIntelligenceService) recommendedAction(lv *models.LeakageValue) 
 		return "ESCALATE: reversals after success detected — finance review required immediately"
 	default:
 		return ""
+	}
+}
+
+// attachZScoreAnomaly reads historical leakage rates and runs Z-score detection.
+// It mutates snap in-place, adding AnomalyScore, AnomalyLevel, AnomalyZScore.
+//
+// HOW Z-SCORE WORKS HERE:
+//   We read the last 30 daily leakage_percentage values from ml_feature_store.
+//   We compute mean and stddev of that history.
+//   z = (today - mean) / stddev
+//   If z > 2 → something unusual is happening for this tenant.
+func (s *LeakageIntelligenceService) attachZScoreAnomaly(
+	ctx context.Context,
+	tenantID string,
+	currentLeakagePct float64,
+	snap *LeakageSnapshot,
+) {
+	history, err := s.mlRepo.GetRecentFloatField(ctx, tenantID, "LEAKAGE", "leakage_percentage", 30)
+	if err != nil {
+		log.Printf("leakage_svc: GetRecentFloatField failed tenant=%s: %v", tenantID, err)
+		snap.AnomalyLevel = "INSUFFICIENT_DATA"
+		return
+	}
+
+	result := zscore.Detect(currentLeakagePct, history)
+	snap.AnomalyScore = result.Score
+	snap.AnomalyLevel = result.Level
+	snap.AnomalyZScore = result.ZScore
+}
+
+// persistMLPrediction writes the Z-score result to ml_predictions for audit trail.
+func (s *LeakageIntelligenceService) persistMLPrediction(
+	ctx context.Context,
+	tenantID, snapID string,
+	snap LeakageSnapshot,
+) {
+	explanation := map[string]any{
+		"algorithm":    "zscore_v1",
+		"z_score":      snap.AnomalyZScore,
+		"anomaly_level": snap.AnomalyLevel,
+		"leakage_pct":  snap.LeakagePercentage,
+	}
+	expJSON, _ := json.Marshal(explanation)
+
+	pred := persistence.MLPrediction{
+		PredictionID:     "pred_" + uuid.New().String(),
+		TenantID:         tenantID,
+		ModelID:          "zscore_v1_leakage",
+		ScopeType:        "TENANT",
+		ScopeRef:         tenantID,
+		PredictionFamily: "LEAKAGE",
+		PredictionValue:  snap.AnomalyLevel,
+		PredictionScore:  snap.AnomalyScore,
+		Confidence:       1.0,
+		ExplanationJSON:  expJSON,
+		SnapshotID:       &snapID,
+		CreatedAt:        time.Now().UTC(),
+	}
+	if err := s.predRepo.InsertPrediction(ctx, pred); err != nil {
+		log.Printf("leakage_svc: InsertPrediction failed tenant=%s: %v", tenantID, err)
 	}
 }
 

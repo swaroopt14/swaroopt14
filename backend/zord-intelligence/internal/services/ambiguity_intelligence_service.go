@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zord/zord-intelligence/internal/ml/logistic"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
@@ -37,18 +38,25 @@ type AmbiguityIntelligenceService struct {
 	projRepo     *persistence.ProjectionRepo
 	snapshotRepo *persistence.IntelligenceSnapshotRepo
 	mlRepo       *persistence.MLFeatureStoreRepo
+	predRepo     *persistence.MLPredictionRepo
+	lrModel      *logistic.Model // Logistic Regression: predicts ambiguity risk
 }
 
 // NewAmbiguityIntelligenceService creates an AmbiguityIntelligenceService.
+// The logistic regression model starts with domain-knowledge weights and
+// improves as labeled data accumulates in ml_labels.
 func NewAmbiguityIntelligenceService(
 	projRepo *persistence.ProjectionRepo,
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
 	mlRepo *persistence.MLFeatureStoreRepo,
+	predRepo *persistence.MLPredictionRepo,
 ) *AmbiguityIntelligenceService {
 	return &AmbiguityIntelligenceService{
 		projRepo:     projRepo,
 		snapshotRepo: snapshotRepo,
 		mlRepo:       mlRepo,
+		predRepo:     predRepo,
+		lrModel:      logistic.NewAmbiguityModel(), // domain-knowledge initial weights
 	}
 }
 
@@ -83,6 +91,18 @@ type AmbiguitySnapshot struct {
 	// If provider_ref_missing_rate > 0.15, source system needs patching.
 	WeakestCohortSignal string `json:"weakest_cohort_signal,omitempty"`
 
+	// ── ML: Logistic Regression risk prediction ───────────────────────────
+	// Answers: "given these batch features, how likely is this to get worse?"
+	// RiskPredictionScore: 0.0 (very safe) → 1.0 (almost certainly ambiguous)
+	// RiskPredictionLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+	//
+	// Unlike RiskTier (which reflects CURRENT ambiguity), this looks FORWARD:
+	// even a batch with low current ambiguity can score HIGH here if its
+	// feature profile (missing refs, low confidence) historically leads to
+	// ambiguity problems later.
+	RiskPredictionScore float64 `json:"risk_prediction_score"`
+	RiskPredictionLevel string  `json:"risk_prediction_level"`
+
 	// ── Recommended action ────────────────────────────────────────────────
 	RecommendedAction string `json:"recommended_action,omitempty"`
 
@@ -107,10 +127,26 @@ func (s *AmbiguityIntelligenceService) ComputeAndSave(
 		return nil // no data yet
 	}
 
-	// Step 2: build snapshot
+	// Step 2: build deterministic snapshot
 	snap := s.buildSnapshot(amb)
 
-	// Step 3: marshal and persist
+	// Step 3: ML — Logistic Regression risk prediction
+	// Feed the current ambiguity metrics as a feature vector into the LR model.
+	// The model outputs a probability: "how likely is this batch to become ambiguous?"
+	// We use 0 for totalIntendedMinor here (tenant-scope doesn't have it directly);
+	// the value_at_risk_rate feature will be 0, which is conservative and safe.
+	features := logistic.BuildFeatures(
+		amb.AmbiguityRate,
+		amb.ProviderRefMissingRate,
+		amb.AvgAttachmentConfidence,
+		amb.ValueAtRiskMinor,
+		0, // totalIntendedMinor — not available at tenant scope; feature [3] will be 0
+	)
+	prob := s.lrModel.Predict(features)
+	snap.RiskPredictionScore = prob
+	snap.RiskPredictionLevel = logistic.PredictLevel(prob)
+
+	// Step 4: marshal and persist
 	projRefs := []string{"ambiguity.summary"}
 	projRefsJSON, _ := json.Marshal(projRefs)
 	snapJSON, err := json.Marshal(snap)
@@ -119,7 +155,7 @@ func (s *AmbiguityIntelligenceService) ComputeAndSave(
 	}
 
 	snapID := "snap_" + uuid.New().String()
-	modelVer := "deterministic_v1"
+	modelVer := "logistic_regression_v1"
 	if err := s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
 		SnapshotID:         snapID,
 		TenantID:           tenantID,
@@ -136,10 +172,13 @@ func (s *AmbiguityIntelligenceService) ComputeAndSave(
 		return fmt.Errorf("ambiguity_svc.ComputeAndSave Create snapshot tenant=%s: %w", tenantID, err)
 	}
 
-	// Step 4: persist ML features (ambiguity propensity — Phase 8)
+	// Step 5: persist ML features
 	if err := s.persistMLFeatures(ctx, tenantID, snapID, amb, windowStart, windowEnd); err != nil {
 		log.Printf("ambiguity_svc: persistMLFeatures failed tenant=%s: %v", tenantID, err)
 	}
+
+	// Step 6: persist the LR prediction to ml_predictions for audit trail
+	s.persistMLPrediction(ctx, tenantID, snapID, features, prob, snap.RiskPredictionLevel)
 
 	return nil
 }
@@ -208,6 +247,50 @@ func (s *AmbiguityIntelligenceService) recommendedAction(av *models.AmbiguityVal
 		return "REQUEST_STRONGER_CARRIER_CONTRACT: too many unresolved settlements — renegotiate PSP reference fields"
 	}
 	return ""
+}
+
+// persistMLPrediction writes the Logistic Regression result to ml_predictions.
+// features: the 4-element vector fed to the model (for explainability).
+// prob: raw probability output from sigmoid.
+// level: human-readable risk level.
+func (s *AmbiguityIntelligenceService) persistMLPrediction(
+	ctx context.Context,
+	tenantID, snapID string,
+	features []float64,
+	prob float64,
+	level string,
+) {
+	explanation := map[string]any{
+		"algorithm": "logistic_regression_v1",
+		"features": map[string]any{
+			"ambiguity_rate":            features[0],
+			"provider_ref_missing_rate": features[1],
+			"low_confidence_proxy":      features[2],
+			"value_at_risk_rate":        features[3],
+		},
+		"probability":    prob,
+		"risk_level":     level,
+		"model_trained_on": s.lrModel.TrainedOn,
+	}
+	expJSON, _ := json.Marshal(explanation)
+
+	pred := persistence.MLPrediction{
+		PredictionID:     "pred_" + uuid.New().String(),
+		TenantID:         tenantID,
+		ModelID:          "logistic_regression_v1_ambiguity",
+		ScopeType:        "TENANT",
+		ScopeRef:         tenantID,
+		PredictionFamily: "AMBIGUITY",
+		PredictionValue:  level,
+		PredictionScore:  prob,
+		Confidence:       1.0,
+		ExplanationJSON:  expJSON,
+		SnapshotID:       &snapID,
+		CreatedAt:        time.Now().UTC(),
+	}
+	if err := s.predRepo.InsertPrediction(ctx, pred); err != nil {
+		log.Printf("ambiguity_svc: InsertPrediction failed tenant=%s: %v", tenantID, err)
+	}
 }
 
 func (s *AmbiguityIntelligenceService) persistMLFeatures(

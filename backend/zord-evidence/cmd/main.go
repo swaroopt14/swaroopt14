@@ -93,13 +93,23 @@ func main() {
 		}
 
 		// 3. Outcome consumer: captures leaves 1-4 → triggers GeneratePack()
-		log.Printf("evidence.main.outcome_consumer_bootstrap group=%s topic=%s brokers=%v",
-			cfg.OutcomeKafkaGroup, cfg.OutcomeKafkaTopic, cfg.KafkaBrokers)
+		outcomeTopics := []string{cfg.OutcomeKafkaTopic}
+		// Also listen to the evidence topic if it's different (used in some compose files)
+		if cfg.KafkaTopic != "" && cfg.KafkaTopic != cfg.OutcomeKafkaTopic {
+			outcomeTopics = append(outcomeTopics, cfg.KafkaTopic)
+		}
+		// Fallback: also listen to intent topic for outcomes just in case of relay misconfig
+		if cfg.IntentKafkaTopic != "" && cfg.IntentKafkaTopic != cfg.OutcomeKafkaTopic {
+			outcomeTopics = append(outcomeTopics, cfg.IntentKafkaTopic)
+		}
+
+		log.Printf("evidence.main.outcome_consumer_bootstrap group=%s topics=%v brokers=%v",
+			cfg.OutcomeKafkaGroup, outcomeTopics, cfg.KafkaBrokers)
 		if err := kafka.StartOutcomeConsumer(
 			ctx,
 			cfg.KafkaBrokers,
 			cfg.OutcomeKafkaGroup,
-			cfg.OutcomeKafkaTopic,
+			outcomeTopics,
 			evidenceSvc,
 		); err != nil {
 			log.Printf("warn: outcome consumer init failed (continuing without outcome consumer): %v", err)

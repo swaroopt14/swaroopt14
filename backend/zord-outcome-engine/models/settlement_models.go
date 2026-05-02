@@ -56,6 +56,7 @@ type CanonicalSettlementObservation struct {
 	TraceID                    uuid.UUID  `json:"trace_id" db:"trace_id"`
 	SettlementEnvelopeID       uuid.UUID  `json:"settlement_envelope_id" db:"settlement_envelope_id"`
 	JobID                      string  `json:"job_id" db:"job_id"`
+	IngestRunID                string  `json:"ingest_run_id" db:"ingest_run_id"`
 	SourceFileRef              string     `json:"source_file_ref" db:"source_file_ref"`
 	SourceRowRef               string     `json:"source_row_ref" db:"source_row_ref"`
 	SourceSystem               string     `json:"source_system" db:"source_system"`

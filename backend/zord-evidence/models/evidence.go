@@ -13,11 +13,12 @@ const (
 	LeafTypeEnvelopeHash                   = "ENVELOPE_HASH"
 	LeafTypeCanonicalIntentHash            = "CANONICAL_INTENT_HASH"
 	LeafTypeGovernanceDecision             = "GOVERNANCE_DECISION_AT_CANONICAL"
+	LeafTypeRawSettlementFile              = "RAW_SETTLEMENT_FILE"
 	LeafTypeFinalEvidenceView              = "FINAL_EVIDENCE_VIEW"
 )
 
-// RequiredLeafTypes are the 7 externally-supplied leaves that must be present
-// before GeneratePack() is triggered. Leaf 8 (FINAL_EVIDENCE_VIEW) is auto-added.
+// RequiredLeafTypes are the 8 externally-supplied leaves that must be present
+// before GeneratePack() is triggered. Leaf 9 (FINAL_EVIDENCE_VIEW) is auto-added.
 var RequiredLeafTypes = []string{
 	LeafTypeRawSettlementLine,
 	LeafTypeCanonicalSettlementObservation,
@@ -26,7 +27,12 @@ var RequiredLeafTypes = []string{
 	LeafTypeEnvelopeHash,
 	LeafTypeCanonicalIntentHash,
 	LeafTypeGovernanceDecision,
+	LeafTypeRawSettlementFile,
 }
+
+// ZeroVarianceHash is used when no financial variance exists for a transaction.
+// It is computed as SHA256("ZERO_VARIANCE_V1")
+const ZeroVarianceHash = "sha256:399c0a6a570f78a707a3363575916057a66710682f6e91963286395e8067f920"
 
 // PendingLeafCandidate represents a buffered leaf waiting for the full set.
 type PendingLeafCandidate struct {
@@ -35,6 +41,7 @@ type PendingLeafCandidate struct {
 	IntentID      *string   `json:"intent_id" db:"intent_id"` // null for edge events
 	EnvelopeID    *string   `json:"envelope_id" db:"envelope_id"` // used to correlate edge
 	LeafType      string    `json:"leaf_type" db:"leaf_type"`
+	ItemRef       string    `json:"item_ref" db:"item_ref"`
 	Hash          string    `json:"hash" db:"hash"`
 	SchemaVersion string    `json:"schema_version" db:"schema_version"`
 	SourceTopic   string    `json:"source_topic" db:"source_topic"`
@@ -55,6 +62,7 @@ type RelayEvent struct {
 	EnvelopeHash    []byte          `json:"envelope_hash,omitempty"`
 	CanonicalHash   string          `json:"canonical_hash,omitempty"`
 	GovernanceState string          `json:"governance_state,omitempty"`
+	GovernanceHash  string          `json:"governance_hash,omitempty"`
 }
 
 // EvidenceItem is one proof artifact that becomes a typed leaf in the Merkle tree.

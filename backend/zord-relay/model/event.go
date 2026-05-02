@@ -35,6 +35,7 @@ type OutboxEvent struct {
 	EnvelopeHash    []byte          `json:"envelope_hash,omitempty"`
 	CanonicalHash   string          `json:"canonical_hash,omitempty"`
 	GovernanceState string          `json:"governance_state,omitempty"`
+	GovernanceHash  string          `json:"governance_hash,omitempty"`
 
 	// --- Lease ---
 	LeaseID    string     `json:"lease_id"`

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/models"
 )
@@ -288,6 +289,33 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 	var lastErr error
 	emitted := 0
 
+	// Build a lookup for ingest_run_id -> file_sha256 to support Leaf 5: RAW_SETTLEMENT_FILE.
+	runIDs := make(map[string]bool)
+	for _, obs := range obsMap {
+		if obs.IngestRunID != "" {
+			runIDs[obs.IngestRunID] = true
+		}
+	}
+	shaMap := make(map[string]string)
+	if len(runIDs) > 0 {
+		var ids []string
+		for id := range runIDs {
+			ids = append(ids, id)
+		}
+		rows, err := db.DB.QueryContext(ctx, `SELECT ingest_run_id, file_sha256 FROM settlement_ingest_runs WHERE ingest_run_id = ANY($1)`, pq.Array(ids))
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var rid, sha string
+				if err := rows.Scan(&rid, &sha); err == nil {
+					shaMap[rid] = sha
+				}
+			}
+		} else {
+			log.Printf("leaf_bundle.sha_fetch_failed err=%v", err)
+		}
+	}
+
 	for _, d := range decisions {
 		// Only emit for decisions that resolved to a specific intent.
 		if d.IntentID == nil {
@@ -334,6 +362,16 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 				Type:          "VARIANCE_DECISION",
 				Ref:           vr.VarianceRecordID.String(),
 				Hash:          computeVarianceLeafHash(vr),
+				SchemaVersion: "v1",
+			})
+		}
+
+		// ── Leaf 5: RAW_SETTLEMENT_FILE ──────────────────────────────────
+		if sha, ok := shaMap[obs.IngestRunID]; ok && sha != "" {
+			leaves = append(leaves, leafCandidate{
+				Type:          "RAW_SETTLEMENT_FILE",
+				Ref:           obs.IngestRunID,
+				Hash:          sha,
 				SchemaVersion: "v1",
 			})
 		}

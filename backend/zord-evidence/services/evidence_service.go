@@ -101,7 +101,7 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		leafMap[l.LeafType] = l
 	}
 
-	// 5. Check if all 7 required external leaves are present
+	// 5. Check if all 8 required external leaves are present
 	allPresent := true
 	var items []models.EvidenceItem
 	var missing []string
@@ -109,10 +109,19 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		if l, ok := leafMap[requiredType]; ok {
 			items = append(items, models.EvidenceItem{
 				Type:          l.LeafType,
-				Ref:           intentID,
+				Ref:           l.ItemRef,
 				Hash:          l.Hash,
 				SchemaVersion: l.SchemaVersion,
 			})
+		} else if requiredType == models.LeafTypeVarianceDecision {
+			// Special case: VARIANCE_DECISION is required but can be synthesized if missing
+			items = append(items, models.EvidenceItem{
+				Type:          models.LeafTypeVarianceDecision,
+				Ref:           intentID, // Fallback to intentID if missing
+				Hash:          models.ZeroVarianceHash,
+				SchemaVersion: "v1",
+			})
+			log.Printf("evidence.service.readiness_check intent=%s VARIANCE_DECISION missing — using ZeroVarianceHash", intentID)
 		} else {
 			allPresent = false
 			missing = append(missing, requiredType)
@@ -174,29 +183,29 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		leaves = append(leaves, utils.MerkleLeaf{Index: i, LeafHash: items[i].LeafHash})
 	}
 
-	// --- Step 7: build Interim Merkle tree (7 leaves) ---
+	// --- Step 7: build Interim Merkle tree ---
 	interimMerkleRoot := utils.BuildMerkleRoot(leaves)
 
-	// --- Step 7.5: Auto-append FINAL_EVIDENCE_VIEW (Leaf 8) ---
+	// --- Step 7.5: Auto-append FINAL_EVIDENCE_VIEW ---
 	// Hash = SHA256(evidence_pack_id | interim_merkle_root)
-	leaf8Input := packID + "|" + interimMerkleRoot
-	leaf8Hash := utils.SHA256Hex(leaf8Input)
+	leafAutoInput := packID + "|" + interimMerkleRoot
+	leafAutoHash := utils.SHA256Hex(leafAutoInput)
 	
-	leaf8 := models.EvidenceItem{
+	leafAuto := models.EvidenceItem{
 		Type:          models.LeafTypeFinalEvidenceView,
 		Ref:           packID,
-		Hash:          leaf8Hash,
+		Hash:          leafAutoHash,
 		SchemaVersion: "v1",
 	}
 	
-	// Final leaf hash for leaf 8
-	leaf8FinalInput := strings.Join([]string{leaf8.Type, leaf8.Ref, leaf8.Hash, leaf8.SchemaVersion}, "||")
-	leaf8.LeafHash = utils.SHA256Hex(leaf8FinalInput)
+	// Final leaf hash for auto-added leaf
+	leafAutoFinalInput := strings.Join([]string{leafAuto.Type, leafAuto.Ref, leafAuto.Hash, leafAuto.SchemaVersion}, "||")
+	leafAuto.LeafHash = utils.SHA256Hex(leafAutoFinalInput)
 	
-	items = append(items, leaf8)
-	leaves = append(leaves, utils.MerkleLeaf{Index: len(items) - 1, LeafHash: leaf8.LeafHash})
+	items = append(items, leafAuto)
+	leaves = append(leaves, utils.MerkleLeaf{Index: len(items) - 1, LeafHash: leafAuto.LeafHash})
 
-	// --- Step 8: build Final Merkle tree (8 leaves) ---
+	// --- Step 8: build Final Merkle tree ---
 	merkleRoot := utils.BuildMerkleRoot(leaves)
 
 	// --- Step 9: sign the pack commitment ---

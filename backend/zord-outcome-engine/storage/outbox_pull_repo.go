@@ -63,11 +63,11 @@ leased AS (
 	FROM picked p
 	WHERE o.event_id = p.event_id
 	RETURNING
-		o.event_id::text,
-		o.envelope_id::text,
-		o.trace_id::text,
-		o.tenant_id::text,
-		o.contract_id::text,
+		o.event_id::text as event_id,
+		COALESCE(o.envelope_id::text, '') as envelope_id,
+		COALESCE(o.trace_id::text, '') as trace_id,
+		COALESCE(o.tenant_id::text, '') as tenant_id,
+		COALESCE(o.contract_id::text, '') as contract_id,
 		o.aggregate_type,
 		o.aggregate_id,
 		o.event_type,
@@ -76,8 +76,8 @@ leased AS (
 		o.payload,
 		o.status,
 		o.created_at,
-		o.lease_id::text,
-		o.leased_by,
+		COALESCE(o.lease_id::text, '') as lease_id,
+		COALESCE(o.leased_by, '') as leased_by,
 		o.lease_until,
 		o.batchid
 )

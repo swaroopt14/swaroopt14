@@ -63,11 +63,11 @@ leased AS (
 	FROM picked p
 	WHERE o.event_id = p.event_id
 	RETURNING
-		o.event_id::text,
-		o.envelope_id::text,
-		o.trace_id::text,
-		o.tenant_id::text,
-		o.contract_id::text,
+		o.event_id::text as event_id,
+		COALESCE(o.envelope_id::text, '') as envelope_id,
+		COALESCE(o.trace_id::text, '') as trace_id,
+		COALESCE(o.tenant_id::text, '') as tenant_id,
+		COALESCE(o.contract_id::text, '') as contract_id,
 		o.aggregate_type,
 		o.aggregate_id,
 		o.event_type,
@@ -79,12 +79,13 @@ leased AS (
 		o.payload,
 		o.status,
 		o.created_at,
-		o.lease_id::text,
-		o.leased_by,
+		COALESCE(o.lease_id::text, '') as lease_id,
+		COALESCE(o.leased_by, '') as leased_by,
 		o.lease_until,
 		o.batchid,
 		o.canonical_hash,
-		o.governance_state
+		o.governance_state,
+		o.governance_hash
 )
 SELECT
 	event_id,
@@ -108,7 +109,8 @@ SELECT
 	lease_until,
 	batchid,
 	canonical_hash,
-	governance_state
+	governance_state,
+	governance_hash
 FROM leased
 ORDER BY created_at ASC;
 `
@@ -129,6 +131,7 @@ ORDER BY created_at ASC;
 		var corridorId sql.NullString
 		var canonicalHash sql.NullString
 		var governanceState sql.NullString
+		var governanceHash sql.NullString
 
 		if err := rows.Scan(
 			&evt.EventID,
@@ -153,6 +156,7 @@ ORDER BY created_at ASC;
 			&evt.BatchID,
 			&canonicalHash,
 			&governanceState,
+			&governanceHash,
 		); err != nil {
 			return "", nil, nil, err
 		}
@@ -168,6 +172,9 @@ ORDER BY created_at ASC;
 		}
 		if governanceState.Valid {
 			evt.GovernanceState = governanceState.String
+		}
+		if governanceHash.Valid {
+			evt.GovernanceHash = governanceHash.String
 		}
 
 		if nextRetry.Valid {

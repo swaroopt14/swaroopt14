@@ -146,42 +146,6 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 			return handler.HandleIntentCreated(ctx, e)
 		})
 
-	wireHandler(topicHandlers, cfg.TopicDispatchCreated,
-		func(msg kafka.Message) error {
-			var e models.DispatchAttemptCreatedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
-				return err
-			}
-			return handler.HandleDispatchCreated(ctx, e)
-		})
-
-	wireHandler(topicHandlers, cfg.TopicOutcomeNormalized,
-		func(msg kafka.Message) error {
-			var e models.OutcomeNormalizedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
-				return err
-			}
-			return handler.HandleOutcomeNormalized(ctx, e)
-		})
-
-	wireHandler(topicHandlers, cfg.TopicFinalityCert,
-		func(msg kafka.Message) error {
-			var e models.FinalityCertIssuedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
-				return err
-			}
-			return handler.HandleFinalityCertIssued(ctx, e)
-		})
-
-	wireHandler(topicHandlers, cfg.TopicFinalContract,
-		func(msg kafka.Message) error {
-			var e models.FinalContractUpdatedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
-				return err
-			}
-			return handler.HandleFinalContractUpdated(ctx, e)
-		})
-
 	wireHandler(topicHandlers, cfg.TopicEvidenceReady,
 		func(msg kafka.Message) error {
 			var e models.EvidencePackReadyEvent
@@ -191,23 +155,61 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 			return handler.HandleEvidencePackReady(ctx, e)
 		})
 
-	wireHandler(topicHandlers, cfg.TopicDLQ,
-		func(msg kafka.Message) error {
-			var e models.DLQEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
-				return err
-			}
-			return handler.HandleDLQEvent(ctx, e)
-		})
+	if !cfg.IntelligenceMode.IsGradeA() {
+		wireHandler(topicHandlers, cfg.TopicDispatchCreated,
+			func(msg kafka.Message) error {
+				var e models.DispatchAttemptCreatedEvent
+				if err := json.Unmarshal(msg.Value, &e); err != nil {
+					return err
+				}
+				return handler.HandleDispatchCreated(ctx, e)
+			})
 
-	wireHandler(topicHandlers, cfg.TopicStatementMatch,
-		func(msg kafka.Message) error {
-			var e models.StatementMatchEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
-				return err
-			}
-			return handler.HandleStatementMatch(ctx, e)
-		})
+		wireHandler(topicHandlers, cfg.TopicOutcomeNormalized,
+			func(msg kafka.Message) error {
+				var e models.OutcomeNormalizedEvent
+				if err := json.Unmarshal(msg.Value, &e); err != nil {
+					return err
+				}
+				return handler.HandleOutcomeNormalized(ctx, e)
+			})
+
+		wireHandler(topicHandlers, cfg.TopicFinalityCert,
+			func(msg kafka.Message) error {
+				var e models.FinalityCertIssuedEvent
+				if err := json.Unmarshal(msg.Value, &e); err != nil {
+					return err
+				}
+				return handler.HandleFinalityCertIssued(ctx, e)
+			})
+
+		wireHandler(topicHandlers, cfg.TopicFinalContract,
+			func(msg kafka.Message) error {
+				var e models.FinalContractUpdatedEvent
+				if err := json.Unmarshal(msg.Value, &e); err != nil {
+					return err
+				}
+				return handler.HandleFinalContractUpdated(ctx, e)
+			})
+
+		wireHandler(topicHandlers, cfg.TopicDLQ,
+			func(msg kafka.Message) error {
+				var e models.DLQEvent
+				if err := json.Unmarshal(msg.Value, &e); err != nil {
+					return err
+				}
+				return handler.HandleDLQEvent(ctx, e)
+			})
+
+		wireHandler(topicHandlers, cfg.TopicStatementMatch,
+			func(msg kafka.Message) error {
+				var e models.StatementMatchEvent
+				if err := json.Unmarshal(msg.Value, &e); err != nil {
+					return err
+				}
+				return handler.HandleStatementMatch(ctx, e)
+			})
+	}
 
 	// ── Grade A topic handlers (Phase 2 — new) ────────────────────────────────
 	// These 5 handlers are wired using wireHandler, which skips empty-string topics.
@@ -275,26 +277,28 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 	//
 	// This is Go's way of asking: "can this thing do extra things?"
 	// It is called a "type assertion" or "interface satisfaction check".
-	if corridorHealthHandler, ok := handler.(CorridorHealthTickHandler); ok {
-		wireHandler(topicHandlers, cfg.TopicCorridorHealthTick,
-			func(msg kafka.Message) error {
-				var e models.CorridorHealthTickEvent
-				if err := json.Unmarshal(msg.Value, &e); err != nil {
-					return err
-				}
-				return corridorHealthHandler.HandleCorridorHealthTick(ctx, e)
-			})
-	}
+	if !cfg.IntelligenceMode.IsGradeA() {
+		if corridorHealthHandler, ok := handler.(CorridorHealthTickHandler); ok {
+			wireHandler(topicHandlers, cfg.TopicCorridorHealthTick,
+				func(msg kafka.Message) error {
+					var e models.CorridorHealthTickEvent
+					if err := json.Unmarshal(msg.Value, &e); err != nil {
+						return err
+					}
+					return corridorHealthHandler.HandleCorridorHealthTick(ctx, e)
+				})
+		}
 
-	if slaTimerHandler, ok := handler.(SLATimerTickHandler); ok {
-		wireHandler(topicHandlers, cfg.TopicSLATimerTick,
-			func(msg kafka.Message) error {
-				var e models.SLATimerTickEvent
-				if err := json.Unmarshal(msg.Value, &e); err != nil {
-					return err
-				}
-				return slaTimerHandler.HandleSLATimerTick(ctx, e)
-			})
+		if slaTimerHandler, ok := handler.(SLATimerTickHandler); ok {
+			wireHandler(topicHandlers, cfg.TopicSLATimerTick,
+				func(msg kafka.Message) error {
+					var e models.SLATimerTickEvent
+					if err := json.Unmarshal(msg.Value, &e); err != nil {
+						return err
+					}
+					return slaTimerHandler.HandleSLATimerTick(ctx, e)
+				})
+		}
 	}
 
 	// Start the single consumer goroutine.

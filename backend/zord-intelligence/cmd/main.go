@@ -60,6 +60,7 @@ func main() {
 		cfg.TopicActuationEvidence,
 		cfg.TopicActuationBatchPatch,
 	}
+	requiredTopics = activeTopicsForMode(cfg)
 
 	if err := ensureTopicsWithRetry(cfg.KafkaBrokers, requiredTopics, 10, 2*time.Second); err != nil {
 		log.Fatalf("main: kafka topic ensure failed after retries: %v", err)
@@ -72,31 +73,31 @@ func main() {
 	syncIntelligenceMode(context.Background(), pool, string(cfg.IntelligenceMode))
 
 	// ── Step 4: Create repositories ───────────────────────────────────────
-	projRepo    := persistence.NewProjectionRepo(pool)
-	policyRepo  := persistence.NewPolicyRepo(pool)
-	actionRepo  := persistence.NewActionContractRepo(pool)
-	outboxRepo  := persistence.NewOutboxRepo(pool)
-	slaRepo     := persistence.NewSLATimerRepo(pool)
+	projRepo := persistence.NewProjectionRepo(pool)
+	policyRepo := persistence.NewPolicyRepo(pool)
+	actionRepo := persistence.NewActionContractRepo(pool)
+	outboxRepo := persistence.NewOutboxRepo(pool)
+	slaRepo := persistence.NewSLATimerRepo(pool)
 
 	// ── PHASE 4 & 7: New intelligence repos ───────────────────────────────
 	snapshotRepo := persistence.NewIntelligenceSnapshotRepo(pool)
-	batchRepo    := persistence.NewBatchContractRepo(pool)
-	mlRepo       := persistence.NewMLFeatureStoreRepo(pool)
-	predRepo     := persistence.NewMLPredictionRepo(pool)
-	explRepo     := persistence.NewIntelligenceExplanationRepo(pool)
+	batchRepo := persistence.NewBatchContractRepo(pool)
+	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
+	predRepo := persistence.NewMLPredictionRepo(pool)
+	explRepo := persistence.NewIntelligenceExplanationRepo(pool)
 
 	// ── Step 5: Create services ────────────────────────────────────────────
 	actionService := services.NewActionService(actionRepo, outboxRepo, pool)
 	policyService := services.NewPolicyService(policyRepo, projRepo, actionService)
 
 	// ── PHASE 4 & 7: Six intelligence layer services + Explanation ────────
-	leakageSvc        := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
-	ambiguitySvc      := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo)
-	defensibilitySvc  := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
-	rcaSvc            := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
-	patternSvc        := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo)
+	leakageSvc := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
+	ambiguitySvc := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo)
+	defensibilitySvc := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
+	rcaSvc := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
+	patternSvc := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo)
 	recommendationSvc := services.NewRecommendationIntelligenceService(snapshotRepo)
-	explSvc           := services.NewExplanationService(explRepo, snapshotRepo, batchRepo)
+	explSvc := services.NewExplanationService(explRepo, snapshotRepo, batchRepo)
 
 	// PHASE 6: NewProjectionService now receives cfg.IntelligenceMode.
 	// This controls which intelligence computation runs inside the Grade B handlers.
@@ -117,7 +118,7 @@ func main() {
 	)
 
 	corridorHealthIngestionHandler := handlers.NewCorridorHealthHandler(projRepo)
-	slaTimerIngestionHandler       := handlers.NewSLATimerHandler(projRepo)
+	slaTimerIngestionHandler := handlers.NewSLATimerHandler(projRepo)
 	kafkaIngestionHandler := handlers.NewKafkaIngestionHandler(
 		projectionService,
 		corridorHealthIngestionHandler,
@@ -134,8 +135,8 @@ func main() {
 
 	// ── Step 7: Create background workers ─────────────────────────────────
 	outboxWorker := worker.NewOutboxWorker(outboxRepo, actionRepo, producer, cfg)
-	slaWorker    := worker.NewSLAWorker(slaRepo, actionService, projectionService)
-	cronWorker   := worker.NewPolicyCronWorker(projRepo, policyService)
+	slaWorker := worker.NewSLAWorker(slaRepo, actionService, projectionService)
+	cronWorker := worker.NewPolicyCronWorker(projRepo, policyService)
 
 	// ── Step 8: Create HTTP handlers ──────────────────────────────────────
 	healthHandler := handlers.NewHealthHandler()
@@ -238,6 +239,50 @@ func main() {
 	time.Sleep(2 * time.Second)
 	log.Println("main: shutdown complete")
 	fmt.Println("zord-intelligence stopped cleanly")
+}
+
+// activeTopicsForMode returns the exact Kafka topics this runtime should touch.
+//
+// Grade A is intentionally strict: only the seven permitted upstream topics plus
+// the actuation output topics are enabled. This avoids accidental use of
+// final-truth/finality-grade inputs during a Grade A deployment.
+func activeTopicsForMode(cfg *config.Config) []string {
+	topics := []string{
+		cfg.TopicActuationAlert,
+		cfg.TopicActuationRetry,
+		cfg.TopicActuationEvidence,
+		cfg.TopicActuationBatchPatch,
+	}
+
+	if cfg.IntelligenceMode.IsGradeA() {
+		return append(topics,
+			cfg.TopicIntentCreated,
+			cfg.TopicSettlementCreated,
+			cfg.TopicAttachmentDecision,
+			cfg.TopicVarianceRecord,
+			cfg.TopicEvidenceReady,
+			cfg.TopicGovernanceDecision,
+			cfg.TopicBatchSummary,
+		)
+	}
+
+	return append(topics,
+		cfg.TopicIntentCreated,
+		cfg.TopicDispatchCreated,
+		cfg.TopicOutcomeNormalized,
+		cfg.TopicFinalityCert,
+		cfg.TopicFinalContract,
+		cfg.TopicEvidenceReady,
+		cfg.TopicDLQ,
+		cfg.TopicStatementMatch,
+		cfg.TopicCorridorHealthTick,
+		cfg.TopicSLATimerTick,
+		cfg.TopicSettlementCreated,
+		cfg.TopicAttachmentDecision,
+		cfg.TopicVarianceRecord,
+		cfg.TopicBatchSummary,
+		cfg.TopicGovernanceDecision,
+	)
 }
 
 // syncIntelligenceMode keeps intelligence_mode_config in sync with the env var.

@@ -25,11 +25,11 @@ package isolation
 //        score ≈ 0.0 → very normal
 //
 // FEATURES WE USE FOR BATCH ANOMALY DETECTION:
-//   [0] ambiguity_score        — 0.0–1.0 from batch health
+//   [0] ambiguity_rate         — normalized ambiguity signal (0–1)
 //   [1] variance_rate          — total_variance / total_intended (0–1)
-//   [2] pending_rate           — pending_count / total_count (0–1)
-//   [3] failed_rate            — failed_count / total_count (0–1)
-//   [4] reversed_rate          — reversed_count / total_count (0–1)
+//   [2] settlement_gap         — 1 - settlement_ratio (0–1)
+//   [3] unresolved_ratio       — unresolved decisions / total decisions (0–1)
+//   [4] missing_ref_rate       — weak / missing attachment refs (0–1)
 //
 // STANDARD HYPER-PARAMETERS (from original paper, Liu et al. 2008):
 //   nTrees    = 100   (more trees = more stable score, diminishing returns after 100)
@@ -45,11 +45,11 @@ import (
 // FeatureNames documents what each feature index means.
 // Keep this in sync with BuildFeatures().
 var FeatureNames = []string{
-	"ambiguity_score",
+	"ambiguity_rate",
 	"variance_rate",
-	"pending_rate",
-	"failed_rate",
-	"reversed_rate",
+	"settlement_gap",
+	"unresolved_ratio",
+	"missing_ref_rate",
 }
 
 // Result from scoring one sample.
@@ -94,32 +94,18 @@ func New(nTrees, subSample int) *Forest {
 // BuildFeatures constructs the 5-dimensional feature vector for a batch.
 // Always call this to guarantee correct feature ordering.
 func BuildFeatures(
-	ambiguityScore float64,
-	totalVarianceMinor int64,
-	totalIntendedMinor int64,
-	pendingCount int,
-	failedCount int,
-	reversedCount int,
-	totalCount int,
+	ambiguityRate float64,
+	varianceRate float64,
+	settlementRatio float64,
+	unresolvedRatio float64,
+	missingRefRate float64,
 ) []float64 {
-	safeDiv := func(num, den int) float64 {
-		if den == 0 {
-			return 0
-		}
-		return clamp01(float64(num) / float64(den))
-	}
-
-	varianceRate := 0.0
-	if totalIntendedMinor > 0 {
-		varianceRate = clamp01(math.Abs(float64(totalVarianceMinor)) / float64(totalIntendedMinor))
-	}
-
 	return []float64{
-		clamp01(ambiguityScore),         // [0]
-		varianceRate,                    // [1]
-		safeDiv(pendingCount, totalCount),   // [2]
-		safeDiv(failedCount, totalCount),    // [3]
-		safeDiv(reversedCount, totalCount),  // [4]
+		clamp01(ambiguityRate),         // [0]
+		clamp01(varianceRate),          // [1]
+		clamp01(1.0 - settlementRatio), // [2]
+		clamp01(unresolvedRatio),       // [3]
+		clamp01(missingRefRate),        // [4]
 	}
 }
 
@@ -332,11 +318,11 @@ func (f *Forest) dominantAnomalyType(features []float64) string {
 	case 1:
 		return "HIGH_FINANCIAL_VARIANCE"
 	case 2:
-		return "HIGH_PENDING_RATE"
+		return "LOW_SETTLEMENT_COVERAGE"
 	case 3:
-		return "HIGH_FAILURE_RATE"
+		return "HIGH_UNRESOLVED_RATE"
 	case 4:
-		return "HIGH_REVERSAL_RATE"
+		return "HIGH_MISSING_REF_RATE"
 	default:
 		return "UNKNOWN"
 	}

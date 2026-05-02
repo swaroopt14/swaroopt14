@@ -139,7 +139,7 @@ func TestGradeA_AmbiguityService_LogisticRegression(t *testing.T) {
 	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
 	predRepo := persistence.NewMLPredictionRepo(pool)
 
-	svc := NewAmbiguityIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
+	svc := NewAmbiguityIntelligenceService(ctx, projRepo, snapshotRepo, mlRepo, predRepo)
 	err := svc.ComputeAndSave(ctx, tenantID, now.Add(-24*time.Hour), now)
 	if err != nil {
 		t.Fatalf("ComputeAndSave: %v", err)
@@ -199,19 +199,19 @@ func TestGradeA_LeakageService_ZScore_ColdStart(t *testing.T) {
 
 	// Seed leakage projection (no historical ML feature rows → cold start)
 	seedProjection(t, pool, tenantID, "leakage.total", map[string]any{
-		"total_amount_minor":             500_000,
-		"unmatched_amount_minor":         200_000,
-		"under_settlement_amount_minor":  150_000,
-		"orphan_amount_minor":            100_000,
-		"reversal_exposure_minor":        50_000,
-		"unmatched_intent_count":         15,
-		"under_settlement_count":         8,
-		"orphan_settlement_count":        3,
-		"reversal_count":                 2,
-		"total_intended_amount_minor":    10_000_000,
-		"leakage_percentage":             0.05,
-		"breakdown_by_type":              map[string]int64{},
-		"updated_at":                     now,
+		"total_amount_minor":            500_000,
+		"unmatched_amount_minor":        200_000,
+		"under_settlement_amount_minor": 150_000,
+		"orphan_amount_minor":           100_000,
+		"reversal_exposure_minor":       50_000,
+		"unmatched_intent_count":        15,
+		"under_settlement_count":        8,
+		"orphan_settlement_count":       3,
+		"reversal_count":                2,
+		"total_intended_amount_minor":   10_000_000,
+		"leakage_percentage":            0.05,
+		"breakdown_by_type":             map[string]int64{},
+		"updated_at":                    now,
 	})
 
 	projRepo := persistence.NewProjectionRepo(pool)
@@ -415,18 +415,18 @@ func TestGradeA_PatternService_IsolationForest_ColdStart(t *testing.T) {
 	now := time.Now().UTC()
 
 	seedProjection(t, pool, tenantID, "batch.health."+batchID, map[string]any{
-		"total_count":                    500,
-		"success_count":                  430,
-		"failed_count":                   20,
-		"pending_count":                  40,
-		"reversed_count":                 10,
-		"partial_recon_count":            0,
-		"total_intended_amount_minor":    50_000_000,
-		"total_confirmed_amount_minor":   43_000_000,
-		"total_variance_minor":           7_000_000,
-		"ambiguity_score":                0.08,
-		"finality_status":                "PARTIALLY_SETTLED",
-		"updated_at":                     now,
+		"total_count":                  500,
+		"success_count":                430,
+		"failed_count":                 20,
+		"pending_count":                40,
+		"reversed_count":               10,
+		"partial_recon_count":          0,
+		"total_intended_amount_minor":  50_000_000,
+		"total_confirmed_amount_minor": 43_000_000,
+		"total_variance_minor":         7_000_000,
+		"ambiguity_score":              0.08,
+		"finality_status":              "PARTIALLY_SETTLED",
+		"updated_at":                   now,
 	})
 
 	projRepo := persistence.NewProjectionRepo(pool)
@@ -465,30 +465,30 @@ func TestGradeA_PatternService_IsolationForest_WithHistory(t *testing.T) {
 	// Seed 20 normal batches as training history
 	for i := 20; i >= 1; i-- {
 		seedMLFeatureRow(t, pool, tenantID, "PATTERN", map[string]any{
-			"ambiguity_score":              0.02 + float64(i%5)*0.002,
-			"total_variance_minor":         float64(i) * 50_000,
-			"total_intended_amount_minor":  10_000_000.0,
-			"pending_count":                float64(i%10) + 5,
-			"failed_count":                 float64(i%5) + 2,
-			"reversed_count":               1.0,
-			"total_count":                  200.0,
+			"ambiguity_score":             0.02 + float64(i%5)*0.002,
+			"total_variance_minor":        float64(i) * 50_000,
+			"total_intended_amount_minor": 10_000_000.0,
+			"pending_count":               float64(i%10) + 5,
+			"failed_count":                float64(i%5) + 2,
+			"reversed_count":              1.0,
+			"total_count":                 200.0,
 		}, i)
 	}
 
 	// Seed an anomalous batch: very high failure rate (60%)
 	seedProjection(t, pool, tenantID, "batch.health."+batchID, map[string]any{
-		"total_count":                    200,
-		"success_count":                  60,
-		"failed_count":                   120,  // 60% failure — anomalous
-		"pending_count":                  15,
-		"reversed_count":                 5,
-		"partial_recon_count":            0,
-		"total_intended_amount_minor":    10_000_000,
-		"total_confirmed_amount_minor":   6_000_000,
-		"total_variance_minor":           4_000_000,
-		"ambiguity_score":                0.60,
-		"finality_status":                "PARTIALLY_SETTLED",
-		"updated_at":                     now,
+		"total_count":                  200,
+		"success_count":                60,
+		"failed_count":                 120, // 60% failure — anomalous
+		"pending_count":                15,
+		"reversed_count":               5,
+		"partial_recon_count":          0,
+		"total_intended_amount_minor":  10_000_000,
+		"total_confirmed_amount_minor": 6_000_000,
+		"total_variance_minor":         4_000_000,
+		"ambiguity_score":              0.60,
+		"finality_status":              "PARTIALLY_SETTLED",
+		"updated_at":                   now,
 	})
 
 	projRepo := persistence.NewProjectionRepo(pool)
@@ -533,14 +533,14 @@ func TestGradeA_RecommendationService_PriorityScoreAndSort(t *testing.T) {
 
 	// Pre-create LEAKAGE snapshot (5% leakage → CRITICAL card)
 	leakageSnap, _ := json.Marshal(LeakageSnapshot{
-		LeakagePercentage:    0.06,
-		TotalAmountMinor:     6_000_000,
-		UnmatchedIntentCount: 20,
-		UnmatchedAmountMinor: 2_000_000,
-		ReversalCount:        5,
+		LeakagePercentage:     0.06,
+		TotalAmountMinor:      6_000_000,
+		UnmatchedIntentCount:  20,
+		UnmatchedAmountMinor:  2_000_000,
+		ReversalCount:         5,
 		ReversalExposureMinor: 500_000,
-		AnomalyLevel:         "HIGH",
-		ComputedAt:           now,
+		AnomalyLevel:          "HIGH",
+		ComputedAt:            now,
 	})
 	snapRepo.Create(ctx, persistence.IntelligenceSnapshot{
 		SnapshotID: "snap_test_leakage_rec", TenantID: tenantID,

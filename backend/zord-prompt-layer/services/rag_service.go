@@ -64,6 +64,10 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	if topK <= 0 {
 		topK = s.defaultK
 	}
+	if strings.TrimSpace(req.TenantID) == "" {
+		return dto.QueryResponse{}, fmt.Errorf("missing tenant context")
+	}
+
 	if sensitiveExtractionRe.MatchString(req.Query) {
 		return dto.QueryResponse{
 			Answer:        "I cannot provide secrets or credential material. I can still help with safe operational status and trends.",

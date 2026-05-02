@@ -2,16 +2,14 @@ package handler
 
 import (
 	"net/http"
-	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 
 	"zord-prompt-layer/dto"
+	plmiddleware "zord-prompt-layer/middleware"
 	"zord-prompt-layer/services"
 )
-
-var tenantIDUUIDRe = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 type QueryHandler struct {
 	rag services.RAGService
@@ -30,20 +28,35 @@ func (h *QueryHandler) Query(c *gin.Context) {
 		})
 		return
 	}
-	if strings.TrimSpace(req.TenantID) == "" {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid request",
-			"details": "Please provide tenant_id to continue.",
+	ctxTenant, ok := c.Get(plmiddleware.TenantIDContextKey)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":   "unauthorized",
+			"details": "Missing tenant context. Please login again.",
 		})
 		return
 	}
-	if !tenantIDUUIDRe.MatchString(strings.TrimSpace(req.TenantID)) {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "invalid request",
-			"details": "Invalid tenant_id. Please provide a valid tenant_id.",
+	tenantID, ok := ctxTenant.(string)
+	if !ok || strings.TrimSpace(tenantID) == "" {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "forbidden",
+			"details": "Invalid tenant context.",
 		})
 		return
 	}
+
+	// Optional hardening: if body tenant_id is sent and mismatches auth tenant, reject.
+	if strings.TrimSpace(req.TenantID) != "" && !strings.EqualFold(strings.TrimSpace(req.TenantID), tenantID) {
+		c.JSON(http.StatusForbidden, gin.H{
+			"error":   "forbidden",
+			"details": "Tenant mismatch with authenticated context.",
+		})
+		return
+	}
+
+	// Canonical tenant is always from auth context.
+	req.TenantID = tenantID
+
 	if req.TopK <= 0 {
 		req.TopK = 5
 	}

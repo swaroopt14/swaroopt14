@@ -56,7 +56,6 @@ type CanonicalIntent struct {
 	MappingProfileID      string          `json:"mapping_profile_id,omitempty" db:"mapping_profile_id"`
 	MappingProfileVersion string          `json:"mapping_profile_version,omitempty" db:"mapping_profile_version"`
 	SourceSystem          string          `json:"source_system,omitempty" db:"source_system"`
-	CorridorID            *string         `json:"corridor_id"`
 
 	// Service 2 mandatory fields
 	BusinessIdempotencyKey    string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
@@ -67,6 +66,7 @@ type CanonicalIntent struct {
 	MappingConfidenceScore    float64         `json:"mapping_confidence_score,omitempty" db:"mapping_confidence_score"`
 	SchemaCompletenessScore   float64         `json:"schema_completeness_score,omitempty" db:"schema_completeness_score"`
 	GovernanceReasonCodesJSON json.RawMessage `json:"governance_reason_codes_json,omitempty" db:"governance_reason_codes_json"`
+	Governance                Governance      `json:"governance,omitempty" db:"-"`
 	ValidationAnomalies       []string        `json:"validation_anomalies,omitempty" db:"-"`
 	DuplicateReasonCode       string          `json:"duplicate_reason_code,omitempty" db:"duplicate_reason_code"`
 	ClientBatchRef            string          `json:"client_batch_ref,omitempty" db:"client_batch_ref"`

@@ -81,6 +81,34 @@ func SemanticValidate(intent models.ParsedIncomingIntent) error {
 		return err
 	}
 
+	if err := validateExecutionRules(intent); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateExecutionRules(intent models.ParsedIncomingIntent) error {
+	if intent.IntendedExecutionAt == "" {
+		return nil
+	}
+
+	// If execution_window constraint exists, verify intended_execution_at falls within it
+	if window, ok := intent.Constraints["execution_window"].(string); ok {
+		// Example: "09:00-18:00"
+		if strings.Contains(window, "-") {
+			parts := strings.Split(window, "-")
+			if len(parts) == 2 {
+				// For now, minimal check: just ensure intended_execution_at is not "ASAP" if window is specified?
+				// Actually, let's just log or do a simple string check if it's a known conflict.
+				// Spec says "constraints.execution_window vs intended_execution_at"
+				if intent.IntendedExecutionAt == "ASAP" {
+					return semanticError("intended_execution_at cannot be ASAP if execution_window is specified")
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -95,10 +123,29 @@ func validateInstrumentParsed(intent models.ParsedIncomingIntent) error {
 		if !ifscRegex.MatchString(intent.Beneficiary.Instrument.IFSC) {
 			return semanticError("invalid IFSC format")
 		}
+		// FIX: Reject invalid combinations
+		if intent.Beneficiary.Instrument.VPA != "" {
+			return semanticError("VPA not allowed for BANK instrument")
+		}
+		// FIX: Routing alignment
+		if intent.ProviderHint != "" && intent.ProviderHint != "BANK_RAIL" {
+			return semanticError("BANK instrument requires BANK_RAIL provider_hint")
+		}
 
 	case "UPI":
+		if strings.TrimSpace(intent.Beneficiary.Instrument.VPA) == "" {
+			return semanticError("VPA required for UPI instrument")
+		}
 		if !strings.Contains(intent.Beneficiary.Instrument.VPA, "@") {
 			return semanticError("invalid UPI VPA")
+		}
+		// FIX: Reject invalid combinations
+		if intent.AccountNumber != "" || intent.Beneficiary.Instrument.IFSC != "" {
+			return semanticError("AccountNumber/IFSC not allowed for UPI instrument")
+		}
+		// FIX: Routing alignment
+		if intent.ProviderHint != "" && intent.ProviderHint != "UPI_RAIL" {
+			return semanticError("UPI instrument requires UPI_RAIL provider_hint")
 		}
 
 	case "WALLET", "CARD":

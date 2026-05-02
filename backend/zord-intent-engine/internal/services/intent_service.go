@@ -165,6 +165,14 @@ func (s *IntentService) computeBeneficiaryFingerprint(tokens map[string]string) 
 	return hex.EncodeToString(hash[:])
 }
 
+func (s *IntentService) isAbnormalAmount(amount decimal.Decimal, currency string) bool {
+	threshold := decimal.NewFromInt(1000000) // Default 1M
+	if strings.ToUpper(currency) == "INR" {
+		threshold = decimal.NewFromInt(10000000) // 10M for INR (1 Crore)
+	}
+	return amount.GreaterThan(threshold)
+}
+
 func (s *IntentService) computeBusinessIdempotencyKey(tenantID string, fingerPrint string, amount decimal.Decimal, currency string, timeBucket string) string {
 	// FIX: deterministic business idempotency key
 	// business_idempotency_key = SHA256(tenant_id + beneficiary_fingerprint + amount_minor + currency + time_bucket)
@@ -180,6 +188,7 @@ func (s *IntentService) computeBusinessIdempotencyKey(tenantID string, fingerPri
 func (s *IntentService) computeScores(
 	intent *models.CanonicalIntent,
 	nir *models.NormalizedIngestRecord,
+	gov models.Governance,
 ) (mappingScore, proofScore, matchScore, qualityScore, schemaScore float64) {
 	// 1. schema_completeness_score
 	totalRequired := 5.0 // intent_type, amount, currency, beneficiary_name, idempotency_key
@@ -217,6 +226,10 @@ func (s *IntentService) computeScores(
 		mappingScore = (avgConf * 0.6) + (highConfRatio * 0.4)
 
 		// Penalize low confidence and gaps
+		// UPDATED: Use Governance signals
+		if len(gov.LowConfidenceFields) > 0 {
+			mappingScore -= 0.2
+		}
 		mappingScore -= float64(lowConfCount) * 0.1
 		mappingScore -= float64(nir.RequiredFieldGapCount) * 0.2
 	}
@@ -277,8 +290,24 @@ func (s *IntentService) computeScores(
 	// Baseline from mapping and completeness
 	qualityScore = (mappingScore * 0.4) + (schemaScore * 0.6)
 
+	// UPDATED: Use Governance signals
+	if !gov.SemanticValid {
+		qualityScore -= 0.5
+	}
+	if gov.DuplicateDetected {
+		qualityScore -= 0.4
+	}
+	if len(gov.MissingFields) > 0 {
+		qualityScore -= 0.3
+	}
+
 	if intent.DuplicateRiskFlag {
 		qualityScore -= 0.3
+	}
+
+	// UPDATED: Penalize validation anomalies (Soft policy violations)
+	if len(intent.ValidationAnomalies) > 0 {
+		qualityScore -= float64(len(intent.ValidationAnomalies)) * 0.1
 	}
 
 	if nir != nil {
@@ -317,6 +346,92 @@ func (s *IntentService) isTrustedSystem(source string) bool {
 		"SWIFT_GPI":    true,
 	}
 	return trusted[source]
+}
+
+func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req models.ParsedIncomingIntent) models.Governance {
+	gov := models.Governance{
+		SemanticValid:        true,
+		RoutingConsistent:    true,
+		ExecutionWindowValid: true,
+		PolicyFlags:          []string{},
+		SemanticErrors:       []string{},
+		MissingFields:        []string{},
+		LowConfidenceFields:  []string{},
+	}
+
+	// ----------------------------------------
+	// SEMANTIC POLICY (HARD)
+	// ----------------------------------------
+
+	// BANK requires IFSC
+	if req.Beneficiary.Instrument.Kind == "BANK" && req.Beneficiary.Instrument.IFSC == "" {
+		gov.SemanticValid = false
+		gov.SemanticErrors = append(gov.SemanticErrors, "BANK_REQUIRES_IFSC")
+	}
+	// UPI requires VPA
+	if req.Beneficiary.Instrument.Kind == "UPI" && req.Beneficiary.Instrument.VPA == "" {
+		gov.SemanticValid = false
+		gov.SemanticErrors = append(gov.SemanticErrors, "UPI_REQUIRES_VPA")
+	}
+	// BANK + VPA -> error
+	if req.Beneficiary.Instrument.Kind == "BANK" && req.Beneficiary.Instrument.VPA != "" {
+		gov.SemanticValid = false
+		gov.SemanticErrors = append(gov.SemanticErrors, "BANK_WITH_VPA_INVALID")
+	}
+	// UPI + IFSC -> error
+	if req.Beneficiary.Instrument.Kind == "UPI" && req.Beneficiary.Instrument.IFSC != "" {
+		gov.SemanticValid = false
+		gov.SemanticErrors = append(gov.SemanticErrors, "UPI_WITH_IFSC_INVALID")
+	}
+
+	// source vs provider_hint: UPI -> UPI_RAIL, BANK -> BANK_RAIL
+	if req.Beneficiary.Instrument.Kind == "UPI" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "UPI") {
+		gov.RoutingConsistent = false
+		gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_UPI")
+	}
+	if req.Beneficiary.Instrument.Kind == "BANK" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "BANK") {
+		gov.RoutingConsistent = false
+		gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_BANK")
+	}
+
+	// execution_window vs intended_execution_at
+	if req.IntendedExecutionAt != "" {
+		t, err := time.Parse(time.RFC3339, req.IntendedExecutionAt)
+		if err != nil {
+			gov.SemanticValid = false
+			gov.SemanticErrors = append(gov.SemanticErrors, "INVALID_EXECUTION_AT_FORMAT")
+		} else {
+			if t.Before(time.Now().Add(-1 * time.Hour)) {
+				gov.ExecutionWindowValid = false
+				gov.SemanticErrors = append(gov.SemanticErrors, "EXECUTION_WINDOW_EXPIRED")
+			}
+		}
+	}
+
+	// required fields validation
+	if req.IntentType == "" {
+		gov.MissingFields = append(gov.MissingFields, "intent_type")
+		gov.SemanticValid = false
+	}
+	if req.Amount.Value == "" {
+		gov.MissingFields = append(gov.MissingFields, "amount.value")
+		gov.SemanticValid = false
+	}
+
+	// ----------------------------------------
+	// DATA QUALITY POLICY
+	// ----------------------------------------
+	if nir != nil {
+		if nir.RequiredFieldGapCount > 0 {
+			gov.PolicyFlags = append(gov.PolicyFlags, "REQUIRED_FIELD_GAPS")
+		}
+		if nir.LowConfidenceFieldCount > 0 {
+			gov.LowConfidenceFields = append(gov.LowConfidenceFields, "SEE_NIR_LOGS")
+			gov.PolicyFlags = append(gov.PolicyFlags, "LOW_CONFIDENCE_DETECTION")
+		}
+	}
+
+	return gov
 }
 
 /* ---------------- Pipeline ---------------- */
@@ -467,6 +582,25 @@ func (s *IntentService) ProcessIncomingIntent(
 		LowConfidenceFieldCount: lowConfCount,
 		CreatedAt:               time.Now().UTC(),
 	}
+	
+	// -------- STEP 6.5: APPLY GOVERNANCE POLICY (NEW) --------
+	governance := s.ApplyPolicy(nir, parsed)
+	if !governance.SemanticValid {
+		log.Printf("⚠️ Semantic Policy Violation for EnvelopeID=%s: %v", in.EnvelopeID, governance.SemanticErrors)
+		return nil, &models.DLQEntry{Stage: "POLICY_DLQ", ReasonCode: "SEMANTIC_INVALID", ErrorDetail: strings.Join(governance.SemanticErrors, ", ")}, nil
+	}
+
+	// FIX: Generate IntentID early to include in GovernanceHash (NEW)
+	intentID := uuid.NewString()
+
+	// FIX: Compute GovernanceHash early (UPDATED)
+	// We need a temporary canonical for reason codes aggregation
+	tempGovCanonical := &models.CanonicalIntent{
+		IntentID:   intentID,
+		Governance: governance,
+	}
+	governanceJSON := s.aggregateGovernanceReasons(tempGovCanonical, nir)
+	governanceHash := s.computeGovernanceHashInternal("VALID", string(governanceJSON), "v1", intentID)
 
 	// -------- STEP 5.5: Idempotency guard --------
 
@@ -513,11 +647,9 @@ func (s *IntentService) ProcessIncomingIntent(
 		return nil, dlq, nil
 	}
 
-	// Generate governance hash since pre-guards have passed
-	govHashData := "preguards:PASSED|tenant:" + in.TenantID.String() + "|envelope:" + in.EnvelopeID.String()
-	govHashBytes := sha256.Sum256([]byte(govHashData))
-	govHashStr := hex.EncodeToString(govHashBytes[:])
-	canonicalInput.GovernanceHash = govHashStr
+	// Governance hash computed early at step 6.5
+	canonicalInput.GovernanceHash = governanceHash
+	canonicalInput.IntentID = intentID // Ensure intent_id is passed to Kafka if needed
 
 	// -------- STEP 8: TOKENIZATION --------
 
@@ -595,6 +727,12 @@ func (s *IntentService) ProcessIncomingIntent(
 	timeBucket := time.Now().UTC().Format("2006-01-02")
 	bIdemKey := s.computeBusinessIdempotencyKey(in.TenantID.String(), bFingerprint, amount, canonicalInput.Amount.Currency, timeBucket)
 
+	// UPDATED: Abnormal amount detection
+	var anomalies []string
+	if s.isAbnormalAmount(amount, canonicalInput.Amount.Currency) {
+		anomalies = append(anomalies, "ABNORMAL_AMOUNT")
+	}
+
 	// -------- STEP 8.7: Business Idempotency Registry Check (NEW) --------
 	registryDuplicate, err := s.repo.CheckIdempotencyRegistry(ctx, in.TenantID.String(), bIdemKey)
 	if err != nil {
@@ -643,12 +781,19 @@ func (s *IntentService) ProcessIncomingIntent(
 		ProviderHint:           canonicalInput.ProviderHint,
 		CreatedAt:              time.Now().UTC(),
 		DuplicateRiskFlag:      dupRisk,
+		ValidationAnomalies:    anomalies,
 	}
-	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir)
+
+	// Update governance with duplicate detection results
+	if dupRisk {
+		governance.DuplicateDetected = true
+		governance.DuplicateReason = dupReason
+	}
+
+	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir, governance)
 
 	// -------- STEP 9: BUILD CANONICAL INTENT --------
 
-	intentID := uuid.NewString()
 
 	var executionAt *time.Time
 	if canonicalInput.IntendedExecutionAt != "" {
@@ -700,7 +845,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		MappingProfileID:      nir.ProfileID,
 		MappingProfileVersion: nir.ProfileVersion,
 		SourceSystem:          in.SourceSystem,
-		GovernanceHash:        govHashStr,
+		GovernanceHash:        governanceHash,
 
 		// Service 2 fields
 		BusinessIdempotencyKey:  bIdemKey,
@@ -712,12 +857,31 @@ func (s *IntentService) ProcessIncomingIntent(
 		SchemaCompletenessScore: schemaScore,
 		DuplicateReasonCode:     dupReason,
 
-		UpdatedAt: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
-		BatchID:   in.BatchID,
+		UpdatedAt:           func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		BatchID:             in.BatchID,
+		ValidationAnomalies: anomalies,
 	}
 
 	// -------- STEP 9.1: AGGREGATE GOVERNANCE REASONS --------
+	canonical.Governance = governance
 	canonical.GovernanceReasonCodesJSON = s.aggregateGovernanceReasons(&canonical, nir)
+
+	// UPDATED: Determine GovernanceState (VALID / INVALID / FLAGGED)
+	canonical.GovernanceState = "VALID"
+	if canonical.DuplicateRiskFlag || len(canonical.ValidationAnomalies) > 0 {
+		canonical.GovernanceState = "FLAGGED"
+	}
+	if nir.MappingUncertainFlag || nir.RequiredFieldGapCount > 0 {
+		canonical.GovernanceState = "FLAGGED"
+	}
+	if iScore < 0.5 {
+		canonical.GovernanceState = "FLAGGED"
+	}
+
+	// RE-COMPUTE hash if state changed from VALID to FLAGGED (FIX)
+	if canonical.GovernanceState != "VALID" {
+		canonical.GovernanceHash = s.computeGovernanceHash(&canonical)
+	}
 
 	// -------- STEP 10: OUTBOX + PERSISTENCE (ATOMIC DB) --------
 
@@ -897,9 +1061,18 @@ func (s *IntentService) ProcessTokenizeResult(
 	}
 
 	// -------- COMPUTE SCORES & FINGERPRINT --------
+	// Reconstruct governance for async flow
+	governance := s.ApplyPolicy(nir, canonicalInput)
+
 	bFingerprint := s.computeBeneficiaryFingerprint(tokenMap)
 	timeBucket := time.Now().UTC().Format("2006-01-02")
 	bIdemKey := s.computeBusinessIdempotencyKey(event.TenantID, bFingerprint, amount, canonicalInput.Amount.Currency, timeBucket)
+
+	// UPDATED: Abnormal amount detection
+	var anomalies []string
+	if s.isAbnormalAmount(amount, canonicalInput.Amount.Currency) {
+		anomalies = append(anomalies, "ABNORMAL_AMOUNT")
+	}
 
 	// -------- Business Idempotency Registry Check (NEW) --------
 	registryDuplicate, err := s.repo.CheckIdempotencyRegistry(ctx, event.TenantID, bIdemKey)
@@ -944,8 +1117,16 @@ func (s *IntentService) ProcessTokenizeResult(
 		ProviderHint:           canonicalInput.ProviderHint,
 		CreatedAt:              time.Now().UTC(),
 		DuplicateRiskFlag:      dupRisk,
+		ValidationAnomalies:    anomalies,
 	}
-	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir)
+
+	// Update governance with duplicate detection results
+	if dupRisk {
+		governance.DuplicateDetected = true
+		governance.DuplicateReason = dupReason
+	}
+
+	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir, governance)
 
 	// -------- Build CanonicalIntent --------
 
@@ -992,18 +1173,18 @@ func (s *IntentService) ProcessTokenizeResult(
 		Status:    "CREATED",
 		CreatedAt: time.Now().UTC(),
 
-		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
-		ProviderHint:          canonicalInput.ProviderHint,
-		ClientBatchRef:        batchIDStr,
-		RequestFingerprint:    "KAFKA_TOKENIZED",
-		RoutingHintsJSON:      json.RawMessage(`{}`),
-		GovernanceState:       "PENDING",
-		BusinessState:         "NEW",
-		DuplicateRiskFlag:     dupRisk,
-		MappingProfileID:      nir.ProfileID,
-		MappingProfileVersion: nir.ProfileVersion, // Flowed from async NIR
-		SourceSystem:          event.SourceSystem,
-		GovernanceHash:        event.Canonical.GovernanceHash,
+		ClientPayoutRef:         canonicalInput.ClientPayoutRef,
+		ProviderHint:            canonicalInput.ProviderHint,
+		ClientBatchRef:          batchIDStr,
+		RequestFingerprint:      "KAFKA_TOKENIZED",
+		RoutingHintsJSON:        json.RawMessage(`{}`),
+		GovernanceState:         "PENDING",
+		BusinessState:           "NEW",
+		DuplicateRiskFlag:       dupRisk,
+		MappingProfileID:        nir.ProfileID,
+		MappingProfileVersion:   nir.ProfileVersion, // Flowed from async NIR
+		SourceSystem:            event.SourceSystem,
+		GovernanceHash:          event.Canonical.GovernanceHash,
 		BusinessIdempotencyKey:  bIdemKey,
 		BeneficiaryFingerprint:  bFingerprint,
 		ProofReadinessScore:     pScore,
@@ -1013,12 +1194,29 @@ func (s *IntentService) ProcessTokenizeResult(
 		SchemaCompletenessScore: schemaScore,
 		DuplicateReasonCode:     dupReason,
 
-		UpdatedAt: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
-		BatchID:   event.BatchID,
+		UpdatedAt:           func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		BatchID:             event.BatchID,
+		ValidationAnomalies: anomalies,
 	}
 
 	// -------- AGGREGATE GOVERNANCE REASONS --------
+	intent.Governance = governance
 	intent.GovernanceReasonCodesJSON = s.aggregateGovernanceReasons(&intent, nir)
+
+	// UPDATED: Determine GovernanceState (VALID / INVALID / FLAGGED)
+	intent.GovernanceState = "VALID"
+	if intent.DuplicateRiskFlag || len(intent.ValidationAnomalies) > 0 {
+		intent.GovernanceState = "FLAGGED"
+	}
+	if nir.MappingUncertainFlag || nir.RequiredFieldGapCount > 0 {
+		intent.GovernanceState = "FLAGGED"
+	}
+	if iScore < 0.5 {
+		intent.GovernanceState = "FLAGGED"
+	}
+
+	// FIX: Compute deterministic governance_hash (UPDATED)
+	intent.GovernanceHash = s.computeGovernanceHash(&intent)
 
 	payload, err := json.Marshal(intent)
 	if err != nil {
@@ -1170,56 +1368,23 @@ func (s *IntentService) processWebhook(
 }
 
 func (s *IntentService) aggregateGovernanceReasons(intent *models.CanonicalIntent, nir *models.NormalizedIngestRecord) json.RawMessage {
-	var reasons []map[string]any
-
-	if intent.DuplicateRiskFlag {
-		reasons = append(reasons, map[string]any{
-			"module":   "DUPLICATE_DETECTION",
-			"code":     intent.DuplicateReasonCode,
-			"severity": "WARNING",
-		})
-	}
-
-	if nir != nil {
-		if nir.MappingUncertainFlag {
-			reasons = append(reasons, map[string]any{
-				"module":   "NIR_MAPPING",
-				"code":     "MAPPING_UNCERTAIN",
-				"severity": "WARNING",
-			})
-		}
-		if nir.LowConfidenceFieldCount > 0 {
-			reasons = append(reasons, map[string]any{
-				"module":   "NIR_MAPPING",
-				"code":     "LOW_CONFIDENCE_FIELDS",
-				"count":    nir.LowConfidenceFieldCount,
-				"severity": "INFO",
-			})
-		}
-		if nir.RequiredFieldGapCount > 0 {
-			reasons = append(reasons, map[string]any{
-				"module":   "NIR_MAPPING",
-				"code":     "REQUIRED_FIELD_GAPS",
-				"count":    nir.RequiredFieldGapCount,
-				"severity": "WARNING",
-			})
-		}
-	}
-
-	if len(intent.ValidationAnomalies) > 0 {
-		for _, failure := range intent.ValidationAnomalies {
-			reasons = append(reasons, map[string]any{
-				"module":   "CONTENT_VALIDATION",
-				"code":     failure,
-				"severity": "WARNING",
-			})
-		}
-	}
-
-	if len(reasons) == 0 {
-		return json.RawMessage("[]")
-	}
-
-	res, _ := json.Marshal(reasons)
+	// UPDATED: Marshal the full Governance struct instead of manual aggregation
+	res, _ := json.Marshal(intent.Governance)
 	return res
+}
+
+// FIX: New deterministic governance_hash computation (NEW)
+func (s *IntentService) computeGovernanceHash(intent *models.CanonicalIntent) string {
+	return s.computeGovernanceHashInternal(intent.GovernanceState, string(intent.GovernanceReasonCodesJSON), "v1", intent.IntentID)
+}
+
+func (s *IntentService) computeGovernanceHashInternal(state, reasonsJSON, version, intentID string) string {
+	// Construct input: governanceState + "|" + normalizedGovernanceJSON + "|" + policyVersion + "|" + intentID
+	hashInput := state + "|" +
+		reasonsJSON + "|" +
+		version + "|" +
+		intentID
+
+	hashBytes := sha256.Sum256([]byte(hashInput))
+	return hex.EncodeToString(hashBytes[:])
 }

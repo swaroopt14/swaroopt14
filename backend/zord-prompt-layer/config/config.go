@@ -14,11 +14,9 @@ type AppConfig struct {
 	GeminiModel   string
 	GeminiBaseURL string
 
-	EdgeReadDSN            string
-	IntentReadDSN          string
-	RelayReadDSN           string
-	IntelligenceBaseURL    string
-	IntelligenceTimeoutSec int
+	EdgeReadDSN   string
+	IntentReadDSN string
+	RelayReadDSN  string
 
 	DefaultTopK int
 
@@ -59,22 +57,13 @@ func Load() AppConfig {
 		ServiceName: get("SERVICE_NAME", "zord-prompt-layer"),
 		HTTPPort:    get("HTTP_PORT", "8086"),
 
-		GeminiAPIKey:        os.Getenv("GEMINI_API_KEY"),
-		GeminiAPIKeys:       parseCSVKeys(os.Getenv("GEMINI_API_KEYS")),
-		GeminiModel:         get("GEMINI_MODEL", "gemini-2.5-flash"),
-		GeminiBaseURL:       get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
-		EdgeReadDSN:         os.Getenv("EDGE_READ_DSN"),
-		IntentReadDSN:       os.Getenv("INTENT_READ_DSN"),
-		RelayReadDSN:        os.Getenv("RELAY_READ_DSN"),
-		IntelligenceBaseURL: get("INTELLIGENCE_BASE_URL", "http://zord-intelligence:8087"),
-		IntelligenceTimeoutSec: func() int {
-			v := get("INTELLIGENCE_TIMEOUT_SEC", "3")
-			n, err := strconv.Atoi(v)
-			if err != nil || n <= 0 {
-				return 3
-			}
-			return n
-		}(),
+		GeminiAPIKey:  os.Getenv("GEMINI_API_KEY"),
+		GeminiAPIKeys: parseCSVKeys(os.Getenv("GEMINI_API_KEYS")),
+		GeminiModel:   get("GEMINI_MODEL", "gemini-2.5-flash"),
+		GeminiBaseURL: get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"),
+		EdgeReadDSN:   os.Getenv("EDGE_READ_DSN"),
+		IntentReadDSN: os.Getenv("INTENT_READ_DSN"),
+		RelayReadDSN:  os.Getenv("RELAY_READ_DSN"),
 
 		DefaultTopK: topK,
 

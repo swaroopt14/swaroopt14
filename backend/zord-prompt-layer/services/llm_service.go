@@ -20,22 +20,22 @@ func NewLLMService(g *client.GeminiClient) *LLMService {
 func (s *LLMService) ExtractQueryScope(userQuery string) (utils.QueryScope, error) {
 	nowUTC := time.Now().UTC().Format(time.RFC3339)
 
-	prompt := "" +
+	prompt :=
 		"You are an extraction engine. Return strict JSON only.\n" +
-		"Schema:\n" +
-		"{\"wants_visualization\": boolean, \"time_phrase\": string, \"start_utc\": string, \"end_utc\": string}\n" +
-		"Reference:\n" +
-		fmt.Sprintf("- now_utc: %s\n", nowUTC) +
-		"- Interpret relative time words (today/yesterday/this month/etc.) from current runtime.\n" +
+			"Schema:\n" +
+			"{\"wants_visualization\": boolean, \"time_phrase\": string, \"start_utc\": string, \"end_utc\": string}\n" +
+			"Reference:\n" +
+			fmt.Sprintf("- now_utc: %s\n", nowUTC) +
+			"- Interpret relative time words (today/yesterday/this month/etc.) from current runtime.\n" +
 
-		"Rules:\n" +
-		"- wants_visualization=true only if user explicitly asks for chart/graph/trend/visualization.\n" +
-		"- If user asks a specific time scope, set start_utc and end_utc in RFC3339 UTC format.\n" +
-		"- Use half-open window: [start_utc, end_utc).\n" +
-		"- If no explicit time scope, keep start_utc and end_utc empty.\n" +
-		"- time_phrase can be short hint text (or empty).\n" +
-		"- Do not include extra keys.\n\n" +
-		"USER QUERY:\n" + userQuery
+			"Rules:\n" +
+			"- wants_visualization=true only if user explicitly asks for chart/graph/trend/visualization.\n" +
+			"- If user asks a specific time scope, set start_utc and end_utc in RFC3339 UTC format.\n" +
+			"- Use half-open window: [start_utc, end_utc).\n" +
+			"- If no explicit time scope, keep start_utc and end_utc empty.\n" +
+			"- time_phrase can be short hint text (or empty).\n" +
+			"- Do not include extra keys.\n\n" +
+			"USER QUERY:\n" + userQuery
 
 	raw, err := s.gemini.Generate(prompt)
 	if err != nil {
@@ -83,20 +83,20 @@ func (s *LLMService) GenerateFromContextScoped(userQuery string, context string,
 		visRule = "Include a small visualization-ready section (text summary only)."
 	}
 
-	prompt := "" +
+	prompt :=
 		"You are Zord Prompt Layer assistant.\n" +
-		"Rules:\n" +
-		"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
-		"2) If CONTEXT is insufficient, clearly say: \"I don't have enough information in current data to answer that confidently.\"\n" +
-		"3) Write in plain, simple, non-technical language for business users.\n" +
-		"4) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
-		"5) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, api keys, tokens, secrets).\n" +
-		"6) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
+			"Rules:\n" +
+			"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
+			"2) If CONTEXT is insufficient, clearly say: \"I don't have enough information in current data to answer that confidently.\"\n" +
+			"3) Write in plain, simple, non-technical language for business users.\n" +
+			"4) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
+			"5) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, api keys, tokens, secrets).\n" +
+			"6) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
 
-		"7) " + visRule + "\n\n" +
-		"CONTEXT:\n" + context + "\n\n" +
-		"USER QUERY:\n" + userQuery + "\n\n" +
-		"Return concise operational answer."
+			"7) " + visRule + "\n\n" +
+			"CONTEXT:\n" + context + "\n\n" +
+			"USER QUERY:\n" + userQuery + "\n\n" +
+			"Return concise operational answer."
 
 	return s.gemini.Generate(prompt)
 }
@@ -117,25 +117,23 @@ func (s *LLMService) GenerateFromContextScopedWithConfidence(userQuery string, c
 		visRule = "Include a small visualization-ready section (text summary only)."
 	}
 
-	prompt := "" +
+	prompt :=
 		"You are Zord Prompt Layer assistant.\n" +
-		"Rules:\n" +
-		"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
-		"2) If CONTEXT is insufficient, clearly say: \"I don't have enough information in current data to answer that confidently.\"\n" +
-		"3) Write in plain, simple, non-technical language for business users, but include a clear detailed explanation of what happened.\n" +
-		"4) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
-		"5) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, hashes, signatures, encrypted fields, api keys, tokens, secrets).\n" +
-		"6) Use only CONTEXT facts; if uncertain, explicitly say data is insufficient.\n" +
-		"7) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
-
-		"8) " + visRule + "\n" +
-		"9) Return strict JSON only with keys: answer, confidence, confidence_score, evidence_coverage, scope_adherence, contradiction_risk, ambiguity.\n" +
-		"10) confidence must be one of high|medium|low.\n" +
-		"11) All numeric scores must be between 0 and 1.\n" +
-		"12) confidence_score must reflect how reliable the answer is based only on the provided context.\n\n" +
-
-		"CONTEXT:\n" + context + "\n\n" +
-		"USER QUERY:\n" + userQuery
+			"Rules:\n" +
+			"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
+			"2) If CONTEXT is insufficient, clearly say what is missing in plain business language.\n" +
+			"3) Tone must be business-friendly, non-technical, and unambiguous.\n" +
+			"4) Explain operational meaning and business impact clearly.\n" +
+			"5) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
+			"6) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, hashes, signatures, encrypted fields, api keys, tokens, secrets).\n" +
+			"7) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
+			"8) " + visRule + "\n" +
+			"9) Return strict JSON only with keys: answer, confidence, confidence_score, evidence_coverage, scope_adherence, contradiction_risk, ambiguity.\n" +
+			"10) confidence must be one of high|medium|low.\n" +
+			"11) All numeric scores must be between 0 and 1.\n" +
+			"12) confidence_score must reflect reliability based only on provided context.\n\n" +
+			"CONTEXT:\n" + context + "\n\n" +
+			"USER QUERY:\n" + userQuery
 
 	raw, err := s.gemini.Generate(prompt)
 	if err != nil {

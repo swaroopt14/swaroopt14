@@ -26,10 +26,11 @@ func NewPendingLeafRepository(db *sql.DB) *PostgresPendingLeafRepo {
 func (r *PostgresPendingLeafRepo) UpsertLeaf(ctx context.Context, leaf *models.PendingLeafCandidate) error {
 	query := `
 INSERT INTO pending_leaf_candidates (
-	tenant_id, intent_id, envelope_id, leaf_type, hash, schema_version, source_topic, created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+	tenant_id, intent_id, envelope_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 ON CONFLICT (tenant_id, intent_id, leaf_type) WHERE intent_id IS NOT NULL 
 DO UPDATE SET 
+	item_ref = EXCLUDED.item_ref,
 	hash = EXCLUDED.hash,
 	source_topic = EXCLUDED.source_topic,
 	updated_at = NOW()
@@ -41,10 +42,11 @@ DO UPDATE SET
 	if leaf.IntentID == nil && leaf.EnvelopeID != nil {
 		query = `
 INSERT INTO pending_leaf_candidates (
-	tenant_id, intent_id, envelope_id, leaf_type, hash, schema_version, source_topic, created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+	tenant_id, intent_id, envelope_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
 ON CONFLICT (tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL
 DO UPDATE SET 
+	item_ref = EXCLUDED.item_ref,
 	hash = EXCLUDED.hash,
 	source_topic = EXCLUDED.source_topic,
 	updated_at = NOW()
@@ -56,6 +58,7 @@ DO UPDATE SET
 		leaf.IntentID,
 		leaf.EnvelopeID,
 		leaf.LeafType,
+		leaf.ItemRef,
 		leaf.Hash,
 		leaf.SchemaVersion,
 		leaf.SourceTopic,
@@ -82,7 +85,7 @@ WHERE tenant_id = $1 AND envelope_id = $2 AND intent_id IS NULL
 
 func (r *PostgresPendingLeafRepo) GetLeavesForIntent(ctx context.Context, tenantID, intentID string) ([]models.PendingLeafCandidate, error) {
 	query := `
-SELECT id, tenant_id, intent_id, envelope_id, leaf_type, hash, schema_version, source_topic, created_at, updated_at
+SELECT id, tenant_id, intent_id, envelope_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
 FROM pending_leaf_candidates
 WHERE tenant_id = $1 AND intent_id = $2
 `
@@ -96,7 +99,7 @@ WHERE tenant_id = $1 AND intent_id = $2
 	for rows.Next() {
 		var l models.PendingLeafCandidate
 		if err := rows.Scan(
-			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.LeafType, &l.Hash, &l.SchemaVersion, &l.SourceTopic, &l.CreatedAt, &l.UpdatedAt,
+			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic, &l.CreatedAt, &l.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

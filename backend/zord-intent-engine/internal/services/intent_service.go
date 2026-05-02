@@ -385,14 +385,15 @@ func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req mode
 	}
 
 	// source vs provider_hint: UPI -> UPI_RAIL, BANK -> BANK_RAIL
-	if req.Beneficiary.Instrument.Kind == "UPI" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "UPI") {
-		gov.RoutingConsistent = false
-		gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_UPI")
-	}
-	if req.Beneficiary.Instrument.Kind == "BANK" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "BANK") {
-		gov.RoutingConsistent = false
-		gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_BANK")
-	}
+	// REMOVED: Making provider_hint flexible
+	// if req.Beneficiary.Instrument.Kind == "UPI" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "UPI") {
+	// 	gov.RoutingConsistent = false
+	// 	gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_UPI")
+	// }
+	// if req.Beneficiary.Instrument.Kind == "BANK" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "BANK") {
+	// 	gov.RoutingConsistent = false
+	// 	gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_BANK")
+	// }
 
 	// execution_window vs intended_execution_at
 	if req.IntendedExecutionAt != "" {
@@ -582,7 +583,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		LowConfidenceFieldCount: lowConfCount,
 		CreatedAt:               time.Now().UTC(),
 	}
-	
+
 	// -------- STEP 6.5: APPLY GOVERNANCE POLICY (NEW) --------
 	governance := s.ApplyPolicy(nir, parsed)
 	if !governance.SemanticValid {
@@ -793,7 +794,6 @@ func (s *IntentService) ProcessIncomingIntent(
 	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir, governance)
 
 	// -------- STEP 9: BUILD CANONICAL INTENT --------
-
 
 	var executionAt *time.Time
 	if canonicalInput.IntendedExecutionAt != "" {

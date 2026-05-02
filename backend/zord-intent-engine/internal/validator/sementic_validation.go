@@ -128,9 +128,9 @@ func validateInstrumentParsed(intent models.ParsedIncomingIntent) error {
 			return semanticError("VPA not allowed for BANK instrument")
 		}
 		// FIX: Routing alignment
-		if intent.ProviderHint != "" && intent.ProviderHint != "BANK_RAIL" {
-			return semanticError("BANK instrument requires BANK_RAIL provider_hint")
-		}
+		// if intent.ProviderHint != "" && intent.ProviderHint != "BANK_RAIL" {
+		// 	return semanticError("BANK instrument requires BANK_RAIL provider_hint")
+		// }
 
 	case "UPI":
 		if strings.TrimSpace(intent.Beneficiary.Instrument.VPA) == "" {
@@ -144,9 +144,9 @@ func validateInstrumentParsed(intent models.ParsedIncomingIntent) error {
 			return semanticError("AccountNumber/IFSC not allowed for UPI instrument")
 		}
 		// FIX: Routing alignment
-		if intent.ProviderHint != "" && intent.ProviderHint != "UPI_RAIL" {
-			return semanticError("UPI instrument requires UPI_RAIL provider_hint")
-		}
+		// if intent.ProviderHint != "" && intent.ProviderHint != "UPI_RAIL" {
+		// 	return semanticError("UPI instrument requires UPI_RAIL provider_hint")
+		// }
 
 	case "WALLET", "CARD":
 		return nil

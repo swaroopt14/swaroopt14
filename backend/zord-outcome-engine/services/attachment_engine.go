@@ -824,7 +824,7 @@ func loadObservationsByBatch(ctx context.Context, tenantID uuid.UUID, batchRef s
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT
 			settlement_observation_id, tenant_id, trace_id,
-			settlement_envelope_id, job_id,
+			settlement_envelope_id, job_id, ingest_run_id,
 			source_file_ref, source_row_ref, source_system,
 			observation_kind, source_strength_class,
 			client_reference_candidate, provider_reference, bank_reference,
@@ -854,7 +854,7 @@ func loadObservationsByJobID(ctx context.Context, tenantID uuid.UUID, jobID stri
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT
 			settlement_observation_id, tenant_id, trace_id,
-			settlement_envelope_id, job_id,
+			settlement_envelope_id, job_id, ingest_run_id,
 			source_file_ref, source_row_ref, source_system,
 			observation_kind, source_strength_class,
 			client_reference_candidate, provider_reference, bank_reference,
@@ -884,7 +884,7 @@ func loadObservationByID(ctx context.Context, tenantID uuid.UUID, obsID uuid.UUI
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT
 			settlement_observation_id, tenant_id, trace_id,
-			settlement_envelope_id, job_id,
+			settlement_envelope_id, job_id, ingest_run_id,
 			source_file_ref, source_row_ref, source_system,
 			observation_kind, source_strength_class,
 			client_reference_candidate, provider_reference, bank_reference,
@@ -922,7 +922,7 @@ func scanObservations(rows *sql.Rows) ([]models.CanonicalSettlementObservation, 
 		var o models.CanonicalSettlementObservation
 		err := rows.Scan(
 			&o.SettlementObservationID, &o.TenantID, &o.TraceID,
-			&o.SettlementEnvelopeID, &o.JobID,
+			&o.SettlementEnvelopeID, &o.JobID, &o.IngestRunID,
 			&o.SourceFileRef, &o.SourceRowRef, &o.SourceSystem,
 			&o.ObservationKind, &o.SourceStrengthClass,
 			&o.ClientReferenceCandidate, &o.ProviderReference, &o.BankReference,

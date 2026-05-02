@@ -37,6 +37,7 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			intent_id      TEXT,       -- NULL initially for edge events
 			envelope_id    TEXT,       -- Used to correlate edge events
 			leaf_type      TEXT        NOT NULL,
+			item_ref       TEXT,       -- The reference for the item (e.g. variance_record_id)
 			hash           TEXT        NOT NULL,
 			schema_version TEXT        NOT NULL DEFAULT 'v1',
 			source_topic   TEXT        NOT NULL,

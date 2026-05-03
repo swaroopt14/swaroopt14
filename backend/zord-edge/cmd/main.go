@@ -134,9 +134,9 @@ func main() {
 		Addr:              ":8080",
 		Handler:           server,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      20 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadTimeout:       5 * time.Minute,
+		WriteTimeout:      10 * time.Minute,
+		IdleTimeout:       10 * time.Minute,
 	}
 
 	// Start server in a goroutine so it doesn't block.

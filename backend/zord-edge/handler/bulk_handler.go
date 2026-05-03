@@ -230,7 +230,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 			})
 			return
 		}
-		if totalDataRows >= 10000 {
+		if totalDataRows >= 20000 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "CSV limit exceeded (max 10000 rows)",
 			})
@@ -241,7 +241,10 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		resultsMap := make(map[int]BulkResult)
 		jobs := make(chan BulkJob, 500)
 
-		workerCount := runtime.NumCPU() * 2
+		workerCount := runtime.NumCPU() * 5
+		if workerCount > 50 {
+			workerCount = 50
+		}
 		var wg sync.WaitGroup
 
 		ctx := context.WithoutCancel(c.Request.Context())
@@ -452,7 +455,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 			})
 			return
 		}
-		if totalRows > 10000 {
+		if totalRows > 20000 {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"error": "CSV limit exceeded (max 10000 rows)",
 			})
@@ -463,7 +466,10 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		resultsMap := make(map[int]BulkResult)
 		jobs := make(chan BulkJob, 500)
 
-		workerCount := runtime.NumCPU() * 2
+		workerCount := runtime.NumCPU() * 5
+		if workerCount > 50 {
+			workerCount = 50
+		}
 		var wg sync.WaitGroup
 
 		ctx := context.WithoutCancel(c.Request.Context())

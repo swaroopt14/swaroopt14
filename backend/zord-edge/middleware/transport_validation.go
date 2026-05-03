@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const maxPayloadSize = 1000 * 1024 // 1000 KB
+const maxPayloadSize = 5000 * 1024 // 1000 KB
 
 var allowedContentTypes = map[string]bool{
 	"application/json":    true,
@@ -57,9 +57,9 @@ func TransportValidation() gin.HandlerFunc {
 		}
 
 		validSourceClasses := map[string]bool{
-			"INTENT":  true,
-			"OUTCOME": true,
-			"FILE":    true,
+			"INTENT":   true,
+			"OUTCOME":  true,
+			"FILE":     true,
 			"CALLBACK": true,
 		}
 

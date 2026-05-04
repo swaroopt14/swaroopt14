@@ -36,7 +36,7 @@ pipeline {
     GIT_CREDENTIALS_ID = 'github-pat'
     GIT_REPO_URL = 'https://github.com/Arealis-network/Arealis-Zord-intent.git'
     PIPELINE_SCRIPT_PATH = 'jenkins/Jenkinsfile.service-ecr'
-    PIPELINE_SIGNATURE = 'service-ecr-2026-05-04-sed-v5'
+    PIPELINE_SIGNATURE = 'service-ecr-2026-05-04-sed-v6'
   }
 
   stages {
@@ -64,12 +64,25 @@ pipeline {
 
           def shortSha = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
           def checkoutBranch = sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
+          def normalizedGitBranch = params.GIT_BRANCH?.trim() ?: 'main'
+          if (normalizedGitBranch.startsWith('refs/remotes/origin/')) {
+            normalizedGitBranch = normalizedGitBranch - 'refs/remotes/origin/'
+          } else if (normalizedGitBranch.startsWith('origin/')) {
+            normalizedGitBranch = normalizedGitBranch - 'origin/'
+          } else if (normalizedGitBranch.startsWith('refs/heads/')) {
+            normalizedGitBranch = normalizedGitBranch - 'refs/heads/'
+          }
+          if (!normalizedGitBranch) {
+            error('Resolved git branch is empty after normalizing GIT_BRANCH')
+          }
+
           env.RESOLVED_IMAGE_TAG = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : "v${env.BUILD_NUMBER}"
           env.ECR_REPOSITORY = params.ECR_REPOSITORY_PREFIX?.trim() ? "${params.ECR_REPOSITORY_PREFIX.trim()}/${params.SERVICE_NAME}" : params.SERVICE_NAME
           env.ECR_REGISTRY = "${params.AWS_ACCOUNT_ID}.dkr.ecr.${params.AWS_REGION}.amazonaws.com"
           env.IMAGE_URI = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.RESOLVED_IMAGE_TAG}"
           env.CHECKOUT_SHORT_SHA = shortSha
           env.CHECKOUT_BRANCH = checkoutBranch
+          env.GIT_PUSH_REF = "refs/heads/${normalizedGitBranch}"
 
           echo """
 Pipeline signature: ${env.PIPELINE_SIGNATURE}
@@ -79,6 +92,7 @@ Checked out commit: ${env.CHECKOUT_SHORT_SHA}
 Manifest update strategy: sed
 Service to build: ${params.SERVICE_NAME}
 Target git push branch: ${params.GIT_BRANCH}
+Resolved git push ref: ${env.GIT_PUSH_REF}
 """.trim()
         }
       }
@@ -204,7 +218,7 @@ Target git push branch: ${params.GIT_BRANCH}
             fi
 
             git commit -m "ci(${SERVICE_NAME}): update image to ${RESOLVED_IMAGE_TAG}"
-            git push "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/Arealis-network/Arealis-Zord-intent.git" "HEAD:${GIT_BRANCH}"
+            git push "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/Arealis-network/Arealis-Zord-intent.git" "HEAD:${GIT_PUSH_REF}"
           '''
         }
       }

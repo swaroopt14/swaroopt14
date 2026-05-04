@@ -126,7 +126,7 @@ Target git push branch: ${params.GIT_BRANCH}
                 exit 1
               fi
 
-              sed -i -E "s#^([[:space:]]*image:[[:space:]]*).*$#\\1${image_uri}#" "${deployment_file}"
+              sed -i -E "s#^([[:space:]]*image:[[:space:]]*).*\$#\\1${image_uri}#" "${deployment_file}"
 
               if ! grep -Fq "image: ${image_uri}" "${deployment_file}"; then
                 echo "Failed to update image in ${deployment_file}" >&2

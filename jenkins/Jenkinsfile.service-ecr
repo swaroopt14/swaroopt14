@@ -36,7 +36,7 @@ pipeline {
     GIT_CREDENTIALS_ID = 'github-pat'
     GIT_REPO_URL = 'https://github.com/Arealis-network/Arealis-Zord-intent.git'
     PIPELINE_SCRIPT_PATH = 'jenkins/Jenkinsfile.service-ecr'
-    PIPELINE_SIGNATURE = 'service-ecr-2026-05-04-sed-v4'
+    PIPELINE_SIGNATURE = 'service-ecr-2026-05-04-sed-v5'
   }
 
   stages {
@@ -165,7 +165,7 @@ Target git push branch: ${params.GIT_BRANCH}
             exit 1
           fi
 
-          sed -i -E 's#^([[:space:]]*image:[[:space:]]*).*$#\1'"${IMAGE_URI}"'#' "${DEPLOYMENT_FILE}"
+          sed -i -E 's#^([[:space:]]*image:[[:space:]]*).*$#\\1'"${IMAGE_URI}"'#' "${DEPLOYMENT_FILE}"
 
           if ! grep -Fq "image: ${IMAGE_URI}" "${DEPLOYMENT_FILE}"; then
             echo "Failed to update image in ${DEPLOYMENT_FILE}" >&2

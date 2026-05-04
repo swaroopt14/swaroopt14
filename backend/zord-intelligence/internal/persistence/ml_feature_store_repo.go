@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/zord/zord-intelligence/internal/ml/isolation"
 )
 
 // MLFeatureStoreRepo handles all DB operations for the ml_feature_store table.
@@ -302,11 +303,11 @@ func (r *MLFeatureStoreRepo) GetRecentFloatField(
 // slices suitable for training/scoring an Isolation Forest.
 //
 // The feature vector order matches isolation.BuildFeatures():
-//   [0] ambiguity_score
-//   [1] variance_rate  (total_variance_minor / total_intended_amount_minor)
-//   [2] pending_rate   (pending_count / total_count)
-//   [3] failed_rate    (failed_count  / total_count)
-//   [4] reversed_rate  (reversed_count / total_count)
+//   [0] ambiguity_rate
+//   [1] variance_rate
+//   [2] settlement_gap (derived from settlement_ratio)
+//   [3] unresolved_ratio
+//   [4] missing_ref_rate
 //
 // Rows with any NULL numeric field are skipped.
 func (r *MLFeatureStoreRepo) GetRecentBatchFeatures(
@@ -348,7 +349,8 @@ func (r *MLFeatureStoreRepo) GetRecentBatchFeatures(
 }
 
 // parseBatchFeatureVector extracts the 5-element float vector from a PATTERN
-// features_json blob. Returns nil if any required field is missing or non-numeric.
+// features_json blob. It prefers current normalized fields and falls back to
+// legacy count-based fields for older rows.
 func parseBatchFeatureVector(raw []byte) []float64 {
 	var m map[string]interface{}
 	if err := json.Unmarshal(raw, &m); err != nil {
@@ -385,17 +387,35 @@ func parseBatchFeatureVector(raw []byte) []float64 {
 		return v, true
 	}
 
-	amb, ok0 := asFloat("ambiguity_score")
+	amb, ok0 := asFloat("ambiguity_rate")
+	if !ok0 {
+		amb, ok0 = asFloat("ambiguity_score")
+	}
 	if !ok0 {
 		return nil
 	}
 
-	varRate, _ := asRate("total_variance_minor", "total_intended_amount_minor")
-	pendRate, _ := asRate("pending_count", "total_count")
-	failRate, _ := asRate("failed_count", "total_count")
-	revRate, _ := asRate("reversed_count", "total_count")
+	varRate, ok := asFloat("variance_rate")
+	if !ok {
+		varRate, _ = asRate("total_variance_minor", "total_intended_amount_minor")
+	}
 
-	return []float64{amb, varRate, pendRate, failRate, revRate}
+	settlementRatio, ok := asFloat("settlement_ratio")
+	if !ok {
+		settlementRatio, _ = asRate("settled_count", "total_count")
+	}
+
+	unresolvedRatio, ok := asFloat("unresolved_ratio")
+	if !ok {
+		unresolvedRatio, _ = asRate("unresolved_count", "total_count")
+	}
+
+	missingRefRate, ok := asFloat("missing_ref_rate")
+	if !ok {
+		missingRefRate, _ = asRate("missing_ref_count", "total_count")
+	}
+
+	return isolation.BuildFeatures(amb, varRate, settlementRatio, unresolvedRatio, missingRefRate)
 }
 
 // scanMLFeatureRow scans one row from a QueryRow call.

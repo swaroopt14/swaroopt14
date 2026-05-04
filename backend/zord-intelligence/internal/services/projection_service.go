@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"github.com/zord/zord-intelligence/internal/models"
@@ -146,6 +147,17 @@ func (s *ProjectionService) HandleIntentCreated(
 	}
 	log.Printf("HandleIntentCreated intent=%s tenant=%s", e.EventID, e.TenantID)
 	window := todayWindow(e.CreatedAt)
+
+	if intendedMinor, err := strconv.ParseInt(e.Amount, 10, 64); err != nil {
+		log.Printf("HandleIntentCreated: could not parse amount=%q intent=%s tenant=%s: %v",
+			e.Amount, e.IntentID, e.TenantID, err)
+	} else if intendedMinor > 0 {
+		if err := s.projRepo.AtomicIncrementLeakageIntendedTotal(
+			ctx, e.TenantID, intendedMinor, window.start, window.end,
+		); err != nil {
+			return fmt.Errorf("HandleIntentCreated leakage denominator intent=%s: %w", e.IntentID, err)
+		}
+	}
 
 	// Step 1: atomically add to the pending backlog (race-safe SQL upsert)
 	if err := s.projRepo.AtomicIncrementPending(
@@ -584,13 +596,13 @@ func (s *ProjectionService) HandleEvidencePackReady(
 	}
 
 	// PHASE 4: Update DEFENSIBILITY projection — this intent now has an evidence pack.
-	// AtomicIncrementDefensibilityIntent increments both total_intents (denominator)
-	// AND with_evidence_pack (numerator), so evidence_pack_rate is always correct.
-	if err := s.projRepo.AtomicIncrementDefensibilityIntent(
-		ctx, e.TenantID, true /* hasEvidencePack */, window.start, window.end,
+	// Grade A already derives total_intents from attachment decisions, so evidence
+	// coverage must update only the numerator here.
+	if err := s.projRepo.AtomicIncrementDefensibilityEvidencePack(
+		ctx, e.TenantID, window.start, window.end,
 	); err != nil {
 		// Log but don't fail — legacy evidence_readiness was already updated
-		log.Printf("HandleEvidencePackReady: AtomicIncrementDefensibilityIntent failed tenant=%s: %v",
+		log.Printf("HandleEvidencePackReady: AtomicIncrementDefensibilityEvidencePack failed tenant=%s: %v",
 			e.TenantID, err)
 	} else {
 		// Recompute defensibility snapshot now that evidence pack rate changed
@@ -777,8 +789,8 @@ func (s *ProjectionService) HandleSettlementCreated(
 			ctx,
 			e.TenantID,
 			"ORPHAN_SETTLEMENT",
-			0,                      // intendedMinor = 0 (no intent found)
-			e.SettledAmountMinor,   // orphanMinor = settled amount
+			0,                    // intendedMinor = 0 (no intent found)
+			e.SettledAmountMinor, // orphanMinor = settled amount
 			window.start, window.end,
 		); err != nil {
 			// Log but don't fail — the event is still marked processed below.
@@ -850,7 +862,7 @@ func (s *ProjectionService) HandleAttachmentDecision(
 			ctx,
 			e.TenantID,
 			"UNMATCHED_INTENT",
-			e.IntendedAmountMinor,  // intended amount at risk
+			e.IntendedAmountMinor, // intended amount at risk
 			0,                     // no orphan amount (that comes from HandleSettlementCreated)
 			window.start, window.end,
 		); err != nil {
@@ -1100,6 +1112,18 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		log.Printf("HandleBatchSummaryUpdated: patternSvc failed batch=%s: %v", e.BatchID, err)
 	}
 
+	if leakage, err := s.projRepo.GetLeakageSummary(ctx, e.TenantID); err != nil {
+		log.Printf("HandleBatchSummaryUpdated: leakage denominator check failed batch=%s: %v", e.BatchID, err)
+	} else if leakage != nil && leakage.TotalIntendedAmountMinor > 0 {
+		if leakage.TotalIntendedAmountMinor != e.TotalIntendedAmountMinor {
+			log.Printf("HandleBatchSummaryUpdated: leakage denominator mismatch batch=%s batch_summary_total=%d leakage_total=%d tenant=%s",
+				e.BatchID, e.TotalIntendedAmountMinor, leakage.TotalIntendedAmountMinor, e.TenantID)
+		} else {
+			log.Printf("HandleBatchSummaryUpdated: leakage denominator aligned batch=%s total=%d tenant=%s",
+				e.BatchID, e.TotalIntendedAmountMinor, e.TenantID)
+		}
+	}
+
 	// Step 3: Trigger policy evaluation
 	if err := s.policyService.EvaluateForEvent(
 		ctx, e.TenantID, e.CorridorID, "batch.summary.updated", e.EventID,
@@ -1213,4 +1237,3 @@ func (s *ProjectionService) HandleGovernanceDecision(
 	}
 	return nil
 }
-

@@ -43,11 +43,11 @@ spec:
           image: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/zord-intelligence:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 8087
+            - containerPort: 8089
               name: http
           env:
             - name: HTTP_PORT
-              value: "8087"
+              value: "8089"
             - name: ENVIRONMENT
               value: production
             - name: DATABASE_URL
@@ -64,13 +64,13 @@ spec:
           readinessProbe:
             httpGet:
               path: /readyz
-              port: 8087
+              port: 8089
             initialDelaySeconds: 15
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /healthz
-              port: 8087
+              port: 8089
             initialDelaySeconds: 30
             periodSeconds: 20
           resources:

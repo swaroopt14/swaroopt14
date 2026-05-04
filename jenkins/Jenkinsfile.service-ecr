@@ -35,6 +35,8 @@ pipeline {
     AWS_CREDENTIALS_ID = 'aws-ecr-credentials'
     GIT_CREDENTIALS_ID = 'github-pat'
     GIT_REPO_URL = 'https://github.com/Arealis-network/Arealis-Zord-intent.git'
+    PIPELINE_SCRIPT_PATH = 'jenkins/Jenkinsfile.service-ecr'
+    PIPELINE_SIGNATURE = 'service-ecr-2026-05-04-awk-v2'
   }
 
   stages {
@@ -61,10 +63,23 @@ pipeline {
           }
 
           def shortSha = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+          def checkoutBranch = sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
           env.RESOLVED_IMAGE_TAG = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : "v${env.BUILD_NUMBER}"
           env.ECR_REPOSITORY = params.ECR_REPOSITORY_PREFIX?.trim() ? "${params.ECR_REPOSITORY_PREFIX.trim()}/${params.SERVICE_NAME}" : params.SERVICE_NAME
           env.ECR_REGISTRY = "${params.AWS_ACCOUNT_ID}.dkr.ecr.${params.AWS_REGION}.amazonaws.com"
           env.IMAGE_URI = "${env.ECR_REGISTRY}/${env.ECR_REPOSITORY}:${env.RESOLVED_IMAGE_TAG}"
+          env.CHECKOUT_SHORT_SHA = shortSha
+          env.CHECKOUT_BRANCH = checkoutBranch
+
+          echo """
+Pipeline signature: ${env.PIPELINE_SIGNATURE}
+Pipeline script path: ${env.PIPELINE_SCRIPT_PATH}
+Checked out branch: ${env.CHECKOUT_BRANCH}
+Checked out commit: ${env.CHECKOUT_SHORT_SHA}
+Manifest update strategy: awk
+Service to build: ${params.SERVICE_NAME}
+Target git push branch: ${params.GIT_BRANCH}
+""".trim()
         }
       }
     }
@@ -110,6 +125,12 @@ pipeline {
             set -euo pipefail
             export AWS_DEFAULT_REGION="${AWS_REGION}"
 
+            echo "PIPELINE_SIGNATURE=${PIPELINE_SIGNATURE}"
+            echo "PIPELINE_SCRIPT_PATH=${PIPELINE_SCRIPT_PATH}"
+            echo "CHECKOUT_BRANCH=${CHECKOUT_BRANCH}"
+            echo "CHECKOUT_SHORT_SHA=${CHECKOUT_SHORT_SHA}"
+            echo "MANIFEST_UPDATE_STRATEGY=awk"
+
             aws ecr get-login-password --region "${AWS_REGION}" \
               | docker login --username AWS --password-stdin "${ECR_REGISTRY}"
 
@@ -139,7 +160,17 @@ pipeline {
         sh '''
           set -euo pipefail
 
-          sed -i -E "s#^([[:space:]]*image:[[:space:]]*).*$#\\1${IMAGE_URI}#" "${DEPLOYMENT_FILE}"
+          awk -v image_uri="${IMAGE_URI}" '
+            BEGIN { updated = 0 }
+            /^[[:space:]]*image:[[:space:]]*/ && !updated {
+              match($0, /^[[:space:]]*/)
+              printf "%simage: %s\n", substr($0, 1, RLENGTH), image_uri
+              updated = 1
+              next
+            }
+            { print }
+          ' "${DEPLOYMENT_FILE}" > "${DEPLOYMENT_FILE}.tmp"
+          mv "${DEPLOYMENT_FILE}.tmp" "${DEPLOYMENT_FILE}"
 
           echo "Updated manifest:"
           grep -n "image:" "${DEPLOYMENT_FILE}"

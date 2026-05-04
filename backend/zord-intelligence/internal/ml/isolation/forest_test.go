@@ -8,22 +8,20 @@ import (
 // ── Smoke: BuildFeatures ──────────────────────────────────────────────────────
 
 func TestBuildFeatures_Rates(t *testing.T) {
-	// 10 total, 2 failed, 3 pending, 1 reversed → rates 0.2, 0.3, 0.1
-	f := BuildFeatures(0.0, 0, 0, 3, 2, 1, 10)
-	if math.Abs(f[2]-0.3) > 1e-9 {
-		t.Errorf("pending_rate = %.3f, want 0.3", f[2])
+	f := BuildFeatures(0.4, 0.25, 0.6, 0.2, 0.1)
+	if math.Abs(f[2]-0.4) > 1e-9 {
+		t.Errorf("settlement_gap = %.3f, want 0.4", f[2])
 	}
 	if math.Abs(f[3]-0.2) > 1e-9 {
-		t.Errorf("failed_rate = %.3f, want 0.2", f[3])
+		t.Errorf("unresolved_ratio = %.3f, want 0.2", f[3])
 	}
 	if math.Abs(f[4]-0.1) > 1e-9 {
-		t.Errorf("reversed_rate = %.3f, want 0.1", f[4])
+		t.Errorf("missing_ref_rate = %.3f, want 0.1", f[4])
 	}
 }
 
 func TestBuildFeatures_ZeroDenominator(t *testing.T) {
-	// totalCount=0 → all rate features must be 0, not NaN
-	f := BuildFeatures(0.0, 100_000, 1_000_000, 0, 0, 0, 0)
+	f := BuildFeatures(0.0, 0.1, 0.0, 0.0, 0.0)
 	for i, v := range f {
 		if math.IsNaN(v) || math.IsInf(v, 0) {
 			t.Errorf("feature[%d] = %f (NaN/Inf), want 0", i, v)
@@ -32,15 +30,14 @@ func TestBuildFeatures_ZeroDenominator(t *testing.T) {
 }
 
 func TestBuildFeatures_VarianceRate(t *testing.T) {
-	// variance=500_000, intended=10_000_000 → rate=0.05
-	f := BuildFeatures(0.0, 500_000, 10_000_000, 0, 0, 0, 10)
+	f := BuildFeatures(0.0, 0.05, 1.0, 0.0, 0.0)
 	if math.Abs(f[1]-0.05) > 1e-6 {
 		t.Errorf("variance_rate = %.4f, want 0.05", f[1])
 	}
 }
 
 func TestBuildFeatures_ClampedToUnit(t *testing.T) {
-	f := BuildFeatures(2.0, 99_000_000, 100, 1000, 1000, 1000, 100) // extreme values
+	f := BuildFeatures(2.0, 9.0, -5.0, 7.0, 4.0)
 	for i, v := range f {
 		if v < 0 || v > 1 {
 			t.Errorf("feature[%d] = %.4f out of [0,1]", i, v)
@@ -49,7 +46,7 @@ func TestBuildFeatures_ClampedToUnit(t *testing.T) {
 }
 
 func TestBuildFeatures_Length(t *testing.T) {
-	f := BuildFeatures(0.1, 100_000, 1_000_000, 10, 5, 2, 100)
+	f := BuildFeatures(0.1, 0.1, 0.9, 0.05, 0.02)
 	if len(f) != len(FeatureNames) {
 		t.Errorf("len(features) = %d, want %d", len(f), len(FeatureNames))
 	}
@@ -88,7 +85,7 @@ func TestCFactor_GrowsWithN(t *testing.T) {
 func TestForest_ScoreBeforeFit(t *testing.T) {
 	// Before Fit(), Score should return neutral result, not panic
 	f := New(10, 16)
-	sample := BuildFeatures(0.1, 0, 1_000_000, 5, 3, 1, 100)
+	sample := BuildFeatures(0.1, 0.0, 0.95, 0.03, 0.01)
 	r := f.Score(sample)
 
 	if r.Score != 0.5 {
@@ -122,8 +119,8 @@ func TestForest_AnomalyScoresHigherThanNormal(t *testing.T) {
 	f := New(100, 64)
 	f.Fit(normalBatches(200))
 
-	normalSample := BuildFeatures(0.02, 100_000, 10_000_000, 5, 2, 1, 200)
-	anomaly := BuildFeatures(0.80, 8_000_000, 10_000_000, 160, 160, 80, 200)
+	normalSample := BuildFeatures(0.02, 0.01, 0.98, 0.01, 0.01)
+	anomaly := BuildFeatures(0.80, 0.80, 0.20, 0.80, 0.80)
 
 	normalScore := f.Score(normalSample).Score
 	anomalyScore := f.Score(anomaly).Score
@@ -183,10 +180,10 @@ func TestDominantAnomalyType_HighAmbiguity(t *testing.T) {
 func TestDominantAnomalyType_HighFailureRate(t *testing.T) {
 	fo := New(10, 16)
 	fo.Fit(normalBatches(20))
-	sample := []float64{0.0, 0.0, 0.0, 0.85, 0.0} // failed_rate is dominant
+	sample := []float64{0.0, 0.0, 0.0, 0.85, 0.0}
 	got := fo.dominantAnomalyType(sample)
-	if got != "HIGH_FAILURE_RATE" {
-		t.Errorf("dominantAnomalyType = %q, want HIGH_FAILURE_RATE", got)
+	if got != "HIGH_UNRESOLVED_RATE" {
+		t.Errorf("dominantAnomalyType = %q, want HIGH_UNRESOLVED_RATE", got)
 	}
 }
 
@@ -207,17 +204,12 @@ func TestDominantAnomalyType_AllZero(t *testing.T) {
 func normalBatches(n int) [][]float64 {
 	data := make([][]float64, n)
 	for i := range data {
-		// Vary slightly to give the trees real splits to work with
-		failRate := 0.01 + float64(i%5)*0.005
-		pendRate := 0.02 + float64(i%3)*0.005
 		data[i] = BuildFeatures(
-			0.01+float64(i%10)*0.001, // ambiguity ≈ 1–2%
-			int64(i*1000),            // variance
-			1_000_000,
-			int(float64(200)*pendRate), // pending
-			int(float64(200)*failRate), // failed
-			1,                          // reversed
-			200,
+			0.01+float64(i%10)*0.001,
+			0.005+float64(i%5)*0.002,
+			0.95-float64(i%3)*0.01,
+			0.01+float64(i%4)*0.005,
+			0.01+float64(i%3)*0.003,
 		)
 	}
 	return data

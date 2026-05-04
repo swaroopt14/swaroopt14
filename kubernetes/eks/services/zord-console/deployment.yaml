@@ -40,7 +40,7 @@ spec:
               app.kubernetes.io/name: zord-console
       containers:
         - name: zord-console
-          image: 123456789012.dkr.ecr.ap-south-1.amazonaws.com/zord-console:latest
+          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-console:v7
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000

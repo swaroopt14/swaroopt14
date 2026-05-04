@@ -100,7 +100,17 @@ pipeline {
               docker build -t "${image_uri}" "${service_dir}"
               docker push "${image_uri}"
 
-              sed -i -E "s#^([[:space:]]*image:[[:space:]]*).*$#\\1${image_uri}#" "${deployment_file}"
+              awk -v image_uri="${image_uri}" '
+                BEGIN { updated = 0 }
+                /^[[:space:]]*image:[[:space:]]*/ && !updated {
+                  match($0, /^[[:space:]]*/)
+                  printf "%simage: %s\n", substr($0, 1, RLENGTH), image_uri
+                  updated = 1
+                  next
+                }
+                { print }
+              ' "${deployment_file}" > "${deployment_file}.tmp"
+              mv "${deployment_file}.tmp" "${deployment_file}"
               grep -n "image:" "${deployment_file}"
             done
           '''

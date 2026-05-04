@@ -139,7 +139,17 @@ pipeline {
         sh '''
           set -euo pipefail
 
-          sed -i -E "s#^([[:space:]]*image:[[:space:]]*).*$#\\1${IMAGE_URI}#" "${DEPLOYMENT_FILE}"
+          awk -v image_uri="${IMAGE_URI}" '
+            BEGIN { updated = 0 }
+            /^[[:space:]]*image:[[:space:]]*/ && !updated {
+              match($0, /^[[:space:]]*/)
+              printf "%simage: %s\n", substr($0, 1, RLENGTH), image_uri
+              updated = 1
+              next
+            }
+            { print }
+          ' "${DEPLOYMENT_FILE}" > "${DEPLOYMENT_FILE}.tmp"
+          mv "${DEPLOYMENT_FILE}.tmp" "${DEPLOYMENT_FILE}"
 
           echo "Updated manifest:"
           grep -n "image:" "${DEPLOYMENT_FILE}"

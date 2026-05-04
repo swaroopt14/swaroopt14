@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import type { WorkspaceSimulation, WorkspaceTab } from '../model'
-import { workspaceTabs, workspaceTiles } from '../model'
+import type { WorkspaceSimulation, WorkspaceTab } from '@/services/payout-command/model'
+import { workspaceTabs, workspaceTiles } from '@/services/payout-command/model'
 import { Glyph } from '../shared'
 
 type WorkspaceConversationMessage = {

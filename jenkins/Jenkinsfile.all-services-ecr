@@ -7,11 +7,11 @@ pipeline {
   }
 
   parameters {
-    string(name: 'AWS_ACCOUNT_ID', defaultValue: '123456789012', description: 'AWS account that owns the ECR repositories')
+    string(name: 'AWS_ACCOUNT_ID', defaultValue: '522189039032', description: 'AWS account that owns the ECR repositories')
     string(name: 'AWS_REGION', defaultValue: 'ap-south-1', description: 'AWS region for ECR')
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag. Leave empty to auto-generate in vN format.')
     string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch to update')
-    string(name: 'ECR_REPOSITORY_PREFIX', defaultValue: '', description: 'Optional ECR repository prefix, for example team/platform')
+    string(name: 'ECR_REPOSITORY_PREFIX', defaultValue: 'zord', description: 'Optional ECR repository prefix, for example team/platform')
     booleanParam(name: 'USE_INSTANCE_ROLE', defaultValue: true, description: 'Use the EC2 instance IAM role for AWS access')
     string(
       name: 'SERVICES',

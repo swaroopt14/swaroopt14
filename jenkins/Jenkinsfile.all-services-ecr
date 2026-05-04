@@ -100,7 +100,18 @@ pipeline {
               docker build -t "${image_uri}" "${service_dir}"
               docker push "${image_uri}"
 
+              if ! grep -Eq '^[[:space:]]*image:[[:space:]]*' "${deployment_file}"; then
+                echo "No image field found in ${deployment_file}" >&2
+                exit 1
+              fi
+
               sed -i -E "s#^([[:space:]]*image:[[:space:]]*).*$#\\1${image_uri}#" "${deployment_file}"
+
+              if ! grep -Fq "image: ${image_uri}" "${deployment_file}"; then
+                echo "Failed to update image in ${deployment_file}" >&2
+                exit 1
+              fi
+
               grep -n "image:" "${deployment_file}"
             done
           '''

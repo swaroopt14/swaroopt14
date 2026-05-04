@@ -85,7 +85,7 @@ spec:
                   name: zord-app-secrets
                   key: EVIDENCE_READ_DSN
             - name: INTELLIGENCE_BASE_URL
-              value: http://zord-intelligence:8087
+              value: http://zord-intelligence:8089
             - name: INTELLIGENCE_TIMEOUT_SEC
               value: "5"
             - name: DEFAULT_TOP_K

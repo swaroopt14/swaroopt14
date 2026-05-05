@@ -18,6 +18,6 @@ type Event struct {
 	SourceSystem   string    `json:"source_system"`
 	IdempotencyKey string    `json:"idempotency_key"`
 	Payload        []byte    `json:"payload"`
-	PayloadHash    []byte    `json:"payload_hash"`
+	PayloadHash    string    `json:"payload_hash"`
 	BatchID        *string   `json:"batchid,omitempty"`
 }

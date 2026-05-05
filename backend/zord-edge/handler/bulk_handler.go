@@ -108,14 +108,14 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 	fileTraceID := uuid.Must(uuid.NewV7()).String()
 
 	batchIDHeader := c.GetHeader("Batch-ID")
-	var finalBatchID *string
-	fileEnvelopeID := uuid.Must(uuid.NewV7()).String()
+	originalBatchID := batchIDHeader
+	if batchIDHeader == "" {
+		batchIDHeader = uuid.Must(uuid.NewV7()).String()
+	}
+	fileEnvelopeID := batchIDHeader
+	finalBatchID := &batchIDHeader
 
-	if batchIDHeader != "" {
-		prefixed := batchIDHeader
-		finalBatchID = &prefixed
-		fileEnvelopeID = prefixed
-
+	if originalBatchID != "" {
 		exists, err := services.CheckBatchIDExists(c.Request.Context(), finalBatchID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to verify batch_id uniqueness"})
@@ -136,7 +136,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 	// makes reprocess idempotency keys unique and prevents unbounded
 	// re-ingestion if the client hammers the endpoint.
 	forceReprocess := c.GetHeader("X-Zord-Force-Reprocess") == "true"
-	if forceReprocess && batchIDHeader == "" {
+	if forceReprocess && originalBatchID == "" {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "Batch-ID header is required when X-Zord-Force-Reprocess is true",
 		})
@@ -241,10 +241,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		resultsMap := make(map[int]BulkResult)
 		jobs := make(chan BulkJob, 500)
 
-		workerCount := runtime.NumCPU() * 5
-		if workerCount > 50 {
-			workerCount = 50
-		}
+		workerCount := runtime.NumCPU() * 2
 		var wg sync.WaitGroup
 
 		ctx := context.WithoutCancel(c.Request.Context())
@@ -466,10 +463,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		resultsMap := make(map[int]BulkResult)
 		jobs := make(chan BulkJob, 500)
 
-		workerCount := runtime.NumCPU() * 5
-		if workerCount > 50 {
-			workerCount = 50
-		}
+		workerCount := runtime.NumCPU() * 2
 		var wg sync.WaitGroup
 
 		ctx := context.WithoutCancel(c.Request.Context())
@@ -802,7 +796,7 @@ func (h *Handler) processBulkIntentRow(
 
 	fingerprintInput := append(rawPayload, []byte(idempotencyKey+tenantID.String())...)
 	fingerprintSum := sha256.Sum256(fingerprintInput)
-	fingerprint := fingerprintSum[:]
+	fingerprint := hex.EncodeToString(fingerprintSum[:])
 
 	rawIntent := model.RawIntentMessage{
 		TenantID:           tenantID.String(),

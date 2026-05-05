@@ -498,16 +498,17 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	// -------- STEP 4: Recompute SHA256(raw_bytes) and compare --------
 	rawHash := sha256.Sum256(decryptedPayload)
-	if len(in.PayloadHash) == 0 {
+	hexRawHash := hex.EncodeToString(rawHash[:])
+	if in.PayloadHash == "" {
 		log.Printf("⚠️ Missing raw payload hash for EnvelopeID=%s", in.EnvelopeID)
 		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "MISSING_RAW_PAYLOAD_HASH"}, nil
 	}
 
-	if len(in.PayloadHash) != sha256.Size {
-		log.Printf("⚠️ Invalid raw payload hash length for EnvelopeID=%s", in.EnvelopeID)
+	if len(in.PayloadHash) != 64 {
+		log.Printf("⚠️ Invalid raw payload hash length for EnvelopeID=%s (expected 64, got %d)", in.EnvelopeID, len(in.PayloadHash))
 		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "INVALID_RAW_PAYLOAD_HASH_LENGTH"}, nil
 	}
-	if len(in.PayloadHash) > 0 && !bytes.Equal(rawHash[:], in.PayloadHash) {
+	if in.PayloadHash != "" && hexRawHash != in.PayloadHash {
 		log.Printf("⚠️ Raw payload hash mismatch for EnvelopeID=%s", in.EnvelopeID)
 		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "RAW_PAYLOAD_INTEGRITY_FAILED"}, nil
 	}

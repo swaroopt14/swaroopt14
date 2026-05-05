@@ -111,9 +111,9 @@ func SaveRawIntent(
 		envelope.IngressChannel,     // $7 (source)
 		envelope.IdempotencyKey,    // $8
 		envelope.Payload,           // $9 (binary)
-		envelope.PayloadHash,       // $10 (binary)
-		envelope.EnvelopeHash,      // $11 (binary)
-		envelope.EnvelopeSignature, // $12 (string -> BYTEA)
+		envelope.PayloadHash,       // $10 (hex)
+		envelope.EnvelopeHash,      // $11 (hex)
+		envelope.EnvelopeSignature, // $12 (string -> TEXT)
 		topic,                      // $13
 		"PENDING",                  // $14 (status)
 		envelope.LeaseID,           // $15

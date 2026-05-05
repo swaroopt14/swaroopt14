@@ -2,6 +2,7 @@ package handler
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
@@ -31,7 +32,7 @@ func (h *Handler) IntentHandler(context *gin.Context) {
 	// Compute fingerprint: Hash(payload + idempotencyKey + tenantID)
 	fingerprintInput := append(rawPayload, []byte(idempotencyKey+tenantID.String())...)
 	fingerprintSum := sha256.Sum256(fingerprintInput)
-	fingerprint := fingerprintSum[:]
+	fingerprint := hex.EncodeToString(fingerprintSum[:])
 
 	rawIntent := model.RawIntentMessage{
 		TenantID:           tenantID.String(),

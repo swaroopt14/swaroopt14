@@ -31,7 +31,7 @@ type OutboxEvent struct {
 	LeaseID     string          `json:"lease_id,omitempty" db:"lease_id"`
 	LeasedBy    string          `json:"leased_by,omitempty" db:"leased_by"`
 	LeaseUntil  *time.Time      `json:"lease_until,omitempty" db:"lease_until"`
-	PayloadHash []byte          `json:"payload_hash" db:"payload_hash"`
+	PayloadHash string          `json:"payload_hash" db:"payload_hash"`
 	BatchID     *string         `json:"batchid,omitempty" db:"batchid"`
 	CorridorID  *string         `json:"corridor_id"`
 

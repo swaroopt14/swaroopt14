@@ -43,7 +43,7 @@ type CanonicalIntent struct {
 	GovernanceSnapshotRef string `db:"governance_snapshot_ref" json:"governance_snapshot_ref,omitempty"`
 	GovernanceHash        string `db:"governance_hash" json:"governance_hash,omitempty"`
 	CanonicalHash         string `db:"canonical_hash" json:"canonical_hash,omitempty"`
-	PayloadHash           []byte
+	PayloadHash           string
 
 	// 🆕 Additional Canonical Schema fields
 	ClientPayoutRef       string          `json:"client_payout_ref,omitempty"`

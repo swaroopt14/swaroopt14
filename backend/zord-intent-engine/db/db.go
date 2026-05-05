@@ -18,7 +18,7 @@ func CreateTables() error {
 		contract_id UUID NOT NULL,
     idempotency_key TEXT,
     salient_hash TEXT NOT NULL,
-	payload_hash BYTEA NOT NULL, 
+	payload_hash TEXT NOT NULL, 
     intent_type TEXT NOT NULL,
     canonical_version TEXT NOT NULL,
     schema_version TEXT,
@@ -139,7 +139,7 @@ func CreateTables() error {
     duplicate_reason_code TEXT,
     client_batch_ref TEXT,
    	payload JSONB NOT NULL,     -- downstream message body (no raw PII)
-	payload_hash BYTEA NOT NULL,
+	payload_hash TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'PENDING',
     retry_count INT NOT NULL DEFAULT 0,
     next_attempt_at TIMESTAMPTZ,

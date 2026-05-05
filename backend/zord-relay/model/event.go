@@ -31,8 +31,8 @@ type OutboxEvent struct {
 
 	// --- Payload ---
 	Payload      json.RawMessage `json:"payload"`
-	PayloadHash     []byte          `json:"payload_hash"`
-	EnvelopeHash    []byte          `json:"envelope_hash,omitempty"`
+	PayloadHash     string          `json:"payload_hash"`
+	EnvelopeHash    string          `json:"envelope_hash,omitempty"`
 	CanonicalHash   string          `json:"canonical_hash,omitempty"`
 	GovernanceState string          `json:"governance_state,omitempty"`
 	GovernanceHash  string          `json:"governance_hash,omitempty"`

@@ -3,6 +3,7 @@ package handler
 import (
 	stdctx "context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
@@ -104,7 +105,7 @@ func (h *Handler) WebhookHandler(c *gin.Context) {
 	// ── Fingerprint (strong idempotency) ──
 	fingerprintInput := append(rawPayload, []byte(idempotencyKey+tenantUUID.String())...)
 	fingerprintSum := sha256.Sum256(fingerprintInput)
-	fingerprint := fingerprintSum[:]
+	fingerprint := hex.EncodeToString(fingerprintSum[:])
 
 	// ── Build message ──
 	msg := model.RawIntentMessage{

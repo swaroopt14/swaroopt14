@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     contract_id UUID NOT NULL,
     idempotency_key TEXT,
     salient_hash TEXT NOT NULL,
-    payload_hash BYTEA NOT NULL,
+    payload_hash TEXT NOT NULL,
 
     intent_type TEXT NOT NULL,
     canonical_version TEXT NOT NULL,
@@ -95,7 +95,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     schema_version TEXT,
 
     payload JSONB NOT NULL,     -- downstream message body (no raw PII)
-    payload_hash BYTEA NOT NULL,
+    payload_hash TEXT NOT NULL,
     amount NUMERIC,
     currency CHAR(3),
 

@@ -14,7 +14,7 @@ type IncomingIntent struct {
 	Source           string    `json:"source" db:"source"`
 	SourceSystem     string    `json:"source_system" db:"source_system"`
 	IdempotencyKey   string    `json:"idempotency_key" db:"idempotency_key"`
-	PayloadHash      []byte    `json:"payload_hash" db:"payload_hash"`
+	PayloadHash      string    `json:"payload_hash" db:"payload_hash"`
 	ObjectRef        string    `json:"object_ref" db:"object_ref"`
 	ParseStatus      string    `json:"parse_status" db:"parse_status"`
 	SignatureStatus  *string   `json:"signature_status,omitempty" db:"signature_status"`

@@ -20,6 +20,7 @@ type EnvelopeResponse struct {
 	SourceSystem    string  `json:"source_system,omitempty"`
 	IdempotencyKey  string  `json:"idempotency_key,omitempty"`
 	PayloadHash     string  `json:"payload_hash"`
+	EnvelopeHash    string  `json:"envelope_hash"`
 	ObjectRef       string  `json:"object_ref"`
 	ParseStatus     string  `json:"parse_status"`
 	SignatureStatus *string `json:"signature_status,omitempty"` // nullable in DB and optional in frontend
@@ -71,7 +72,7 @@ func ListEnvelopes(ctx context.Context, db *sql.DB, page, pageSize int, tenantID
 
 	dataQuery := fmt.Sprintf(`
 		SELECT envelope_id, tenant_id, source, source_system, idempotency_key,
-		       payload_hash, object_ref, parse_status, signature_status, received_at
+		       payload_hash, envelope_hash, object_ref, parse_status, signature_status, received_at
 		FROM ingress_envelopes
 		%s
 		ORDER BY received_at DESC
@@ -90,14 +91,15 @@ func ListEnvelopes(ctx context.Context, db *sql.DB, page, pageSize int, tenantID
 	var envelopes []EnvelopeResponse
 	for rows.Next() {
 		var envelopeID, tenantID, source, sourceSystem, idempotencyKey, parseStatus string
-		var payloadHash sql.NullString  // nullable TEXT in DB
+		var payloadHash sql.NullString  // TEXT in DB
+		var envelopeHash sql.NullString // TEXT in DB
 		var objectRef sql.NullString    // nullable TEXT in DB
 		var signatureStatus sql.NullString // nullable TEXT in DB
 		var receivedAt time.Time
 
 		if err := rows.Scan(
 			&envelopeID, &tenantID, &source, &sourceSystem, &idempotencyKey,
-			&payloadHash, &objectRef, &parseStatus, &signatureStatus, &receivedAt,
+			&payloadHash, &envelopeHash, &objectRef, &parseStatus, &signatureStatus, &receivedAt,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan envelope row: %w", err)
 		}
@@ -106,6 +108,10 @@ func ListEnvelopes(ctx context.Context, db *sql.DB, page, pageSize int, tenantID
 		ph := ""
 		if payloadHash.Valid {
 			ph = payloadHash.String
+		}
+		eh := ""
+		if envelopeHash.Valid {
+			eh = envelopeHash.String
 		}
 		or := ""
 		if objectRef.Valid {
@@ -125,6 +131,7 @@ func ListEnvelopes(ctx context.Context, db *sql.DB, page, pageSize int, tenantID
 			SourceSystem:    sourceSystem,
 			IdempotencyKey:  idempotencyKey,
 			PayloadHash:     ph,
+			EnvelopeHash:    eh,
 			ObjectRef:       or,
 			ParseStatus:     parseStatus,
 			SignatureStatus: sigStatus,
@@ -158,20 +165,21 @@ func ListEnvelopes(ctx context.Context, db *sql.DB, page, pageSize int, tenantID
 func GetEnvelopeByID(ctx context.Context, db *sql.DB, envelopeID string) (*EnvelopeResponse, error) {
 	query := `
 		SELECT envelope_id, tenant_id, source, source_system, idempotency_key,
-		       payload_hash, object_ref, parse_status, signature_status, received_at
+		       payload_hash, envelope_hash, object_ref, parse_status, signature_status, received_at
 		FROM ingress_envelopes
 		WHERE envelope_id = $1
 	`
 
 	var eid, tid, source, sourceSystem, idempotencyKey, parseStatus string
 	var payloadHash sql.NullString
+	var envelopeHash sql.NullString
 	var objectRef sql.NullString
 	var signatureStatus sql.NullString
 	var receivedAt time.Time
 
 	err := db.QueryRowContext(ctx, query, envelopeID).Scan(
 		&eid, &tid, &source, &sourceSystem, &idempotencyKey,
-		&payloadHash, &objectRef, &parseStatus, &signatureStatus, &receivedAt,
+		&payloadHash, &envelopeHash, &objectRef, &parseStatus, &signatureStatus, &receivedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -183,6 +191,10 @@ func GetEnvelopeByID(ctx context.Context, db *sql.DB, envelopeID string) (*Envel
 	ph := ""
 	if payloadHash.Valid {
 		ph = payloadHash.String
+	}
+	eh := ""
+	if envelopeHash.Valid {
+		eh = envelopeHash.String
 	}
 	or := ""
 	if objectRef.Valid {
@@ -200,6 +212,7 @@ func GetEnvelopeByID(ctx context.Context, db *sql.DB, envelopeID string) (*Envel
 		SourceSystem:    sourceSystem,
 		IdempotencyKey:  idempotencyKey,
 		PayloadHash:     ph,
+		EnvelopeHash:    eh,
 		ObjectRef:       or,
 		ParseStatus:     parseStatus,
 		SignatureStatus: sigStatus,

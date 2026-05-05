@@ -26,7 +26,7 @@ type RawIntentMessage struct {
 	WebhookProviderID    *string
 	ConnectorBindingID   *string
 	EventType            string
-	RequestFingerprint   []byte
+	RequestFingerprint   string
 	FileName             *string
 	FileSizeBytes        *int64
 	FileContentHash      *string

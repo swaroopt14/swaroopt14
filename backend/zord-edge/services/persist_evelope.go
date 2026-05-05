@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"log"
 	"os"
 
@@ -48,10 +49,10 @@ func RawIntent(ctx context.Context,
 		ContentType:                  rawIntent.ContentType,
 		IdempotencyKey:               rawIntent.IdempotencyKey,
 		PayloadSize:                  rawIntent.PayloadSize,
-		PayloadHash:                  rawIntent.PayloadHash,
-		EnvelopeHash:                 envelopeHash,
+		PayloadHash:                  hex.EncodeToString(rawIntent.PayloadHash),
+		EnvelopeHash:                 hex.EncodeToString(envelopeHash),
 		EnvelopeSignature:            storedSignature,
-		RequestHeadersHash:           rawIntent.RequestHeadersHash,
+		RequestHeadersHash:           hex.EncodeToString(rawIntent.RequestHeadersHash),
 		SchemaHint:                   rawIntent.SchemaHint,
 		MappingProfileHint:           rawIntent.MappingProfileHint,
 		ObjectEncryptionAlg:          rawIntent.ObjectEncryptionAlg,

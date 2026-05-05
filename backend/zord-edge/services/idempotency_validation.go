@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -63,7 +62,7 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 	}
 
 	// --- Conflict: fetch stored record ---
-	var storedFingerprint []byte
+	var storedFingerprint string
 	var firstEnvelopeID uuid.NullUUID
 	var conflictCount int
 	var principalID uuid.NullUUID
@@ -84,7 +83,7 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 	// --- Track the conflict ---
 	newConflictCount := conflictCount + 1
 	// Hash the fingerprint as requested before storing as JSON.
-	fingerprintHash := sha256.Sum256(msg.RequestFingerprint)
+	fingerprintHash := sha256.Sum256([]byte(msg.RequestFingerprint))
 	snapshot := map[string]interface{}{
 		"fingerprint": hex.EncodeToString(fingerprintHash[:]),
 	}
@@ -113,7 +112,7 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 	}
 
 	// --- Fingerprint comparison and final update ---
-	if bytes.Equal(storedFingerprint, msg.RequestFingerprint) {
+	if storedFingerprint == msg.RequestFingerprint {
 		// Exact duplicate — update last_seen_at and resolution_type.
 		finalUpdateQuery := `
 			UPDATE idempotency_keys

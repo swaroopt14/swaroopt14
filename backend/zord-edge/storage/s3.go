@@ -23,7 +23,7 @@ func (s *S3Store) StoreRawPayload(ctx context.Context, EnvelopeID string, receiv
 		day,
 		EnvelopeID)
 
-	s3Ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	s3Ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	_, err := s.Client.PutObject(s3Ctx, &s3.PutObjectInput{

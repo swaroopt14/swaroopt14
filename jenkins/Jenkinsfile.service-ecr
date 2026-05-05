@@ -40,7 +40,7 @@ pipeline {
     GIT_CREDENTIALS_ID = 'github-pat'
     GIT_REPO_URL = 'https://github.com/Arealis-network/Arealis-Zord-intent.git'
     PIPELINE_SCRIPT_PATH = 'jenkins/Jenkinsfile.service-ecr'
-    PIPELINE_SIGNATURE = 'service-ecr-2026-05-05-sonar-v7'
+    PIPELINE_SIGNATURE = 'service-ecr-2026-05-05-sonar-v1'
   }
 
   stages {

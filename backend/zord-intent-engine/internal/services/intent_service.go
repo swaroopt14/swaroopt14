@@ -121,6 +121,26 @@ type enclaveTokenizeRequest struct {
 }
 
 func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[string]string, error) {
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		tokens, err := callEnclaveTokenizeOnce(ctx, req)
+		if err == nil {
+			return tokens, nil
+		}
+		lastErr = err
+		backoff := time.Duration(100*(1<<i)) * time.Millisecond
+		log.Printf("⚠️ Token enclave call failed (attempt %d/3), retrying in %v: %v", i+1, backoff, err)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return nil, fmt.Errorf("enclave tokenize failed after 3 attempts: %w", lastErr)
+}
+
+func callEnclaveTokenizeOnce(ctx context.Context, req enclaveTokenizeRequest) (map[string]string, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("ZORD_PII_ENCLAVE_URL")), "/")
 	if baseURL == "" {
 		return nil, fmt.Errorf("ZORD_PII_ENCLAVE_URL is not set")
@@ -145,7 +165,7 @@ func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[s
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("enclave tokenize failed: status=%d body=%s", resp.StatusCode, string(raw))
+		return nil, fmt.Errorf("status=%d body=%s", resp.StatusCode, string(raw))
 	}
 
 	var out struct {
@@ -183,6 +203,27 @@ func (s *IntentService) computeBusinessIdempotencyKey(tenantID string, fingerPri
 	raw := tenantID + fingerPrint + amountStr + strings.ToUpper(currency) + timeBucket
 	hash := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(hash[:])
+}
+
+func (s *IntentService) computeRequestFingerprint(beneficiaryName string, amount decimal.Decimal, accountNumber string, vpa string, currency string) string {
+	// fingerprint must be deterministic hash of: beneficiary, amount, account_number, currency
+	raw := strings.TrimSpace(beneficiaryName) +
+		amount.String() +
+		strings.TrimSpace(accountNumber) +
+		strings.TrimSpace(vpa) +
+		strings.ToUpper(strings.TrimSpace(currency))
+
+	hash := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(hash[:])
+}
+
+func (s *IntentService) computeConfidenceScore(qualityScore float64) float64 {
+	// Ensure: confidenceScore := ComputeConfidence(...)
+	// if confidenceScore == 0: assign minimum fallback (e.g., 0.5)
+	if qualityScore <= 0 {
+		return 0.5
+	}
+	return qualityScore
 }
 
 func (s *IntentService) computeScores(
@@ -386,14 +427,16 @@ func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req mode
 
 	// source vs provider_hint: UPI -> UPI_RAIL, BANK -> BANK_RAIL
 	// REMOVED: Making provider_hint flexible
-	// if req.Beneficiary.Instrument.Kind == "UPI" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "UPI") {
-	// 	gov.RoutingConsistent = false
-	// 	gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_UPI")
-	// }
-	// if req.Beneficiary.Instrument.Kind == "BANK" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "BANK") {
-	// 	gov.RoutingConsistent = false
-	// 	gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_BANK")
-	// }
+	/*
+		if req.Beneficiary.Instrument.Kind == "UPI" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "UPI") {
+			gov.RoutingConsistent = false
+			gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_UPI")
+		}
+		if req.Beneficiary.Instrument.Kind == "BANK" && req.ProviderHint != "" && !strings.Contains(strings.ToUpper(req.ProviderHint), "BANK") {
+			gov.RoutingConsistent = false
+			gov.SemanticErrors = append(gov.SemanticErrors, "ROUTING_INCONSISTENT_BANK")
+		}
+	*/
 
 	// execution_window vs intended_execution_at
 	if req.IntendedExecutionAt != "" {
@@ -518,6 +561,12 @@ func (s *IntentService) ProcessIncomingIntent(
 		return nil, &models.DLQEntry{
 			ReasonCode: "INVALID_JSON_PAYLOAD",
 		}, nil
+	}
+
+	// FIX: Idempotency Key Fallback
+	if in.IdempotencyKey == "" {
+		in.IdempotencyKey = parsed.IdempotencyKey
+		log.Printf("ProcessIncomingIntent: EnvelopeID=%s, falling back to payload idempotency_key=%s", in.EnvelopeID, in.IdempotencyKey)
 	}
 
 	// -------- STEP 6: Build NIR --------
@@ -793,10 +842,23 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 
 	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir, governance)
+	confidenceScore := s.computeConfidenceScore(iScore)
+
+	// FIX: Deterministic Request Fingerprint
+	reqFingerprint := s.computeRequestFingerprint(
+		canonicalInput.Beneficiary.Name,
+		amount,
+		canonicalInput.AccountNumber,
+		canonicalInput.Beneficiary.Instrument.VPA,
+		canonicalInput.Amount.Currency,
+	)
+
+	log.Printf("Fingerprint=%s IdempotencyKey=%s Confidence=%f", reqFingerprint, in.IdempotencyKey, confidenceScore)
 
 	// -------- STEP 9: BUILD CANONICAL INTENT --------
 
 	var executionAt *time.Time
+
 	if canonicalInput.IntendedExecutionAt != "" {
 		t, err := time.Parse(time.RFC3339, canonicalInput.IntendedExecutionAt)
 		if err == nil {
@@ -838,7 +900,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
 		ProviderHint:          canonicalInput.ProviderHint,
 		ClientBatchRef:        batchIDStr,
-		RequestFingerprint:    in.IdempotencyKey,
+		RequestFingerprint:    reqFingerprint,
 		RoutingHintsJSON:      json.RawMessage(`{}`),
 		GovernanceState:       "PENDING",
 		BusinessState:         "NEW",
@@ -851,6 +913,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		// Service 2 fields
 		BusinessIdempotencyKey:  bIdemKey,
 		BeneficiaryFingerprint:  bFingerprint,
+		ConfidenceScore:         &confidenceScore,
 		ProofReadinessScore:     pScore,
 		MatchabilityScore:       mScore,
 		IntentQualityScore:      iScore,
@@ -1128,7 +1191,23 @@ func (s *IntentService) ProcessTokenizeResult(
 	}
 
 	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir, governance)
+	confidenceScore := s.computeConfidenceScore(iScore)
 
+	idempotencyKey := event.IdempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = canonicalInput.IdempotencyKey
+	}
+
+	// FIX: Deterministic Request Fingerprint (Replacing KAFKA_TOKENIZED)
+	reqFingerprint := s.computeRequestFingerprint(
+		canonicalInput.Beneficiary.Name,
+		amount,
+		canonicalInput.AccountNumber,
+		canonicalInput.Beneficiary.Instrument.VPA,
+		canonicalInput.Amount.Currency,
+	)
+
+	log.Printf("Fingerprint=%s IdempotencyKey=%s Confidence=%f", reqFingerprint, idempotencyKey, confidenceScore)
 	// -------- Build CanonicalIntent --------
 
 	intentID := uuid.NewString()
@@ -1143,11 +1222,6 @@ func (s *IntentService) ProcessTokenizeResult(
 		if err == nil {
 			executionAt = &t
 		}
-	}
-
-	idempotencyKey := event.IdempotencyKey
-	if idempotencyKey == "" {
-		idempotencyKey = canonicalInput.IdempotencyKey
 	}
 
 	intent := models.CanonicalIntent{
@@ -1177,7 +1251,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		ClientPayoutRef:         canonicalInput.ClientPayoutRef,
 		ProviderHint:            canonicalInput.ProviderHint,
 		ClientBatchRef:          batchIDStr,
-		RequestFingerprint:      "KAFKA_TOKENIZED",
+		RequestFingerprint:      reqFingerprint,
 		RoutingHintsJSON:        json.RawMessage(`{}`),
 		GovernanceState:         "PENDING",
 		BusinessState:           "NEW",
@@ -1188,6 +1262,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		GovernanceHash:          event.Canonical.GovernanceHash,
 		BusinessIdempotencyKey:  bIdemKey,
 		BeneficiaryFingerprint:  bFingerprint,
+		ConfidenceScore:         &confidenceScore,
 		ProofReadinessScore:     pScore,
 		MatchabilityScore:       mScore,
 		IntentQualityScore:      iScore,

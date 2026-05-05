@@ -36,6 +36,11 @@ func main() {
 		log.Fatal("❌ Failed to connect DB:", err)
 	}
 
+	// ✅ FIX: Set connection pool limits
+	database.SetMaxOpenConns(1000)
+	database.SetMaxIdleConns(500)
+	database.SetConnMaxLifetime(5 * time.Minute)
+
 	if err := database.Ping(); err != nil {
 		log.Fatal("❌ DB not reachable:", err)
 	}

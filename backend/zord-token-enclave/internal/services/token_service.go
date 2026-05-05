@@ -12,12 +12,15 @@ import (
 	"zord-token-enclave/internal/repository"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 )
 
 type TokenService struct {
 	repo        *repository.TokenRepository
 	keyManager  keymanager.KeyManager
-	tokenSecret []byte // ✅ FIX: for deterministic tokenization
+	tokenSecret []byte             // ✅ FIX: for deterministic tokenization
+	tenantGroup singleflight.Group // ✅ NEW: for per-tenant concurrency control
+	tokenSem    chan struct{}      // ✅ NEW: limit global tokenization concurrency
 }
 
 // ✅ Constructor (UPDATED)
@@ -26,6 +29,7 @@ func NewTokenService(r *repository.TokenRepository, km keymanager.KeyManager, se
 		repo:        r,
 		keyManager:  km,
 		tokenSecret: secret,
+		tenantGroup: singleflight.Group{},
 	}
 }
 
@@ -36,6 +40,10 @@ func (s *TokenService) Tokenize(
 	kind string,
 	plaintext []byte,
 ) (string, error) {
+
+	// ✅ Semaphore acquisition
+	s.tokenSem <- struct{}{}
+	defer func() { <-s.tokenSem }()
 
 	//  Ensure key exists (ADD THIS HERE)
 	if err := s.EnsureInitialKey(ctx, tenantID); err != nil {
@@ -149,96 +157,106 @@ func (s *TokenService) DetokenizeFields(
 
 func (s *TokenService) RotateKey(ctx context.Context, tenantID string, createdBy string) error {
 
-	// 🔐 Generate new AES-256 key (32 bytes)
-	newKey := make([]byte, 32)
-	if _, err := rand.Read(newKey); err != nil {
-		return err
-	}
+	_, err, _ := s.tenantGroup.Do("rotate:"+tenantID, func() (interface{}, error) {
+		// 🔐 Generate new AES-256 key (32 bytes)
+		newKey := make([]byte, 32)
+		if _, err := rand.Read(newKey); err != nil {
+			return nil, err
+		}
 
-	newKeyID := uuid.New().String()
+		newKeyID := uuid.New().String()
 
-	return s.repo.RotateKey(ctx, tenantID, newKeyID, newKey, createdBy)
+		return nil, s.repo.RotateKey(ctx, tenantID, newKeyID, newKey, createdBy)
+	})
+
+	return err
 }
 
 func (s *TokenService) MigrateKeys(ctx context.Context, tenantID string) error {
 
-	// 1️⃣ Get RETIRING key (old key)
-	oldKey, err := s.repo.GetRetiringKey(ctx, tenantID)
-	if err != nil {
-		// no retiring key → nothing to migrate
-		return nil
-	}
+	_, err, _ := s.tenantGroup.Do("migrate:"+tenantID, func() (interface{}, error) {
+		log.Printf("Migration started for tenant %s", tenantID)
 
-	// 2️⃣ Get ACTIVE key (new key)
-	newKey, err := s.keyManager.GetActiveKey(ctx, tenantID)
-	if err != nil {
-		return err
-	}
-
-	oldCrypto := crypto.NewCrypto(oldKey.RawKey)
-	newCrypto := crypto.NewCrypto(newKey.RawKey)
-
-	for {
-		// 3️⃣ Fetch batch
-		tokens, err := s.repo.GetTokensByKey(ctx, oldKey.KeyID, 100)
+		// 1️⃣ Get RETIRING key (old key)
+		oldKey, err := s.repo.GetRetiringKey(ctx, tenantID)
 		if err != nil {
-			return err
+			// no retiring key → nothing to migrate
+			return nil
 		}
 
-		if len(tokens) == 0 {
-			break
+		// 2️⃣ Get ACTIVE key (new key)
+		newKey, err := s.keyManager.GetActiveKey(ctx, tenantID)
+		if err != nil {
+			return nil, err
 		}
 
-		log.Printf("🔁 Migrating %d tokens from key %s → %s",
-			len(tokens), oldKey.KeyID, newKey.KeyID)
+		oldCrypto := crypto.NewCrypto(oldKey.RawKey)
+		newCrypto := crypto.NewCrypto(newKey.RawKey)
 
-		for _, t := range tokens {
-
-			// 🔓 decrypt with old key
-			plain, err := oldCrypto.Decrypt(t.Ciphertext, t.Nonce)
+		for {
+			// 3️⃣ Fetch batch
+			tokens, err := s.repo.GetTokensByKey(ctx, oldKey.KeyID, 100)
 			if err != nil {
-				return err
+				return nil, err
 			}
 
-			// 🔐 encrypt with new key
-			newCipher, newNonce, err := newCrypto.Encrypt(plain)
-			if err != nil {
-				return err
+			if len(tokens) == 0 {
+				break
 			}
 
-			// 💾 update DB
-			err = s.repo.UpdateTokenKey(
-				ctx,
-				t.TokenID,
-				newCipher,
-				newNonce,
-				newKey.KeyID,
-				newKey.Version,
-			)
-			if err != nil {
-				return err
+			log.Printf("🔁 Migrating %d tokens from key %s → %s",
+				len(tokens), oldKey.KeyID, newKey.KeyID)
+
+			for _, t := range tokens {
+
+				// 🔓 decrypt with old key
+				plain, err := oldCrypto.Decrypt(t.Ciphertext, t.Nonce)
+				if err != nil {
+					return nil, err
+				}
+
+				// 🔐 encrypt with new key
+				newCipher, newNonce, err := newCrypto.Encrypt(plain)
+				if err != nil {
+					return nil, err
+				}
+
+				// 💾 update DB
+				err = s.repo.UpdateTokenKey(
+					ctx,
+					t.TokenID,
+					newCipher,
+					newNonce,
+					newKey.KeyID,
+					newKey.Version,
+				)
+				if err != nil {
+					return nil, err
+				}
 			}
+
+			// 📊 progress log
+			remaining, _ := s.repo.CountTokensByKey(ctx, oldKey.KeyID)
+			log.Printf("📊 Remaining tokens on old key: %d", remaining)
 		}
 
-		// 📊 progress log
-		remaining, _ := s.repo.CountTokensByKey(ctx, oldKey.KeyID)
-		log.Printf("📊 Remaining tokens on old key: %d", remaining)
-	}
+		// 4️⃣ Final check
+		count, err := s.repo.CountTokensByKey(ctx, oldKey.KeyID)
+		if err != nil {
+			return nil, err
+		}
 
-	// 4️⃣ Final check
-	count, err := s.repo.CountTokensByKey(ctx, oldKey.KeyID)
-	if err != nil {
-		return err
-	}
+		if count == 0 {
+			log.Printf("🎉 Migration complete for tenant %s, key %s retired",
+				tenantID, oldKey.KeyID)
 
-	if count == 0 {
-		log.Printf("🎉 Migration complete for tenant %s, key %s retired",
-			tenantID, oldKey.KeyID)
+			return nil, s.repo.MarkKeyRetired(ctx, oldKey.KeyID)
+		}
 
-		return s.repo.MarkKeyRetired(ctx, oldKey.KeyID)
-	}
+		return nil, nil
+	})
 
-	return nil
+	return err
 }
 
 func (s *TokenService) AutoRotateKeys(ctx context.Context) error {
@@ -272,13 +290,17 @@ func (s *TokenService) AutoRotateKeys(ctx context.Context) error {
 
 func (s *TokenService) EnsureInitialKey(ctx context.Context, tenantID string) error {
 
-	_, err := s.keyManager.GetActiveKey(ctx, tenantID)
-	if err == nil {
-		return nil // already exists
-	}
+	_, err, _ := s.tenantGroup.Do("init:"+tenantID, func() (interface{}, error) {
+		_, err := s.keyManager.GetActiveKey(ctx, tenantID)
+		if err == nil {
+			return nil, nil // already exists
+		}
 
-	// 🔐 create first key
-	log.Printf("🔐 Creating initial key for tenant %s", tenantID)
+		// 🔐 create first key
+		log.Printf("🔐 Creating initial key for tenant %s", tenantID)
 
-	return s.RotateKey(ctx, tenantID, "bootstrap")
+		return nil, s.RotateKey(ctx, tenantID, "bootstrap")
+	})
+
+	return err
 }

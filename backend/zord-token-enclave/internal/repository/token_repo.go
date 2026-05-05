@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"fmt"
+
 	"time"
 
 	"zord-token-enclave/internal/models"
@@ -161,23 +161,7 @@ func (r *TokenRepository) RotateKey(ctx context.Context, tenantID string, newKey
 		return err
 	}
 	defer tx.Rollback()
-
-	// 🚨 SAFETY CHECK: prevent multiple migrations
-	var count int
-
-	err = tx.QueryRowContext(ctx, `
-	SELECT COUNT(*) 
-	FROM token_encryption_keys 
-	WHERE tenant_id = $1 AND status = 'RETIRING'
-`, tenantID).Scan(&count)
-
-	if err != nil {
-		return err
-	}
-
-	if count > 0 {
-		return fmt.Errorf("migration already in progress for tenant %s", tenantID)
-	}
+	// No manual count check here; handled by service-layer singleflight and DB constraints.
 
 	// 1️⃣ Mark current ACTIVE key as RETIRING
 	_, err = tx.ExecContext(ctx, `

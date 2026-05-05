@@ -130,74 +130,6 @@ func main() {
 	mux.HandleFunc("/internal/outbox/ack", outboxHandler.Ack)
 	mux.HandleFunc("/internal/outbox/nack", outboxHandler.Nack)
 
-	// -------- REDIS CONSUMER (PRIMARY ENTRYPOINT) --------
-
-	workerPoolSize := config.GetWorkerPoolSize()
-	jobChan := make(chan *models.Event, 100)
-
-	// Worker function
-	worker := func(id int, jobs <-chan *models.Event) {
-		for job := range jobs {
-			canonical, dlq, err := intentService.ProcessIncomingIntent(ctx, job)
-
-			if err != nil {
-				// System failure → retry (do NOT ack yet)
-				log.Printf("Worker %d: System error processing intent: %v\n", id, err)
-				continue
-			}
-
-			if dlq != nil {
-				log.Printf(
-					"Worker %d: ⚠️ Intent rejected [tenant=%s envelope=%s reason=%s]",
-					id,
-					job.TenantID,
-					job.EnvelopeID,
-					dlq.ReasonCode,
-				)
-				// Persist DLQ entry only if not already persisted (no DLQID)
-				if dlq.DLQID == "" {
-					if dlq.TenantID == "" {
-						dlq.TenantID = job.TenantID.String()
-					}
-					if dlq.EnvelopeID == "" {
-						dlq.EnvelopeID = job.EnvelopeID.String()
-					}
-					_, err := dlqRepo.Save(ctx, *dlq)
-					if err != nil {
-						log.Printf("Worker %d: Failed to save DLQ entry: %v", id, err)
-					}
-				}
-				continue
-			}
-
-			// 🟡 Tokenization fallback case
-			if canonical == nil {
-				log.Printf(
-					"Worker %d: Tokenization queued for async processing [envelope=%s]",
-					id,
-					job.EnvelopeID,
-				)
-				continue
-			}
-
-			log.Printf(
-				"Worker %d: Intent processed successfully [intent_id=%s envelope=%s]",
-				id,
-				canonical.IntentID,
-				job.EnvelopeID,
-			)
-
-			// ACK logic would go here
-		}
-	}
-
-	// Start workers
-	for i := 0; i < workerPoolSize; i++ {
-		go worker(i, jobChan)
-	}
-
-	log.Printf("Started %d workers for Ingress processing", workerPoolSize)
-
 	handler := func(msg []byte) error {
 		var event models.Event
 		err := json.Unmarshal(msg, &event)
@@ -205,7 +137,35 @@ func main() {
 			log.Printf("Invalid Kafka event payload: %v", err)
 			return err
 		}
-		jobChan <- &event
+
+		canonical, dlq, err := intentService.ProcessIncomingIntent(ctx, &event)
+		if err != nil {
+			log.Printf("System error processing intent: %v\n", err)
+			return err // Return error to Kafka consumer so it doesn't MarkMessage
+		}
+
+		if dlq != nil {
+			log.Printf("⚠️ Intent rejected [tenant=%s envelope=%s reason=%s]", event.TenantID, event.EnvelopeID, dlq.ReasonCode)
+			if dlq.DLQID == "" {
+				if dlq.TenantID == "" {
+					dlq.TenantID = event.TenantID.String()
+				}
+				if dlq.EnvelopeID == "" {
+					dlq.EnvelopeID = event.EnvelopeID.String()
+				}
+				_, err := dlqRepo.Save(ctx, *dlq)
+				if err != nil {
+					log.Printf("Failed to save DLQ entry: %v", err)
+				}
+			}
+			return nil // Reject is a terminal state, return nil so message is marked
+		}
+
+		if canonical == nil {
+			log.Printf("Tokenization queued for async processing [envelope=%s]", event.EnvelopeID)
+		} else {
+			log.Printf("Intent processed successfully [intent_id=%s envelope=%s]", canonical.IntentID, event.EnvelopeID)
+		}
 
 		return nil
 	}

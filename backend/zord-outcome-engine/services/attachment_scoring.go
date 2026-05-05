@@ -7,7 +7,7 @@ package services
 // Every score component is explicit and logged in score_breakdown_json so that
 // Service 6 can prove it and Service 7 can explain it.
 //
-// Ruleset version: "5c-v1"
+// Ruleset version: "v1"
 // ─────────────────────────────────────────────────────────────────────────────
 
 import (
@@ -15,12 +15,13 @@ import (
 	"math"
 	"time"
 
-	"github.com/shopspring/decimal"
 	"zord-outcome-engine/models"
+
+	"github.com/shopspring/decimal"
 )
 
 const (
-	RulesetVersion = "5c-v1"
+	RulesetVersion = "v1"
 )
 
 type CarrierPriorityPolicy struct {

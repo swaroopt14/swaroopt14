@@ -27,6 +27,10 @@ pipeline {
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag. Leave empty to auto-generate in vN format.')
     string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Git branch to update')
     string(name: 'ECR_REPOSITORY_PREFIX', defaultValue: 'zord', description: 'Optional ECR repository prefix, for example team/platform')
+    booleanParam(name: 'RUN_SONARQUBE', defaultValue: true, description: 'Run SonarQube analysis for the selected service before building the image')
+    string(name: 'SONARQUBE_ENV', defaultValue: 'sonarqube', description: 'Jenkins SonarQube environment name')
+    string(name: 'SONAR_SCANNER_TOOL', defaultValue: 'sonar-scanner', description: 'Jenkins SonarScanner tool name')
+    string(name: 'SONAR_PROJECT_KEY_PREFIX', defaultValue: 'Arealis-network_Arealis-Zord', description: 'Prefix used to create the SonarQube project key')
     booleanParam(name: 'USE_INSTANCE_ROLE', defaultValue: true, description: 'Use the EC2 instance IAM role for AWS access')
     booleanParam(name: 'PUSH_MANIFEST_CHANGES', defaultValue: true, description: 'Commit and push deployment.yaml changes back to GitHub')
   }
@@ -36,7 +40,7 @@ pipeline {
     GIT_CREDENTIALS_ID = 'github-pat'
     GIT_REPO_URL = 'https://github.com/Arealis-network/Arealis-Zord-intent.git'
     PIPELINE_SCRIPT_PATH = 'jenkins/Jenkinsfile.service-ecr'
-    PIPELINE_SIGNATURE = 'service-ecr-2026-05-04-sed-v6'
+    PIPELINE_SIGNATURE = 'service-ecr-2026-05-05-sonar-v7'
   }
 
   stages {
@@ -91,9 +95,59 @@ Checked out branch: ${env.CHECKOUT_BRANCH}
 Checked out commit: ${env.CHECKOUT_SHORT_SHA}
 Manifest update strategy: sed
 Service to build: ${params.SERVICE_NAME}
+Run SonarQube: ${params.RUN_SONARQUBE}
+SonarQube environment: ${params.SONARQUBE_ENV}
+SonarScanner tool: ${params.SONAR_SCANNER_TOOL}
+Sonar project key prefix: ${params.SONAR_PROJECT_KEY_PREFIX}
 Target git push branch: ${params.GIT_BRANCH}
 Resolved git push ref: ${env.GIT_PUSH_REF}
 """.trim()
+        }
+      }
+    }
+
+    stage('SonarQube Scan') {
+      when {
+        expression { return params.RUN_SONARQUBE }
+      }
+      steps {
+        script {
+          def scannerHome = tool params.SONAR_SCANNER_TOOL
+          withSonarQubeEnv(params.SONARQUBE_ENV) {
+            withEnv([
+              "SONAR_SCANNER_HOME=${scannerHome}",
+              "SONAR_PROJECT_KEY_PREFIX=${params.SONAR_PROJECT_KEY_PREFIX}",
+              "SONARQUBE_ENV_NAME=${params.SONARQUBE_ENV}",
+              "SONAR_SCANNER_TOOL_NAME=${params.SONAR_SCANNER_TOOL}"
+            ]) {
+              sh '''
+                set -euo pipefail
+                export PATH="${SONAR_SCANNER_HOME}/bin:${PATH}"
+
+                echo "SONARQUBE_ENV_NAME=${SONARQUBE_ENV_NAME}"
+                echo "SONAR_SCANNER_TOOL=${SONAR_SCANNER_TOOL_NAME}"
+
+                sonar_test_inclusions="**/*_test.go"
+                if [ -f "${SERVICE_DIR}/package.json" ]; then
+                  sonar_test_inclusions="**/*.spec.ts,**/*.test.ts,**/*.test.tsx"
+                fi
+
+                echo "Running SonarQube scan for ${SERVICE_NAME}"
+                sonar-scanner \
+                  -Dsonar.projectKey="${SONAR_PROJECT_KEY_PREFIX}:${SERVICE_NAME}" \
+                  -Dsonar.projectName="Arealis Zord ${SERVICE_NAME}" \
+                  -Dsonar.projectVersion="${RESOLVED_IMAGE_TAG}" \
+                  -Dsonar.projectBaseDir="${SERVICE_DIR}" \
+                  -Dsonar.sourceEncoding=UTF-8 \
+                  -Dsonar.scm.provider=git \
+                  -Dsonar.sources=. \
+                  -Dsonar.tests=. \
+                  -Dsonar.test.inclusions="${sonar_test_inclusions}" \
+                  -Dsonar.exclusions="**/node_modules/**,**/.next/**,**/coverage/**,**/public/**,**/assets/models/**,**/*.png,**/*.jpg,**/*.jpeg,**/*.gif,**/*.svg,**/*.webp,**/*.pdf,**/*.tmpl,**/test_output*.txt,**/test_output*.log" \
+                  -Dsonar.coverage.exclusions="**/*_test.go,**/*.spec.ts,**/*.test.ts,**/*.test.tsx,**/cmd/**,**/db/**,**/docs/**,**/public/**"
+              '''
+            }
+          }
         }
       }
     }

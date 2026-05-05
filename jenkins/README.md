@@ -84,20 +84,141 @@ Only required if `USE_INSTANCE_ROLE=false`.
 
 Only needed if you want SonarQube analysis.
 
+### Part A: Generate A SonarQube Token
+
+1. Log in to SonarQube as an administrator or a user who can generate tokens.
+2. Open `My Account`.
+3. Open `Security`.
+4. In `Generate Tokens`, enter a token name.
+   Example: `jenkins-sonarqube-token`
+5. Keep `Type` as `User Token`.
+6. Set the expiry as needed.
+   Example: `1 year`
+7. Click the generate button.
+8. Copy the token immediately.
+
+Important:
+
+- SonarQube usually shows the token only once.
+- Save it safely because you will use it in Jenkins.
+
+### Part B: Configure The SonarQube Server In Jenkins
+
+Your Jenkinsfile uses this parameter by default:
+
+- `SONARQUBE_ENV=sonarqube`
+
+So the SonarQube installation name in Jenkins should be exactly:
+
+- `sonarqube`
+
+Steps:
+
 1. Open `Manage Jenkins`.
 2. Open `System`.
-3. Find `SonarQube servers`.
-4. Add your SonarQube server.
-5. Set the server name, for example `sonarqube`.
-6. Add the required authentication token.
+3. Find the `SonarQube servers` section.
+4. Click `Add SonarQube`.
+5. In `Name`, enter:
 
-Then configure the scanner tool:
+```text
+sonarqube
+```
+
+6. In `Server URL`, enter your SonarQube URL.
+   Example:
+
+```text
+http://13.206.199.9:7771
+```
+
+7. In `Server authentication token`, add the token you created in SonarQube.
+8. Save the Jenkins configuration.
+
+### Part C: Configure The SonarScanner Tool In Jenkins
+
+Your Jenkinsfile uses this parameter by default:
+
+- `SONAR_SCANNER_TOOL=sonar-scanner`
+
+So the SonarScanner tool name in Jenkins should be exactly:
+
+- `sonar-scanner`
+
+Steps:
 
 1. Open `Manage Jenkins`.
 2. Open `Tools`.
-3. Find `SonarQube Scanner`.
-4. Add a scanner installation.
-5. Set the tool name, for example `sonar-scanner`.
+3. Find `SonarQube Scanner installations`.
+4. Click `Add SonarQube Scanner`.
+5. In `Name`, enter:
+
+```text
+sonar-scanner
+```
+
+6. Install it automatically, or point Jenkins to an existing scanner installation.
+7. Save the Jenkins configuration.
+
+### Part D: Confirm The Names Match The Pipeline
+
+In this repo, the pipeline expects these default values:
+
+- `SONARQUBE_ENV=sonarqube`
+- `SONAR_SCANNER_TOOL=sonar-scanner`
+
+These values are used in:
+
+- [Jenkinsfile.all-services-ecr](</c:/Users/Yaswanth Reddy/OneDrive - vitap.ac.in/Desktop/Arealis-Zord-intent/jenkins/Jenkinsfile.all-services-ecr:16>)
+- [Jenkinsfile.all-services-ecr](</c:/Users/Yaswanth Reddy/OneDrive - vitap.ac.in/Desktop/Arealis-Zord-intent/jenkins/Jenkinsfile.all-services-ecr:17>)
+- [Jenkinsfile.service-ecr](</c:/Users/Yaswanth Reddy/OneDrive - vitap.ac.in/Desktop/Arealis-Zord-intent/jenkins/Jenkinsfile.service-ecr:31>)
+- [Jenkinsfile.service-ecr](</c:/Users/Yaswanth Reddy/OneDrive - vitap.ac.in/Desktop/Arealis-Zord-intent/jenkins/Jenkinsfile.service-ecr:32>)
+
+If you use different names in Jenkins, then pass those different names in the build parameters when you run the job.
+
+### Part E: Configure The SonarQube Webhook
+
+This part is needed only if you want Jenkins to wait for the SonarQube Quality Gate result by using `waitForQualityGate(...)`.
+
+Right now, the current pipelines in this repo run SonarQube scans, but they do not yet stop and wait for the Quality Gate result. So for the current version, webhook setup is optional.
+
+If you later add a Quality Gate wait stage, configure the webhook like this.
+
+1. Log in to SonarQube.
+2. Open `Administration`.
+3. Open `Configuration`.
+4. Open `Webhooks`.
+5. Click `Create`.
+6. In `Name`, enter a webhook name.
+   Example:
+
+```text
+jenkins-sonarqube-webhook
+```
+
+7. In `URL`, enter your Jenkins webhook URL.
+   Example:
+
+```text
+http://13.206.199.9:7777/sonarqube-webhook/
+```
+
+8. Make sure the URL ends with a trailing slash `/`.
+9. Save the webhook.
+
+Important:
+
+- The trailing slash is mandatory.
+- Use your real Jenkins URL, not the example URL, if your Jenkins address is different.
+- You can configure the webhook globally in SonarQube, or at project level if you want more control.
+
+Optional security:
+
+- You can also configure a webhook secret in Jenkins and SonarQube if you want Jenkins to verify that the webhook request really came from SonarQube.
+
+You need the webhook when:
+
+- you use `waitForQualityGate(...)` in Jenkins
+- you want the pipeline to fail automatically when the SonarQube Quality Gate fails
 
 ## Step 3: Create The Jenkins Job
 

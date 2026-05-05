@@ -102,6 +102,28 @@ Important:
 - SonarQube usually shows the token only once.
 - Save it safely because you will use it in Jenkins.
 
+### Part A1: Add The SonarQube Token As A Jenkins Credential
+
+1. Open `Jenkins Dashboard`.
+2. Open `Manage Jenkins`.
+3. Open `Credentials`.
+4. Click `System`.
+5. Open `Global credentials (unrestricted)`.
+6. Click `Add Credentials`.
+7. Fill in the fields like this:
+
+- `Kind`: `Secret text`
+- `Secret`: paste your SonarQube token
+- `ID`: `sonarqube-token`
+- `Description`: `sonarqube-token`
+
+8. Click `Create`.
+
+Important:
+
+- Use the same token you generated in SonarQube.
+- You will select or reference this credential when configuring the SonarQube server in Jenkins.
+
 ### Part B: Configure The SonarQube Server In Jenkins
 
 Your Jenkinsfile uses this parameter by default:

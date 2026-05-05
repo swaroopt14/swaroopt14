@@ -86,6 +86,7 @@ In particular:
 - [Root deployment notes](./DEPLOYMENT.md)
 - [Detailed deployment guide](./DEPLOYMENT-GUIDE.md)
 - [Backend overview](./backend/README.md)
+- [Contribution guide](./CONTRIBUTING.md)
 - [Code of conduct](./CODE_OF_CONDUCT.md)
 - [Legal templates](./legal/README.md)
 - [Project analysis](./PROJECT_ANALYSIS.md)

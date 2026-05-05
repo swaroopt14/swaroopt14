@@ -30,6 +30,7 @@ func NewTokenService(r *repository.TokenRepository, km keymanager.KeyManager, se
 		keyManager:  km,
 		tokenSecret: secret,
 		tenantGroup: singleflight.Group{},
+		tokenSem:    make(chan struct{}, 50), // Global limit of 50 concurrent tokenizations
 	}
 }
 
@@ -181,7 +182,7 @@ func (s *TokenService) MigrateKeys(ctx context.Context, tenantID string) error {
 		oldKey, err := s.repo.GetRetiringKey(ctx, tenantID)
 		if err != nil {
 			// no retiring key → nothing to migrate
-			return nil
+			return nil, nil
 		}
 
 		// 2️⃣ Get ACTIVE key (new key)

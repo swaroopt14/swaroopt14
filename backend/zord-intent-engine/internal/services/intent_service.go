@@ -121,6 +121,26 @@ type enclaveTokenizeRequest struct {
 }
 
 func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[string]string, error) {
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		tokens, err := callEnclaveTokenizeOnce(ctx, req)
+		if err == nil {
+			return tokens, nil
+		}
+		lastErr = err
+		backoff := time.Duration(100*(1<<i)) * time.Millisecond
+		log.Printf("⚠️ Token enclave call failed (attempt %d/3), retrying in %v: %v", i+1, backoff, err)
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return nil, fmt.Errorf("enclave tokenize failed after 3 attempts: %w", lastErr)
+}
+
+func callEnclaveTokenizeOnce(ctx context.Context, req enclaveTokenizeRequest) (map[string]string, error) {
 	baseURL := strings.TrimRight(strings.TrimSpace(os.Getenv("ZORD_PII_ENCLAVE_URL")), "/")
 	if baseURL == "" {
 		return nil, fmt.Errorf("ZORD_PII_ENCLAVE_URL is not set")
@@ -145,7 +165,7 @@ func callEnclaveTokenize(ctx context.Context, req enclaveTokenizeRequest) (map[s
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("enclave tokenize failed: status=%d body=%s", resp.StatusCode, string(raw))
+		return nil, fmt.Errorf("status=%d body=%s", resp.StatusCode, string(raw))
 	}
 
 	var out struct {

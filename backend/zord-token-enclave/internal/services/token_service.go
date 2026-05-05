@@ -20,6 +20,7 @@ type TokenService struct {
 	keyManager  keymanager.KeyManager
 	tokenSecret []byte             // ✅ FIX: for deterministic tokenization
 	tenantGroup singleflight.Group // ✅ NEW: for per-tenant concurrency control
+	tokenSem    chan struct{}      // ✅ NEW: limit global tokenization concurrency
 }
 
 // ✅ Constructor (UPDATED)
@@ -29,6 +30,7 @@ func NewTokenService(r *repository.TokenRepository, km keymanager.KeyManager, se
 		keyManager:  km,
 		tokenSecret: secret,
 		tenantGroup: singleflight.Group{},
+		tokenSem:    make(chan struct{}, 50), // Global limit of 50 concurrent tokenizations
 	}
 }
 
@@ -39,6 +41,10 @@ func (s *TokenService) Tokenize(
 	kind string,
 	plaintext []byte,
 ) (string, error) {
+
+	// ✅ Semaphore acquisition
+	s.tokenSem <- struct{}{}
+	defer func() { <-s.tokenSem }()
 
 	//  Ensure key exists (ADD THIS HERE)
 	if err := s.EnsureInitialKey(ctx, tenantID); err != nil {
@@ -170,6 +176,8 @@ func (s *TokenService) RotateKey(ctx context.Context, tenantID string, createdBy
 func (s *TokenService) MigrateKeys(ctx context.Context, tenantID string) error {
 
 	_, err, _ := s.tenantGroup.Do("migrate:"+tenantID, func() (interface{}, error) {
+		log.Printf("Migration started for tenant %s", tenantID)
+
 		// 1️⃣ Get RETIRING key (old key)
 		oldKey, err := s.repo.GetRetiringKey(ctx, tenantID)
 		if err != nil {

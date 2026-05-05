@@ -29,6 +29,37 @@ Make sure your Jenkins agent has:
 - Bash or another Unix-like shell
 - SonarScanner installed in Jenkins if you want SonarQube scans
 
+## Step 0: Install Jenkins Plugins
+
+Install these Jenkins plugins before creating the pipeline jobs.
+
+### Required Plugins
+
+- `Pipeline`
+  Needed to run `Jenkinsfile` pipelines.
+- `Pipeline: Stage View`
+  Shows the pipeline stages clearly in Jenkins.
+- `Git`
+  Needed for checkout from GitHub.
+- `Credentials`
+  Lets Jenkins store GitHub and AWS credentials safely.
+- `Credentials Binding`
+  Needed because the pipeline uses `usernamePassword(...)`.
+- `SonarQube Scanner for Jenkins`
+  Needed for `withSonarQubeEnv(...)` and SonarQube integration.
+
+### Recommended Plugins
+
+- `GitHub`
+  Helpful if you connect Jenkins jobs directly with GitHub.
+- `Blue Ocean`
+  Optional, but gives a cleaner pipeline UI.
+
+### Not Required For This Pipeline
+
+- `Docker Pipeline`
+  Not required here because this repo uses normal shell commands like `docker build` and `docker push`.
+
 ## Step 1: Create Jenkins Credentials
 
 Create these credentials in Jenkins.

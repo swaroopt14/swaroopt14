@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"log"
 	"zord-evidence/models"
@@ -34,7 +33,7 @@ func buildEdgeHandler(pg PackGenerator) MessageHandler {
 		}
 
 		// Convert []byte hash to hex string for Merkle leaf
-		hashHex := hex.EncodeToString(relayEvt.EnvelopeHash)
+		hashHex := relayEvt.EnvelopeHash
 
 		pendingLeaves := []models.PendingLeafCandidate{
 			{

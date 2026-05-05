@@ -38,7 +38,7 @@ const ZeroVarianceHash = "sha256:399c0a6a570f78a707a3363575916057a66710682f6e919
 type PendingLeafCandidate struct {
 	ID            string    `json:"id" db:"id"`
 	TenantID      string    `json:"tenant_id" db:"tenant_id"`
-	IntentID      *string   `json:"intent_id" db:"intent_id"` // null for edge events
+	IntentID      *string   `json:"intent_id" db:"intent_id"`     // null for edge events
 	EnvelopeID    *string   `json:"envelope_id" db:"envelope_id"` // used to correlate edge
 	LeafType      string    `json:"leaf_type" db:"leaf_type"`
 	ItemRef       string    `json:"item_ref" db:"item_ref"`
@@ -59,7 +59,7 @@ type RelayEvent struct {
 	AggregateID     string          `json:"aggregate_id"`
 	EventType       string          `json:"event_type"`
 	Payload         json.RawMessage `json:"payload"`
-	EnvelopeHash    []byte          `json:"envelope_hash,omitempty"`
+	EnvelopeHash    string          `json:"envelope_hash,omitempty"`
 	CanonicalHash   string          `json:"canonical_hash,omitempty"`
 	GovernanceState string          `json:"governance_state,omitempty"`
 	GovernanceHash  string          `json:"governance_hash,omitempty"`

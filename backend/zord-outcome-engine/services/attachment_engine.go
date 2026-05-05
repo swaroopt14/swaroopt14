@@ -603,11 +603,22 @@ func computeBatchSummary(
 	}
 
 	for _, obs := range observations {
-		summary.TotalObservedAmount = summary.TotalObservedAmount.Add(obs.Amount)
+		// Only add to TotalObservedAmount if this observation was successfully matched to an intent.
+		// We can check this by looking for a variance record (which only exists for attached pairs).
+		isAttached := false
+		for _, v := range variances {
+			if v.SettlementObservationID == obs.SettlementObservationID {
+				isAttached = true
+				break
+			}
+		}
+		if isAttached {
+			summary.TotalObservedAmount = summary.TotalObservedAmount.Add(obs.Amount)
+		}
 	}
-	for _, v := range variances {
-		summary.TotalVariance = summary.TotalVariance.Add(v.AmountVariance.Abs())
-	}
+
+	// TotalVariance is the net difference between what was intended and what was observed for this batch.
+	summary.TotalVariance = summary.TotalIntendedAmount.Sub(summary.TotalObservedAmount).Abs()
 
 	// Derive batch status.
 	total := len(decisions)

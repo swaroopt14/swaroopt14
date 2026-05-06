@@ -75,4 +75,5 @@ type OutboxEvent struct {
 	GovernanceReasonCodesJSON json.RawMessage `json:"governance_reason_codes_json,omitempty" db:"governance_reason_codes_json"`
 	DuplicateReasonCode       string          `json:"duplicate_reason_code,omitempty" db:"duplicate_reason_code"`
 	ClientBatchRef            string          `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
+	AggregateConfidenceScore  *float64        `json:"aggregate_confidence_score,omitempty" db:"aggregate_confidence_score"` // NEW
 }

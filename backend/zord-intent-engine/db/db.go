@@ -62,7 +62,8 @@ func CreateTables() error {
     client_batch_ref TEXT,
 
     updated_at TIMESTAMPTZ DEFAULT now(),
-	batchid TEXT
+    batchid TEXT,
+    aggregate_confidence_score NUMERIC(5,2) -- NEW
 
 );`
 
@@ -146,6 +147,7 @@ func CreateTables() error {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     sent_at TIMESTAMPTZ,
 	batchid TEXT,
+    aggregate_confidence_score NUMERIC(5,2), -- NEW
 
     CONSTRAINT fk_outbox_intent
         FOREIGN KEY (aggregate_id)

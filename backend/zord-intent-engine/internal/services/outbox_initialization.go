@@ -78,5 +78,6 @@ func CanonicalIntentToOutboxEvent(
 		GovernanceReasonCodesJSON: intent.GovernanceReasonCodesJSON,
 		DuplicateReasonCode:       intent.DuplicateReasonCode,
 		ClientBatchRef:            intent.ClientBatchRef,
+		AggregateConfidenceScore:  intent.AggregateConfidenceScore, // NEW
 	}, nil
 }

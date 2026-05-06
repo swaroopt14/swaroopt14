@@ -67,7 +67,7 @@ CREATE TABLE IF NOT EXISTS payment_intents (
 
     updated_at TIMESTAMPTZ DEFAULT now(),
     batchid TEXT,
-
+    aggregate_confidence_score NUMERIC(5,2) -- NEW
 );
 
 -- Create indexes for performance
@@ -149,6 +149,7 @@ CREATE TABLE IF NOT EXISTS outbox (
     duplicate_reason_code TEXT,
     client_batch_ref TEXT,
     batchid TEXT,
+    aggregate_confidence_score NUMERIC(5,2), -- NEW
 
     CONSTRAINT fk_outbox_intent
         FOREIGN KEY (aggregate_id)

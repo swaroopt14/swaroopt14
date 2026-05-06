@@ -86,6 +86,11 @@ type CanonicalIntentRepository interface {
 		tenantID string,
 		key string,
 	) (*models.BusinessIdempotencyEntry, error)
+
+	UpdateBatchAggregateConfidence(
+		ctx context.Context,
+		batchID string,
+	) (float64, error)
 }
 
 func NewIntentService(
@@ -1032,6 +1037,13 @@ func (s *IntentService) ProcessIncomingIntent(
 	saved.GovernanceSnapshotRef = govRef
 	saved.CanonicalHash = hash
 
+	if in.BatchID != nil && *in.BatchID != "" {
+		_, err := s.repo.UpdateBatchAggregateConfidence(ctx, *in.BatchID)
+		if err != nil {
+			log.Printf("⚠️ Failed to update batch aggregate confidence for batch=%s: %v", *in.BatchID, err)
+		}
+	}
+
 	return &saved, nil, nil
 }
 
@@ -1379,6 +1391,13 @@ func (s *IntentService) ProcessTokenizeResult(
 	saved.NIRSnapshotRef = nirRef
 	saved.GovernanceSnapshotRef = govRef
 	saved.CanonicalHash = hash
+
+	if event.BatchID != nil && *event.BatchID != "" {
+		_, err := s.repo.UpdateBatchAggregateConfidence(ctx, *event.BatchID)
+		if err != nil {
+			log.Printf("⚠️ Failed to update batch aggregate confidence for batch=%s: %v", *event.BatchID, err)
+		}
+	}
 
 	return &saved, nil
 }

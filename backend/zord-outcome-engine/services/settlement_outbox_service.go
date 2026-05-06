@@ -24,6 +24,7 @@ func (s *SettlementOutboxService) EmitForJob(
 	jobID string,
 	tenantID uuid.UUID,
 	observations []models.CanonicalSettlementObservation,
+	clientBatchID string,
 ) error {
 	log.Printf("settlement.outbox.start job_id=%s count=%d", jobID, len(observations))
 	var lastErr error
@@ -62,30 +63,19 @@ func (s *SettlementOutboxService) EmitForJob(
 		}
 	}
 
-	// 2. Emit one event per batch group: canonical.settlement.batch_ready
-	batchGroups := make(map[string]int)
-	for _, obs := range observations {
-		batchRef := safeDeref(obs.BatchReference)
-		if batchRef == "" {
-			batchRef = "unknown"
-		}
-		batchGroups[batchRef]++
+	// 2. Emit one event for the entire client batch: canonical.settlement.batch_ready
+	payload := map[string]interface{}{
+		"job_id":          jobID,
+		"tenant_id":       tenantID,
+		"client_batch_id": clientBatchID,
+		"row_count":       len(observations),
+		"event":           "batch_ready",
 	}
 
-	for batchRef, count := range batchGroups {
-		payload := map[string]interface{}{
-			"job_id":          jobID,
-			"tenant_id":       tenantID,
-			"batch_reference": batchRef,
-			"row_count":       count,
-			"event":           "batch_ready",
-		}
-
-		if err := s.insertEvent(ctx, tenantID, jobID, settlementBatchID, "settlement_observation", uuid.New(), "canonical.settlement.batch_ready", payload); err != nil {
-			lastErr = err
-		}
-		batchCount++
+	if err := s.insertEvent(ctx, tenantID, jobID, settlementBatchID, "settlement_observation", uuid.New(), "canonical.settlement.batch_ready", payload); err != nil {
+		lastErr = err
 	}
+	batchCount++
 
 	log.Printf("settlement.outbox.emitted job_id=%s observation_events=%d batch_events=%d", jobID, len(observations), batchCount)
 	return lastErr

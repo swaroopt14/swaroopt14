@@ -246,7 +246,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 
 	// 6. Trigger outbox events.
 	outboxSvc := &SettlementOutboxService{}
-	return outboxSvc.EmitForJob(ctx, jobID, tenantID, observations)
+	return outboxSvc.EmitForJob(ctx, jobID, tenantID, observations, clientBatchID)
 }
 
 // buildCanonicalObservation maps the raw UniversalSettlementShape to a CanonicalSettlementObservation.

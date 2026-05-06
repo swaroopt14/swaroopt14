@@ -40,6 +40,7 @@ type PendingLeafCandidate struct {
 	TenantID      string    `json:"tenant_id" db:"tenant_id"`
 	IntentID      *string   `json:"intent_id" db:"intent_id"`     // null for edge events
 	EnvelopeID    *string   `json:"envelope_id" db:"envelope_id"` // used to correlate edge
+	ContractID    *string   `json:"contract_id" db:"contract_id"` // buffered contract_id
 	LeafType      string    `json:"leaf_type" db:"leaf_type"`
 	ItemRef       string    `json:"item_ref" db:"item_ref"`
 	Hash          string    `json:"hash" db:"hash"`
@@ -57,6 +58,7 @@ type RelayEvent struct {
 	TenantID        string          `json:"tenant_id"`
 	AggregateType   string          `json:"aggregate_type"`
 	AggregateID     string          `json:"aggregate_id"`
+	ContractID      string          `json:"contract_id,omitempty"`
 	EventType       string          `json:"event_type"`
 	Payload         json.RawMessage `json:"payload"`
 	EnvelopeHash    string          `json:"envelope_hash,omitempty"`

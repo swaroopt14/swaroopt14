@@ -30,7 +30,7 @@ import (
 //	kafka → models            (safe: models has no kafka dependency)
 type PackGenerator interface {
 	GeneratePack(ctx context.Context, req models.GenerateEvidenceRequest) (*models.EvidencePack, error)
-	HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID string, newLeaves []models.PendingLeafCandidate) error
+	HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID, contractID string, newLeaves []models.PendingLeafCandidate) error
 }
 
 // OutcomeEventType constants understood by this consumer.
@@ -130,6 +130,7 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 		tenantID, intentID, evt.SettlementObservationID, len(evt.Leaves))
 
 	// Map wire leaves → pending leaf models.
+	contractID := relayEvt.ContractID
 	pendingLeaves := make([]models.PendingLeafCandidate, 0, len(evt.Leaves))
 	for _, l := range evt.Leaves {
 		sv := l.SchemaVersion
@@ -139,6 +140,7 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 		pendingLeaves = append(pendingLeaves, models.PendingLeafCandidate{
 			TenantID:      tenantID,
 			IntentID:      &intentID,
+			ContractID:    &contractID,
 			LeafType:      l.Type,
 			ItemRef:       l.Ref,
 			Hash:          l.Hash,
@@ -154,7 +156,7 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 
 	// Use HandleLeafUpdate to buffer and check for pack readiness.
 	// We don't have an envelope_id here (it's in the edge/intent events).
-	err := pg.HandleLeafUpdate(ctx, tenantID, "", intentID, pendingLeaves)
+	err := pg.HandleLeafUpdate(ctx, tenantID, "", intentID, contractID, pendingLeaves)
 	if err != nil {
 		log.Printf("outcome.consumer.handle_leaf_update_failed tenant=%s intent=%s err=%v", tenantID, intentID, err)
 		return err

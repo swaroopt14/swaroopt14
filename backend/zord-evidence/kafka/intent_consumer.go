@@ -27,8 +27,8 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 			return nil
 		}
 
-		if relayEvt.TenantID == "" || relayEvt.AggregateID == "" || relayEvt.EnvelopeID == "" {
-			log.Printf("intent.consumer.missing_ids tenant=%s intent=%s env=%s", relayEvt.TenantID, relayEvt.AggregateID, relayEvt.EnvelopeID)
+		if relayEvt.TenantID == "" || relayEvt.AggregateID == "" {
+			log.Printf("intent.consumer.missing_ids tenant=%s intent=%s", relayEvt.TenantID, relayEvt.AggregateID)
 			return nil
 		}
 
@@ -36,6 +36,7 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 		l6 := models.PendingLeafCandidate{
 			TenantID:      relayEvt.TenantID,
 			IntentID:      &relayEvt.AggregateID,
+			ContractID:    &relayEvt.ContractID,
 			LeafType:      models.LeafTypeCanonicalIntentHash,
 			ItemRef:       relayEvt.AggregateID,
 			Hash:          relayEvt.CanonicalHash,
@@ -47,6 +48,7 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 		l7 := models.PendingLeafCandidate{
 			TenantID:      relayEvt.TenantID,
 			IntentID:      &relayEvt.AggregateID,
+			ContractID:    &relayEvt.ContractID,
 			LeafType:      models.LeafTypeGovernanceDecision,
 			ItemRef:       relayEvt.AggregateID,
 			Hash:          relayEvt.GovernanceHash,
@@ -56,7 +58,7 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 
 		pendingLeaves := []models.PendingLeafCandidate{l6, l7}
 
-		// Pass intent_id and envelope_id to link any buffered edge leaves
-		return pg.HandleLeafUpdate(ctx, relayEvt.TenantID, relayEvt.EnvelopeID, relayEvt.AggregateID, pendingLeaves)
+		// Pass intent_id, envelope_id and contract_id to link any buffered edge leaves
+		return pg.HandleLeafUpdate(ctx, relayEvt.TenantID, relayEvt.EnvelopeID, relayEvt.AggregateID, relayEvt.ContractID, pendingLeaves)
 	}
 }

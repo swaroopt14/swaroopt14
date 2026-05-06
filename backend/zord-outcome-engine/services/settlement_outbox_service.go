@@ -112,7 +112,7 @@ func (s *SettlementOutboxService) insertEvent(
 			event_type, payload_json,
 			status, attempts, created_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		uuid.New(), tenantID, uuid.New(), jobID, jobID, settlementBatchID,
+		uuid.New(), tenantID, nil, jobID, jobID, settlementBatchID,
 		family, entityID,
 		eventType, payloadJSON,
 		"PENDING", 0, time.Now().UTC(),

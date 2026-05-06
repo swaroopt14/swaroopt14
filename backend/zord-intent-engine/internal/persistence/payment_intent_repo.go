@@ -88,7 +88,8 @@ func (r *PaymentIntentRepo) Save(
     schema_completeness_score,
     governance_reason_codes_json,
     duplicate_reason_code, client_batch_ref,
-	batchid
+	batchid,
+    aggregate_confidence_score -- NEW
 )
 VALUES (
     $1,$2,$3,$4,
@@ -107,7 +108,7 @@ VALUES (
     $40,$41,$42,
     $43,
     $44, $45,
-    $46, $47, $48
+    $46, $47, $48, $49 -- UPDATED
 ) `
 
 	_, err = tx.ExecContext(
@@ -161,6 +162,7 @@ VALUES (
 		intent.DuplicateReasonCode,       // $46
 		intent.ClientBatchRef,            // $47
 		intent.BatchID,                   // $48
+		intent.AggregateConfidenceScore,  // $49 -- NEW
 	)
 
 	if err != nil {
@@ -222,14 +224,15 @@ INSERT INTO outbox (
     retry_count,
     next_attempt_at,
     created_at,
-	batchid
+	batchid,
+    aggregate_confidence_score -- NEW
 ) VALUES (
     $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
     $11,$12,$13,$14,$15,$16,$17,$18,$19,
     $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
     $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,
     $40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
-    $50,$51,$52,$53
+    $50,$51,$52,$53, $54 -- UPDATED
 )`
 
 	outbox.ContractID = intent.ContractID
@@ -290,6 +293,7 @@ INSERT INTO outbox (
 		outbox.NextRetryAt,               // $51
 		outbox.CreatedAt,                 // $52
 		outbox.BatchID,                   // $53  ← matches column: batchid
+		outbox.AggregateConfidenceScore,  // $54 -- NEW
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)
@@ -374,7 +378,8 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
-		batchid
+		batchid,
+		aggregate_confidence_score -- NEW
 	FROM payment_intents
 	WHERE tenant_id = $1
 	  AND envelope_id = $2
@@ -432,6 +437,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.GovernanceSnapshotRef,
 		&intent.GovernanceHash,
 		&intent.BatchID,
+		&intent.AggregateConfidenceScore, // NEW
 	)
 
 	if err == sql.ErrNoRows {
@@ -568,7 +574,8 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
-		batchid
+		batchid,
+		aggregate_confidence_score -- NEW
 	FROM payment_intents
 	WHERE tenant_id = $1
 	  AND business_idempotency_key = $2
@@ -626,6 +633,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.GovernanceSnapshotRef,
 		&intent.GovernanceHash,
 		&intent.BatchID,
+		&intent.AggregateConfidenceScore, // NEW
 	)
 
 	if err == sql.ErrNoRows {
@@ -689,3 +697,54 @@ func (r *PaymentIntentRepo) CheckIdempotencyRegistry(
 
 	return &entry, nil
 }
+
+// UpdateBatchAggregateConfidence computes and persists the average confidence score for a batch.
+// After batch processing completes: Compute aggregateConfidence = totalConfidenceScore / totalIntentCount
+func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, batchID string) (float64, error) {
+	if batchID == "" {
+		return 0, nil
+	}
+
+	// 1. Compute aggregate confidence
+	// Ensure: NULL confidence_score not included, skipped intents excluded, division-by-zero protected
+	var avgScore sql.NullFloat64
+	err := r.db.QueryRowContext(ctx, `
+		SELECT AVG(confidence_score) 
+		FROM payment_intents 
+		WHERE batchid = $1 AND confidence_score IS NOT NULL
+	`, batchID).Scan(&avgScore)
+
+	if err != nil {
+		return 0, err
+	}
+
+	score := 0.0
+	if avgScore.Valid {
+		score = avgScore.Float64
+	}
+
+	// 2. Update payment_intents
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE payment_intents 
+		SET aggregate_confidence_score = $1 
+		WHERE batchid = $2
+	`, score, batchID)
+	if err != nil {
+		return 0, err
+	}
+
+	// 3. Update outbox (reused for all intents in same batch)
+	// Also need to update the JSON payload to include the aggregate_confidence_score
+	_, err = r.db.ExecContext(ctx, `
+		UPDATE outbox 
+		SET aggregate_confidence_score = $1,
+		    payload = jsonb_set(payload, '{aggregate_confidence_score}', to_jsonb($1::numeric))
+		WHERE batchid = $2
+	`, score, batchID)
+	if err != nil {
+		return 0, err
+	}
+
+	return score, nil
+}
+

@@ -106,7 +106,8 @@ func (r *IntentQueryRepo) ListIntents(
 		canonical_snapshot_ref,
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
-		COALESCE(governance_hash, '') as governance_hash
+		COALESCE(governance_hash, '') as governance_hash,
+		aggregate_confidence_score -- NEW
 	FROM payment_intents
 	%s
 	ORDER BY created_at DESC
@@ -156,6 +157,7 @@ func (r *IntentQueryRepo) ListIntents(
 			&intent.NIRSnapshotRef,
 			&intent.GovernanceSnapshotRef,
 			&intent.GovernanceHash,
+			&intent.AggregateConfidenceScore, // NEW
 		)
 
 		if err != nil {
@@ -237,6 +239,7 @@ func (r *IntentQueryRepo) GetIntentByID(
 		&intent.NIRSnapshotRef,
 		&intent.GovernanceSnapshotRef,
 		&intent.GovernanceHash,
+		&intent.AggregateConfidenceScore, // NEW
 	)
 
 	if err != nil {

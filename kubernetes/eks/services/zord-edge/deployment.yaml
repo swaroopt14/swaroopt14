@@ -84,6 +84,11 @@ spec:
                 secretKeyRef:
                   name: zord-app-secrets
                   key: INTERNAL_ADMIN_KEY
+            - name: RELAY_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: RELAY_SERVICES_1_AUTH_TOKEN
           volumeMounts:
             - name: signing-key
               mountPath: /run/secrets

@@ -39,8 +39,8 @@ USER relay
 COPY --from=builder /relay /relay
 COPY --from=builder /build/config.yaml /config.yaml
 
-# Expose port 9090 for Prometheus metrics / health checks
-EXPOSE 9090
+# Expose the relay metrics and health server port used by Kubernetes.
+EXPOSE 8082
 
 # Entry point to run the relay service (it will read Kafka config from ENV vars)
 ENTRYPOINT ["/relay"]

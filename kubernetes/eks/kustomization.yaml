@@ -3,8 +3,9 @@ kind: Kustomization
 
 namespace: zord
 
-commonLabels:
-  app.kubernetes.io/part-of: arealis-zord
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: arealis-zord
 
 resources:
   - namespace.yaml

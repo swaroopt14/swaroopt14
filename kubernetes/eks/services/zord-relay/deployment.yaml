@@ -74,6 +74,11 @@ spec:
                 secretKeyRef:
                   name: zord-app-secrets
                   key: RELAY_SERVICES_1_AUTH_TOKEN
+            - name: RELAY_SERVICES_2_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: RELAY_SERVICES_2_AUTH_TOKEN
           volumeMounts:
             - name: relay-config
               mountPath: /config.yaml

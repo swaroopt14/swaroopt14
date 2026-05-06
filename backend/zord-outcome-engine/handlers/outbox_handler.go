@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,10 @@ type ackNackResponse struct {
 func (h *OutboxHandler) Lease(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeRelay(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -79,7 +84,7 @@ func (h *OutboxHandler) Lease(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
-	leaseID, leaseUntil, events, err := h.repo.LeaseOutboxBatch(ctx, limit, ttl, "relay")
+	leaseID, leaseUntil, events, err := h.repo.LeaseOutboxBatch(ctx, limit, ttl, relayInstanceID(r))
 	if err != nil {
 		http.Error(w, "failed to lease outbox events", http.StatusInternalServerError)
 		return
@@ -95,6 +100,10 @@ func (h *OutboxHandler) Lease(w http.ResponseWriter, r *http.Request) {
 func (h *OutboxHandler) Ack(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if !authorizeRelay(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -132,6 +141,10 @@ func (h *OutboxHandler) Nack(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !authorizeRelay(r) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
 
 	var req ackNackRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -166,4 +179,22 @@ func writeJSON(w http.ResponseWriter, status int, v interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func relayInstanceID(r *http.Request) string {
+	if instanceID := strings.TrimSpace(r.Header.Get("X-Relay-Instance-ID")); instanceID != "" {
+		return instanceID
+	}
+	if hostname, err := os.Hostname(); err == nil && strings.TrimSpace(hostname) != "" {
+		return hostname
+	}
+	return "relay"
+}
+
+func authorizeRelay(r *http.Request) bool {
+	expected := strings.TrimSpace(os.Getenv("RELAY_AUTH_TOKEN"))
+	if expected == "" {
+		return true
+	}
+	return r.Header.Get("X-Relay-Token") == expected
 }

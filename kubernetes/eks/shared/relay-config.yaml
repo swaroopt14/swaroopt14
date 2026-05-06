@@ -36,6 +36,11 @@ data:
         auth_token: "replace-me"
         http_timeout: 15s
         default_topic: payments.ledger.events.v1
+      - name: outcome-engine
+        base_url: http://zord-outcome-engine:8081
+        auth_token: "replace-me"
+        http_timeout: 15s
+        default_topic: payments.outcome.events.v1
 
     tracing:
       enabled: false

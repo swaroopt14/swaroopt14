@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -37,6 +38,11 @@ type ackNackResponse struct {
 }
 
 func (h *OutboxHandler) Lease(c *gin.Context) {
+	if !authorizeRelay(c.Request) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	const maxLeaseLimit = 1000
 
 	limit := 500
@@ -65,7 +71,7 @@ func (h *OutboxHandler) Lease(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 	defer cancel()
 
-	leaseID, leaseUntil, events, err := h.repo.LeaseOutboxBatch(ctx, limit, ttl, "relay")
+	leaseID, leaseUntil, events, err := h.repo.LeaseOutboxBatch(ctx, limit, ttl, relayInstanceID(c.Request))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to lease outbox events"})
 		return
@@ -79,6 +85,11 @@ func (h *OutboxHandler) Lease(c *gin.Context) {
 }
 
 func (h *OutboxHandler) Ack(c *gin.Context) {
+	if !authorizeRelay(c.Request) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	var req ackNackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json body"})
@@ -109,6 +120,11 @@ func (h *OutboxHandler) Ack(c *gin.Context) {
 }
 
 func (h *OutboxHandler) Nack(c *gin.Context) {
+	if !authorizeRelay(c.Request) {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+
 	var req ackNackRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid json body"})
@@ -136,4 +152,22 @@ func (h *OutboxHandler) Nack(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, ackNackResponse{Updated: updated})
+}
+
+func relayInstanceID(r *http.Request) string {
+	if instanceID := strings.TrimSpace(r.Header.Get("X-Relay-Instance-ID")); instanceID != "" {
+		return instanceID
+	}
+	if hostname, err := os.Hostname(); err == nil && strings.TrimSpace(hostname) != "" {
+		return hostname
+	}
+	return "relay"
+}
+
+func authorizeRelay(r *http.Request) bool {
+	expected := strings.TrimSpace(os.Getenv("RELAY_AUTH_TOKEN"))
+	if expected == "" {
+		return true
+	}
+	return r.Header.Get("X-Relay-Token") == expected
 }

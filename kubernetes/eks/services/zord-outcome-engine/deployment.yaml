@@ -47,6 +47,12 @@ spec:
             - containerPort: 8081
               name: http
           env:
+            - name: KAFKA_BROKERS
+              value: zord-kafka:9092
+            - name: KAFKA_TOPIC
+              value: payments.dispatch.events.v1
+            - name: KAFKA_INTENT_TOPIC
+              value: payments.intent.events.v1
             - name: DB_HOST
               value: zord-postgres
             - name: DB_PORT
@@ -73,6 +79,11 @@ spec:
                 secretKeyRef:
                   name: zord-app-secrets
                   key: ZORD_VAULT_KEY
+            - name: RELAY_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: RELAY_SERVICES_2_AUTH_TOKEN
           readinessProbe:
             httpGet:
               path: /v1/health

@@ -23,6 +23,7 @@ spec:
                 payments.ledger.events.v1 \
                 payments.intent.events.v1 \
                 payments.dispatch.events.v1 \
+                payments.outcome.events.v1 \
                 pii.tokenize.request \
                 pii.tokenize.result \
                 relay.dlq.publish_failure \

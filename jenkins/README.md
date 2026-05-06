@@ -382,6 +382,24 @@ Check:
 - IAM role permissions or `aws-ecr-credentials`
 - ECR repository naming under `ECR_REPOSITORY_PREFIX`
 
+### Docker Is Not Found In Jenkins
+
+If the build fails with `docker: not found` during ECR login, Jenkins is running on an agent without the Docker CLI.
+
+Run this check on the Jenkins agent or from a pipeline workspace:
+
+```bash
+bash jenkins/verify-jenkins-runtime.sh
+```
+
+For the EC2 Docker-based setup in this repository, start Jenkins with:
+
+```bash
+bash ools/tools.sh
+```
+
+That script builds a Jenkins image with AWS CLI, Docker CLI, and Git, then mounts `/var/run/docker.sock` so Jenkins can run `docker build` and `docker push`.
+
 ### Git Push Fails
 
 Check:

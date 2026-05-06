@@ -90,6 +90,12 @@ Resolved git push ref: ${env.GIT_PUSH_REF}
       }
     }
 
+    stage('Verify Jenkins Runtime') {
+      steps {
+        sh 'bash jenkins/verify-jenkins-runtime.sh'
+      }
+    }
+
     stage('SonarQube Scan') {
       when {
         expression { return params.RUN_SONARQUBE }
@@ -269,7 +275,9 @@ Resolved git push ref: ${env.GIT_PUSH_REF}
     always {
       sh '''
         set +e
-        docker logout "${ECR_REGISTRY}" >/dev/null 2>&1 || true
+        if command -v docker >/dev/null 2>&1; then
+          docker logout "${ECR_REGISTRY}" >/dev/null 2>&1 || true
+        fi
       '''
     }
   }

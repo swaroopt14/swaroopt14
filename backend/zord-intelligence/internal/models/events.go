@@ -299,10 +299,10 @@ type CanonicalSettlementCreatedEvent struct {
 	// 0.2 = only 1 carrier → very hard to match, high ambiguity risk
 
 	// ── Attachment readiness ──────────────────────────────────────────────────
-	AttachmentReadiness string `json:"attachment_readiness"` // "READY", "PARTIAL", "POOR"
-	// READY   = enough carriers to auto-attach with high confidence
-	// PARTIAL = some carriers present, may need human review
-	// POOR    = insufficient carriers, likely to be ambiguous
+	// Score computed by Service 5B using its internal carrier + parse logic.
+	// ZPI classifies this into READY / PARTIAL / POOR using fixed thresholds.
+	// Range: 0.0 (no viable carriers) → 1.0 (all carriers present, parser confident).
+	AttachmentReadiness float64 `json:"attachment_readiness"` // 0.0–1.0 score from Service 5B
 
 	// ── Status observation ────────────────────────────────────────────────────
 	StatusObservation string `json:"status_observation"` // "SETTLED", "REVERSED", "PENDING", "UNKNOWN"

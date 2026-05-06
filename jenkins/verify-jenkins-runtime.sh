@@ -19,8 +19,8 @@ require_command() {
 
 require_command bash "Install bash on the Jenkins agent."
 require_command git "Install git on the Jenkins agent."
-require_command aws "Install AWS CLI on the Jenkins agent or use the custom Jenkins image from ools/tools.sh."
-require_command docker "Install Docker CLI on the Jenkins agent or rebuild Jenkins with the custom image from ools/tools.sh."
+require_command aws "Install AWS CLI on the Jenkins agent or use the custom Jenkins image from tools.sh."
+require_command docker "Install Docker CLI on the Jenkins agent or rebuild Jenkins with the custom image from tools.sh."
 
 if ((missing != 0)); then
   echo "Jenkins runtime verification failed." >&2

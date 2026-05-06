@@ -68,7 +68,7 @@ func (s *TokenService) Tokenize(
 	// // FIX: deterministic tokenization
 	// // UPDATED: replaced UUID with HMAC
 	normalized := crypto.NormalizeValue(string(plaintext))
-	tokenID := "tok_" + crypto.GenerateDeterministicToken(s.tokenSecret, normalized) // FIX: tok_ prefix
+	tokenID := "zrd_" + crypto.GenerateDeterministicToken(s.tokenSecret, normalized) // FIX: tok_ prefix
 
 	// 🔥 3. Store in DB with key reference (handles ON CONFLICT)
 	rec := models.TokenRecord{

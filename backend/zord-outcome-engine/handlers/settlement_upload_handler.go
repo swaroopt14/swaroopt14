@@ -239,6 +239,8 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 			rowRef := fmt.Sprintf("%d", result.RowIndex)
 
 			if result.Failed {
+				log.Printf("settlement.parse.row_failed job_id=%s row=%d reason=%s",
+					bgIngestRunID, result.RowIndex, result.FailureReason)
 				rowCountFailed++
 				_ = svc.PersistParseError(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID)
 				continue

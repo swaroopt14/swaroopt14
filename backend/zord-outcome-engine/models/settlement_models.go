@@ -111,6 +111,7 @@ type CanonicalSettlementBatch struct {
 	SourceSystem                string    `json:"source_system" db:"source_system"`
 	ConnectorID                 *uuid.UUID `json:"connector_id,omitempty" db:"connector_id"`
 	SourceBatchRef              *string   `json:"source_batch_ref,omitempty" db:"source_batch_ref"`
+	ClientBatchID              string          `json:"client_batch_id" db:"client_batch_id"`
 	ArtifactFamily              string    `json:"artifact_family" db:"artifact_family"`
 	RowCount                    int       `json:"row_count" db:"row_count"`
 	SuccessCountEstimate        int       `json:"success_count_estimate" db:"success_count_estimate"`

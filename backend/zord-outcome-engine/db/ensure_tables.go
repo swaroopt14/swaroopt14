@@ -292,6 +292,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 	source_system TEXT NOT NULL,
 	connector_id UUID,
 	source_batch_ref TEXT,
+	client_batch_id TEXT NOT NULL,
 	artifact_family TEXT NOT NULL,
 	row_count INT NOT NULL DEFAULT 0,
 	success_count_estimate INT NOT NULL DEFAULT 0,
@@ -306,7 +307,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS settlement_batches_job_ref_idx ON canonical_settlement_batches(job_id, source_batch_ref);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS canonical_settlement_batches_run_client_idx ON canonical_settlement_batches(ingest_run_id, client_batch_id);`,
 
 		`
 CREATE TABLE IF NOT EXISTS settlement_parse_errors(

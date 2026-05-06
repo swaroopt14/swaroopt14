@@ -26,10 +26,10 @@ type SettlementCanonicalizeService struct {
 // 1. Load all raw parsed rows from the DB.
 // 2. Transform each row into a normalized 'Canonical Observation'.
 // 3. Compute quality and readiness scores for downstream matching.
-// 4. Group observations into batches (e.g. by Razorpay settlement_id).
+// 4. Group observations into a single batch under the client_batch_id.
 // 5. Persist everything and trigger the outbox event emission.
-func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID string, tenantID uuid.UUID, profile models.MappingProfile) error {
-	log.Printf("settlement.canonicalize.start job_id=%s", jobID)
+func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID string, tenantID uuid.UUID, profile models.MappingProfile, clientBatchID string) error {
+	log.Printf("settlement.canonicalize.start job_id=%s client_batch_id=%s", jobID, clientBatchID)
 
 	// 1. Load all parsed rows for this job.
 	rows, err := db.DB.QueryContext(ctx, `
@@ -148,11 +148,8 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		observations = append(observations, obs)
 
 		// Group valid observations for batch-level summary.
-		batchRef := safeDeref(obs.BatchReference)
-		if batchRef == "" {
-			batchRef = "unknown"
-		}
-		batchGroups[batchRef] = append(batchGroups[batchRef], obs)
+		// All rows in this run belong to the single client batch.
+		batchGroups[clientBatchID] = append(batchGroups[clientBatchID], obs)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -160,18 +157,18 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 	}
 
 	// ── STEP 4: BATCH AGGREGATION ──────────────────────────────────────────
-	// We group the successfully processed observations by their BatchReference
-	// (e.g. settlement_id) to provide a summary view in canonical_settlement_batches.
+	// We insert a single summary view for the entire client batch run in canonical_settlement_batches.
 	for batchRefKey, group := range batchGroups {
 		if len(group) == 0 {
 			continue
 		}
 
-		var (
-			sourceBatchRef *string
-		)
-		if batchRefKey != "unknown" {
-			sourceBatchRef = strPtr(batchRefKey)
+		var sourceBatchRef *string
+		for _, o := range group {
+			if o.BatchReference != nil && *o.BatchReference != "" && *o.BatchReference != "unknown" {
+				sourceBatchRef = o.BatchReference
+				break
+			}
 		}
 
 		var (
@@ -204,7 +201,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			INSERT INTO canonical_settlement_batches (
 				settlement_batch_id, tenant_id, job_id, ingest_run_id, settlement_batch_id_ref,
 				source_file_ref, source_system,
-				source_batch_ref, artifact_family,
+				source_batch_ref, client_batch_id, artifact_family,
 				row_count, success_count_estimate, failed_count_estimate,
 				pending_count_estimate, reversal_count_estimate,
 				total_amount, total_settled_amount,
@@ -212,8 +209,8 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				parse_confidence_overall, attachment_readiness_overall,
 				created_at, updated_at
 			) VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
-			) ON CONFLICT (job_id, source_batch_ref) DO UPDATE SET
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+			) ON CONFLICT (ingest_run_id, client_batch_id) DO UPDATE SET
 				row_count = EXCLUDED.row_count,
 				success_count_estimate = EXCLUDED.success_count_estimate,
 				reversal_count_estimate = EXCLUDED.reversal_count_estimate,
@@ -224,7 +221,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				updated_at = EXCLUDED.updated_at`,
 			batchID, tenantID, jobID, ingestRunIDForJob, settlementBatchIDForJob,
 			firstObs.SourceFileRef, firstObs.SourceSystem,
-			sourceBatchRef, profile.ArtifactFamily,
+			sourceBatchRef, clientBatchID, profile.ArtifactFamily,
 			len(group), successCount, 0,
 			0, reversalCount,
 			totalAmount, totalSettledAmount,

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"golang.org/x/sync/singleflight"
 
 	"zord-intent-engine/internal/canonicalizer"
 	"zord-intent-engine/internal/models"
@@ -29,6 +30,8 @@ import (
 	"github.com/shopspring/decimal"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
+
+var batchAggregateGroup singleflight.Group
 
 type IntentService struct {
 	validator *validator.Validator
@@ -1038,7 +1041,9 @@ func (s *IntentService) ProcessIncomingIntent(
 	saved.CanonicalHash = hash
 
 	if in.BatchID != nil && *in.BatchID != "" {
-		_, err := s.repo.UpdateBatchAggregateConfidence(ctx, *in.BatchID)
+		_, err, _ := batchAggregateGroup.Do(*in.BatchID, func() (interface{}, error) {
+			return s.repo.UpdateBatchAggregateConfidence(context.Background(), *in.BatchID)
+		})
 		if err != nil {
 			log.Printf("⚠️ Failed to update batch aggregate confidence for batch=%s: %v", *in.BatchID, err)
 		}
@@ -1393,7 +1398,9 @@ func (s *IntentService) ProcessTokenizeResult(
 	saved.CanonicalHash = hash
 
 	if event.BatchID != nil && *event.BatchID != "" {
-		_, err := s.repo.UpdateBatchAggregateConfidence(ctx, *event.BatchID)
+		_, err, _ := batchAggregateGroup.Do(*event.BatchID, func() (interface{}, error) {
+			return s.repo.UpdateBatchAggregateConfidence(context.Background(), *event.BatchID)
+		})
 		if err != nil {
 			log.Printf("⚠️ Failed to update batch aggregate confidence for batch=%s: %v", *event.BatchID, err)
 		}

@@ -56,7 +56,7 @@ func NewEvidenceService(
 }
 
 // HandleLeafUpdate orchestrates the buffered leaf ingestion and pack generation.
-func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID string, newLeaves []models.PendingLeafCandidate) error {
+func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID, contractID string, newLeaves []models.PendingLeafCandidate) error {
 	// 0. If intentID is missing but envelopeID is present, try to resolve it from existing leaves
 	if intentID == "" && envelopeID != "" {
 		resolved, err := s.pendingLeafRepo.ResolveIntentID(ctx, tenantID, envelopeID)
@@ -73,7 +73,7 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 
 	// 1. Link envelope if intentID is present
 	if intentID != "" && envelopeID != "" {
-		if err := s.pendingLeafRepo.LinkEnvelopeToIntent(ctx, tenantID, envelopeID, intentID); err != nil {
+		if err := s.pendingLeafRepo.LinkEnvelopeToIntent(ctx, tenantID, envelopeID, intentID, contractID); err != nil {
 			return err
 		}
 	}
@@ -132,12 +132,24 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		log.Printf("evidence.service.readiness_check intent=%s missing_leaves=%v present_count=%d", intentID, missing, len(items))
 		return nil // Not ready yet
 	}
+
+	// 5b. Resolve contractID from buffered leaves if missing in argument
+	if contractID == "" {
+		for _, l := range leaves {
+			if l.ContractID != nil && *l.ContractID != "" {
+				contractID = *l.ContractID
+				break
+			}
+		}
+	}
+
 	log.Printf("evidence.service.readiness_check intent=%s ALL_LEAVES_PRESENT — triggering generation", intentID)
 
 	// 6. Generate the pack!
 	req := models.GenerateEvidenceRequest{
 		TenantID:       tenantID,
 		IntentID:       intentID,
+		ContractID:     contractID,
 		Mode:           "INTELLIGENCE_ATTACH",
 		RulesetVersion: "v1",
 		SchemaVersions: map[string]string{"v1": "v1"},

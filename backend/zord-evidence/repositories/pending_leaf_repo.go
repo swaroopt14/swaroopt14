@@ -9,7 +9,7 @@ import (
 
 type PendingLeafRepository interface {
 	UpsertLeaf(ctx context.Context, leaf *models.PendingLeafCandidate) error
-	LinkEnvelopeToIntent(ctx context.Context, tenantID, envelopeID, intentID string) error
+	LinkEnvelopeToIntent(ctx context.Context, tenantID, envelopeID, intentID, contractID string) error
 	GetLeavesForIntent(ctx context.Context, tenantID, intentID string) ([]models.PendingLeafCandidate, error)
 	DeleteForIntent(ctx context.Context, tenantID, intentID string) error
 	ResolveIntentID(ctx context.Context, tenantID, envelopeID string) (string, error)
@@ -26,12 +26,13 @@ func NewPendingLeafRepository(db *sql.DB) *PostgresPendingLeafRepo {
 func (r *PostgresPendingLeafRepo) UpsertLeaf(ctx context.Context, leaf *models.PendingLeafCandidate) error {
 	query := `
 INSERT INTO pending_leaf_candidates (
-	tenant_id, intent_id, envelope_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+	tenant_id, intent_id, envelope_id, contract_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 ON CONFLICT (tenant_id, intent_id, leaf_type) WHERE intent_id IS NOT NULL 
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
 	hash = EXCLUDED.hash,
+	contract_id = COALESCE(EXCLUDED.contract_id, pending_leaf_candidates.contract_id),
 	source_topic = EXCLUDED.source_topic,
 	updated_at = NOW()
 `
@@ -42,12 +43,13 @@ DO UPDATE SET
 	if leaf.IntentID == nil && leaf.EnvelopeID != nil {
 		query = `
 INSERT INTO pending_leaf_candidates (
-	tenant_id, intent_id, envelope_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+	tenant_id, intent_id, envelope_id, contract_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
 ON CONFLICT (tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
 	hash = EXCLUDED.hash,
+	contract_id = COALESCE(EXCLUDED.contract_id, pending_leaf_candidates.contract_id),
 	source_topic = EXCLUDED.source_topic,
 	updated_at = NOW()
 `
@@ -57,6 +59,7 @@ DO UPDATE SET
 		leaf.TenantID,
 		leaf.IntentID,
 		leaf.EnvelopeID,
+		leaf.ContractID,
 		leaf.LeafType,
 		leaf.ItemRef,
 		leaf.Hash,
@@ -69,14 +72,14 @@ DO UPDATE SET
 	return nil
 }
 
-func (r *PostgresPendingLeafRepo) LinkEnvelopeToIntent(ctx context.Context, tenantID, envelopeID, intentID string) error {
-	// Link any existing envelope-keyed leaves to this intent_id
+func (r *PostgresPendingLeafRepo) LinkEnvelopeToIntent(ctx context.Context, tenantID, envelopeID, intentID, contractID string) error {
+	// Link any existing envelope-keyed leaves to this intent_id and contract_id
 	query := `
 UPDATE pending_leaf_candidates
-SET intent_id = $3, updated_at = NOW()
+SET intent_id = $3, contract_id = COALESCE($4, contract_id), updated_at = NOW()
 WHERE tenant_id = $1 AND envelope_id = $2 AND intent_id IS NULL
 `
-	_, err := r.db.ExecContext(ctx, query, tenantID, envelopeID, intentID)
+	_, err := r.db.ExecContext(ctx, query, tenantID, envelopeID, intentID, contractID)
 	if err != nil {
 		return fmt.Errorf("link envelope to intent: %w", err)
 	}
@@ -85,7 +88,7 @@ WHERE tenant_id = $1 AND envelope_id = $2 AND intent_id IS NULL
 
 func (r *PostgresPendingLeafRepo) GetLeavesForIntent(ctx context.Context, tenantID, intentID string) ([]models.PendingLeafCandidate, error) {
 	query := `
-SELECT id, tenant_id, intent_id, envelope_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
+SELECT id, tenant_id, intent_id, envelope_id, contract_id, leaf_type, item_ref, hash, schema_version, source_topic, created_at, updated_at
 FROM pending_leaf_candidates
 WHERE tenant_id = $1 AND intent_id = $2
 `
@@ -99,7 +102,7 @@ WHERE tenant_id = $1 AND intent_id = $2
 	for rows.Next() {
 		var l models.PendingLeafCandidate
 		if err := rows.Scan(
-			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic, &l.CreatedAt, &l.UpdatedAt,
+			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.ContractID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic, &l.CreatedAt, &l.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

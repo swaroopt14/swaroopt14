@@ -268,7 +268,6 @@ func buildCanonicalObservation(
 	obs := models.CanonicalSettlementObservation{
 		SettlementObservationID:  uuid.New(),
 		TenantID:                 tenantID,
-		TraceID:                  uuid.New(),
 		SettlementEnvelopeID:     envelopeID,
 		JobID:                    jobID,
 		SourceFileRef:            shape.SourceFileRef,

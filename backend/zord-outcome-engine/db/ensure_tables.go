@@ -224,7 +224,7 @@ CREATE TABLE IF NOT EXISTS settlement_parsed_rows(
 CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	settlement_observation_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	trace_id UUID NOT NULL,
+	trace_id UUID,
 	settlement_envelope_id UUID NOT NULL,
 	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
@@ -332,7 +332,7 @@ CREATE TABLE IF NOT EXISTS settlement_parse_errors(
 CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 	outbox_event_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	trace_id UUID NOT NULL,
+	trace_id UUID,
 	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
 	settlement_batch_id TEXT NOT NULL,
@@ -544,7 +544,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		`CREATE TABLE IF NOT EXISTS attachment_outbox_events (
 			outbox_event_id   UUID PRIMARY KEY,
 			tenant_id         UUID NOT NULL,
-			trace_id          UUID NOT NULL,
+			trace_id          UUID ,
 			attachment_job_id UUID NOT NULL,
 			entity_family     TEXT NOT NULL,
 			entity_id         UUID NOT NULL,
@@ -572,7 +572,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		`CREATE TABLE IF NOT EXISTS outcome_outbox (
 			event_id        UUID PRIMARY KEY,
 			envelope_id     UUID,
-			trace_id        UUID NOT NULL,
+			trace_id        UUID,
 			tenant_id       UUID NOT NULL,
 			contract_id     TEXT,
 			aggregate_type  TEXT NOT NULL,

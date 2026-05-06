@@ -781,10 +781,24 @@ func (s *ProjectionService) HandleSettlementCreated(
 
 	window := todayWindow(e.OccurredAt)
 
+	// Classify both float scores from Service 5B into tiers.
+	// ZPI owns the threshold constants; Service 5B only sends raw numbers.
+	readiness := classifyAttachmentReadiness(e.AttachmentReadiness)
+	carrierTier := classifyCarrierRichness(e.CarrierRichness)
+
+	// Emit an early ambiguity warning when carrier data is POOR.
+	// This is the earliest possible signal — before Service 5C even attempts
+	// to attach this settlement to an intent. The actual provider_ref_missing_rate
+	// projection is updated later by HandleAttachmentDecision (which has corridor scope).
+	if carrierTier == "POOR" {
+		log.Printf("HandleSettlementCreated: CARRIER_POOR settlement_id=%s tenant=%s richness=%.2f — ambiguity risk HIGH, attachment will likely be UNRESOLVED",
+			e.SettlementID, e.TenantID, e.CarrierRichness)
+	}
+
 	// Record ORPHAN_SETTLEMENT leakage signal when a settled observation
 	// has no attachment candidates at all.
-	// AttachmentReadiness = "POOR" means Service 5B found zero candidate intents.
-	if e.StatusObservation == "SETTLED" && e.AttachmentReadiness == "POOR" {
+	// POOR means Service 5B scored this settlement too low to find any candidate intent.
+	if e.StatusObservation == "SETTLED" && readiness == "POOR" {
 		if err := s.projRepo.AtomicRecordLeakage(
 			ctx,
 			e.TenantID,
@@ -806,8 +820,8 @@ func (s *ProjectionService) HandleSettlementCreated(
 		}
 	}
 
-	log.Printf("HandleSettlementCreated: settlement_id=%s tenant=%s source=%s readiness=%s confidence=%.2f",
-		e.SettlementID, e.TenantID, e.SourceSystemID, e.AttachmentReadiness, e.ParseConfidence)
+	log.Printf("HandleSettlementCreated: settlement_id=%s tenant=%s source=%s readiness=%s(score=%.2f) carrier=%s(richness=%.2f) confidence=%.2f",
+		e.SettlementID, e.TenantID, e.SourceSystemID, readiness, e.AttachmentReadiness, carrierTier, e.CarrierRichness, e.ParseConfidence)
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleSettlementCreated MarkProcessed event_id=%s: %w", e.EventID, err)
@@ -1236,4 +1250,68 @@ func (s *ProjectionService) HandleGovernanceDecision(
 		return fmt.Errorf("HandleGovernanceDecision MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
 	return nil
+}
+
+// ── Attachment readiness classifier ──────────────────────────────────────────
+//
+// Service 5B now emits AttachmentReadiness as a float64 score (0.0–1.0).
+// ZPI owns the threshold classification. Thresholds are named constants so
+// that a single change here propagates everywhere without hunting magic numbers.
+//
+// Thresholds (agreed with Service 5B on 2026-05-06):
+//   > 0.6  → READY   : enough carriers to auto-attach with high confidence
+//   > 0.3  → PARTIAL : some carriers present, may need human review
+//   ≤ 0.3  → POOR    : insufficient carriers, orphan settlement risk
+
+const (
+	attachReadinessReadyThreshold   = 0.6
+	attachReadinessPartialThreshold = 0.3
+)
+
+// classifyAttachmentReadiness maps a 0.0–1.0 score from Service 5B into one
+// of three tiers used by ZPI's leakage and pattern intelligence layers.
+func classifyAttachmentReadiness(score float64) string {
+	switch {
+	case score > attachReadinessReadyThreshold:
+		return "READY"
+	case score > attachReadinessPartialThreshold:
+		return "PARTIAL"
+	default:
+		return "POOR"
+	}
+}
+
+// ── Carrier richness classifier ───────────────────────────────────────────────
+//
+// carrier_richness is a float64 score (0.0–1.0) that measures what fraction
+// of the five carrier reference fields (UTR, RRN, BankRef, ProviderRef,
+// ClientRef) are populated in the settlement observation from Service 5B.
+//
+//   score = count(non-null carriers) / 5
+//
+// ZPI classifies this into three tiers. Thresholds are named constants so
+// any recalibration is a single-line change with immediate test coverage.
+//
+// Thresholds (agreed with Service 5B on 2026-05-06):
+//   > 0.6  → RICH    : 3–5 carriers present, attachment can proceed confidently
+//   > 0.3  → PARTIAL : 1–2 carriers present, human review may be needed
+//   ≤ 0.3  → POOR    : 0–1 carriers present, high ambiguity risk at attachment time
+
+const (
+	carrierRichnessRichThreshold    = 0.6
+	carrierRichnessPartialThreshold = 0.3
+)
+
+// classifyCarrierRichness maps a 0.0–1.0 score from Service 5B into a tier.
+// The tier is used in HandleSettlementCreated to emit an early ambiguity warning
+// before Service 5C's attachment decision arrives.
+func classifyCarrierRichness(score float64) string {
+	switch {
+	case score > carrierRichnessRichThreshold:
+		return "RICH"
+	case score > carrierRichnessPartialThreshold:
+		return "PARTIAL"
+	default:
+		return "POOR"
+	}
 }

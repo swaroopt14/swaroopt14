@@ -224,7 +224,7 @@ CREATE TABLE IF NOT EXISTS settlement_parsed_rows(
 CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	settlement_observation_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	trace_id UUID NOT NULL,
+	trace_id UUID,
 	settlement_envelope_id UUID NOT NULL,
 	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
@@ -292,6 +292,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 	source_system TEXT NOT NULL,
 	connector_id UUID,
 	source_batch_ref TEXT,
+	client_batch_id TEXT NOT NULL,
 	artifact_family TEXT NOT NULL,
 	row_count INT NOT NULL DEFAULT 0,
 	success_count_estimate INT NOT NULL DEFAULT 0,
@@ -306,7 +307,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS settlement_batches_job_ref_idx ON canonical_settlement_batches(job_id, source_batch_ref);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS canonical_settlement_batches_run_client_idx ON canonical_settlement_batches(ingest_run_id, client_batch_id);`,
 
 		`
 CREATE TABLE IF NOT EXISTS settlement_parse_errors(
@@ -332,7 +333,7 @@ CREATE TABLE IF NOT EXISTS settlement_parse_errors(
 CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 	outbox_event_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	trace_id UUID NOT NULL,
+	trace_id UUID,
 	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
 	settlement_batch_id TEXT NOT NULL,
@@ -544,7 +545,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		`CREATE TABLE IF NOT EXISTS attachment_outbox_events (
 			outbox_event_id   UUID PRIMARY KEY,
 			tenant_id         UUID NOT NULL,
-			trace_id          UUID NOT NULL,
+			trace_id          UUID ,
 			attachment_job_id UUID NOT NULL,
 			entity_family     TEXT NOT NULL,
 			entity_id         UUID NOT NULL,
@@ -572,7 +573,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		`CREATE TABLE IF NOT EXISTS outcome_outbox (
 			event_id        UUID PRIMARY KEY,
 			envelope_id     UUID,
-			trace_id        UUID NOT NULL,
+			trace_id        UUID,
 			tenant_id       UUID NOT NULL,
 			contract_id     TEXT,
 			aggregate_type  TEXT NOT NULL,

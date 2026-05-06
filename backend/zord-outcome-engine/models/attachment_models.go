@@ -262,7 +262,7 @@ type AttachmentRuleProfile struct {
 type AttachmentOutboxEvent struct {
 	OutboxEventID   uuid.UUID       `json:"outbox_event_id" db:"outbox_event_id"`
 	TenantID        uuid.UUID       `json:"tenant_id" db:"tenant_id"`
-	TraceID         uuid.UUID       `json:"trace_id" db:"trace_id"`
+	TraceID         *uuid.UUID       `json:"trace_id" db:"trace_id"`
 	AttachmentJobID uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
 	EntityFamily    string          `json:"entity_family" db:"entity_family"`
 	EntityID        uuid.UUID       `json:"entity_id" db:"entity_id"`

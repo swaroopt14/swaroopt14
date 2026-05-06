@@ -53,7 +53,7 @@ type SettlementParsedRow struct {
 type CanonicalSettlementObservation struct {
 	SettlementObservationID    uuid.UUID  `json:"settlement_observation_id" db:"settlement_observation_id"`
 	TenantID                   uuid.UUID  `json:"tenant_id" db:"tenant_id"`
-	TraceID                    uuid.UUID  `json:"trace_id" db:"trace_id"`
+	TraceID                    *uuid.UUID        `json:"trace_id" db:"trace_id"`
 	SettlementEnvelopeID       uuid.UUID  `json:"settlement_envelope_id" db:"settlement_envelope_id"`
 	JobID                      string  `json:"job_id" db:"job_id"`
 	IngestRunID                string  `json:"ingest_run_id" db:"ingest_run_id"`
@@ -111,6 +111,7 @@ type CanonicalSettlementBatch struct {
 	SourceSystem                string    `json:"source_system" db:"source_system"`
 	ConnectorID                 *uuid.UUID `json:"connector_id,omitempty" db:"connector_id"`
 	SourceBatchRef              *string   `json:"source_batch_ref,omitempty" db:"source_batch_ref"`
+	ClientBatchID              string          `json:"client_batch_id" db:"client_batch_id"`
 	ArtifactFamily              string    `json:"artifact_family" db:"artifact_family"`
 	RowCount                    int       `json:"row_count" db:"row_count"`
 	SuccessCountEstimate        int       `json:"success_count_estimate" db:"success_count_estimate"`
@@ -146,8 +147,8 @@ type SettlementParseError struct {
 type SettlementOutboxEvent struct {
 	OutboxEventID uuid.UUID       `json:"outbox_event_id" db:"outbox_event_id"`
 	TenantID      uuid.UUID       `json:"tenant_id" db:"tenant_id"`
-	TraceID       uuid.UUID       `json:"trace_id" db:"trace_id"`
-	JobID         string       `json:"job_id" db:"job_id"`
+	TraceID       *uuid.UUID       `json:"trace_id" db:"trace_id"`
+	JobID         string          `json:"job_id" db:"job_id"`
 	EntityFamily  string          `json:"entity_family" db:"entity_family"`
 	EntityID      uuid.UUID       `json:"entity_id" db:"entity_id"`
 	EventType     string          `json:"event_type" db:"event_type"`

@@ -239,6 +239,8 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 			rowRef := fmt.Sprintf("%d", result.RowIndex)
 
 			if result.Failed {
+				log.Printf("settlement.parse.row_failed job_id=%s row=%d reason=%s",
+					bgIngestRunID, result.RowIndex, result.FailureReason)
 				rowCountFailed++
 				_ = svc.PersistParseError(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID)
 				continue
@@ -264,7 +266,7 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		// ── PHASE 5: CANONICALIZATION & OUTPUTS ──────────────────────────────────
 		log.Printf("settlement.upload.canonicalize_start job_id=%s", bgIngestRunID)
 		canonSvc := &services.SettlementCanonicalizeService{}
-		if err := canonSvc.RunForJob(bgCtx, bgIngestRunID, bgTenant, pspProfile); err != nil {
+		if err := canonSvc.RunForJob(bgCtx, bgIngestRunID, bgTenant, pspProfile, bgClientBatchID); err != nil {
 			log.Printf("settlement.upload.canonicalize_error job_id=%s err=%v", bgIngestRunID, err)
 		} else {
 			if err := svc.ActivateRun(bgCtx, bgSettlementBatchID, bgIngestRunID, bgPreviousRunID, bgRunNumber); err != nil {

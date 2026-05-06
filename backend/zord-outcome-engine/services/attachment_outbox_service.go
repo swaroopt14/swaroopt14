@@ -216,7 +216,7 @@ func (s *AttachmentOutboxService) insertEvent(
 			event_type, payload_json,
 			status, attempts, created_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		uuid.New(), tenantID, uuid.New(), jobID,
+		uuid.New(), tenantID, nil, jobID,
 		family, entityID,
 		eventType, payloadJSON,
 		"PENDING", 0, time.Now().UTC(),
@@ -454,7 +454,7 @@ func (s *AttachmentOutboxService) insertOutcomeOutboxEvent(
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 		uuid.New(),            // event_id
 		d.AttachmentJobID,     // envelope_id  — job that produced this bundle
-		uuid.New(),            // trace_id
+		nil,            // trace_id
 		d.TenantID,            // tenant_id
 		"attachment_leaf_bundle",   // aggregate_type
 		d.AttachmentDecisionID,     // aggregate_id

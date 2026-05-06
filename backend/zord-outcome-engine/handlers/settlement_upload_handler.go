@@ -266,7 +266,7 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		// ── PHASE 5: CANONICALIZATION & OUTPUTS ──────────────────────────────────
 		log.Printf("settlement.upload.canonicalize_start job_id=%s", bgIngestRunID)
 		canonSvc := &services.SettlementCanonicalizeService{}
-		if err := canonSvc.RunForJob(bgCtx, bgIngestRunID, bgTenant, pspProfile); err != nil {
+		if err := canonSvc.RunForJob(bgCtx, bgIngestRunID, bgTenant, pspProfile, bgClientBatchID); err != nil {
 			log.Printf("settlement.upload.canonicalize_error job_id=%s err=%v", bgIngestRunID, err)
 		} else {
 			if err := svc.ActivateRun(bgCtx, bgSettlementBatchID, bgIngestRunID, bgPreviousRunID, bgRunNumber); err != nil {

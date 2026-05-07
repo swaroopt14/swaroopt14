@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/internal/ml/isolation"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
@@ -49,13 +50,13 @@ func NewPatternIntelligenceService(
 type PatternSnapshot struct {
 	BatchID string `json:"batch_id"`
 
-	TotalCount         int   `json:"total_count"`
-	SuccessCount       int   `json:"success_count"`
-	FailedCount        int   `json:"failed_count"`
-	PendingCount       int   `json:"pending_count"`
-	ReversedCount      int   `json:"reversed_count"`
-	PartialReconCount  int   `json:"partial_recon_count"`
-	TotalVarianceMinor int64 `json:"total_variance_minor"`
+	TotalCount         int             `json:"total_count"`
+	SuccessCount       int             `json:"success_count"`
+	FailedCount        int             `json:"failed_count"`
+	PendingCount       int             `json:"pending_count"`
+	ReversedCount      int             `json:"reversed_count"`
+	PartialReconCount  int             `json:"partial_recon_count"`
+	TotalVarianceMinor decimal.Decimal `json:"total_variance_minor"`
 
 	AmbiguityScore float64 `json:"ambiguity_score"`
 	BatchRiskScore float64 `json:"batch_risk_score"`
@@ -266,7 +267,7 @@ func (s *PatternIntelligenceService) recommendedAction(snap *PatternSnapshot) st
 	if snap.AmbiguityScore > 0.50 {
 		return "REQUEST_STRONGER_CARRIER_CONTRACT: high ambiguity - require UTR/client_ref in settlement files"
 	}
-	if snap.TotalVarianceMinor > 0 {
+	if snap.TotalVarianceMinor.IsPositive() {
 		return "OPEN_OPS_INCIDENT: financial variance detected - reconciliation review required"
 	}
 	return ""
@@ -306,7 +307,7 @@ func (s *PatternIntelligenceService) attachIsolationForestAnomaly(
 	)
 	result := forest.Score(features)
 
-	riskHint := patternClamp01((inputs.AmbiguityRate + inputs.VarianceRate + math.Max(inputs.UnresolvedRatio, inputs.MissingRefRate) + (1.0-inputs.SettlementRatio)) / 4.0)
+	riskHint := patternClamp01((inputs.AmbiguityRate + inputs.VarianceRate + math.Max(inputs.UnresolvedRatio, inputs.MissingRefRate) + (1.0 - inputs.SettlementRatio)) / 4.0)
 	snap.BatchAnomalyScore = patternClamp01((result.Score + riskHint) / 2.0)
 	snap.AnomalyLevel = levelFromScore(snap.BatchAnomalyScore)
 	snap.AnomalyType = result.AnomalyType
@@ -426,8 +427,8 @@ func (s *PatternIntelligenceService) buildFeatureInputs(
 		MissingRefRate:  0,
 	}
 
-	if bh.TotalIntendedAmountMinor > 0 {
-		inputs.VarianceRate = patternClamp01(math.Abs(float64(bh.TotalVarianceMinor)) / float64(bh.TotalIntendedAmountMinor))
+	if bh.TotalIntendedAmountMinor.IsPositive() {
+		inputs.VarianceRate = patternClamp01(math.Abs(bh.TotalVarianceMinor.InexactFloat64()) / bh.TotalIntendedAmountMinor.InexactFloat64())
 	}
 	if bh.TotalCount > 0 {
 		inputs.SettlementRatio = patternClamp01(float64(settledCountForBatch(bh)) / float64(bh.TotalCount))

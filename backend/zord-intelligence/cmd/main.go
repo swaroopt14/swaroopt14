@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/config"
 	"github.com/zord/zord-intelligence/db"
 	"github.com/zord/zord-intelligence/internal/handlers"
@@ -20,6 +21,12 @@ import (
 	"github.com/zord/zord-intelligence/internal/worker"
 	kafkapkg "github.com/zord/zord-intelligence/kafka"
 )
+
+func init() {
+	// Marshal decimal.Decimal as a JSON number (785000) not a quoted string ("785000").
+	// This preserves the existing API contract for all amount fields.
+	decimal.MarshalJSONWithoutQuotes = true
+}
 
 func main() {
 	// ── Step 1: Load .env file ─────────────────────────────────────────────

@@ -29,7 +29,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/zord/zord-intelligence/internal/ml/zscore"
+	"github.com/zord/zord-intelligence/internal/mlclient"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
@@ -40,6 +40,7 @@ type LeakageIntelligenceService struct {
 	snapshotRepo *persistence.IntelligenceSnapshotRepo
 	mlRepo       *persistence.MLFeatureStoreRepo
 	predRepo     *persistence.MLPredictionRepo
+	mlClient     *mlclient.Client
 }
 
 // NewLeakageIntelligenceService creates a LeakageIntelligenceService.
@@ -48,12 +49,14 @@ func NewLeakageIntelligenceService(
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
 	mlRepo *persistence.MLFeatureStoreRepo,
 	predRepo *persistence.MLPredictionRepo,
+	mlClient *mlclient.Client,
 ) *LeakageIntelligenceService {
 	return &LeakageIntelligenceService{
 		projRepo:     projRepo,
 		snapshotRepo: snapshotRepo,
 		mlRepo:       mlRepo,
 		predRepo:     predRepo,
+		mlClient:     mlClient,
 	}
 }
 
@@ -349,7 +352,15 @@ func (s *LeakageIntelligenceService) attachZScoreAnomaly(
 		return
 	}
 
-	result := zscore.Detect(currentLeakagePct, history)
+	result, err := s.mlClient.InvokeZScore(ctx, mlclient.ZScoreRequest{
+		TenantID:     tenantID,
+		CurrentValue: currentLeakagePct,
+		History:      history,
+	})
+	if err != nil {
+		log.Printf("leakage_svc: InvokeZScore failed tenant=%s: %v", tenantID, err)
+		// result is already the safe fallback (0.0, INSUFFICIENT_DATA)
+	}
 	snap.AnomalyScore = result.Score
 	snap.AnomalyLevel = result.Level
 	snap.AnomalyZScore = result.ZScore

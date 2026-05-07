@@ -18,7 +18,10 @@ package services
 //   - ambiguity_rate (what % of decisions are ambiguous)
 //   - risk tier: CRITICAL / HIGH / MEDIUM / LOW / CLEAN
 //
-// DESIGN: deterministic only for v1. ML propensity prediction comes in Phase 8.
+// ML EXECUTION: Logistic Regression is now executed by the Python ml-service.
+// Go publishes feature vectors to ml.request.events and receives predictions
+// from ml.result.events via the mlclient package.  Online training events are
+// sent as fire-and-forget; the Python service persists model weights to disk.
 
 import (
 	"context"
@@ -29,7 +32,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/zord/zord-intelligence/internal/ml/logistic"
+	"github.com/zord/zord-intelligence/internal/mlclient"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
@@ -40,47 +43,25 @@ type AmbiguityIntelligenceService struct {
 	snapshotRepo *persistence.IntelligenceSnapshotRepo
 	mlRepo       *persistence.MLFeatureStoreRepo
 	predRepo     *persistence.MLPredictionRepo
-	lrModel      *logistic.Model // Logistic Regression: predicts ambiguity risk
+	mlClient     *mlclient.Client
 }
 
 // NewAmbiguityIntelligenceService creates an AmbiguityIntelligenceService.
-// On startup it tries to reload previously trained weights from ml_model_registry.
-// Falls back to domain-knowledge defaults if no saved model exists yet.
 func NewAmbiguityIntelligenceService(
 	ctx context.Context,
 	projRepo *persistence.ProjectionRepo,
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
 	mlRepo *persistence.MLFeatureStoreRepo,
 	predRepo *persistence.MLPredictionRepo,
+	mlClient *mlclient.Client,
 ) *AmbiguityIntelligenceService {
 	return &AmbiguityIntelligenceService{
 		projRepo:     projRepo,
 		snapshotRepo: snapshotRepo,
 		mlRepo:       mlRepo,
 		predRepo:     predRepo,
-		lrModel:      loadOrDefaultAmbiguityModel(ctx, predRepo),
+		mlClient:     mlClient,
 	}
-}
-
-// loadOrDefaultAmbiguityModel loads the active AMBIGUITY model from ml_model_registry.
-// If none exists (cold start), returns the hardcoded domain-knowledge model.
-func loadOrDefaultAmbiguityModel(ctx context.Context, predRepo *persistence.MLPredictionRepo) *logistic.Model {
-	record, err := predRepo.GetActiveModel(ctx, "AMBIGUITY")
-	if err != nil {
-		log.Printf("ambiguity_svc: GetActiveModel failed, using default weights: %v", err)
-		return logistic.NewAmbiguityModel()
-	}
-	if record == nil {
-		log.Printf("ambiguity_svc: no saved AMBIGUITY model — using default weights")
-		return logistic.NewAmbiguityModel()
-	}
-	model, err := logistic.FromJSON(record.HyperparametersJSON)
-	if err != nil {
-		log.Printf("ambiguity_svc: FromJSON failed, using default weights: %v", err)
-		return logistic.NewAmbiguityModel()
-	}
-	log.Printf("ambiguity_svc: loaded saved AMBIGUITY model trained_on=%d", model.TrainedOn)
-	return model
 }
 
 // AmbiguitySnapshot is the shape written into intelligence_snapshots.snapshot_json
@@ -102,27 +83,12 @@ type AmbiguitySnapshot struct {
 	AmbiguousAmountMinor decimal.Decimal `json:"ambiguous_amount_minor"`
 
 	// ── Risk classification ───────────────────────────────────────────────
-	// CRITICAL: > 10% of decisions are ambiguous OR value_at_risk > 10L
-	// HIGH:     > 5% OR value_at_risk > 5L
-	// MEDIUM:   > 2%
-	// LOW:      > 0%
-	// CLEAN:    0
 	RiskTier string `json:"risk_tier"`
 
 	// ── Weakest cohort (top ambiguity driver) ─────────────────────────────
-	// Provider ref missing rate is the single strongest predictor of ambiguity.
-	// If provider_ref_missing_rate > 0.15, source system needs patching.
 	WeakestCohortSignal string `json:"weakest_cohort_signal,omitempty"`
 
-	// ── ML: Logistic Regression risk prediction ───────────────────────────
-	// Answers: "given these batch features, how likely is this to get worse?"
-	// RiskPredictionScore: 0.0 (very safe) → 1.0 (almost certainly ambiguous)
-	// RiskPredictionLevel: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
-	//
-	// Unlike RiskTier (which reflects CURRENT ambiguity), this looks FORWARD:
-	// even a batch with low current ambiguity can score HIGH here if its
-	// feature profile (missing refs, low confidence) historically leads to
-	// ambiguity problems later.
+	// ── ML: Logistic Regression risk prediction (via Python ml-service) ───
 	RiskPredictionScore float64 `json:"risk_prediction_score"`
 	RiskPredictionLevel string  `json:"risk_prediction_level"`
 
@@ -134,8 +100,6 @@ type AmbiguitySnapshot struct {
 
 // ComputeAndSave reads the current ambiguity projection, builds the snapshot,
 // and persists it to intelligence_snapshots.
-//
-// Called after every AttachmentDecisionCreatedEvent by HandleAttachmentDecision.
 func (s *AmbiguityIntelligenceService) ComputeAndSave(
 	ctx context.Context,
 	tenantID string,
@@ -153,21 +117,22 @@ func (s *AmbiguityIntelligenceService) ComputeAndSave(
 	// Step 2: build deterministic snapshot
 	snap := s.buildSnapshot(amb)
 
-	// Step 3: ML — Logistic Regression risk prediction
-	// Feed the current ambiguity metrics as a feature vector into the LR model.
-	// The model outputs a probability: "how likely is this batch to become ambiguous?"
-	// We use 0 for totalIntendedMinor here (tenant-scope doesn't have it directly);
-	// the value_at_risk_rate feature will be 0, which is conservative and safe.
-	features := logistic.BuildFeatures(
-		amb.AmbiguityRate,
-		amb.ProviderRefMissingRate,
-		amb.AvgAttachmentConfidence,
-		amb.ValueAtRiskMinor.InexactFloat64(),
-		0, // totalIntendedMinor — not available at tenant scope; feature [3] will be 0
-	)
-	prob := s.lrModel.Predict(features)
-	snap.RiskPredictionScore = prob
-	snap.RiskPredictionLevel = logistic.PredictLevel(prob)
+	// Step 3: ML — Logistic Regression risk prediction via Python ml-service.
+	// We use 0 for totalIntendedMinor (not available at tenant scope); feature[3] stays 0.
+	lrResult, lrErr := s.mlClient.InvokeLogisticRegression(ctx, mlclient.LRRequest{
+		TenantID:               tenantID,
+		AmbiguityRate:          amb.AmbiguityRate,
+		ProviderRefMissingRate: amb.ProviderRefMissingRate,
+		AvgConfidence:          amb.AvgAttachmentConfidence,
+		ValueAtRiskMinor:       amb.ValueAtRiskMinor.InexactFloat64(),
+		TotalIntendedMinor:     0,
+	})
+	if lrErr != nil {
+		log.Printf("ambiguity_svc: InvokeLogisticRegression failed tenant=%s: %v", tenantID, lrErr)
+		// lrResult is already the safe fallback (0.5, MEDIUM)
+	}
+	snap.RiskPredictionScore = lrResult.Probability
+	snap.RiskPredictionLevel = lrResult.Level
 
 	// Step 4: marshal and persist
 	projRefs := []string{"ambiguity.summary"}
@@ -200,8 +165,16 @@ func (s *AmbiguityIntelligenceService) ComputeAndSave(
 		log.Printf("ambiguity_svc: persistMLFeatures failed tenant=%s: %v", tenantID, err)
 	}
 
-	// Step 6: persist the LR prediction to ml_predictions for audit trail
-	s.persistMLPrediction(ctx, tenantID, snapID, features, prob, snap.RiskPredictionLevel)
+	// Step 6: persist the LR prediction to ml_predictions for audit trail.
+	// Build the feature vector for explainability (same computation as Python).
+	features := mlclient.BuildLRFeatures(
+		amb.AmbiguityRate,
+		amb.ProviderRefMissingRate,
+		amb.AvgAttachmentConfidence,
+		amb.ValueAtRiskMinor.InexactFloat64(),
+		0,
+	)
+	s.persistMLPrediction(ctx, tenantID, snapID, features, lrResult.Probability, lrResult.Level)
 
 	return nil
 }
@@ -273,9 +246,6 @@ func (s *AmbiguityIntelligenceService) recommendedAction(av *models.AmbiguityVal
 }
 
 // persistMLPrediction writes the Logistic Regression result to ml_predictions.
-// features: the 4-element vector fed to the model (for explainability).
-// prob: raw probability output from sigmoid.
-// level: human-readable risk level.
 func (s *AmbiguityIntelligenceService) persistMLPrediction(
 	ctx context.Context,
 	tenantID, snapID string,
@@ -291,9 +261,8 @@ func (s *AmbiguityIntelligenceService) persistMLPrediction(
 			"low_confidence_proxy":      features[2],
 			"value_at_risk_rate":        features[3],
 		},
-		"probability":      prob,
-		"risk_level":       level,
-		"model_trained_on": s.lrModel.TrainedOn,
+		"probability": prob,
+		"risk_level":  level,
 	}
 	expJSON, _ := json.Marshal(explanation)
 
@@ -353,15 +322,8 @@ func (s *AmbiguityIntelligenceService) persistMLFeatures(
 // ── Training loop ─────────────────────────────────────────────────────────────
 
 // TrainOnLabel is called when a batch reaches a terminal state (FULLY_SETTLED or
-// FAILED). At that point the true ambiguity outcome is known and we can:
-//
-//  1. Label the feature row that was written on Day 0 (when decisions arrived)
-//  2. Write a row to ml_labels for audit/offline use
-//  3. Run one online SGD step on the in-memory LR model
-//  4. Every 10 training examples: persist the updated weights to ml_model_registry
-//
-// This is a best-effort operation — failures are logged but never returned as
-// errors to the caller, since they must not block the batch finality flow.
+// FAILED).  It labels the stored feature row and sends a fire-and-forget training
+// event to the Python ml-service, which updates the online LR model in-process.
 func (s *AmbiguityIntelligenceService) TrainOnLabel(
 	ctx context.Context,
 	tenantID, batchID string,
@@ -369,32 +331,27 @@ func (s *AmbiguityIntelligenceService) TrainOnLabel(
 	windowStart, windowEnd time.Time,
 ) {
 	// Step 1: find the most recent unlabeled AMBIGUITY feature row for this tenant.
-	// We take limit=1 (most recent) — that row represents the tenant state at the
-	// time the batch's attachment decisions were arriving.
 	rows, err := s.mlRepo.ListUnlabeled(ctx, tenantID, "AMBIGUITY", 1)
 	if err != nil {
 		log.Printf("ambiguity_svc.TrainOnLabel: ListUnlabeled failed tenant=%s: %v", tenantID, err)
 		return
 	}
 	if len(rows) == 0 {
-		// No unlabeled feature row — either cold start or already labeled.
 		return
 	}
 	featRow := rows[0]
 
 	// Step 2: compute binary label.
-	// label=1 means "this batch had real ambiguity that required intervention".
-	// threshold 0.20 aligns with ambiguityRiskTier MEDIUM boundary.
 	labelValue := 0.0
 	labelConf := 1.0
 	if finalAmbiguityScore > 0.20 {
 		labelValue = 1.0
 	}
 	if finalAmbiguityScore > 0.10 && finalAmbiguityScore <= 0.20 {
-		labelConf = 0.7 // borderline — lower confidence
+		labelConf = 0.7
 	}
 
-	// Step 3: stamp the label onto the feature row in ml_feature_store.
+	// Step 3: stamp the label onto the feature row.
 	labelPayload, _ := json.Marshal(map[string]any{
 		"label":                 labelValue,
 		"final_ambiguity_score": finalAmbiguityScore,
@@ -424,60 +381,27 @@ func (s *AmbiguityIntelligenceService) TrainOnLabel(
 		log.Printf("ambiguity_svc.TrainOnLabel: InsertLabel failed tenant=%s: %v", tenantID, err)
 	}
 
-	// Step 5: rebuild the feature vector from the stored JSON so we can train.
+	// Step 5: rebuild the feature vector from stored JSON.
 	features := rebuildFeaturesFromJSON(featRow.FeaturesJSON)
 	if features == nil {
 		log.Printf("ambiguity_svc.TrainOnLabel: could not rebuild features tenant=%s", tenantID)
 		return
 	}
 
-	// Step 6: one online SGD step — update in-memory model weights.
+	// Step 6: fire-and-forget training event — Python ml-service updates the LR model.
 	const learningRate = 0.01
-	s.lrModel.Train(features, labelValue, learningRate)
-	log.Printf("ambiguity_svc.TrainOnLabel: trained tenant=%s ambiguity_score=%.2f label=%.0f trained_on=%d",
-		tenantID, finalAmbiguityScore, labelValue, s.lrModel.TrainedOn)
-
-	// Step 7: persist weights every 10 training examples so restarts don't lose progress.
-	if s.lrModel.TrainedOn%10 == 0 {
-		s.saveModelWeights(ctx)
-	}
-}
-
-// saveModelWeights serializes the current LR weights and upserts them to
-// ml_model_registry as the ACTIVE AMBIGUITY model.
-// The unique index on (model_family) WHERE status='ACTIVE' ensures only one
-// active model exists at a time — the ON CONFLICT clause in UpsertModel handles rotation.
-func (s *AmbiguityIntelligenceService) saveModelWeights(ctx context.Context) {
-	weights, err := s.lrModel.ToJSON()
-	if err != nil {
-		log.Printf("ambiguity_svc.saveModelWeights: ToJSON failed: %v", err)
-		return
-	}
-	metrics, _ := json.Marshal(map[string]any{"trained_on": s.lrModel.TrainedOn})
-	now := time.Now().UTC()
-	if err := s.predRepo.UpsertModel(ctx, persistence.MLModelRecord{
-		ModelID:             "logistic_regression_v1_ambiguity",
-		ModelName:           "ambiguity_logistic_v1",
-		ModelFamily:         "AMBIGUITY",
-		Algorithm:           "logistic_regression_v1",
-		TargetLabel:         "AMBIGUITY",
-		FeatureVersion:      "v1",
-		TrainingWindowEnd:   &now,
-		HyperparametersJSON: weights,
-		MetricsJSON:         metrics,
-		Status:              "ACTIVE",
-		CreatedAt:           now,
-		ActivatedAt:         &now,
-	}); err != nil {
-		log.Printf("ambiguity_svc.saveModelWeights: UpsertModel failed trained_on=%d: %v",
-			s.lrModel.TrainedOn, err)
-		return
-	}
-	log.Printf("ambiguity_svc.saveModelWeights: weights saved to registry trained_on=%d", s.lrModel.TrainedOn)
+	s.mlClient.SendLRTrain(ctx, mlclient.LRTrainRequest{
+		TenantID:     tenantID,
+		Features:     features,
+		Label:        labelValue,
+		LearningRate: learningRate,
+	})
+	log.Printf("ambiguity_svc.TrainOnLabel: train event sent tenant=%s ambiguity_score=%.2f label=%.0f",
+		tenantID, finalAmbiguityScore, labelValue)
 }
 
 // rebuildFeaturesFromJSON extracts the four LR features from a stored feature row's JSON.
-// Returns nil if the JSON cannot be parsed — caller should bail gracefully.
+// Uses mlclient.BuildLRFeatures so the computation matches Python's build_features exactly.
 func rebuildFeaturesFromJSON(featJSON json.RawMessage) []float64 {
 	var m map[string]any
 	if err := json.Unmarshal(featJSON, &m); err != nil {
@@ -497,11 +421,11 @@ func rebuildFeaturesFromJSON(featJSON json.RawMessage) []float64 {
 		}
 		return 0
 	}
-	return logistic.BuildFeatures(
+	return mlclient.BuildLRFeatures(
 		getFloat("ambiguity_rate"),
 		getFloat("provider_ref_missing_rate"),
 		getFloat("avg_attachment_confidence"),
 		getFloat("value_at_risk_minor"),
-		0, // totalIntendedMinor not stored at tenant scope; feature [3] stays 0
+		0, // totalIntendedMinor not stored at tenant scope
 	)
 }

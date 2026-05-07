@@ -73,6 +73,13 @@ type Config struct {
 	TopicActuationAlert      string
 	TopicActuationBatchPatch string
 
+	// ── ML Service Topics ─────────────────────────────────────────
+	// Go publishes ML requests to TopicMLRequest; Python publishes
+	// results back to TopicMLResult.  The mlclient package manages
+	// the request-reply lifecycle over these two topics.
+	TopicMLRequest string
+	TopicMLResult  string
+
 	// ── PHASE 6: Dual-Mode Architecture ─────────────────────────
 	//
 	// IntelligenceMode controls which intelligence surfaces ZPI computes
@@ -131,6 +138,10 @@ func Load() *Config {
 		TopicActuationEvidence:   getWithDefault("TOPIC_ACTUATION_EVIDENCE", "zpi.actuation.evidence"),
 		TopicActuationAlert:      getWithDefault("TOPIC_ACTUATION_ALERT", "zpi.actuation.alert"),
 		TopicActuationBatchPatch: getWithDefault("TOPIC_ACTUATION_BATCH_PATCH", "zpi.actuation.batch_patch"),
+
+		// ── ML Service Topics ────────────────────────────────────────
+		TopicMLRequest: getWithDefault("TOPIC_ML_REQUEST", "ml.request.events"),
+		TopicMLResult:  getWithDefault("TOPIC_ML_RESULT", "ml.result.events"),
 
 		// ── PHASE 6: Intelligence Mode ────────────────────────────
 		IntelligenceMode: mode,

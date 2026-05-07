@@ -10,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
-	"github.com/zord/zord-intelligence/internal/ml/isolation"
+	"github.com/zord/zord-intelligence/internal/mlclient"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
@@ -21,6 +21,7 @@ type PatternIntelligenceService struct {
 	batchRepo    *persistence.BatchContractRepo
 	mlRepo       *persistence.MLFeatureStoreRepo
 	predRepo     *persistence.MLPredictionRepo
+	mlClient     *mlclient.Client
 }
 
 type patternFeatureInputs struct {
@@ -37,6 +38,7 @@ func NewPatternIntelligenceService(
 	batchRepo *persistence.BatchContractRepo,
 	mlRepo *persistence.MLFeatureStoreRepo,
 	predRepo *persistence.MLPredictionRepo,
+	mlClient *mlclient.Client,
 ) *PatternIntelligenceService {
 	return &PatternIntelligenceService{
 		projRepo:     projRepo,
@@ -44,6 +46,7 @@ func NewPatternIntelligenceService(
 		batchRepo:    batchRepo,
 		mlRepo:       mlRepo,
 		predRepo:     predRepo,
+		mlClient:     mlClient,
 	}
 }
 
@@ -295,22 +298,24 @@ func (s *PatternIntelligenceService) attachIsolationForestAnomaly(
 		return
 	}
 
-	forest := isolation.New(100, 256)
-	forest.Fit(history)
-
-	features := isolation.BuildFeatures(
-		inputs.AmbiguityRate,
-		inputs.VarianceRate,
-		inputs.SettlementRatio,
-		inputs.UnresolvedRatio,
-		inputs.MissingRefRate,
-	)
-	result := forest.Score(features)
+	ifResult, err := s.mlClient.InvokeIsolationForest(ctx, mlclient.IFRequest{
+		TenantID:        tenantID,
+		AmbiguityRate:   inputs.AmbiguityRate,
+		VarianceRate:    inputs.VarianceRate,
+		SettlementRatio: inputs.SettlementRatio,
+		UnresolvedRatio: inputs.UnresolvedRatio,
+		MissingRefRate:  inputs.MissingRefRate,
+		History:         history,
+	})
+	if err != nil {
+		log.Printf("pattern_svc: InvokeIsolationForest failed tenant=%s: %v", tenantID, err)
+		// ifResult is already the safe fallback (0.5, INSUFFICIENT_DATA)
+	}
 
 	riskHint := patternClamp01((inputs.AmbiguityRate + inputs.VarianceRate + math.Max(inputs.UnresolvedRatio, inputs.MissingRefRate) + (1.0 - inputs.SettlementRatio)) / 4.0)
-	snap.BatchAnomalyScore = patternClamp01((result.Score + riskHint) / 2.0)
+	snap.BatchAnomalyScore = patternClamp01((ifResult.Score + riskHint) / 2.0)
 	snap.AnomalyLevel = levelFromScore(snap.BatchAnomalyScore)
-	snap.AnomalyType = result.AnomalyType
+	snap.AnomalyType = ifResult.AnomalyType
 }
 
 func (s *PatternIntelligenceService) persistMLPrediction(

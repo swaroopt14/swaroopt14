@@ -16,6 +16,7 @@ import (
 	"github.com/zord/zord-intelligence/config"
 	"github.com/zord/zord-intelligence/db"
 	"github.com/zord/zord-intelligence/internal/handlers"
+	"github.com/zord/zord-intelligence/internal/mlclient"
 	"github.com/zord/zord-intelligence/internal/persistence"
 	"github.com/zord/zord-intelligence/internal/services"
 	"github.com/zord/zord-intelligence/internal/worker"
@@ -66,6 +67,10 @@ func main() {
 		cfg.TopicActuationRetry,
 		cfg.TopicActuationEvidence,
 		cfg.TopicActuationBatchPatch,
+
+		// ── ML service topics (request-reply with Python ml-service) ──────────
+		cfg.TopicMLRequest,
+		cfg.TopicMLResult,
 	}
 	requiredTopics = activeTopicsForMode(cfg)
 
@@ -93,16 +98,21 @@ func main() {
 	predRepo := persistence.NewMLPredictionRepo(pool)
 	explRepo := persistence.NewIntelligenceExplanationRepo(pool)
 
-	// ── Step 5: Create services ────────────────────────────────────────────
+	// ── Step 5: Create ML client (request-reply over Kafka with Python ml-service)
+	mlClient := mlclient.New(cfg.KafkaBrokers, cfg.TopicMLRequest, cfg.TopicMLResult, cfg.KafkaGroupID)
+	mlClient.Start(context.Background())
+	defer mlClient.Close()
+
+	// ── Step 6: Create services ────────────────────────────────────────────
 	actionService := services.NewActionService(actionRepo, outboxRepo, pool)
 	policyService := services.NewPolicyService(policyRepo, projRepo, actionService)
 
 	// ── PHASE 4 & 7: Six intelligence layer services + Explanation ────────
-	leakageSvc := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
-	ambiguitySvc := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo)
+	leakageSvc := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
+	ambiguitySvc := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
 	defensibilitySvc := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
 	rcaSvc := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
-	patternSvc := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo)
+	patternSvc := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo, mlClient)
 	recommendationSvc := services.NewRecommendationIntelligenceService(snapshotRepo)
 	explSvc := services.NewExplanationService(explRepo, snapshotRepo, batchRepo)
 
@@ -254,11 +264,14 @@ func main() {
 // the actuation output topics are enabled. This avoids accidental use of
 // final-truth/finality-grade inputs during a Grade A deployment.
 func activeTopicsForMode(cfg *config.Config) []string {
+	// ML service topics are always required, regardless of intelligence mode.
 	topics := []string{
 		cfg.TopicActuationAlert,
 		cfg.TopicActuationRetry,
 		cfg.TopicActuationEvidence,
 		cfg.TopicActuationBatchPatch,
+		cfg.TopicMLRequest,
+		cfg.TopicMLResult,
 	}
 
 	if cfg.IntelligenceMode.IsGradeA() {

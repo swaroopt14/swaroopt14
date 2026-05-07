@@ -123,8 +123,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
 				$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
 				$41,$42,$43,
-				$44,
-				$45,$46
+				$44
 			) ON CONFLICT (settlement_observation_id) DO NOTHING`,
 			obs.SettlementObservationID, obs.TenantID, obs.TraceID,
 			obs.SettlementEnvelopeID, obs.JobID, ingestRunID, settlementBatchID,
@@ -431,5 +430,3 @@ func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.Univ
 	hash := sha256.Sum256([]byte(combined))
 	return hex.EncodeToString(hash[:])
 }
-
-

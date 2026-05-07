@@ -865,35 +865,6 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		return fmt.Errorf("HandleAttachmentDecision IsProcessed event_id=%s:%w", e.EventID, err)
 	}
 
-	log.Printf(
-		"HandleAttachmentDecision event_id=%s | "+
-			"tenant_id=%s trace_id=%s occurred_at=%s "+
-			"decision_id=%s settlement_id=%s intent_id=%s contract_id=%s corridor_id=%s batch_id=%s "+
-			"decision_type=%s confidence_score=%.2f ambiguity_score=%.2f "+
-			"supporting_carriers=%v candidate_set_size=%d candidate_set_hash=%s "+
-			"settled_amount_minor=%d intended_amount_minor=%d currency=%s processed=%v",
-		e.EventID,
-		e.TenantID,
-		e.TraceID,
-		e.OccurredAt,
-		e.DecisionID,
-		e.SettlementID,
-		e.IntentID,
-		e.ContractID,
-		e.CorridorID,
-		e.BatchID,
-		e.DecisionType,
-		e.ConfidenceScore,
-		e.AmbiguityScore,
-		e.SupportingCarriers,
-		e.CandidateSetSize,
-		e.CandidateSetHash,
-		e.SettledAmountMinor,
-		e.IntendedAmountMinor,
-		e.Currency,
-		processed,
-	)
-
 	if processed {
 		return nil
 	}

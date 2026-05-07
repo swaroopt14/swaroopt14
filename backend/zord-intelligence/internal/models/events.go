@@ -9,10 +9,26 @@ package models
 // ZPI never creates these — it only receives them from other services.
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/shopspring/decimal"
 )
+
+// RelayEvent is a compatible subset of the normalized outbox event
+// published by zord-relay to Kafka. All ZPI incoming events from
+// services 2, 4, 5, 6 are wrapped in this envelope.
+type RelayEvent struct {
+	EventID       string          `json:"event_id"`
+	EnvelopeID    string          `json:"envelope_id"`
+	TenantID      string          `json:"tenant_id"`
+	AggregateType string          `json:"aggregate_type"`
+	AggregateID   string          `json:"aggregate_id"`
+	ContractID    string          `json:"contract_id,omitempty"`
+	EventType     string          `json:"event_type"`
+	Payload       json.RawMessage `json:"payload"`
+	TraceID       string          `json:"trace_id"`
+}
 
 // ── Event 1: from Service 2 ───────────────────────────────────────────────────
 //

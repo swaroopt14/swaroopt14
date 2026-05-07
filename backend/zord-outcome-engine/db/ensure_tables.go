@@ -271,6 +271,10 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	canonical_hash TEXT NOT NULL,
 	canonical_snapshot_ref TEXT,
 	client_batch_id TEXT,
+	source_strength TEXT,
+	source_type TEXT,
+	source_system_id TEXT,
+	corridor_id TEXT,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,

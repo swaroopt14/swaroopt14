@@ -114,12 +114,17 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				parse_confidence, mapping_confidence,
 				carrier_richness_score, attachment_readiness_score,
 				canonical_hash, client_batch_id,
+				source_strength, source_type, source_system_id,
+				corridor_id,
 				created_at, updated_at
 			) VALUES (
 				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 				$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 				$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-				$31,$32,$33,$34,$35,$36,$37,$38,$39,$40
+				$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
+				$41,$42,$43,
+				$44,
+				$45,$46
 			) ON CONFLICT (settlement_observation_id) DO NOTHING`,
 			obs.SettlementObservationID, obs.TenantID, obs.TraceID,
 			obs.SettlementEnvelopeID, obs.JobID, ingestRunID, settlementBatchID,
@@ -133,6 +138,8 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			obs.ProviderRefStatus, obs.MappingProfileID, obs.MappingProfileVersion, obs.MappingProfileVersion,
 			obs.ParseConfidence, obs.MappingConfidence, obs.CarrierRichnessScore,
 			obs.AttachmentReadinessScore, obs.CanonicalHash, obs.ClientBatchID,
+			obs.SourceStrength, obs.SourceType, obs.SourceSystemID,
+			obs.CorridorID,
 			obs.CreatedAt, obs.UpdatedAt,
 		)
 
@@ -296,11 +303,25 @@ func buildCanonicalObservation(
 		MappingConfidence:        computeMappingConfidence(shape),
 		CarrierRichnessScore:     computeCarrierRichnessScore(shape),
 		AttachmentReadinessScore: computeAttachmentReadinessScore(shape),
+		SourceType:               "API",
+		SourceSystemID:           profile.SourceSystem,
+		CorridorID:               shape.PaymentMethod,
 		CreatedAt:                time.Now().UTC(),
 		UpdatedAt:                time.Now().UTC(),
 	}
+	obs.SourceStrength = computeSourceStrength(obs.AttachmentReadinessScore)
 	obs.CanonicalHash = computeCanonicalHash(tenantID, obs.SettlementObservationID, shape)
 	return obs
+}
+
+func computeSourceStrength(score float64) string {
+	if score >= 0.75 {
+		return "HIGH"
+	}
+	if score >= 0.5 {
+		return "MEDIUM"
+	}
+	return "LOW"
 }
 
 // func computeBeneficiaryFingerprint(shape models.UniversalSettlementShape) string {

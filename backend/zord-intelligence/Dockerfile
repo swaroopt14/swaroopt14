@@ -16,11 +16,13 @@ ARG TARGETARCH=amd64
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags "-s -w" -o /out/zord-intelligence ./cmd/main.go
 
-FROM scratch
+FROM alpine:3.19
+
+RUN apk add --no-cache wget ca-certificates \
+    && adduser -D -u 65532 nonroot
 
 WORKDIR /app
 
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /out/zord-intelligence /app/zord-intelligence
 
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt

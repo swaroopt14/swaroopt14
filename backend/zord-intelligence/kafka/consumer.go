@@ -139,56 +139,99 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 
 	wireHandler(topicHandlers, cfg.TopicIntentCreated,
 		func(msg kafka.Message) error {
-			var e models.IntentCreatedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
+			var re models.RelayEvent
+			if err := json.Unmarshal(msg.Value, &re); err != nil {
 				return err
 			}
+			var e models.IntentCreatedEvent
+			if err := json.Unmarshal(re.Payload, &e); err != nil {
+				return err
+			}
+			e.EventID = re.EventID
+			e.TenantID = re.TenantID
+			e.TraceID = re.TraceID
+			e.ContractID = re.ContractID
 			return handler.HandleIntentCreated(ctx, e)
 		})
 
 	wireHandler(topicHandlers, cfg.TopicEvidenceReady,
 		func(msg kafka.Message) error {
-			var e models.EvidencePackReadyEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
+			var re models.RelayEvent
+			if err := json.Unmarshal(msg.Value, &re); err != nil {
 				return err
 			}
+			var e models.EvidencePackReadyEvent
+			if err := json.Unmarshal(re.Payload, &e); err != nil {
+				return err
+			}
+			e.EventID = re.EventID
+			e.TenantID = re.TenantID
+			e.TraceID = re.TraceID
 			return handler.HandleEvidencePackReady(ctx, e)
 		})
 
 	if !cfg.IntelligenceMode.IsGradeA() {
 		wireHandler(topicHandlers, cfg.TopicDispatchCreated,
 			func(msg kafka.Message) error {
-				var e models.DispatchAttemptCreatedEvent
-				if err := json.Unmarshal(msg.Value, &e); err != nil {
+				var re models.RelayEvent
+				if err := json.Unmarshal(msg.Value, &re); err != nil {
 					return err
 				}
+				var e models.DispatchAttemptCreatedEvent
+				if err := json.Unmarshal(re.Payload, &e); err != nil {
+					return err
+				}
+				e.EventID = re.EventID
+				e.TenantID = re.TenantID
+				e.TraceID = re.TraceID
 				return handler.HandleDispatchCreated(ctx, e)
 			})
 
 		wireHandler(topicHandlers, cfg.TopicOutcomeNormalized,
 			func(msg kafka.Message) error {
-				var e models.OutcomeNormalizedEvent
-				if err := json.Unmarshal(msg.Value, &e); err != nil {
+				var re models.RelayEvent
+				if err := json.Unmarshal(msg.Value, &re); err != nil {
 					return err
 				}
+				var e models.OutcomeNormalizedEvent
+				if err := json.Unmarshal(re.Payload, &e); err != nil {
+					return err
+				}
+				e.EventID = re.EventID
+				e.TenantID = re.TenantID
+				e.TraceID = re.TraceID
 				return handler.HandleOutcomeNormalized(ctx, e)
 			})
 
 		wireHandler(topicHandlers, cfg.TopicFinalityCert,
 			func(msg kafka.Message) error {
-				var e models.FinalityCertIssuedEvent
-				if err := json.Unmarshal(msg.Value, &e); err != nil {
+				var re models.RelayEvent
+				if err := json.Unmarshal(msg.Value, &re); err != nil {
 					return err
 				}
+				var e models.FinalityCertIssuedEvent
+				if err := json.Unmarshal(re.Payload, &e); err != nil {
+					return err
+				}
+				e.EventID = re.EventID
+				e.TenantID = re.TenantID
+				e.TraceID = re.TraceID
 				return handler.HandleFinalityCertIssued(ctx, e)
 			})
 
 		wireHandler(topicHandlers, cfg.TopicFinalContract,
 			func(msg kafka.Message) error {
-				var e models.FinalContractUpdatedEvent
-				if err := json.Unmarshal(msg.Value, &e); err != nil {
+				var re models.RelayEvent
+				if err := json.Unmarshal(msg.Value, &re); err != nil {
 					return err
 				}
+				var e models.FinalContractUpdatedEvent
+				if err := json.Unmarshal(re.Payload, &e); err != nil {
+					return err
+				}
+				e.EventID = re.EventID
+				e.TenantID = re.TenantID
+				e.TraceID = re.TraceID
 				return handler.HandleFinalContractUpdated(ctx, e)
 			})
 
@@ -203,10 +246,17 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 
 		wireHandler(topicHandlers, cfg.TopicStatementMatch,
 			func(msg kafka.Message) error {
-				var e models.StatementMatchEvent
-				if err := json.Unmarshal(msg.Value, &e); err != nil {
+				var re models.RelayEvent
+				if err := json.Unmarshal(msg.Value, &re); err != nil {
 					return err
 				}
+				var e models.StatementMatchEvent
+				if err := json.Unmarshal(re.Payload, &e); err != nil {
+					return err
+				}
+				e.EventID = re.EventID
+				e.TenantID = re.TenantID
+				e.TraceID = re.TraceID
 				return handler.HandleStatementMatch(ctx, e)
 			})
 	}
@@ -218,50 +268,82 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 
 	wireHandler(topicHandlers, cfg.TopicSettlementCreated,
 		func(msg kafka.Message) error {
-			// Deserialise raw JSON bytes into CanonicalSettlementCreatedEvent struct.
-			// json.Unmarshal reads the JSON and fills matching struct fields.
-			// Fields in JSON that don't exist in the struct are silently ignored.
-			// Fields in the struct that don't exist in JSON get their zero values.
-			var e models.CanonicalSettlementCreatedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
+			var re models.RelayEvent
+			if err := json.Unmarshal(msg.Value, &re); err != nil {
 				return err
 			}
+			var e models.CanonicalSettlementCreatedEvent
+			if err := json.Unmarshal(re.Payload, &e); err != nil {
+				return err
+			}
+			e.EventID = re.EventID
+			e.TenantID = re.TenantID
+			e.TraceID = re.TraceID
 			return handler.HandleSettlementCreated(ctx, e)
 		})
 
 	wireHandler(topicHandlers, cfg.TopicAttachmentDecision,
 		func(msg kafka.Message) error {
-			var e models.AttachmentDecisionCreatedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
+			var re models.RelayEvent
+			if err := json.Unmarshal(msg.Value, &re); err != nil {
 				return err
 			}
+			var e models.AttachmentDecisionCreatedEvent
+			if err := json.Unmarshal(re.Payload, &e); err != nil {
+				return err
+			}
+			// Map envelope fields to ensure identity is preserved
+			e.EventID = re.EventID
+			e.TenantID = re.TenantID
+			e.TraceID = re.TraceID
 			return handler.HandleAttachmentDecision(ctx, e)
 		})
 
 	wireHandler(topicHandlers, cfg.TopicVarianceRecord,
 		func(msg kafka.Message) error {
-			var e models.VarianceRecordCreatedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
+			var re models.RelayEvent
+			if err := json.Unmarshal(msg.Value, &re); err != nil {
 				return err
 			}
+			var e models.VarianceRecordCreatedEvent
+			if err := json.Unmarshal(re.Payload, &e); err != nil {
+				return err
+			}
+			e.EventID = re.EventID
+			e.TenantID = re.TenantID
+			e.TraceID = re.TraceID
 			return handler.HandleVarianceRecord(ctx, e)
 		})
 
 	wireHandler(topicHandlers, cfg.TopicBatchSummary,
 		func(msg kafka.Message) error {
-			var e models.BatchSummaryUpdatedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
+			var re models.RelayEvent
+			if err := json.Unmarshal(msg.Value, &re); err != nil {
 				return err
 			}
+			var e models.BatchSummaryUpdatedEvent
+			if err := json.Unmarshal(re.Payload, &e); err != nil {
+				return err
+			}
+			e.EventID = re.EventID
+			e.TenantID = re.TenantID
+			e.TraceID = re.TraceID
 			return handler.HandleBatchSummaryUpdated(ctx, e)
 		})
 
 	wireHandler(topicHandlers, cfg.TopicGovernanceDecision,
 		func(msg kafka.Message) error {
-			var e models.GovernanceDecisionCreatedEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
+			var re models.RelayEvent
+			if err := json.Unmarshal(msg.Value, &re); err != nil {
 				return err
 			}
+			var e models.GovernanceDecisionCreatedEvent
+			if err := json.Unmarshal(re.Payload, &e); err != nil {
+				return err
+			}
+			e.EventID = re.EventID
+			e.TenantID = re.TenantID
+			e.TraceID = re.TraceID
 			return handler.HandleGovernanceDecision(ctx, e)
 		})
 

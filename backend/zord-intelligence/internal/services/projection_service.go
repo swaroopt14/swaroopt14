@@ -24,17 +24,18 @@ import (
 // the three Grade B-only handlers to gate finality-grade intelligence computation.
 //
 // GRADE B GATING DESIGN:
-//   All Kafka events are ALWAYS ingested and idempotency-checked regardless of mode.
-//   This is critical: stopping event ingestion in Grade A would cause missed events
-//   that could never be replayed once the tenant upgrades to Grade B.
 //
-//   What the mode gates is INTELLIGENCE COMPUTATION:
-//     Grade A: leakage, ambiguity, defensibility, RCA, pattern, recommendation
-//     Grade B: additionally computes finality-grade projections (success_rate,
-//              finality_latency, SLA compliance, retry recovery, fusion conflict)
+//	All Kafka events are ALWAYS ingested and idempotency-checked regardless of mode.
+//	This is critical: stopping event ingestion in Grade A would cause missed events
+//	that could never be replayed once the tenant upgrades to Grade B.
 //
-//   In Grade A, the Grade B computation blocks are skipped with a log trace.
-//   The raw event counters (MarkProcessed, idempotency) still run.
+//	What the mode gates is INTELLIGENCE COMPUTATION:
+//	  Grade A: leakage, ambiguity, defensibility, RCA, pattern, recommendation
+//	  Grade B: additionally computes finality-grade projections (success_rate,
+//	           finality_latency, SLA compliance, retry recovery, fusion conflict)
+//
+//	In Grade A, the Grade B computation blocks are skipped with a log trace.
+//	The raw event counters (MarkProcessed, idempotency) still run.
 //
 // Dependency injection pattern: main.go creates all repos and services,
 // then passes them into NewProjectionService.
@@ -145,7 +146,7 @@ func (s *ProjectionService) HandleIntentCreated(
 	if processed {
 		return nil
 	}
-	log.Printf("HandleIntentCreated intent=%s tenant=%s", e.EventID, e.TenantID)
+	log.Printf("HandleIntentCreated: event_id=%s tenant=%s", e.EventID, e.TenantID)
 	window := todayWindow(e.CreatedAt)
 
 	if intendedMinor, err := decimal.NewFromString(e.Amount); err != nil {
@@ -184,8 +185,8 @@ func (s *ProjectionService) HandleIntentCreated(
 	if err := s.policyService.EvaluateForEvent(
 		ctx, e.TenantID, corridorID, "canonical.intent.created", e.EventID,
 	); err != nil {
-		log.Printf("HandleIntentCreated: EvaluateForEvent failed tenant=%s corridor=%s: %v",
-			e.TenantID, corridorID, err)
+		log.Printf("HandleIntentCreated: EvaluateForEvent failed tenant=%s corridor=%s amount=%s currency=%s: intent=%s event_id=%s contract_id=%s created_at=%s trace_id=%s: %v",
+			e.TenantID, e.CorridorID, e.Amount, e.Currency, e.IntentID, e.EventID, e.ContractID, e.CreatedAt, e.TraceID, err)
 	}
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleIntentCreated MarkProcessed event_id=%s: %w", e.EventID, err)
@@ -321,25 +322,27 @@ func (s *ProjectionService) HandleOutcomeNormalized(
 // PHASE 6 MODE GATING:
 //
 // ALL modes: event is ingested, idempotency-checked, SLA timer resolved.
-//   Skipping ingestion in Grade A would lose events permanently — not acceptable.
+//
+//	Skipping ingestion in Grade A would lose events permanently — not acceptable.
 //
 // GRADE B ONLY: finality-grade intelligence computation runs:
-//   1. success_rate  — settled/total count for this corridor
-//   2. finality_latency histogram — time from intent creation to finality
-//   3. pending_backlog — decrement (this payout is done)
-//   4. provider_ref_missing_rate — UTR/RRN/BankRef quality
-//   5. conflict_rate_in_fusion — Outcome Fusion signal conflicts
-//   6. retry_recovery_rate — retried payouts that reached SETTLED
+//  1. success_rate  — settled/total count for this corridor
+//  2. finality_latency histogram — time from intent creation to finality
+//  3. pending_backlog — decrement (this payout is done)
+//  4. provider_ref_missing_rate — UTR/RRN/BankRef quality
+//  5. conflict_rate_in_fusion — Outcome Fusion signal conflicts
+//  6. retry_recovery_rate — retried payouts that reached SETTLED
 //
 // In Grade A these projections are skipped with a trace log. The finality cert
 // is still marked processed so it is never double-counted if mode later upgrades.
 //
 // WHY SKIP IN GRADE A?
-//   In Grade A, ZPI does not own dispatch. Finality certs may arrive from an
-//   external source with incomplete signal coverage. Publishing corridor success
-//   rates based on partial data would misrepresent ZPI's intelligence quality
-//   and undermine the commercial case for Grade B upgrade.
-//   Spec Section 5: "expose only the contracted intelligence surface in early mode."
+//
+//	In Grade A, ZPI does not own dispatch. Finality certs may arrive from an
+//	external source with incomplete signal coverage. Publishing corridor success
+//	rates based on partial data would misrepresent ZPI's intelligence quality
+//	and undermine the commercial case for Grade B upgrade.
+//	Spec Section 5: "expose only the contracted intelligence surface in early mode."
 func (s *ProjectionService) HandleFinalityCertIssued(
 	ctx context.Context,
 	e models.FinalityCertIssuedEvent,
@@ -834,12 +837,12 @@ func (s *ProjectionService) HandleSettlementCreated(
 // PHASE 4 LOGIC — This is the most important Grade A handler.
 // Every attachment decision feeds TWO intelligence layers:
 //
-// 1. LEAKAGE:   MATCH_UNRESOLVED → intent exists but no settlement found
-//               → record UNMATCHED_INTENT leakage
+//  1. LEAKAGE:   MATCH_UNRESOLVED → intent exists but no settlement found
+//     → record UNMATCHED_INTENT leakage
 //
-// 2. AMBIGUITY: ALL decisions → update ambiguity projection
-//               → MATCH_AMBIGUOUS / MATCH_UNRESOLVED → increment ambiguity counters
-//               → ALL decisions → update running confidence average
+//  2. AMBIGUITY: ALL decisions → update ambiguity projection
+//     → MATCH_AMBIGUOUS / MATCH_UNRESOLVED → increment ambiguity counters
+//     → ALL decisions → update running confidence average
 //
 // After both projections are updated, we recompute both intelligence snapshots
 // and then recompute the RECOMMENDATION snapshot which reads from both.
@@ -859,8 +862,38 @@ func (s *ProjectionService) HandleAttachmentDecision(
 
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
 	if err != nil {
-		return fmt.Errorf("HandleAttachmentDecision IsProcessed event_id=%s: %w", e.EventID, err)
+		return fmt.Errorf("HandleAttachmentDecision IsProcessed event_id=%s:%w", e.EventID, err)
 	}
+
+	log.Printf(
+		"HandleAttachmentDecision event_id=%s | "+
+			"tenant_id=%s trace_id=%s occurred_at=%s "+
+			"decision_id=%s settlement_id=%s intent_id=%s contract_id=%s corridor_id=%s batch_id=%s "+
+			"decision_type=%s confidence_score=%.2f ambiguity_score=%.2f "+
+			"supporting_carriers=%v candidate_set_size=%d candidate_set_hash=%s "+
+			"settled_amount_minor=%d intended_amount_minor=%d currency=%s processed=%v",
+		e.EventID,
+		e.TenantID,
+		e.TraceID,
+		e.OccurredAt,
+		e.DecisionID,
+		e.SettlementID,
+		e.IntentID,
+		e.ContractID,
+		e.CorridorID,
+		e.BatchID,
+		e.DecisionType,
+		e.ConfidenceScore,
+		e.AmbiguityScore,
+		e.SupportingCarriers,
+		e.CandidateSetSize,
+		e.CandidateSetHash,
+		e.SettledAmountMinor,
+		e.IntendedAmountMinor,
+		e.Currency,
+		processed,
+	)
+
 	if processed {
 		return nil
 	}
@@ -955,22 +988,27 @@ func (s *ProjectionService) HandleAttachmentDecision(
 // a settlement WAS matched to an intent, but the amounts or dates don't agree.
 //
 // UNDER_SETTLEMENT: the most common type. PSP settled less than intended.
-//   → add variance_amount_minor to leakage.under_settlement_amount_minor
+//
+//	→ add variance_amount_minor to leakage.under_settlement_amount_minor
 //
 // REVERSAL: settled then reversed — money paid out then clawed back.
-//   → add to leakage.reversal_exposure_minor (tracked separately — different risk)
+//
+//	→ add to leakage.reversal_exposure_minor (tracked separately — different risk)
 //
 // DEDUCTION: PSP deducted a fee.
-//   → whitelisted (pre-agreed) deductions: record for audit, don't count as leakage
-//   → non-whitelisted: count as leakage in UNDER_SETTLEMENT bucket
+//
+//	→ whitelisted (pre-agreed) deductions: record for audit, don't count as leakage
+//	→ non-whitelisted: count as leakage in UNDER_SETTLEMENT bucket
 //
 // VALUE_DATE_MISMATCH / CROSS_PERIOD: date discrepancies.
-//   → these affect accounting periods, not money amounts.
-//   → we record them as UNDER_SETTLEMENT with varianceAmountMinor=0 for count tracking.
+//
+//	→ these affect accounting periods, not money amounts.
+//	→ we record them as UNDER_SETTLEMENT with varianceAmountMinor=0 for count tracking.
 //
 // OVER_SETTLEMENT: received MORE than intended.
-//   → not leakage — but track separately for audit / financial reconciliation.
-//   → we skip over-settlement from the leakage projection (spec §10.1).
+//
+//	→ not leakage — but track separately for audit / financial reconciliation.
+//	→ we skip over-settlement from the leakage projection (spec §10.1).
 func (s *ProjectionService) HandleVarianceRecord(
 	ctx context.Context,
 	e models.VarianceRecordCreatedEvent,
@@ -1163,9 +1201,10 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 // this payment with full KYC/AML checks, and is the evidence replayable?"
 //
 // Steps:
+//
 //  1. AtomicRecordGovernanceCoverage → increments governance coverage counters
 //     (with_governance_decision, with_kyc_checked, with_aml_checked,
-//      with_replay_equivalence, governance_approved/rejected/escalated counts)
+//     with_replay_equivalence, governance_approved/rejected/escalated counts)
 //
 //  2. Recompute DEFENSIBILITY snapshot → updated audit_ready_pct,
 //     defensibility_tier, compliance alerts

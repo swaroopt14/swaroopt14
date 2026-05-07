@@ -10,8 +10,9 @@ labels:
 resources:
   - namespace.yaml
   - shared/serviceaccount.yaml
-  - shared/app-secrets.yaml
-  - shared/edge-signing-key.yaml
+  - shared/secret-store.yaml
+  - shared/external-secret-app-secrets.yaml
+  - shared/external-secret-edge-signing-key.yaml
   - shared/relay-config.yaml
   - shared/postgres-bootstrap-config.yaml
   - infrastructure/postgres/service.yaml

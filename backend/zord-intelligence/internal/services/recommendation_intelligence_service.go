@@ -48,6 +48,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
 
@@ -77,7 +78,7 @@ type RecommendationSnapshot struct {
 	LowCount      int `json:"low_count"`
 
 	// Total amount at stake across all CRITICAL + HIGH recommendations
-	TotalAmountAtStakeMinor int64 `json:"total_amount_at_stake_minor"`
+	TotalAmountAtStakeMinor decimal.Decimal `json:"total_amount_at_stake_minor"`
 
 	// Source snapshot IDs used to build this recommendation set
 	SourceSnapshotIDs []string `json:"source_snapshot_ids"`
@@ -87,15 +88,15 @@ type RecommendationSnapshot struct {
 
 // RecommendationCard is one actionable recommendation.
 type RecommendationCard struct {
-	CardID             string  `json:"card_id"`            // "rec_" + uuid — stable ID for UI dedup
-	Priority           string  `json:"priority"`           // CRITICAL | HIGH | MEDIUM | LOW
-	Action             string  `json:"action"`             // Decision constant
-	Title              string  `json:"title"`              // short title for UI card
-	Reason             string  `json:"reason"`             // what triggered this
-	SourceLayer        string  `json:"source_layer"`       // LEAKAGE | AMBIGUITY | DEFENSIBILITY | RCA | PATTERN
-	SourceSnapshotID   string  `json:"source_snapshot_id"` // which snapshot this came from
-	AmountAtStakeMinor int64   `json:"amount_at_stake_minor,omitempty"`
-	PriorityScore      float64 `json:"priority_score"` // rule-based 0.0–1.0 score (ML doc §8.4)
+	CardID             string          `json:"card_id"`            // "rec_" + uuid — stable ID for UI dedup
+	Priority           string          `json:"priority"`           // CRITICAL | HIGH | MEDIUM | LOW
+	Action             string          `json:"action"`             // Decision constant
+	Title              string          `json:"title"`              // short title for UI card
+	Reason             string          `json:"reason"`             // what triggered this
+	SourceLayer        string          `json:"source_layer"`       // LEAKAGE | AMBIGUITY | DEFENSIBILITY | RCA | PATTERN
+	SourceSnapshotID   string          `json:"source_snapshot_id"` // which snapshot this came from
+	AmountAtStakeMinor decimal.Decimal `json:"amount_at_stake_minor,omitempty"`
+	PriorityScore      float64         `json:"priority_score"` // rule-based 0.0–1.0 score (ML doc §8.4)
 }
 
 // computePriorityScore implements the ML doc §8.4 rule-based priority formula:
@@ -105,7 +106,7 @@ type RecommendationCard struct {
 // Returns a value in [0.0, 1.0] rounded to 3 decimal places.
 func (s *RecommendationIntelligenceService) computePriorityScore(
 	priority string,
-	amountAtStakeMinor int64,
+	amountAtStakeMinor decimal.Decimal,
 ) float64 {
 	urgencyMap := map[string]float64{
 		"CRITICAL": 1.0,
@@ -119,7 +120,7 @@ func (s *RecommendationIntelligenceService) computePriorityScore(
 	}
 
 	// impact: base 0.30 + financial exposure contribution (scales to 1.0 at ₹50L)
-	impact := 0.30 + math.Min(float64(amountAtStakeMinor)/5_000_000.0, 0.70)
+	impact := 0.30 + math.Min(amountAtStakeMinor.InexactFloat64()/5_000_000.0, 0.70)
 
 	const (
 		confidence    = 0.85 // deterministic signals have well-known accuracy
@@ -229,10 +230,10 @@ func (s *RecommendationIntelligenceService) ComputeAndSave(
 		switch c.Priority {
 		case "CRITICAL":
 			snap.CriticalCount++
-			snap.TotalAmountAtStakeMinor += c.AmountAtStakeMinor
+			snap.TotalAmountAtStakeMinor = snap.TotalAmountAtStakeMinor.Add(c.AmountAtStakeMinor)
 		case "HIGH":
 			snap.HighCount++
-			snap.TotalAmountAtStakeMinor += c.AmountAtStakeMinor
+			snap.TotalAmountAtStakeMinor = snap.TotalAmountAtStakeMinor.Add(c.AmountAtStakeMinor)
 		case "MEDIUM":
 			snap.MediumCount++
 		case "LOW":
@@ -282,7 +283,7 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 			Priority:           "CRITICAL",
 			Action:             "ESCALATE",
 			Title:              fmt.Sprintf("%.1f%% of intended volume is leaking", lsnap.LeakagePercentage*100),
-			Reason:             fmt.Sprintf("Total leakage: ₹%d minor units across %d unmatched intents", lsnap.TotalAmountMinor, lsnap.UnmatchedIntentCount),
+			Reason:             fmt.Sprintf("Total leakage: ₹%s minor units across %d unmatched intents", lsnap.TotalAmountMinor, lsnap.UnmatchedIntentCount),
 			SourceLayer:        "LEAKAGE",
 			SourceSnapshotID:   snap.SnapshotID,
 			AmountAtStakeMinor: lsnap.TotalAmountMinor,
@@ -330,7 +331,7 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 			Reason:           fmt.Sprintf("Leakage rate %.1f%% exceeds 2.5%% — prepare-and-sign would improve traceability", lsnap.LeakagePercentage*100),
 			SourceLayer:      "LEAKAGE",
 			SourceSnapshotID: snap.SnapshotID,
-			PriorityScore:    s.computePriorityScore("MEDIUM", 0),
+			PriorityScore:    s.computePriorityScore("MEDIUM", decimal.Zero),
 		})
 	}
 
@@ -370,7 +371,7 @@ func (s *RecommendationIntelligenceService) cardFromRCA(
 		Reason:           rsnap.RecommendedAction,
 		SourceLayer:      "RCA",
 		SourceSnapshotID: snap.SnapshotID,
-		PriorityScore:    s.computePriorityScore("HIGH", 0),
+		PriorityScore:    s.computePriorityScore("HIGH", decimal.Zero),
 	}
 }
 
@@ -446,7 +447,7 @@ func (s *RecommendationIntelligenceService) cardsFromAmbiguity(
 			Reason:           "PSP is not returning UTR/RRN — renegotiate contract to require reference fields",
 			SourceLayer:      "AMBIGUITY",
 			SourceSnapshotID: snap.SnapshotID,
-			PriorityScore:    s.computePriorityScore("HIGH", 0),
+			PriorityScore:    s.computePriorityScore("HIGH", decimal.Zero),
 		})
 	}
 
@@ -473,7 +474,7 @@ func (s *RecommendationIntelligenceService) cardsFromDefensibility(
 			Reason:           "Governance coverage and evidence pack rate are below audit thresholds",
 			SourceLayer:      "DEFENSIBILITY",
 			SourceSnapshotID: snap.SnapshotID,
-			PriorityScore:    s.computePriorityScore("HIGH", 0),
+			PriorityScore:    s.computePriorityScore("HIGH", decimal.Zero),
 		})
 	}
 
@@ -486,7 +487,7 @@ func (s *RecommendationIntelligenceService) cardsFromDefensibility(
 			Reason:           "Rejected governance decisions indicate compliance violations",
 			SourceLayer:      "DEFENSIBILITY",
 			SourceSnapshotID: snap.SnapshotID,
-			PriorityScore:    s.computePriorityScore("CRITICAL", 0),
+			PriorityScore:    s.computePriorityScore("CRITICAL", decimal.Zero),
 		})
 	}
 
@@ -499,7 +500,7 @@ func (s *RecommendationIntelligenceService) cardsFromDefensibility(
 			Reason:           "Low replay coverage means disputes will be hard to defend",
 			SourceLayer:      "DEFENSIBILITY",
 			SourceSnapshotID: snap.SnapshotID,
-			PriorityScore:    s.computePriorityScore("MEDIUM", 0),
+			PriorityScore:    s.computePriorityScore("MEDIUM", decimal.Zero),
 		})
 	}
 

@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 // ProjectionState represents one row in the projection_state table.
 //
@@ -87,14 +91,16 @@ type PendingBacklogValue struct {
 //
 // Tracks how well retries rescue failed payouts per corridor.
 // Data source: DispatchAttemptCreatedEvent (attempt_no > 1 = retry)
-//              FinalityCertIssuedEvent (final_state = SETTLED after retry = recovered)
+//
+//	FinalityCertIssuedEvent (final_state = SETTLED after retry = recovered)
 //
 // Example:
-//   corridor razorpay.UPI today:
-//   - total_attempts: 1200 dispatches
-//   - retry_attempts: 80 (attempt_no > 1)
-//   - recovered:      55 (retried AND reached SETTLED)
-//   - recovery_rate:  0.6875 (55/80)
+//
+//	corridor razorpay.UPI today:
+//	- total_attempts: 1200 dispatches
+//	- retry_attempts: 80 (attempt_no > 1)
+//	- recovered:      55 (retried AND reached SETTLED)
+//	- recovery_rate:  0.6875 (55/80)
 type RetryRecoveryRateValue struct {
 	TotalAttempts int       `json:"total_attempts"` // all dispatch attempts (including first)
 	RetryAttempts int       `json:"retry_attempts"` // dispatches with attempt_no > 1
@@ -114,12 +120,13 @@ type RetryRecoveryRateValue struct {
 // delay in settlement → reconciliation exceptions pile up.
 //
 // Example:
-//   corridor razorpay.UPI today:
-//   - total_settled:      1000 payouts reached SETTLED state
-//   - matched:             970 found in statement
-//   - unmatched:            30 NOT in statement after 24h
-//   - match_rate:          0.97
-//   - avg_match_age_secs: 1200 (avg delay between finality and statement appearance)
+//
+//	corridor razorpay.UPI today:
+//	- total_settled:      1000 payouts reached SETTLED state
+//	- matched:             970 found in statement
+//	- unmatched:            30 NOT in statement after 24h
+//	- match_rate:          0.97
+//	- avg_match_age_secs: 1200 (avg delay between finality and statement appearance)
 type StatementMatchRateValue struct {
 	TotalSettled      int       `json:"total_settled"`        // payouts that reached SETTLED
 	Matched           int       `json:"matched"`              // found in settlement statement
@@ -142,11 +149,12 @@ type StatementMatchRateValue struct {
 // Data source: FinalityCertIssuedEvent.HasProviderRef (new field from Service 5)
 //
 // Example:
-//   corridor cashfree.IMPS today:
-//   - total_finalized:   500
-//   - missing_ref:        45 (has_provider_ref = false)
-//   - with_ref:          455
-//   - missing_rate:      0.09  ← 9% of payouts have no traceable bank reference
+//
+//	corridor cashfree.IMPS today:
+//	- total_finalized:   500
+//	- missing_ref:        45 (has_provider_ref = false)
+//	- with_ref:          455
+//	- missing_rate:      0.09  ← 9% of payouts have no traceable bank reference
 type ProviderRefMissingRateValue struct {
 	TotalFinalized int       `json:"total_finalized"` // all finalized (any final_state)
 	MissingRef     int       `json:"missing_ref"`     // has_provider_ref = false
@@ -170,12 +178,13 @@ type ProviderRefMissingRateValue struct {
 // e.g. "webhook_vs_poll_mismatch" vs "amount_mismatch"
 //
 // Example:
-//   corridor razorpay.UPI today:
-//   - total_finalized:   1000
-//   - with_conflicts:      87 (conflict_count > 0)
-//   - conflict_rate:      0.087
-//   - total_conflicts:    95  (sum of all conflict_count values — can be > with_conflicts)
-//   - conflict_type_breakdown: {"webhook_vs_poll_mismatch": 50, "amount_mismatch": 37}
+//
+//	corridor razorpay.UPI today:
+//	- total_finalized:   1000
+//	- with_conflicts:      87 (conflict_count > 0)
+//	- conflict_rate:      0.087
+//	- total_conflicts:    95  (sum of all conflict_count values — can be > with_conflicts)
+//	- conflict_type_breakdown: {"webhook_vs_poll_mismatch": 50, "amount_mismatch": 37}
 type ConflictRateInFusionValue struct {
 	TotalFinalized        int            `json:"total_finalized"`         // all finalized certs
 	WithConflicts         int            `json:"with_conflicts"`          // certs that had conflict_count > 0
@@ -190,17 +199,18 @@ type ConflictRateInFusionValue struct {
 //
 // Tracks SLA compliance per tenant per day.
 // An SLA timer is "breached" when:
-//   1. Timer reaches its deadline (created_at + SLA_DURATION)
-//   2. But payout is still PENDING (not SETTLED/FAILED/REVERSED)
-//   3. We say "the SLA was breached"
+//  1. Timer reaches its deadline (created_at + SLA_DURATION)
+//  2. But payout is still PENDING (not SETTLED/FAILED/REVERSED)
+//  3. We say "the SLA was breached"
 //
 // Example:
-//   tenant_id "tnt_A" on 2024-01-15:
-//   - total_processed: 1000 intents that reached finality
-//   - breached: 45 (exceeded their SLA deadline)
-//   - on_time: 955 (settled before deadline)
-//   - breach_rate: 0.045 (45/1000)
-//   - avg_breach_seconds: 1200 (average 20 minutes late)
+//
+//	tenant_id "tnt_A" on 2024-01-15:
+//	- total_processed: 1000 intents that reached finality
+//	- breached: 45 (exceeded their SLA deadline)
+//	- on_time: 955 (settled before deadline)
+//	- breach_rate: 0.045 (45/1000)
+//	- avg_breach_seconds: 1200 (average 20 minutes late)
 type SLABreachRateValue struct {
 	TotalProcessed     int       `json:"total_processed"`      // intents finalized in window
 	Breached           int       `json:"breached"`             // exceeded SLA
@@ -259,11 +269,11 @@ type SLABreachRateValue struct {
 //	}
 type LeakageValue struct {
 	// ── Running money totals (all in minor currency units) ────────────────
-	TotalAmountMinor           int64 `json:"total_amount_minor"`            // sum of all leakage types
-	UnmatchedAmountMinor       int64 `json:"unmatched_amount_minor"`        // intents with no settlement
-	UnderSettlementAmountMinor int64 `json:"under_settlement_amount_minor"` // intended - settled (> 0 = leakage)
-	OrphanAmountMinor          int64 `json:"orphan_amount_minor"`           // settlements with no intent
-	ReversalExposureMinor      int64 `json:"reversal_exposure_minor"`       // reversed after success
+	TotalAmountMinor           decimal.Decimal `json:"total_amount_minor"`            // sum of all leakage types
+	UnmatchedAmountMinor       decimal.Decimal `json:"unmatched_amount_minor"`        // intents with no settlement
+	UnderSettlementAmountMinor decimal.Decimal `json:"under_settlement_amount_minor"` // intended - settled (> 0 = leakage)
+	OrphanAmountMinor          decimal.Decimal `json:"orphan_amount_minor"`           // settlements with no intent
+	ReversalExposureMinor      decimal.Decimal `json:"reversal_exposure_minor"`       // reversed after success
 
 	// ── Running event counts ─────────────────────────────────────────────
 	UnmatchedIntentCount  int `json:"unmatched_intent_count"`  // MATCH_UNRESOLVED decisions
@@ -275,7 +285,7 @@ type LeakageValue struct {
 	// We track total intended so we can compute leakage_percentage without
 	// reading a second projection. Keeping both numerator and denominator
 	// in the same row is the atomic SQL pattern used throughout this codebase.
-	TotalIntendedAmountMinor int64 `json:"total_intended_amount_minor"` // sum of all intent amounts
+	TotalIntendedAmountMinor decimal.Decimal `json:"total_intended_amount_minor"` // sum of all intent amounts
 
 	// ── Derived rate (recomputed after every increment) ───────────────────
 	LeakagePercentage float64 `json:"leakage_percentage"` // total_amount_minor / total_intended_amount_minor
@@ -284,7 +294,7 @@ type LeakageValue struct {
 	// Key: variance_type string (e.g. "UNDER_SETTLEMENT", "REVERSAL", "DEDUCTION")
 	// Value: cumulative minor-unit amount for that type
 	// This map is updated atomically in Postgres via jsonb_set ARRAY path.
-	BreakdownByType map[string]int64 `json:"breakdown_by_type"`
+	BreakdownByType map[string]decimal.Decimal `json:"breakdown_by_type"`
 
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -297,9 +307,11 @@ type LeakageValue struct {
 //
 // WHY TRACK avg_attachment_confidence INCREMENTALLY?
 // Running average maintained via Welford's online algorithm in SQL:
-//   new_count = old_count + 1
-//   new_sum   = old_sum + new_value
-//   new_avg   = new_sum / new_count
+//
+//	new_count = old_count + 1
+//	new_sum   = old_sum + new_value
+//	new_avg   = new_sum / new_count
+//
 // This avoids storing all historical confidence scores and remains
 // accurate through millions of events.
 //
@@ -325,15 +337,15 @@ type LeakageValue struct {
 //	}
 type AmbiguityValue struct {
 	// ── Ambiguous attachment counts ───────────────────────────────────────
-	AmbiguousIntentCount      int   `json:"ambiguous_intent_count"`      // MATCH_AMBIGUOUS decisions
-	AmbiguousAmountMinor      int64 `json:"ambiguous_amount_minor"`      // sum of intended amounts for ambiguous
-	UnresolvedSettlementCount int   `json:"unresolved_settlement_count"` // MATCH_UNRESOLVED decisions
+	AmbiguousIntentCount      int             `json:"ambiguous_intent_count"`      // MATCH_AMBIGUOUS decisions
+	AmbiguousAmountMinor      decimal.Decimal `json:"ambiguous_amount_minor"`      // sum of intended amounts for ambiguous
+	UnresolvedSettlementCount int             `json:"unresolved_settlement_count"` // MATCH_UNRESOLVED decisions
 
 	// ── Value at risk ─────────────────────────────────────────────────────
 	// Spec Section 10.2: "Ambiguous Value-at-Risk =
 	//   sum(intended_amount_minor for MATCH_AMBIGUOUS or MATCH_UNRESOLVED)"
 	// This is the headline number finance cares about.
-	ValueAtRiskMinor int64 `json:"value_at_risk_minor"`
+	ValueAtRiskMinor decimal.Decimal `json:"value_at_risk_minor"`
 
 	// ── Running average confidence (incremental sum / count) ──────────────
 	AvgAttachmentConfidence float64 `json:"avg_attachment_confidence"` // 0.0–1.0
@@ -360,14 +372,15 @@ type AmbiguityValue struct {
 // Fuelled by EvidencePackReadyEvent (Service 6) and GovernanceDecisionCreatedEvent.
 //
 // SCORING RUBRIC from spec Section 10.3 (total possible = 100 points):
-//   pack exists?                    +20
-//   canonical intent leaf present?  +10
-//   settlement proof leaf present?  +10
-//   governance decision present?    +15
-//   attachment decision present?    +15
-//   supporting carriers > threshold?+10
-//   ambiguity low?                  +10
-//   replay equivalence confirmed?   +10
+//
+//	pack exists?                    +20
+//	canonical intent leaf present?  +10
+//	settlement proof leaf present?  +10
+//	governance decision present?    +15
+//	attachment decision present?    +15
+//	supporting carriers > threshold?+10
+//	ambiguity low?                  +10
+//	replay equivalence confirmed?   +10
 //
 // We track numerators and denominators separately so the defensibility tier
 // (STRONG/GOOD/WEAK/FRAGILE) can be recomputed without re-reading raw events.
@@ -377,24 +390,24 @@ type AmbiguityValue struct {
 // Projection family:      DEFENSIBILITY
 type DefensibilityValue struct {
 	// ── Coverage counts ───────────────────────────────────────────────────
-	TotalIntents             int `json:"total_intents"`               // total intents seen in window
-	WithEvidencePack         int `json:"with_evidence_pack"`          // have a Service 6 evidence pack
-	WithGovernanceDecision   int `json:"with_governance_decision"`    // have a governance decision
-	WithReplayEquivalence    int `json:"with_replay_equivalence"`     // replay_equivalent = true in governance
-	WithKYCChecked           int `json:"with_kyc_checked"`            // KYC was performed
-	WithAMLChecked           int `json:"with_aml_checked"`            // AML screening was performed
-	GovernanceApprovedCount  int `json:"governance_approved_count"`   // outcome = APPROVED
-	GovernanceRejectedCount  int `json:"governance_rejected_count"`   // outcome = REJECTED (compliance risk flag)
-	GovernanceEscalatedCount int `json:"governance_escalated_count"`  // outcome = ESCALATED
+	TotalIntents             int `json:"total_intents"`              // total intents seen in window
+	WithEvidencePack         int `json:"with_evidence_pack"`         // have a Service 6 evidence pack
+	WithGovernanceDecision   int `json:"with_governance_decision"`   // have a governance decision
+	WithReplayEquivalence    int `json:"with_replay_equivalence"`    // replay_equivalent = true in governance
+	WithKYCChecked           int `json:"with_kyc_checked"`           // KYC was performed
+	WithAMLChecked           int `json:"with_aml_checked"`           // AML screening was performed
+	GovernanceApprovedCount  int `json:"governance_approved_count"`  // outcome = APPROVED
+	GovernanceRejectedCount  int `json:"governance_rejected_count"`  // outcome = REJECTED (compliance risk flag)
+	GovernanceEscalatedCount int `json:"governance_escalated_count"` // outcome = ESCALATED
 
 	// ── Derived coverage rates (recomputed after every increment) ─────────
 	// These are the headline numbers for the Defensibility intelligence view.
 	// Spec Section 10.3: "audit-ready %", "dispute-ready %", "governance-covered %"
-	EvidencePackRate      float64 `json:"evidence_pack_rate"`       // with_evidence_pack / total_intents
-	GovernanceCoveragePct float64 `json:"governance_coverage_pct"`  // with_governance_decision / total_intents
-	ReplayabilityPct      float64 `json:"replayability_pct"`        // with_replay_equivalence / total_intents
-	AuditReadyPct         float64 `json:"audit_ready_pct"`          // (with_evidence_pack + with_governance_decision) / (2 * total_intents)
-	DisputeReadyPct       float64 `json:"dispute_ready_pct"`        // all three: pack + governance + replay
+	EvidencePackRate      float64 `json:"evidence_pack_rate"`      // with_evidence_pack / total_intents
+	GovernanceCoveragePct float64 `json:"governance_coverage_pct"` // with_governance_decision / total_intents
+	ReplayabilityPct      float64 `json:"replayability_pct"`       // with_replay_equivalence / total_intents
+	AuditReadyPct         float64 `json:"audit_ready_pct"`         // (with_evidence_pack + with_governance_decision) / (2 * total_intents)
+	DisputeReadyPct       float64 `json:"dispute_ready_pct"`       // all three: pack + governance + replay
 
 	// ── Weakest-proof reference ───────────────────────────────────────────
 	// Updated by Phase 4 services when they identify the worst-performing
@@ -415,7 +428,9 @@ type DefensibilityValue struct {
 // WHY A PROJECTION AS WELL AS batch_contracts TABLE?
 // batch_contracts = authoritative full-replacement upsert of current state.
 // batch.health.*  = time-windowed projection history queryable via standard
-//                   projection API. They are complementary, not redundant.
+//
+//	projection API. They are complementary, not redundant.
+//
 // The projection enables trend queries ("how did this batch's ambiguity
 // change over the last 6 hours?") that batch_contracts cannot serve.
 //
@@ -450,9 +465,9 @@ type BatchHealthValue struct {
 	PartialReconCount int `json:"partial_recon_count"` // attached but with variance
 
 	// ── Money totals (all in minor currency units — fintech hard rule) ────
-	TotalIntendedAmountMinor  int64 `json:"total_intended_amount_minor"`
-	TotalConfirmedAmountMinor int64 `json:"total_confirmed_amount_minor"`
-	TotalVarianceMinor        int64 `json:"total_variance_minor"` // positive = leakage, negative = overpayment
+	TotalIntendedAmountMinor  decimal.Decimal `json:"total_intended_amount_minor"`
+	TotalConfirmedAmountMinor decimal.Decimal `json:"total_confirmed_amount_minor"`
+	TotalVarianceMinor        decimal.Decimal `json:"total_variance_minor"` // positive = leakage, negative = overpayment
 
 	// ── Intelligence scores ───────────────────────────────────────────────
 	AmbiguityScore float64 `json:"ambiguity_score"` // 0.0–1.0 from Service 5C

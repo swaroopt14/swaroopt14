@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 )
 
 // BatchContractRepo handles all DB operations for the batch_contracts table.
@@ -25,23 +26,23 @@ import (
 
 // BatchContract mirrors the batch_contracts DB table.
 type BatchContract struct {
-	BatchID                   string    `json:"batch_id"`
-	TenantID                  string    `json:"tenant_id"`
-	SourceReference           *string   `json:"source_reference,omitempty"`
-	TotalCount                int       `json:"total_count"`
-	SuccessCount              int       `json:"success_count"`
-	FailedCount               int       `json:"failed_count"`
-	PendingCount              int       `json:"pending_count"`
-	ReversedCount             int       `json:"reversed_count"`
-	PartialReconCount         int       `json:"partial_recon_count"`
-	TotalIntendedAmountMinor  int64     `json:"total_intended_amount_minor"`
-	TotalConfirmedAmountMinor int64     `json:"total_confirmed_amount_minor"`
-	TotalVarianceMinor        int64     `json:"total_variance_minor"`
-	BatchFinalityStatus       string    `json:"batch_finality_status"`
-	AmbiguityScore            *float64  `json:"ambiguity_score,omitempty"`
-	DefensibilityTier         *string   `json:"defensibility_tier,omitempty"`
-	LastUpdatedAt             time.Time `json:"last_updated_at"`
-	CreatedAt                 time.Time `json:"created_at"`
+	BatchID                   string          `json:"batch_id"`
+	TenantID                  string          `json:"tenant_id"`
+	SourceReference           *string         `json:"source_reference,omitempty"`
+	TotalCount                int             `json:"total_count"`
+	SuccessCount              int             `json:"success_count"`
+	FailedCount               int             `json:"failed_count"`
+	PendingCount              int             `json:"pending_count"`
+	ReversedCount             int             `json:"reversed_count"`
+	PartialReconCount         int             `json:"partial_recon_count"`
+	TotalIntendedAmountMinor  decimal.Decimal `json:"total_intended_amount_minor"`
+	TotalConfirmedAmountMinor decimal.Decimal `json:"total_confirmed_amount_minor"`
+	TotalVarianceMinor        decimal.Decimal `json:"total_variance_minor"`
+	BatchFinalityStatus       string          `json:"batch_finality_status"`
+	AmbiguityScore            *float64        `json:"ambiguity_score,omitempty"`
+	DefensibilityTier         *string         `json:"defensibility_tier,omitempty"`
+	LastUpdatedAt             time.Time       `json:"last_updated_at"`
+	CreatedAt                 time.Time       `json:"created_at"`
 }
 
 // BatchContractRepo provides Upsert and Read operations for batch_contracts.
@@ -110,9 +111,9 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 		bc.PendingCount,
 		bc.ReversedCount,
 		bc.PartialReconCount,
-		bc.TotalIntendedAmountMinor,
-		bc.TotalConfirmedAmountMinor,
-		bc.TotalVarianceMinor,
+		bc.TotalIntendedAmountMinor.IntPart(),
+		bc.TotalConfirmedAmountMinor.IntPart(),
+		bc.TotalVarianceMinor.IntPart(),
 		bc.BatchFinalityStatus,
 		bc.AmbiguityScore, // nullable
 	); err != nil {
@@ -308,6 +309,7 @@ func (r *BatchContractRepo) ListByFinalityStatus(
 // scanBatchContract scans one row from a QueryRow call.
 func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	var bc BatchContract
+	var intended, confirmed, variance int64
 	err := row.Scan(
 		&bc.BatchID,
 		&bc.TenantID,
@@ -318,9 +320,9 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 		&bc.PendingCount,
 		&bc.ReversedCount,
 		&bc.PartialReconCount,
-		&bc.TotalIntendedAmountMinor,
-		&bc.TotalConfirmedAmountMinor,
-		&bc.TotalVarianceMinor,
+		&intended,
+		&confirmed,
+		&variance,
 		&bc.BatchFinalityStatus,
 		&bc.AmbiguityScore,
 		&bc.DefensibilityTier,
@@ -330,12 +332,16 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	if err != nil {
 		return nil, err
 	}
+	bc.TotalIntendedAmountMinor = decimal.NewFromInt(intended)
+	bc.TotalConfirmedAmountMinor = decimal.NewFromInt(confirmed)
+	bc.TotalVarianceMinor = decimal.NewFromInt(variance)
 	return &bc, nil
 }
 
 // scanBatchContractFromRows scans one row from a Query (rows) call.
 func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	var bc BatchContract
+	var intended, confirmed, variance int64
 	err := rows.Scan(
 		&bc.BatchID,
 		&bc.TenantID,
@@ -346,9 +352,9 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 		&bc.PendingCount,
 		&bc.ReversedCount,
 		&bc.PartialReconCount,
-		&bc.TotalIntendedAmountMinor,
-		&bc.TotalConfirmedAmountMinor,
-		&bc.TotalVarianceMinor,
+		&intended,
+		&confirmed,
+		&variance,
 		&bc.BatchFinalityStatus,
 		&bc.AmbiguityScore,
 		&bc.DefensibilityTier,
@@ -358,5 +364,8 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	if err != nil {
 		return nil, err
 	}
+	bc.TotalIntendedAmountMinor = decimal.NewFromInt(intended)
+	bc.TotalConfirmedAmountMinor = decimal.NewFromInt(confirmed)
+	bc.TotalVarianceMinor = decimal.NewFromInt(variance)
 	return &bc, nil
 }

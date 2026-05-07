@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/internal/models"
 )
 
@@ -1416,11 +1417,12 @@ func (r *ProjectionRepo) GetActiveTenantCorridorPairs(ctx context.Context) ([]Te
 // the leakage denominator for the tenant+window, even when there is no leakage.
 //
 // Grade A leakage must use the full in-scope intent population:
-//   total_intended_volume = SUM(intent.amount_minor)
+//
+//	total_intended_volume = SUM(intent.amount_minor)
 func (r *ProjectionRepo) AtomicIncrementLeakageIntendedTotal(
 	ctx context.Context,
 	tenantID string,
-	intendedMinor int64,
+	intendedMinor decimal.Decimal,
 	windowStart, windowEnd time.Time,
 ) error {
 	key := "leakage.total"
@@ -1454,7 +1456,7 @@ func (r *ProjectionRepo) AtomicIncrementLeakageIntendedTotal(
 			),
 			computed_at = now()
 	`
-	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, intendedMinor); err != nil {
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, intendedMinor.IntPart()); err != nil {
 		return fmt.Errorf("projection_repo.AtomicIncrementLeakageIntendedTotal tenant=%s: %w", tenantID, err)
 	}
 
@@ -1468,11 +1470,12 @@ func (r *ProjectionRepo) AtomicIncrementLeakageIntendedTotal(
 // a settlement exists but no intent was ever created for it (orphan).
 //
 // Parameters:
-//   tenantID        — owner of this leakage event
-//   leakageType     — "UNMATCHED_INTENT" | "ORPHAN_SETTLEMENT"
-//   intendedMinor   — intended_amount_minor from the attachment decision (0 for orphan)
-//   orphanMinor     — settled_amount_minor from the settlement observation (0 for unmatched)
-//   windowStart/End — the rolling 24h window
+//
+//	tenantID        — owner of this leakage event
+//	leakageType     — "UNMATCHED_INTENT" | "ORPHAN_SETTLEMENT"
+//	intendedMinor   — intended_amount_minor from the attachment decision (0 for orphan)
+//	orphanMinor     — settled_amount_minor from the settlement observation (0 for unmatched)
+//	windowStart/End — the rolling 24h window
 //
 // ATOMIC OPERATION:
 //  1. Increment the correct counter (unmatched_intent_count or orphan_settlement_count)
@@ -1484,8 +1487,8 @@ func (r *ProjectionRepo) AtomicRecordLeakage(
 	ctx context.Context,
 	tenantID string,
 	leakageType string, // "UNMATCHED_INTENT" | "ORPHAN_SETTLEMENT"
-	intendedMinor int64,
-	orphanMinor int64,
+	intendedMinor decimal.Decimal,
+	orphanMinor decimal.Decimal,
 	windowStart, windowEnd time.Time,
 ) error {
 	key := "leakage.total"
@@ -1529,7 +1532,7 @@ func (r *ProjectionRepo) AtomicRecordLeakage(
 				),
 				computed_at = now()
 		`
-		args = []any{tenantID, key, windowStart, windowEnd, intendedMinor}
+		args = []any{tenantID, key, windowStart, windowEnd, intendedMinor.IntPart()}
 
 	case "ORPHAN_SETTLEMENT":
 		upsertSQL = `
@@ -1566,7 +1569,7 @@ func (r *ProjectionRepo) AtomicRecordLeakage(
 				),
 				computed_at = now()
 		`
-		args = []any{tenantID, key, windowStart, windowEnd, orphanMinor}
+		args = []any{tenantID, key, windowStart, windowEnd, orphanMinor.IntPart()}
 
 	default:
 		return fmt.Errorf("projection_repo.AtomicRecordLeakage: unknown leakage_type=%s", leakageType)
@@ -1588,12 +1591,13 @@ func (r *ProjectionRepo) AtomicRecordLeakage(
 // variances where a match WAS found but the amounts don't agree.
 //
 // Parameters:
-//   tenantID          — owner
-//   varianceType      — "UNDER_SETTLEMENT" | "OVER_SETTLEMENT" | "REVERSAL" | "DEDUCTION" etc.
-//   varianceMinor     — the absolute variance amount (always positive, direction from type)
-//   intendedMinor     — the original intended amount (for % denominator)
-//   isWhitelisted     — if true this deduction was pre-agreed; do not count as leakage
-//   windowStart/End   — rolling 24h window
+//
+//	tenantID          — owner
+//	varianceType      — "UNDER_SETTLEMENT" | "OVER_SETTLEMENT" | "REVERSAL" | "DEDUCTION" etc.
+//	varianceMinor     — the absolute variance amount (always positive, direction from type)
+//	intendedMinor     — the original intended amount (for % denominator)
+//	isWhitelisted     — if true this deduction was pre-agreed; do not count as leakage
+//	windowStart/End   — rolling 24h window
 //
 // FINTECH RULE: Whitelisted deductions (pre-agreed TDS, PSP fees) must NOT
 // be counted as leakage. We still record them for audit purposes but only
@@ -1602,8 +1606,8 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 	ctx context.Context,
 	tenantID string,
 	varianceType string,
-	varianceMinor int64,
-	intendedMinor int64,
+	varianceMinor decimal.Decimal,
+	intendedMinor decimal.Decimal,
 	isWhitelisted bool,
 	windowStart, windowEnd time.Time,
 ) error {
@@ -1636,7 +1640,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 				value_json = projection_state.value_json,
 				computed_at = now()
 		`
-		if _, err := r.pool.Exec(ctx, upsertSQL, tenantID, key, windowStart, windowEnd, intendedMinor); err != nil {
+		if _, err := r.pool.Exec(ctx, upsertSQL, tenantID, key, windowStart, windowEnd, intendedMinor.IntPart()); err != nil {
 			return fmt.Errorf("projection_repo.AtomicRecordVariance whitelisted tenant=%s: %w", tenantID, err)
 		}
 		return r.recomputeLeakageTotals(ctx, tenantID, key, windowStart)
@@ -1719,7 +1723,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 
 	if _, err := r.pool.Exec(ctx, upsertSQL,
 		tenantID, key, windowStart, windowEnd,
-		varianceMinor, intendedMinor, varianceType,
+		varianceMinor.IntPart(), intendedMinor.IntPart(), varianceType,
 	); err != nil {
 		return fmt.Errorf("projection_repo.AtomicRecordVariance type=%s tenant=%s: %w",
 			varianceType, tenantID, err)
@@ -1789,26 +1793,28 @@ func (r *ProjectionRepo) recomputeLeakageTotals(
 // the ambiguity counts; all decisions update the running confidence average.
 //
 // Parameters:
-//   tenantID          — owner
-//   decisionType      — "MATCH_EXACT" | "MATCH_HIGH" | "MATCH_AMBIGUOUS" |
-//                       "MATCH_UNRESOLVED" | "MATCH_DUPLICATE"
-//   confidenceScore   — 0.0–1.0 from Service 5C
-//   intendedMinor     — intended amount (used for value_at_risk on ambiguous/unresolved)
-//   supportingCarriers — carrier fields that matched (empty slice = no carriers)
-//   windowStart/End   — rolling 24h window
+//
+//	tenantID          — owner
+//	decisionType      — "MATCH_EXACT" | "MATCH_HIGH" | "MATCH_AMBIGUOUS" |
+//	                    "MATCH_UNRESOLVED" | "MATCH_DUPLICATE"
+//	confidenceScore   — 0.0–1.0 from Service 5C
+//	intendedMinor     — intended amount (used for value_at_risk on ambiguous/unresolved)
+//	supportingCarriers — carrier fields that matched (empty slice = no carriers)
+//	windowStart/End   — rolling 24h window
 //
 // RUNNING AVERAGE ALGORITHM:
-//   Using incremental sum/count (simpler than Welford, same accuracy for floats):
-//     new_sum   = old_sum + confidence_score
-//     new_count = old_count + 1
-//     new_avg   = new_sum / new_count
-//   All arithmetic in Postgres — no read-modify-write in Go.
+//
+//	Using incremental sum/count (simpler than Welford, same accuracy for floats):
+//	  new_sum   = old_sum + confidence_score
+//	  new_count = old_count + 1
+//	  new_avg   = new_sum / new_count
+//	All arithmetic in Postgres — no read-modify-write in Go.
 func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	ctx context.Context,
 	tenantID string,
 	decisionType string,
 	confidenceScore float64,
-	intendedMinor int64,
+	intendedMinor decimal.Decimal,
 	supportingCarriers []string,
 	windowStart, windowEnd time.Time,
 ) error {
@@ -1830,11 +1836,11 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	if isUnresolved {
 		unresolvedIncr = 1
 	}
-	atRiskAmount := int64(0)
+	atRiskAmount := decimal.Zero
 	if isAtRisk {
 		atRiskAmount = intendedMinor
 	}
-	ambiguousAmount := int64(0)
+	ambiguousAmount := decimal.Zero
 	if isAmbiguous {
 		ambiguousAmount = intendedMinor
 	}
@@ -1902,12 +1908,12 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	`
 	if _, err := r.pool.Exec(ctx, upsertSQL,
 		tenantID, key, windowStart, windowEnd,
-		ambiguousIncr,      // $5
-		ambiguousAmount,    // $6
-		unresolvedIncr,     // $7
-		atRiskAmount,       // $8
-		confidenceScore,    // $9
-		missingCarrierIncr, // $10
+		ambiguousIncr,             // $5
+		ambiguousAmount.IntPart(), // $6
+		unresolvedIncr,            // $7
+		atRiskAmount.IntPart(),    // $8
+		confidenceScore,           // $9
+		missingCarrierIncr,        // $10
 	); err != nil {
 		return fmt.Errorf("projection_repo.AtomicRecordAttachmentDecision tenant=%s decision=%s: %w",
 			tenantID, decisionType, err)
@@ -1917,9 +1923,10 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 }
 
 // recomputeAmbiguityRates recalculates the three derived rates:
-//   avg_attachment_confidence = confidence_sum / confidence_count
-//   provider_ref_missing_rate = provider_ref_missing_count / total_decisions
-//   ambiguity_rate            = ambiguous_intent_count / total_decisions
+//
+//	avg_attachment_confidence = confidence_sum / confidence_count
+//	provider_ref_missing_rate = provider_ref_missing_count / total_decisions
+//	ambiguity_rate            = ambiguous_intent_count / total_decisions
 func (r *ProjectionRepo) recomputeAmbiguityRates(
 	ctx context.Context,
 	tenantID, key string,
@@ -1981,12 +1988,13 @@ func (r *ProjectionRepo) recomputeAmbiguityRates(
 // performed and recomputes all four coverage rates.
 //
 // Parameters:
-//   tenantID         — owner
-//   decisionOutcome  — "APPROVED" | "REJECTED" | "ESCALATED" | "PENDING"
-//   kycChecked       — KYC verification was performed
-//   amlChecked       — AML screening was performed
-//   replayEquivalent — evidence is sufficient to replay the decision
-//   windowStart/End  — rolling 24h window
+//
+//	tenantID         — owner
+//	decisionOutcome  — "APPROVED" | "REJECTED" | "ESCALATED" | "PENDING"
+//	kycChecked       — KYC verification was performed
+//	amlChecked       — AML screening was performed
+//	replayEquivalent — evidence is sufficient to replay the decision
+//	windowStart/End  — rolling 24h window
 //
 // NOTE: We do NOT increment total_intents here. total_intents is incremented
 // separately by AtomicIncrementDefensibilityIntent (called on intent.created).
@@ -2107,7 +2115,8 @@ func (r *ProjectionRepo) AtomicRecordGovernanceCoverage(
 // (to keep the denominator accurate).
 //
 // hasEvidencePack — true when called from HandleEvidencePackReady,
-//                   false when called from HandleIntentCreated
+//
+//	false when called from HandleIntentCreated
 func (r *ProjectionRepo) AtomicIncrementDefensibilityIntent(
 	ctx context.Context,
 	tenantID string,
@@ -2220,9 +2229,12 @@ func (r *ProjectionRepo) AtomicIncrementDefensibilityEvidencePack(
 // from their respective numerators and the shared total_intents denominator.
 //
 // audit_ready_pct   = (with_evidence_pack + with_governance_decision) / (2 * total_intents)
-//                     — requires BOTH pack AND governance to be considered audit-ready
+//
+//	— requires BOTH pack AND governance to be considered audit-ready
+//
 // dispute_ready_pct = (with_evidence_pack + with_governance_decision + with_replay) / (3 * total_intents)
-//                     — requires all three
+//
+//	— requires all three
 //
 // NULLIF prevents divide-by-zero during startup before any intents arrive.
 func (r *ProjectionRepo) recomputeDefensibilityRates(
@@ -2319,26 +2331,27 @@ func (r *ProjectionRepo) recomputeDefensibilityRates(
 //   - The source of truth for batch state is Service 5C, not ZPI
 //
 // Parameters:
-//   tenantID          — owner
-//   batchID           — e.g. "PAYROLL-2026-04-01"
-//   totalCount        — total intents in this batch
-//   successCount      — fully settled
-//   failedCount       — failed or reversed
-//   pendingCount      — not yet resolved
-//   reversedCount     — reversed after settling
-//   partialReconCount — attached but with variance
-//   intendedMinor     — total_intended_amount_minor
-//   confirmedMinor    — total_confirmed_amount_minor
-//   varianceMinor     — total_variance_minor (positive = leakage)
-//   ambiguityScore    — 0.0–1.0 from Service 5C
-//   finalityStatus    — "PROCESSING" | "FULLY_SETTLED" | "PARTIALLY_SETTLED" | etc.
-//   windowStart/End   — rolling 24h window
+//
+//	tenantID          — owner
+//	batchID           — e.g. "PAYROLL-2026-04-01"
+//	totalCount        — total intents in this batch
+//	successCount      — fully settled
+//	failedCount       — failed or reversed
+//	pendingCount      — not yet resolved
+//	reversedCount     — reversed after settling
+//	partialReconCount — attached but with variance
+//	intendedMinor     — total_intended_amount_minor
+//	confirmedMinor    — total_confirmed_amount_minor
+//	varianceMinor     — total_variance_minor (positive = leakage)
+//	ambiguityScore    — 0.0–1.0 from Service 5C
+//	finalityStatus    — "PROCESSING" | "FULLY_SETTLED" | "PARTIALLY_SETTLED" | etc.
+//	windowStart/End   — rolling 24h window
 func (r *ProjectionRepo) AtomicUpdateBatchHealth(
 	ctx context.Context,
 	tenantID string,
 	batchID string,
 	totalCount, successCount, failedCount, pendingCount, reversedCount, partialReconCount int,
-	intendedMinor, confirmedMinor, varianceMinor int64,
+	intendedMinor, confirmedMinor, varianceMinor decimal.Decimal,
 	ambiguityScore float64,
 	finalityStatus string,
 	windowStart, windowEnd time.Time,
@@ -2388,18 +2401,18 @@ func (r *ProjectionRepo) AtomicUpdateBatchHealth(
 	`
 	if _, err := r.pool.Exec(ctx, upsertSQL,
 		tenantID, key, windowStart, windowEnd,
-		totalCount,        // $5
-		successCount,      // $6
-		failedCount,       // $7
-		pendingCount,      // $8
-		reversedCount,     // $9
-		partialReconCount, // $10
-		intendedMinor,     // $11
-		confirmedMinor,    // $12
-		varianceMinor,     // $13
-		ambiguityScore,    // $14
-		finalityStatus,    // $15
-		batchID,           // $16 — entity_scope_ref
+		totalCount,               // $5
+		successCount,             // $6
+		failedCount,              // $7
+		pendingCount,             // $8
+		reversedCount,            // $9
+		partialReconCount,        // $10
+		intendedMinor.IntPart(),  // $11
+		confirmedMinor.IntPart(), // $12
+		varianceMinor.IntPart(),  // $13
+		ambiguityScore,           // $14
+		finalityStatus,           // $15
+		batchID,                  // $16 — entity_scope_ref
 	); err != nil {
 		return fmt.Errorf("projection_repo.AtomicUpdateBatchHealth batch=%s tenant=%s: %w",
 			batchID, tenantID, err)

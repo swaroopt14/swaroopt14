@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/internal/ml/zscore"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
@@ -66,15 +67,15 @@ func NewLeakageIntelligenceService(
 //   "top leakage drivers"
 type LeakageSnapshot struct {
 	// ── Headline numbers ─────────────────────────────────────────────────
-	TotalAmountMinor           int64   `json:"total_amount_minor"`
-	LeakagePercentage          float64 `json:"leakage_percentage"`
-	TotalIntendedAmountMinor   int64   `json:"total_intended_amount_minor"`
+	TotalAmountMinor         decimal.Decimal `json:"total_amount_minor"`
+	LeakagePercentage        float64         `json:"leakage_percentage"`
+	TotalIntendedAmountMinor decimal.Decimal `json:"total_intended_amount_minor"`
 
 	// ── Breakdown by type (all in minor units) ────────────────────────────
-	UnmatchedAmountMinor       int64 `json:"unmatched_amount_minor"`
-	UnderSettlementAmountMinor int64 `json:"under_settlement_amount_minor"`
-	OrphanAmountMinor          int64 `json:"orphan_amount_minor"`
-	ReversalExposureMinor      int64 `json:"reversal_exposure_minor"`
+	UnmatchedAmountMinor       decimal.Decimal `json:"unmatched_amount_minor"`
+	UnderSettlementAmountMinor decimal.Decimal `json:"under_settlement_amount_minor"`
+	OrphanAmountMinor          decimal.Decimal `json:"orphan_amount_minor"`
+	ReversalExposureMinor      decimal.Decimal `json:"reversal_exposure_minor"`
 
 	// ── Event counts ─────────────────────────────────────────────────────
 	UnmatchedIntentCount  int `json:"unmatched_intent_count"`
@@ -84,7 +85,7 @@ type LeakageSnapshot struct {
 
 	// ── Per-type breakdown map ────────────────────────────────────────────
 	// Key: variance type string. Value: cumulative minor-unit amount.
-	BreakdownByType map[string]int64 `json:"breakdown_by_type"`
+	BreakdownByType map[string]decimal.Decimal `json:"breakdown_by_type"`
 
 	// ── Top leakage drivers (deterministic ranking) ───────────────────────
 	// Sorted by amount desc. Used by the recommendation layer.
@@ -115,10 +116,10 @@ type LeakageSnapshot struct {
 
 // LeakageDriver is one entry in LeakageSnapshot.TopDrivers.
 type LeakageDriver struct {
-	DriverType  string  `json:"driver_type"`   // e.g. "UNMATCHED_INTENT"
-	AmountMinor int64   `json:"amount_minor"`
-	Count       int     `json:"count"`
-	SharePct    float64 `json:"share_pct"` // this driver's share of total_amount_minor
+	DriverType  string          `json:"driver_type"` // e.g. "UNMATCHED_INTENT"
+	AmountMinor decimal.Decimal `json:"amount_minor"`
+	Count       int             `json:"count"`
+	SharePct    float64         `json:"share_pct"` // this driver's share of total_amount_minor
 }
 
 // ComputeAndSave reads the current leakage projection for a tenant, computes
@@ -234,7 +235,7 @@ func (s *LeakageIntelligenceService) buildSnapshot(lv *models.LeakageValue) Leak
 func (s *LeakageIntelligenceService) buildTopDrivers(lv *models.LeakageValue) []LeakageDriver {
 	type driverEntry struct {
 		driverType  string
-		amountMinor int64
+		amountMinor decimal.Decimal
 		count       int
 	}
 
@@ -247,19 +248,19 @@ func (s *LeakageIntelligenceService) buildTopDrivers(lv *models.LeakageValue) []
 
 	// Sort descending by amount (simple insertion sort — 4 elements max)
 	for i := 1; i < len(candidates); i++ {
-		for j := i; j > 0 && candidates[j].amountMinor > candidates[j-1].amountMinor; j-- {
+		for j := i; j > 0 && candidates[j].amountMinor.GreaterThan(candidates[j-1].amountMinor); j-- {
 			candidates[j], candidates[j-1] = candidates[j-1], candidates[j]
 		}
 	}
 
 	var drivers []LeakageDriver
 	for _, c := range candidates {
-		if c.amountMinor == 0 {
+		if c.amountMinor.IsZero() {
 			continue // skip zero-amount drivers
 		}
 		sharePct := 0.0
-		if lv.TotalAmountMinor > 0 {
-			sharePct = float64(c.amountMinor) / float64(lv.TotalAmountMinor)
+		if lv.TotalAmountMinor.IsPositive() {
+			sharePct = c.amountMinor.Div(lv.TotalAmountMinor).InexactFloat64()
 		}
 		drivers = append(drivers, LeakageDriver{
 			DriverType:  c.driverType,
@@ -298,16 +299,16 @@ func leakageRiskTier(pct float64) string {
 // dominant leakage type. Feeds into the Recommendation intelligence layer.
 func (s *LeakageIntelligenceService) recommendedAction(lv *models.LeakageValue) string {
 	// Pick the dominant leakage type by amount
-	max := int64(0)
+	max := decimal.Zero
 	dominant := ""
-	buckets := map[string]int64{
+	buckets := map[string]decimal.Decimal{
 		"UNMATCHED_INTENT":  lv.UnmatchedAmountMinor,
 		"UNDER_SETTLEMENT":  lv.UnderSettlementAmountMinor,
 		"ORPHAN_SETTLEMENT": lv.OrphanAmountMinor,
 		"REVERSAL":          lv.ReversalExposureMinor,
 	}
 	for k, v := range buckets {
-		if v > max {
+		if v.GreaterThan(max) {
 			max = v
 			dominant = k
 		}
@@ -361,10 +362,10 @@ func (s *LeakageIntelligenceService) persistMLPrediction(
 	snap LeakageSnapshot,
 ) {
 	explanation := map[string]any{
-		"algorithm":    "zscore_v1",
-		"z_score":      snap.AnomalyZScore,
+		"algorithm":     "zscore_v1",
+		"z_score":       snap.AnomalyZScore,
 		"anomaly_level": snap.AnomalyLevel,
-		"leakage_pct":  snap.LeakagePercentage,
+		"leakage_pct":   snap.LeakagePercentage,
 	}
 	expJSON, _ := json.Marshal(explanation)
 
@@ -396,14 +397,14 @@ func (s *LeakageIntelligenceService) persistMLFeatures(
 	windowStart, windowEnd time.Time,
 ) error {
 	features := map[string]any{
-		"total_amount_minor":             lv.TotalAmountMinor,
-		"leakage_percentage":             lv.LeakagePercentage,
-		"unmatched_intent_count":         lv.UnmatchedIntentCount,
-		"under_settlement_count":         lv.UnderSettlementCount,
-		"orphan_settlement_count":        lv.OrphanSettlementCount,
-		"reversal_count":                 lv.ReversalCount,
-		"total_intended_amount_minor":    lv.TotalIntendedAmountMinor,
-		"snapshot_id":                    snapshotID, // link feature to snapshot for auditability
+		"total_amount_minor":          lv.TotalAmountMinor,
+		"leakage_percentage":          lv.LeakagePercentage,
+		"unmatched_intent_count":      lv.UnmatchedIntentCount,
+		"under_settlement_count":      lv.UnderSettlementCount,
+		"orphan_settlement_count":     lv.OrphanSettlementCount,
+		"reversal_count":              lv.ReversalCount,
+		"total_intended_amount_minor": lv.TotalIntendedAmountMinor,
+		"snapshot_id":                 snapshotID, // link feature to snapshot for auditability
 	}
 	featJSON, err := json.Marshal(features)
 	if err != nil {

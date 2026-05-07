@@ -8,7 +8,11 @@ package models
 // Rule: These structs are READ ONLY from ZPI's perspective.
 // ZPI never creates these — it only receives them from other services.
 
-import "time"
+import (
+	"time"
+
+	"github.com/shopspring/decimal"
+)
 
 // ── Event 1: from Service 2 ───────────────────────────────────────────────────
 //
@@ -281,9 +285,9 @@ type CanonicalSettlementCreatedEvent struct {
 	// ── Financial details ─────────────────────────────────────────────────────
 	// IMPORTANT: All money amounts stored as int64 in MINOR UNITS (paise, cents).
 	// Never float64 for money. This matches the DB rule in Phase 1.
-	SettledAmountMinor int64  `json:"settled_amount_minor"` // amount in minor currency units
-	Currency           string `json:"currency"`             // "INR", "USD"
-	SettlementDate     string `json:"settlement_date"`      // "2026-04-08" — date on statement
+	SettledAmountMinor decimal.Decimal `json:"settled_amount_minor"` // amount in minor currency units
+	Currency           string          `json:"currency"`             // "INR", "USD"
+	SettlementDate     string          `json:"settlement_date"`      // "2026-04-08" — date on statement
 
 	// ── Carrier / reference fields ────────────────────────────────────────────
 	// "Carriers" are reference identifiers that allow ZPI to match (attach)
@@ -379,9 +383,9 @@ type AttachmentDecisionCreatedEvent struct {
 	// Stored so we can replay the decision without storing all candidate IDs
 
 	// ── Financial details ─────────────────────────────────────────────────────
-	SettledAmountMinor  int64  `json:"settled_amount_minor"`  // amount from the settlement observation
-	IntendedAmountMinor int64  `json:"intended_amount_minor"` // amount from the matched intent (0 if unresolved)
-	Currency            string `json:"currency"`
+	SettledAmountMinor  decimal.Decimal `json:"settled_amount_minor"`  // amount from the settlement observation
+	IntendedAmountMinor decimal.Decimal `json:"intended_amount_minor"` // amount from the matched intent (0 if unresolved)
+	Currency            string          `json:"currency"`
 }
 
 // ── NEW EVENT C: from Service 5C ─────────────────────────────────────────────
@@ -433,10 +437,10 @@ type VarianceRecordCreatedEvent struct {
 
 	// ── Financial values ──────────────────────────────────────────────────────
 	// ALL amounts in minor currency units (paise, cents). Never float64.
-	IntendedAmountMinor int64  `json:"intended_amount_minor"` // what we expected
-	SettledAmountMinor  int64  `json:"settled_amount_minor"`  // what we actually received
-	VarianceAmountMinor int64  `json:"variance_amount_minor"` // intended - settled (negative = over)
-	Currency            string `json:"currency"`
+	IntendedAmountMinor decimal.Decimal `json:"intended_amount_minor"` // what we expected
+	SettledAmountMinor  decimal.Decimal `json:"settled_amount_minor"`  // what we actually received
+	VarianceAmountMinor decimal.Decimal `json:"variance_amount_minor"` // intended - settled (negative = over)
+	Currency            string          `json:"currency"`
 
 	// ── Date mismatch ─────────────────────────────────────────────────────────
 	ExpectedValueDate string `json:"expected_value_date"` // "2026-04-08"
@@ -489,9 +493,9 @@ type BatchSummaryUpdatedEvent struct {
 	PartialReconCount int `json:"partial_recon_count"` // attached but with variance
 
 	// ── Aggregate money amounts (all in minor units) ──────────────────────────
-	TotalIntendedAmountMinor  int64 `json:"total_intended_amount_minor"`
-	TotalConfirmedAmountMinor int64 `json:"total_confirmed_amount_minor"`
-	TotalVarianceMinor        int64 `json:"total_variance_minor"` // positive = leakage
+	TotalIntendedAmountMinor  decimal.Decimal `json:"total_intended_amount_minor"`
+	TotalConfirmedAmountMinor decimal.Decimal `json:"total_confirmed_amount_minor"`
+	TotalVarianceMinor        decimal.Decimal `json:"total_variance_minor"` // positive = leakage
 
 	// ── Intelligence scores ───────────────────────────────────────────────────
 	AmbiguityScore float64 `json:"ambiguity_score"` // 0.0–1.0 computed by Service 5C

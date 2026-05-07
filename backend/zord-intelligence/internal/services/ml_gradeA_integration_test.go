@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
 
@@ -534,11 +535,11 @@ func TestGradeA_RecommendationService_PriorityScoreAndSort(t *testing.T) {
 	// Pre-create LEAKAGE snapshot (5% leakage → CRITICAL card)
 	leakageSnap, _ := json.Marshal(LeakageSnapshot{
 		LeakagePercentage:     0.06,
-		TotalAmountMinor:      6_000_000,
+		TotalAmountMinor:      decimal.NewFromInt(6_000_000),
 		UnmatchedIntentCount:  20,
-		UnmatchedAmountMinor:  2_000_000,
+		UnmatchedAmountMinor:  decimal.NewFromInt(2_000_000),
 		ReversalCount:         5,
-		ReversalExposureMinor: 500_000,
+		ReversalExposureMinor: decimal.NewFromInt(500_000),
 		AnomalyLevel:          "HIGH",
 		ComputedAt:            now,
 	})
@@ -553,7 +554,7 @@ func TestGradeA_RecommendationService_PriorityScoreAndSort(t *testing.T) {
 	// Pre-create AMBIGUITY snapshot (12% → CRITICAL card)
 	ambSnap, _ := json.Marshal(AmbiguitySnapshot{
 		AmbiguityRate:          0.12,
-		ValueAtRiskMinor:       1_200_000,
+		ValueAtRiskMinor:       decimal.NewFromInt(1_200_000),
 		ProviderRefMissingRate: 0.18,
 		RiskTier:               "CRITICAL",
 		RiskPredictionLevel:    "HIGH",
@@ -627,6 +628,6 @@ func TestGradeA_RecommendationService_PriorityScoreAndSort(t *testing.T) {
 	t.Logf("Recommendation: %d cards (CRITICAL=%d HIGH=%d MEDIUM=%d LOW=%d)",
 		len(snap.Cards), snap.CriticalCount, snap.HighCount, snap.MediumCount, snap.LowCount)
 	for i, c := range snap.Cards {
-		t.Logf("  [%d] %s %-30s score=%.4f amount=%d", i, c.Priority, c.Action, c.PriorityScore, c.AmountAtStakeMinor)
+		t.Logf("  [%d] %s %-30s score=%.4f amount=%s", i, c.Priority, c.Action, c.PriorityScore, c.AmountAtStakeMinor)
 	}
 }

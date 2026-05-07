@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
@@ -148,10 +148,10 @@ func (s *ProjectionService) HandleIntentCreated(
 	log.Printf("HandleIntentCreated intent=%s tenant=%s", e.EventID, e.TenantID)
 	window := todayWindow(e.CreatedAt)
 
-	if intendedMinor, err := strconv.ParseInt(e.Amount, 10, 64); err != nil {
+	if intendedMinor, err := decimal.NewFromString(e.Amount); err != nil {
 		log.Printf("HandleIntentCreated: could not parse amount=%q intent=%s tenant=%s: %v",
 			e.Amount, e.IntentID, e.TenantID, err)
-	} else if intendedMinor > 0 {
+	} else if intendedMinor.IsPositive() {
 		if err := s.projRepo.AtomicIncrementLeakageIntendedTotal(
 			ctx, e.TenantID, intendedMinor, window.start, window.end,
 		); err != nil {
@@ -803,7 +803,7 @@ func (s *ProjectionService) HandleSettlementCreated(
 			ctx,
 			e.TenantID,
 			"ORPHAN_SETTLEMENT",
-			0,                    // intendedMinor = 0 (no intent found)
+			decimal.Zero,         // intendedMinor = 0 (no intent found)
 			e.SettledAmountMinor, // orphanMinor = settled amount
 			window.start, window.end,
 		); err != nil {
@@ -877,7 +877,7 @@ func (s *ProjectionService) HandleAttachmentDecision(
 			e.TenantID,
 			"UNMATCHED_INTENT",
 			e.IntendedAmountMinor, // intended amount at risk
-			0,                     // no orphan amount (that comes from HandleSettlementCreated)
+			decimal.Zero,          // no orphan amount (that comes from HandleSettlementCreated)
 			window.start, window.end,
 		); err != nil {
 			return fmt.Errorf("HandleAttachmentDecision AtomicRecordLeakage decision=%s: %w",
@@ -997,8 +997,8 @@ func (s *ProjectionService) HandleVarianceRecord(
 		// Use the absolute variance amount. VarianceAmountMinor from Service 5C
 		// is already the absolute difference (intended - settled).
 		varianceMinor := e.VarianceAmountMinor
-		if varianceMinor < 0 {
-			varianceMinor = -varianceMinor // ensure positive for leakage calculation
+		if varianceMinor.IsNegative() {
+			varianceMinor = varianceMinor.Neg() // ensure positive for leakage calculation
 		}
 
 		if err := s.projRepo.AtomicRecordVariance(
@@ -1035,7 +1035,7 @@ func (s *ProjectionService) HandleVarianceRecord(
 			e.VarianceID, err)
 	}
 
-	log.Printf("HandleVarianceRecord: variance_id=%s type=%s amount=%d whitelisted=%v cross_period=%v tenant=%s",
+	log.Printf("HandleVarianceRecord: variance_id=%s type=%s amount=%s whitelisted=%v cross_period=%v tenant=%s",
 		e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.IsWhitelisted, e.CrossPeriodFlag, e.TenantID)
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
@@ -1128,12 +1128,12 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 
 	if leakage, err := s.projRepo.GetLeakageSummary(ctx, e.TenantID); err != nil {
 		log.Printf("HandleBatchSummaryUpdated: leakage denominator check failed batch=%s: %v", e.BatchID, err)
-	} else if leakage != nil && leakage.TotalIntendedAmountMinor > 0 {
-		if leakage.TotalIntendedAmountMinor != e.TotalIntendedAmountMinor {
-			log.Printf("HandleBatchSummaryUpdated: leakage denominator mismatch batch=%s batch_summary_total=%d leakage_total=%d tenant=%s",
+	} else if leakage != nil && leakage.TotalIntendedAmountMinor.IsPositive() {
+		if !leakage.TotalIntendedAmountMinor.Equal(e.TotalIntendedAmountMinor) {
+			log.Printf("HandleBatchSummaryUpdated: leakage denominator mismatch batch=%s batch_summary_total=%s leakage_total=%s tenant=%s",
 				e.BatchID, e.TotalIntendedAmountMinor, leakage.TotalIntendedAmountMinor, e.TenantID)
 		} else {
-			log.Printf("HandleBatchSummaryUpdated: leakage denominator aligned batch=%s total=%d tenant=%s",
+			log.Printf("HandleBatchSummaryUpdated: leakage denominator aligned batch=%s total=%s tenant=%s",
 				e.BatchID, e.TotalIntendedAmountMinor, e.TenantID)
 		}
 	}
@@ -1145,7 +1145,7 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		log.Printf("HandleBatchSummaryUpdated: EvaluateForEvent failed batch=%s: %v", e.BatchID, err)
 	}
 
-	log.Printf("HandleBatchSummaryUpdated: batch_id=%s status=%s total=%d pending=%d variance=%d ambiguity=%.2f tenant=%s",
+	log.Printf("HandleBatchSummaryUpdated: batch_id=%s status=%s total=%d pending=%d variance=%s ambiguity=%.2f tenant=%s",
 		e.BatchID, e.BatchFinalityStatus, e.TotalCount, e.PendingCount,
 		e.TotalVarianceMinor, e.AmbiguityScore, e.TenantID)
 

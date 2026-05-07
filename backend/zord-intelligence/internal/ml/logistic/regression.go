@@ -86,8 +86,8 @@ func BuildFeatures(
 	ambiguityRate float64,
 	providerRefMissingRate float64,
 	avgConfidence float64,
-	valueAtRiskMinor int64,
-	totalIntendedMinor int64,
+	valueAtRiskMinor float64,
+	totalIntendedMinor float64,
 ) []float64 {
 	// Feature 2: invert confidence so higher number = worse signal
 	lowConfidenceProxy := 1.0 - clamp01(avgConfidence)
@@ -95,14 +95,14 @@ func BuildFeatures(
 	// Feature 3: value at risk as a rate (0–1), 0 if no intended volume
 	varRate := 0.0
 	if totalIntendedMinor > 0 {
-		varRate = clamp01(float64(valueAtRiskMinor) / float64(totalIntendedMinor))
+		varRate = clamp01(valueAtRiskMinor / totalIntendedMinor)
 	}
 
 	return []float64{
-		clamp01(ambiguityRate),       // [0]
+		clamp01(ambiguityRate),          // [0]
 		clamp01(providerRefMissingRate), // [1]
-		lowConfidenceProxy,           // [2]
-		varRate,                      // [3]
+		lowConfidenceProxy,              // [2]
+		varRate,                         // [3]
 	}
 }
 

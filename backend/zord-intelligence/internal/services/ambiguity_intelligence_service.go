@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/internal/ml/logistic"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
@@ -86,10 +87,10 @@ func loadOrDefaultAmbiguityModel(ctx context.Context, predRepo *persistence.MLPr
 // for snapshot_type = AMBIGUITY.
 type AmbiguitySnapshot struct {
 	// ── Headline numbers ─────────────────────────────────────────────────
-	ValueAtRiskMinor         int64   `json:"value_at_risk_minor"`         // finance's headline number
-	AmbiguityRate            float64 `json:"ambiguity_rate"`              // ambiguous / total decisions
-	AvgAttachmentConfidence  float64 `json:"avg_attachment_confidence"`   // running average 0.0–1.0
-	ProviderRefMissingRate   float64 `json:"provider_ref_missing_rate"`   // fraction with no carriers
+	ValueAtRiskMinor        decimal.Decimal `json:"value_at_risk_minor"`       // finance's headline number
+	AmbiguityRate           float64         `json:"ambiguity_rate"`            // ambiguous / total decisions
+	AvgAttachmentConfidence float64         `json:"avg_attachment_confidence"` // running average 0.0–1.0
+	ProviderRefMissingRate  float64         `json:"provider_ref_missing_rate"` // fraction with no carriers
 
 	// ── Counts ───────────────────────────────────────────────────────────
 	AmbiguousIntentCount      int `json:"ambiguous_intent_count"`
@@ -98,7 +99,7 @@ type AmbiguitySnapshot struct {
 	TotalDecisions            int `json:"total_decisions"`
 
 	// ── Money ────────────────────────────────────────────────────────────
-	AmbiguousAmountMinor int64 `json:"ambiguous_amount_minor"`
+	AmbiguousAmountMinor decimal.Decimal `json:"ambiguous_amount_minor"`
 
 	// ── Risk classification ───────────────────────────────────────────────
 	// CRITICAL: > 10% of decisions are ambiguous OR value_at_risk > 10L
@@ -161,7 +162,7 @@ func (s *AmbiguityIntelligenceService) ComputeAndSave(
 		amb.AmbiguityRate,
 		amb.ProviderRefMissingRate,
 		amb.AvgAttachmentConfidence,
-		amb.ValueAtRiskMinor,
+		amb.ValueAtRiskMinor.InexactFloat64(),
 		0, // totalIntendedMinor — not available at tenant scope; feature [3] will be 0
 	)
 	prob := s.lrModel.Predict(features)
@@ -207,16 +208,16 @@ func (s *AmbiguityIntelligenceService) ComputeAndSave(
 
 func (s *AmbiguityIntelligenceService) buildSnapshot(av *models.AmbiguityValue) AmbiguitySnapshot {
 	snap := AmbiguitySnapshot{
-		ValueAtRiskMinor:        av.ValueAtRiskMinor,
-		AmbiguityRate:           av.AmbiguityRate,
-		AvgAttachmentConfidence: av.AvgAttachmentConfidence,
-		ProviderRefMissingRate:  av.ProviderRefMissingRate,
-		AmbiguousIntentCount:    av.AmbiguousIntentCount,
+		ValueAtRiskMinor:          av.ValueAtRiskMinor,
+		AmbiguityRate:             av.AmbiguityRate,
+		AvgAttachmentConfidence:   av.AvgAttachmentConfidence,
+		ProviderRefMissingRate:    av.ProviderRefMissingRate,
+		AmbiguousIntentCount:      av.AmbiguousIntentCount,
 		UnresolvedSettlementCount: av.UnresolvedSettlementCount,
-		ProviderRefMissingCount: av.ProviderRefMissingCount,
-		TotalDecisions:          av.TotalDecisions,
-		AmbiguousAmountMinor:    av.AmbiguousAmountMinor,
-		ComputedAt:              time.Now().UTC(),
+		ProviderRefMissingCount:   av.ProviderRefMissingCount,
+		TotalDecisions:            av.TotalDecisions,
+		AmbiguousAmountMinor:      av.AmbiguousAmountMinor,
+		ComputedAt:                time.Now().UTC(),
 	}
 
 	snap.RiskTier = ambiguityRiskTier(av.AmbiguityRate, av.ValueAtRiskMinor)
@@ -227,11 +228,11 @@ func (s *AmbiguityIntelligenceService) buildSnapshot(av *models.AmbiguityValue) 
 
 // ambiguityRiskTier classifies ambiguity level.
 // 10L = 1,000,000 minor units (₹10 lakh).
-func ambiguityRiskTier(rate float64, valueAtRisk int64) string {
+func ambiguityRiskTier(rate float64, valueAtRisk decimal.Decimal) string {
 	switch {
-	case rate > 0.10 || valueAtRisk > 1_000_000:
+	case rate > 0.10 || valueAtRisk.GreaterThan(decimal.NewFromInt(1_000_000)):
 		return "CRITICAL"
-	case rate > 0.05 || valueAtRisk > 500_000:
+	case rate > 0.05 || valueAtRisk.GreaterThan(decimal.NewFromInt(500_000)):
 		return "HIGH"
 	case rate > 0.02:
 		return "MEDIUM"
@@ -290,8 +291,8 @@ func (s *AmbiguityIntelligenceService) persistMLPrediction(
 			"low_confidence_proxy":      features[2],
 			"value_at_risk_rate":        features[3],
 		},
-		"probability":    prob,
-		"risk_level":     level,
+		"probability":      prob,
+		"risk_level":       level,
 		"model_trained_on": s.lrModel.TrainedOn,
 	}
 	expJSON, _ := json.Marshal(explanation)
@@ -500,7 +501,7 @@ func rebuildFeaturesFromJSON(featJSON json.RawMessage) []float64 {
 		getFloat("ambiguity_rate"),
 		getFloat("provider_ref_missing_rate"),
 		getFloat("avg_attachment_confidence"),
-		int64(getFloat("value_at_risk_minor")),
+		getFloat("value_at_risk_minor"),
 		0, // totalIntendedMinor not stored at tenant scope; feature [3] stays 0
 	)
 }

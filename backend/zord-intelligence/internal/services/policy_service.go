@@ -203,14 +203,14 @@ func (s *PolicyService) evaluateOne(
 	inputRefs, _ := json.Marshal(evalCtx)
 
 	return s.actionService.CreateAction(ctx, CreateActionRequest{
-		TenantID:      tenantID,
-		PolicyID:      policy.PolicyID,
-		PolicyVersion: policy.Version,
-		ScopeRefs:     scopeRefs,
-		InputRefsJSON: string(inputRefs),
-		Decision:      decision,
-		Confidence:    confidence,
-		PayloadJSON:   payload,
+		TenantID:       tenantID,
+		PolicyID:       policy.PolicyID,
+		PolicyVersion:  policy.Version,
+		ScopeRefs:      scopeRefs,
+		InputRefsJSON:  string(inputRefs),
+		Decision:       decision,
+		Confidence:     confidence,
+		PayloadJSON:    payload,
 		TriggerEventID: triggerEventID,
 		// PHASE 5: new fields
 		RequiresManualApproval: policy.RequiresManualApproval || decision.RequiresApproval(),
@@ -325,25 +325,25 @@ func (s *PolicyService) buildEvalContext(
 	if err := s.projRepo.GetValueAs(ctx, tenantID, "leakage.total", &leakageVal); err != nil {
 		return nil, fmt.Errorf("buildEvalContext leakage tenant=%s: %w", tenantID, err)
 	}
-	evalMap["leakage.total_amount_minor"]            = float64(leakageVal.TotalAmountMinor)
-	evalMap["leakage.percentage"]                    = leakageVal.LeakagePercentage
-	evalMap["leakage.unmatched_intent_count"]        = float64(leakageVal.UnmatchedIntentCount)
-	evalMap["leakage.under_settlement_amount_minor"] = float64(leakageVal.UnderSettlementAmountMinor)
-	evalMap["leakage.reversal_exposure_minor"]       = float64(leakageVal.ReversalExposureMinor)
-	evalMap["leakage.orphan_amount_minor"]           = float64(leakageVal.OrphanAmountMinor)
-	evalMap["leakage.reversal_count"]                = float64(leakageVal.ReversalCount)
-	evalMap["leakage.under_settlement_count"]        = float64(leakageVal.UnderSettlementCount)
+	evalMap["leakage.total_amount_minor"] = leakageVal.TotalAmountMinor.InexactFloat64()
+	evalMap["leakage.percentage"] = leakageVal.LeakagePercentage
+	evalMap["leakage.unmatched_intent_count"] = float64(leakageVal.UnmatchedIntentCount)
+	evalMap["leakage.under_settlement_amount_minor"] = leakageVal.UnderSettlementAmountMinor.InexactFloat64()
+	evalMap["leakage.reversal_exposure_minor"] = leakageVal.ReversalExposureMinor.InexactFloat64()
+	evalMap["leakage.orphan_amount_minor"] = leakageVal.OrphanAmountMinor.InexactFloat64()
+	evalMap["leakage.reversal_count"] = float64(leakageVal.ReversalCount)
+	evalMap["leakage.under_settlement_count"] = float64(leakageVal.UnderSettlementCount)
 
 	// ── Ambiguity metrics ─────────────────────────────────────────────────
 	var ambiguityVal models.AmbiguityValue
 	if err := s.projRepo.GetValueAs(ctx, tenantID, "ambiguity.summary", &ambiguityVal); err != nil {
 		return nil, fmt.Errorf("buildEvalContext ambiguity tenant=%s: %w", tenantID, err)
 	}
-	evalMap["ambiguity.value_at_risk_minor"]      = float64(ambiguityVal.ValueAtRiskMinor)
-	evalMap["ambiguity.rate"]                     = ambiguityVal.AmbiguityRate
+	evalMap["ambiguity.value_at_risk_minor"] = ambiguityVal.ValueAtRiskMinor.InexactFloat64()
+	evalMap["ambiguity.rate"] = ambiguityVal.AmbiguityRate
 	evalMap["ambiguity.avg_attachment_confidence"] = ambiguityVal.AvgAttachmentConfidence
-	evalMap["ambiguity.ambiguous_intent_count"]   = float64(ambiguityVal.AmbiguousIntentCount)
-	evalMap["ambiguity.unresolved_count"]         = float64(ambiguityVal.UnresolvedSettlementCount)
+	evalMap["ambiguity.ambiguous_intent_count"] = float64(ambiguityVal.AmbiguousIntentCount)
+	evalMap["ambiguity.unresolved_count"] = float64(ambiguityVal.UnresolvedSettlementCount)
 	evalMap["ambiguity.provider_ref_missing_rate"] = ambiguityVal.ProviderRefMissingRate
 
 	// ── Defensibility metrics ─────────────────────────────────────────────
@@ -351,12 +351,12 @@ func (s *PolicyService) buildEvalContext(
 	if err := s.projRepo.GetValueAs(ctx, tenantID, "defensibility.summary", &defensibilityVal); err != nil {
 		return nil, fmt.Errorf("buildEvalContext defensibility tenant=%s: %w", tenantID, err)
 	}
-	evalMap["defensibility.audit_ready_pct"]          = defensibilityVal.AuditReadyPct
-	evalMap["defensibility.governance_coverage_pct"]  = defensibilityVal.GovernanceCoveragePct
-	evalMap["defensibility.evidence_pack_rate"]       = defensibilityVal.EvidencePackRate
-	evalMap["defensibility.replayability_pct"]        = defensibilityVal.ReplayabilityPct
-	evalMap["defensibility.dispute_ready_pct"]        = defensibilityVal.DisputeReadyPct
-	evalMap["defensibility.total_intents"]            = float64(defensibilityVal.TotalIntents)
+	evalMap["defensibility.audit_ready_pct"] = defensibilityVal.AuditReadyPct
+	evalMap["defensibility.governance_coverage_pct"] = defensibilityVal.GovernanceCoveragePct
+	evalMap["defensibility.evidence_pack_rate"] = defensibilityVal.EvidencePackRate
+	evalMap["defensibility.replayability_pct"] = defensibilityVal.ReplayabilityPct
+	evalMap["defensibility.dispute_ready_pct"] = defensibilityVal.DisputeReadyPct
+	evalMap["defensibility.total_intents"] = float64(defensibilityVal.TotalIntents)
 	evalMap["defensibility.governance_rejected_count"] = float64(defensibilityVal.GovernanceRejectedCount)
 
 	// ── PHASE 5: Batch metrics — read from the most recent batch projection ──
@@ -371,10 +371,10 @@ func (s *PolicyService) buildEvalContext(
 	// using the corridor prefix query. If corridorID is empty, batch metrics stay 0.0.
 	batchAmbiguityScore, batchRiskScore, patternDuplicateCount, patternProofReadiness :=
 		s.readBatchMetrics(ctx, tenantID, corridorID)
-	evalMap["batch.ambiguity_score"]              = batchAmbiguityScore
-	evalMap["batch.risk_score"]                   = batchRiskScore
-	evalMap["pattern.duplicate_cluster_count"]    = patternDuplicateCount
-	evalMap["pattern.proof_readiness_score"]      = patternProofReadiness
+	evalMap["batch.ambiguity_score"] = batchAmbiguityScore
+	evalMap["batch.risk_score"] = batchRiskScore
+	evalMap["pattern.duplicate_cluster_count"] = patternDuplicateCount
+	evalMap["pattern.proof_readiness_score"] = patternProofReadiness
 
 	return evalMap, nil
 }
@@ -419,9 +419,9 @@ func (s *PolicyService) readBatchMetrics(
 		BatchRiskScore        float64 `json:"batch_risk_score"`
 	}
 	_ = s.projRepo.GetValueAs(ctx, tenantID, "pattern.tenant_summary", &patternVal)
-	riskScore        = patternVal.BatchRiskScore
-	duplicateCount   = patternVal.DuplicateClusterCount
-	proofReadiness   = patternVal.ProofReadinessScore
+	riskScore = patternVal.BatchRiskScore
+	duplicateCount = patternVal.DuplicateClusterCount
+	proofReadiness = patternVal.ProofReadinessScore
 	return
 }
 

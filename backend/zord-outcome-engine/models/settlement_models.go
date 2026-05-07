@@ -98,6 +98,10 @@ type CanonicalSettlementObservation struct {
 	AttachmentReadinessScore   float64    `json:"attachment_readiness_score" db:"attachment_readiness_score"`
 	CanonicalHash              string     `json:"canonical_hash" db:"canonical_hash"`
 	CanonicalSnapshotRef       *string    `json:"canonical_snapshot_ref,omitempty" db:"canonical_snapshot_ref"`
+	SourceStrength             string           `json:"source_strength" db:"source_strength"`
+	SourceType                 string           `json:"source_type" db:"source_type"`
+	SourceSystemID             string           `json:"source_system_id" db:"source_system_id"`
+	CorridorID                 string           `json:"corridor_id" db:"corridor_id"`
 	CreatedAt                  time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt                  time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -188,6 +192,7 @@ type UniversalSettlementShape struct {
 	ReversalFlag                 bool                   `json:"reversal_flag"`
 	ReturnFlag                   bool                   `json:"return_flag"`
 	ParseConfidence              float64                `json:"parse_confidence"`
+	PaymentMethod                 string                 `json:"payment_method"`
 	CarrierCandidates            map[string]interface{} `json:"carrier_candidates"`
 	RawEnvelopeRef               uuid.UUID              `json:"raw_envelope_ref"`
 }

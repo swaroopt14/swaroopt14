@@ -181,6 +181,7 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		ObservationTimestamp:     observationTS,
 		ValueDate:                &valueDate,
 		ParseConfidence:          confidence,
+		PaymentMethod:            cellStr(row, 8),
 		RawEnvelopeRef:           envelopeID,
 		CarrierCandidates:        map[string]interface{}{},
 	}

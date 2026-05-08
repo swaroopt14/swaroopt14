@@ -52,23 +52,30 @@ func (p *BankParser) parseRow(rowNum int, row []string, colIndex map[string]int,
 		return p.get(row, idx)
 	}
 
-	shape.BeneficiaryName = getValue("beneficiary_name")
-	shape.BeneficiaryAccountNo = getValue("beneficiary_account_no")
-	shape.BeneficiaryIFSC = getValue("beneficiary_ifsc")
-	shape.ClientPayoutRef = getValue("client_payout_ref")
-	shape.Narration = getValue("narration")
-	shape.Currency = "INR"
+	// Populate Nested Structure
+	shape.SchemaVersion = "1.0.0"
+	shape.IntentType = "PAYOUT"
+	
+	shape.Beneficiary.Name = getValue("beneficiary_name")
+	shape.Beneficiary.Instrument.Kind = "BANK_ACCOUNT"
+	shape.Beneficiary.Instrument.AccountNo = getValue("beneficiary_account_no")
+	shape.Beneficiary.Instrument.IFSC = getValue("beneficiary_ifsc")
+	shape.Beneficiary.Country = "IN"
 
+	shape.ClientPayoutRef = getValue("client_payout_ref")
+	shape.PurposeCode = getValue("narration") // using narration as purpose for now
+	
+	shape.Amount.Currency = "INR"
 	amtStr := getValue("amount")
 	amt, err := p.parseAmount(amtStr)
 	if err != nil {
 		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "amount", Message: err.Error()})
 	} else {
-		shape.Amount = amt
+		shape.Amount.Value = amt
 	}
 
 	// Static validation
-	if shape.BeneficiaryAccountNo == "" {
+	if shape.Beneficiary.Instrument.AccountNo == "" {
 		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "beneficiary_account_no", Message: "missing account number"})
 	}
 

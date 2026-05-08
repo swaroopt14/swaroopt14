@@ -51,18 +51,25 @@ func (p *NBFCParser) parseRow(rowNum int, row []string, colIndex map[string]int,
 		return p.get(row, idx)
 	}
 
-	shape.BeneficiaryName = getValue("beneficiary_name")
-	shape.BeneficiaryAccountNo = getValue("beneficiary_account_no")
-	shape.BeneficiaryIFSC = getValue("beneficiary_ifsc")
-	shape.ClientPayoutRef = getValue("client_payout_ref")
-	shape.Currency = "INR"
+	// Populate Nested Structure
+	shape.SchemaVersion = "1.0.0"
+	shape.IntentType = "PAYOUT"
 
+	shape.Beneficiary.Name = getValue("beneficiary_name")
+	shape.Beneficiary.Instrument.Kind = "BANK_ACCOUNT"
+	shape.Beneficiary.Instrument.AccountNo = getValue("beneficiary_account_no")
+	shape.Beneficiary.Instrument.IFSC = getValue("beneficiary_ifsc")
+	shape.Beneficiary.Country = "IN"
+
+	shape.ClientPayoutRef = getValue("client_payout_ref")
+	
+	shape.Amount.Currency = "INR"
 	amtStr := getValue("amount")
 	amt, err := p.parseAmount(amtStr)
 	if err != nil {
 		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "amount", Message: err.Error()})
 	} else {
-		shape.Amount = amt
+		shape.Amount.Value = amt
 	}
 
 	shape.SourceRowRef = fmt.Sprintf("row:%d", rowNum)

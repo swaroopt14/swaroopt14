@@ -335,6 +335,63 @@ func (r *ActionContractRepo) ListByPolicyFamily(
 	return scanActionContractRows(rows)
 }
 
+// ActionRateSummary holds aggregate counts for the dashboard recommendation KPIs.
+//
+// KPI 15 — action_acceptance_rate = Accepted / Total
+// KPI 16 — action_resolution_rate = Resolved / Total
+//
+// Definitions used here:
+//   Total    = all contracts for the tenant (excluding EXPIRED for a fair denominator)
+//   Accepted = contracts with contract_status = 'APPROVED'
+//   Resolved = contracts that reached a terminal decision: APPROVED or DISMISSED
+//              (i.e. a human acted on them — not left as PENDING or auto-expired)
+type ActionRateSummary struct {
+	Total    int
+	Accepted int
+	Resolved int
+}
+
+// GetRateSummary returns aggregate counts for recommendation KPIs 15 and 16.
+//
+// Optional from/to filter on created_at lets dashboard date-range queries
+// show rates for a specific period (e.g. "last 30 days").
+// Passing nil for both returns the all-time summary.
+func (r *ActionContractRepo) GetRateSummary(
+	ctx context.Context,
+	tenantID string,
+	from, to *time.Time,
+) (ActionRateSummary, error) {
+	query := `
+		SELECT
+			COUNT(*)                                                    AS total,
+			COUNT(*) FILTER (WHERE contract_status = 'APPROVED')       AS accepted,
+			COUNT(*) FILTER (WHERE contract_status IN ('APPROVED','DISMISSED')) AS resolved
+		FROM action_contracts
+		WHERE tenant_id       = $1
+		  AND contract_status != 'EXPIRED'
+	`
+	args := []any{tenantID}
+	argIdx := 2
+
+	if from != nil {
+		query += fmt.Sprintf(" AND created_at >= $%d", argIdx)
+		args = append(args, *from)
+		argIdx++
+	}
+	if to != nil {
+		query += fmt.Sprintf(" AND created_at <= $%d", argIdx)
+		args = append(args, *to)
+		argIdx++
+	}
+	_ = argIdx
+
+	var s ActionRateSummary
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&s.Total, &s.Accepted, &s.Resolved); err != nil {
+		return ActionRateSummary{}, fmt.Errorf("action_repo.GetRateSummary tenant=%s: %w", tenantID, err)
+	}
+	return s, nil
+}
+
 // HasRecentAction returns true if a non-dismissed, non-expired action already
 // exists for this policy+tenant+corridor created within the last cooldown window.
 //

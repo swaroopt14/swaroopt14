@@ -72,6 +72,12 @@ func NewRouter(
 	batchH *BatchHandler,
 	historyH *HistoryHandler,
 	explanationH *ExplanationHandler,
+	// Dashboard handlers — frontend-facing endpoints (always contain /dashboard/ in path)
+	dashLeakageH        *DashboardLeakageHandler,
+	dashAmbiguityH      *DashboardAmbiguityHandler,
+	dashDefensibilityH  *DashboardDefensibilityHandler,
+	dashPatternH        *DashboardPatternHandler,
+	dashRecommendationH *DashboardRecommendationHandler,
 ) http.Handler {
 
 	r := chi.NewRouter()
@@ -163,6 +169,25 @@ func NewRouter(
 		// ── PHASE 7: Explanation endpoints ────────────────────────────────
 		r.Get("/explanations/{snapshot_id}", explanationH.GetExplanation)
 		r.Post("/explain-batch", explanationH.ExplainBatch)
+
+		// ── Dashboard KPI endpoints (frontend-facing) ─────────────────────
+		//
+		// All paths contain /dashboard/ so they are identifiable as
+		// frontend-consumed endpoints distinct from internal service APIs.
+		//
+		// Supported query params (all dashboard routes):
+		//   tenant_id  required
+		//   from_date  optional YYYY-MM-DD
+		//   to_date    optional YYYY-MM-DD
+		//   batch_id   optional (patterns only — scopes to a specific batch)
+		//   provider   optional (accepted, ignored in Grade A)
+		r.Route("/dashboard", func(r chi.Router) {
+			r.Get("/leakage", dashLeakageH.GetLeakageKPIs)
+			r.Get("/ambiguity", dashAmbiguityH.GetAmbiguityKPIs)
+			r.Get("/defensibility", dashDefensibilityH.GetDefensibilityKPIs)
+			r.Get("/patterns", dashPatternH.GetPatternKPIs)
+			r.Get("/recommendations", dashRecommendationH.GetRecommendationKPIs)
+		})
 
 		// ── Policy endpoints ───────────────────────────────────────────────
 		r.Route("/policies", func(r chi.Router) {

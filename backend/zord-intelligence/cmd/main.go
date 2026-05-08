@@ -179,8 +179,14 @@ func main() {
 	historyHandler := handlers.NewHistoryHandler(projectionService, snapshotRepo)
 	explanationHandler := handlers.NewExplanationHandler(explSvc)
 
+	// ── Dashboard handlers (frontend-facing /dashboard/ endpoints) ────────
+	dashLeakageH := handlers.NewDashboardLeakageHandler(snapshotRepo)
+	dashAmbiguityH := handlers.NewDashboardAmbiguityHandler(snapshotRepo)
+	dashDefensibilityH := handlers.NewDashboardDefensibilityHandler(snapshotRepo)
+	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo)
+	dashRecommendationH := handlers.NewDashboardRecommendationHandler(actionRepo)
+
 	// ── Step 9: Build the HTTP router ─────────────────────────────────────
-	// PHASE 6 & 7: NewRouter now accepts all unbundled surface handlers + explanation handler
 	router := handlers.NewRouter(
 		healthHandler,
 		kpiHandler,
@@ -196,6 +202,11 @@ func main() {
 		batchHandler,
 		historyHandler,
 		explanationHandler,
+		dashLeakageH,
+		dashAmbiguityH,
+		dashDefensibilityH,
+		dashPatternH,
+		dashRecommendationH,
 	)
 
 	// ── Step 10: Create the HTTP server ───────────────────────────────────

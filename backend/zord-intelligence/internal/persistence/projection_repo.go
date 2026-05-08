@@ -1640,7 +1640,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 				value_json = projection_state.value_json,
 				computed_at = now()
 		`
-		if _, err := r.pool.Exec(ctx, upsertSQL, tenantID, key, windowStart, windowEnd, intendedMinor.IntPart()); err != nil {
+		if _, err := r.pool.Exec(ctx, upsertSQL, tenantID, key, windowStart, windowEnd); err != nil {
 			return fmt.Errorf("projection_repo.AtomicRecordVariance whitelisted tenant=%s: %w", tenantID, err)
 		}
 		return r.recomputeLeakageTotals(ctx, tenantID, key, windowStart)
@@ -1668,7 +1668,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 					'reversal_count',                 1,
 					'total_intended_amount_minor',    0::bigint,
 					'leakage_percentage',             0.0,
-					'breakdown_by_type',              jsonb_build_object($7::text, $5::bigint)
+					'breakdown_by_type',              jsonb_build_object($6::text, $5::bigint)
 				),
 				now(), 1, 'LEAKAGE', 'TENANT')
 			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
@@ -1703,7 +1703,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 					'reversal_count',                 0,
 					'total_intended_amount_minor',    0::bigint,
 					'leakage_percentage',             0.0,
-					'breakdown_by_type',              jsonb_build_object($7::text, $5::bigint)
+					'breakdown_by_type',              jsonb_build_object($6::text, $5::bigint)
 				),
 				now(), 1, 'LEAKAGE', 'TENANT')
 			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
@@ -1723,7 +1723,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 
 	if _, err := r.pool.Exec(ctx, upsertSQL,
 		tenantID, key, windowStart, windowEnd,
-		varianceMinor.IntPart(), intendedMinor.IntPart(), varianceType,
+		varianceMinor.IntPart(), varianceType,
 	); err != nil {
 		return fmt.Errorf("projection_repo.AtomicRecordVariance type=%s tenant=%s: %w",
 			varianceType, tenantID, err)
@@ -1732,11 +1732,15 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 	return r.recomputeLeakageTotals(ctx, tenantID, key, windowStart)
 }
 
-// recomputeLeakageTotals recalculates total_amount_minor and leakage_percentage
-// from the four bucket columns. Called after every leakage increment.
+// recomputeLeakageTotals recalculates total_amount_minor and leakage_percentage.
+// Called after every leakage increment.
 //
 // total_amount_minor = unmatched + under_settlement + orphan + reversal_exposure
-// leakage_percentage = total_amount_minor / total_intended_amount_minor
+//   (full financial exposure across all leakage types — for display)
+//
+// leakage_percentage = (unmatched + under_settlement + reversal) / total_intended
+//   (KPI 9 formula per document §7.1 — orphan is a separate display metric,
+//    confirmed_duplicate_exposure is removed per lead decision)
 //
 // NULLIF prevents divide-by-zero when no intents have been seen yet.
 func (r *ProjectionRepo) recomputeLeakageTotals(
@@ -1763,7 +1767,6 @@ func (r *ProjectionRepo) recomputeLeakageTotals(
 					(
 						COALESCE((value_json->>'unmatched_amount_minor')::numeric, 0) +
 						COALESCE((value_json->>'under_settlement_amount_minor')::numeric, 0) +
-						COALESCE((value_json->>'orphan_amount_minor')::numeric, 0) +
 						COALESCE((value_json->>'reversal_exposure_minor')::numeric, 0)
 					) /
 					NULLIF((value_json->>'total_intended_amount_minor')::numeric, 0),

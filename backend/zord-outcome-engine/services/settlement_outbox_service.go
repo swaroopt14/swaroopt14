@@ -96,13 +96,13 @@ func (s *SettlementOutboxService) insertEvent(
 	}
 
 	_, err = db.DB.ExecContext(ctx, `
-		INSERT INTO settlement_outbox_events (
-			outbox_event_id, tenant_id, trace_id, job_id, ingest_run_id, settlement_batch_id,
-			entity_family, entity_id,
-			event_type, payload_json,
-			status, attempts, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		uuid.New(), tenantID, nil, jobID, jobID, settlementBatchID,
+		INSERT INTO outcome_outbox (
+			event_id, tenant_id, trace_id, envelope_id,
+			aggregate_type, aggregate_id,
+			event_type, payload,
+			status, retry_count, created_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		uuid.New(), tenantID, uuid.Nil, jobID,
 		family, entityID,
 		eventType, payloadJSON,
 		"PENDING", 0, time.Now().UTC(),

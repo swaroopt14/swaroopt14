@@ -197,7 +197,7 @@ func (h *Handler) GetBatchAttachmentSummaryHandler(c *gin.Context) {
 			total_intent_count, exact_match_count, high_confidence_count,
 			ambiguous_count, unresolved_count, conflicted_count,
 			total_intended_amount, total_observed_amount, total_variance,
-			batch_attachment_status, aggregate_score, created_at, updated_at
+			batch_attachment_status, aggregate_score, ambiguity_score, created_at, updated_at
 		FROM batch_attachment_summaries
 		WHERE tenant_id = $1 AND (batch_id = $2 OR source_reference = $2)
 		ORDER BY created_at DESC
@@ -212,7 +212,7 @@ func (h *Handler) GetBatchAttachmentSummaryHandler(c *gin.Context) {
 		&s.TotalIntentCount, &s.ExactMatchCount, &s.HighConfidenceCount,
 		&s.AmbiguousCount, &s.UnresolvedCount, &s.ConflictedCount,
 		&s.TotalIntendedAmount, &s.TotalObservedAmount, &s.TotalVariance,
-		&s.BatchAttachmentStatus, &s.AggregateScore, &s.CreatedAt, &s.UpdatedAt,
+		&s.BatchAttachmentStatus, &s.AggregateScore, &s.AmbiguityScore, &s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no batch summary found"})
 		return

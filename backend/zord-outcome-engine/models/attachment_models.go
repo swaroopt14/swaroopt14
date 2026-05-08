@@ -229,6 +229,7 @@ type BatchAttachmentSummary struct {
 	// Derived status
 	BatchAttachmentStatus string    `json:"batch_attachment_status" db:"batch_attachment_status"`
 	AggregateScore        float64   `json:"aggregate_score" db:"aggregate_score"`
+	AmbiguityScore        float64   `json:"ambiguity_score" db:"ambiguity_score"`
 	CreatedAt             time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
 }

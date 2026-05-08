@@ -288,7 +288,7 @@ type LeakageValue struct {
 	TotalIntendedAmountMinor decimal.Decimal `json:"total_intended_amount_minor"` // sum of all intent amounts
 
 	// ── Derived rate (recomputed after every increment) ───────────────────
-	LeakagePercentage float64 `json:"leakage_percentage"` // total_amount_minor / total_intended_amount_minor
+	LeakagePercentage float64 `json:"leakage_percentage"` // (unmatched + under_settlement + reversal) / total_intended — doc §7.1 KPI 9
 
 	// ── Per-type breakdown ────────────────────────────────────────────────
 	// Key: variance_type string (e.g. "UNDER_SETTLEMENT", "REVERSAL", "DEDUCTION")

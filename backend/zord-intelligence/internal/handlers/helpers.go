@@ -10,6 +10,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 // writeJSON serialises v to JSON and writes it to the response.
@@ -36,6 +37,26 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 		// In production: use zerolog here
 		_ = err
 	}
+}
+
+// parseDateRangeParams reads optional from_date and to_date query parameters.
+//
+// Accepted format: YYYY-MM-DD (e.g. "2026-01-15").
+// Invalid or missing values are silently ignored — callers treat nil as "no filter".
+func parseDateRangeParams(r *http.Request) (from *time.Time, to *time.Time) {
+	if s := r.URL.Query().Get("from_date"); s != "" {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			from = &t
+		}
+	}
+	if s := r.URL.Query().Get("to_date"); s != "" {
+		// Set to end-of-day so the filter is inclusive of the requested date.
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			endOfDay := t.Add(24*time.Hour - time.Second)
+			to = &endOfDay
+		}
+	}
+	return from, to
 }
 
 // writeError sends a standard error response.

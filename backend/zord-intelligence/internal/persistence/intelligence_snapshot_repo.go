@@ -250,6 +250,61 @@ func (r *IntelligenceSnapshotRepo) ListByTenantAndType(
 	return result, nil
 }
 
+// GetLatestByTypeFiltered returns the most recently created snapshot for a
+// tenant + type + scope, with optional created_at date range filtering.
+//
+// Used by the dashboard endpoints which accept from_date / to_date query params.
+// If from and to are nil this behaves identically to GetLatestByType.
+func (r *IntelligenceSnapshotRepo) GetLatestByTypeFiltered(
+	ctx context.Context,
+	tenantID, snapshotType, scopeType string,
+	scopeRef *string,
+	from, to *time.Time,
+) (*IntelligenceSnapshot, error) {
+	base := `
+		SELECT snapshot_id, tenant_id, snapshot_type, scope_type, scope_ref,
+		       window_start, window_end, projection_refs_json, snapshot_json,
+		       model_version, created_at
+		FROM   intelligence_snapshots
+		WHERE  tenant_id     = $1
+		  AND  snapshot_type = $2
+		  AND  scope_type    = $3
+	`
+	args := []any{tenantID, snapshotType, scopeType}
+	argIdx := 4
+
+	if scopeRef == nil {
+		base += " AND scope_ref IS NULL"
+	} else {
+		base += fmt.Sprintf(" AND scope_ref = $%d", argIdx)
+		args = append(args, *scopeRef)
+		argIdx++
+	}
+	if from != nil {
+		base += fmt.Sprintf(" AND created_at >= $%d", argIdx)
+		args = append(args, *from)
+		argIdx++
+	}
+	if to != nil {
+		base += fmt.Sprintf(" AND created_at <= $%d", argIdx)
+		args = append(args, *to)
+		argIdx++
+	}
+	_ = argIdx
+	base += " ORDER BY created_at DESC LIMIT 1"
+
+	row := r.pool.QueryRow(ctx, base, args...)
+	snap, err := scanSnapshot(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("intelligence_snapshot_repo.GetLatestByTypeFiltered type=%s scope=%s: %w",
+			snapshotType, scopeType, err)
+	}
+	return snap, nil
+}
+
 // scanSnapshot scans one row from a QueryRow call into an IntelligenceSnapshot.
 func scanSnapshot(row pgx.Row) (*IntelligenceSnapshot, error) {
 	var s IntelligenceSnapshot

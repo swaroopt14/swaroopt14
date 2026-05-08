@@ -23,11 +23,13 @@ import (
 	"fmt"
 	"log"
 	"time"
+	"zord-outcome-engine/db"
+	"zord-outcome-engine/models"
+
+	"github.com/shopspring/decimal"
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
-	"zord-outcome-engine/db"
-	"zord-outcome-engine/models"
 )
 
 // AttachmentOutboxService manages durable event emission for Service 5C.
@@ -39,6 +41,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 	job *models.AttachmentJob,
 	decisions []models.AttachmentDecision,
 	variances []models.VarianceRecord,
+	obsMap map[uuid.UUID]*models.CanonicalSettlementObservation,
 ) error {
 	log.Printf("attachment.outbox.start job=%s decisions=%d variances=%d",
 		job.AttachmentJobID, len(decisions), len(variances))
@@ -76,11 +79,11 @@ func (s *AttachmentOutboxService) EmitForJob(
 		// Attach variance summary inline when available (Service 6 convenience).
 		if v, ok := varianceByDecision[d.AttachmentDecisionID]; ok {
 			payload["variance_summary"] = map[string]interface{}{
-				"amount_variance":   v.AmountVariance,
-				"variance_severity":       v.VarianceSeverity,
-				"value_date_mismatch":     v.ValueDateMismatchFlag,
-				"cross_period":            v.CrossPeriodFlag,
-				"evidence_gap":            v.EvidenceGapFlag,
+				"amount_variance":     v.AmountVariance,
+				"variance_severity":   v.VarianceSeverity,
+				"value_date_mismatch": v.ValueDateMismatchFlag,
+				"cross_period":        v.CrossPeriodFlag,
+				"evidence_gap":        v.EvidenceGapFlag,
 			}
 		}
 
@@ -170,17 +173,83 @@ func (s *AttachmentOutboxService) EmitForJob(
 	}
 
 	// ── 4. attachment.batch.updated — one per job ─────────────────────────
+	var (
+		batchID              string
+		corridorID           string
+		totalCount           int
+		successCount         int
+		failedCount          int
+		pendingCount         int
+		reversedCount        int
+		totalIntendedAmount  decimal.Decimal
+		totalConfirmedAmount decimal.Decimal
+		totalVariance        decimal.Decimal
+		aggregateAmbiguity   float64
+		finalityStatus       string
+	)
+
+	// 1. Fetch batch summary data
+	row := db.DB.QueryRowContext(ctx, `
+		SELECT 
+			batch_id, source_reference, total_intended_amount, 
+			total_observed_amount, total_variance, batch_attachment_status,
+			ambiguity_score
+		FROM batch_attachment_summaries 
+		WHERE attachment_job_id = $1 
+		LIMIT 1`,
+		job.AttachmentJobID,
+	)
+	var summaryBatchID *string
+	var summarySourceRef string
+	var summaryAmbiguity float64
+	if err := row.Scan(&summaryBatchID, &summarySourceRef, &totalIntendedAmount, &totalConfirmedAmount, &totalVariance, &finalityStatus, &summaryAmbiguity); err == nil {
+		if summaryBatchID != nil {
+			batchID = *summaryBatchID
+		}
+		aggregateAmbiguity = summaryAmbiguity
+	}
+
+	// 2. Fetch corridor_id from the first observation in this job
+	if len(decisions) > 0 {
+		firstObsID := decisions[0].SettlementObservationID
+		if obs, ok := obsMap[firstObsID]; ok {
+			corridorID = obs.CorridorID
+		}
+	}
+
+	// 3. Fetch batch estimate counts from canonical_settlement_batches
+	if job.JobScopeType == models.JobScopeSettlementBatch {
+		row = db.DB.QueryRowContext(ctx, `
+			SELECT 
+				row_count, success_count_estimate, failed_count_estimate, 
+				pending_count_estimate, reversal_count_estimate
+			FROM canonical_settlement_batches 
+			WHERE client_batch_id = $1 AND tenant_id = $2
+			LIMIT 1`,
+			job.ScopeRef, job.TenantID,
+		)
+		_ = row.Scan(&totalCount, &successCount, &failedCount, &pendingCount, &reversedCount)
+	}
+
 	batchPayload := map[string]interface{}{
-		"attachment_job_id":     job.AttachmentJobID,
-		"tenant_id":             job.TenantID,
-		"scope_ref":             job.ScopeRef,
-		"total_decisions":       decisionCount,
-		"exact_match_count":     job.ExactMatchCount,
-		"high_confidence_count": job.HighConfidenceCount,
-		"ambiguous_count":       ambiguousCount,
-		"unresolved_count":      unresolvedCount,
-		"conflicted_count":      conflictedCount,
-		"status":                job.Status,
+		"event_id":                     uuid.New().String(),
+		"tenant_id":                    job.TenantID.String(),
+		"trace_id":                     uuid.Nil.String(),
+		"occurred_at":                  time.Now().UTC().Format(time.RFC3339),
+		"batch_id":                     batchID,
+		"source_reference":             summarySourceRef,
+		"corridor_id":                  corridorID,
+		"total_count":                  totalCount,
+		"success_count":                successCount,
+		"failed_count":                 failedCount,
+		"pending_count":                pendingCount,
+		"reversed_count":               reversedCount,
+		"partial_recon_count":          0,
+		"total_intended_amount_minor":  totalIntendedAmount.String(),
+		"total_confirmed_amount_minor": totalConfirmedAmount.String(),
+		"total_variance_minor":         totalVariance.String(),
+		"ambiguity_score":              aggregateAmbiguity,
+		"batch_finality_status":        finalityStatus,
 	}
 	if err := s.insertEvent(ctx, job.TenantID, job.AttachmentJobID,
 		"attachment_job", job.AttachmentJobID,
@@ -258,13 +327,13 @@ type leafCandidate struct {
 
 // leafBundlePayload is the full payload of an outcome.leaf_bundle.created event.
 type leafBundlePayload struct {
-	EventType               string           `json:"event_type"`
-	TenantID                string           `json:"tenant_id"`
-	IntentID                string           `json:"intent_id"`
-	SettlementObservationID string           `json:"settlement_observation_id"`
-	AttachmentJobID         string           `json:"attachment_job_id"`
-	DecisionType            string           `json:"decision_type"`
-	Leaves                  []leafCandidate  `json:"leaves"`
+	EventType               string          `json:"event_type"`
+	TenantID                string          `json:"tenant_id"`
+	IntentID                string          `json:"intent_id"`
+	SettlementObservationID string          `json:"settlement_observation_id"`
+	AttachmentJobID         string          `json:"attachment_job_id"`
+	DecisionType            string          `json:"decision_type"`
+	Leaves                  []leafCandidate `json:"leaves"`
 }
 
 // EmitLeafBundlesForJob emits outcome_outbox events for all winner-resolved
@@ -406,6 +475,7 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 
 // computeAttachmentDecisionLeafHash returns a deterministic SHA-256 hex hash of the
 // attachment decision fields that matter for evidence integrity:
+//
 //	SHA256( selected_intent | settlement_observation | candidate_set | match_score | ruleset_version )
 func computeAttachmentDecisionLeafHash(d models.AttachmentDecision) string {
 	intent := ""
@@ -425,6 +495,7 @@ func computeAttachmentDecisionLeafHash(d models.AttachmentDecision) string {
 
 // computeVarianceLeafHash returns a deterministic SHA-256 hex hash of the
 // variance record fields that matter for evidence integrity:
+//
 //	SHA256( amount_variance | date_variance | status_variance | severity | reason_codes )
 func computeVarianceLeafHash(vr *models.VarianceRecord) string {
 	raw := fmt.Sprintf("%s|%t|%t|%s|%s",
@@ -452,18 +523,18 @@ func (s *AttachmentOutboxService) insertOutcomeOutboxEvent(
 			event_type, schema_version,
 			payload, status, retry_count, created_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-		uuid.New(),            // event_id
-		d.AttachmentJobID,     // envelope_id  — job that produced this bundle
-		uuid.Nil,            // trace_id
-		d.TenantID,            // tenant_id
-		"attachment_leaf_bundle",   // aggregate_type
-		d.AttachmentDecisionID,     // aggregate_id
+		uuid.New(),                    // event_id
+		d.AttachmentJobID,             // envelope_id  — job that produced this bundle
+		uuid.Nil,                      // trace_id
+		d.TenantID,                    // tenant_id
+		"attachment_leaf_bundle",      // aggregate_type
+		d.AttachmentDecisionID,        // aggregate_id
 		"outcome.leaf_bundle.created", // event_type
-		"v1",                  // schema_version
-		payloadJSON,           // payload (JSONB)
-		"PENDING",             // status
-		0,                     // retry_count
-		time.Now().UTC(),      // created_at
+		"v1",                          // schema_version
+		payloadJSON,                   // payload (JSONB)
+		"PENDING",                     // status
+		0,                             // retry_count
+		time.Now().UTC(),              // created_at
 	)
 	if err != nil {
 		log.Printf("leaf_bundle.outbox_insert_failed decision=%s err=%v", d.AttachmentDecisionID, err)

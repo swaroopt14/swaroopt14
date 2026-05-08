@@ -14,13 +14,15 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"zord-edge/db"
 	"zord-edge/model"
 	"zord-edge/services"
-	"zord-edge/validator"
 	"zord-edge/vault"
 
 	"github.com/gin-gonic/gin"
@@ -210,6 +212,23 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 
+	// Resolve static parser based on tenant type
+	tenantType := c.GetHeader("X-Zord-Tenant-Type")
+	if tenantType == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Zord-Tenant-Type header is required for static mapping"})
+		return
+	}
+
+	parser, err := services.GetParserByType(tenantType)
+	if err != nil {
+		c.JSON(http.StatusUnprocessableEntity, gin.H{
+			"error":  "invalid tenant type",
+			"detail": err.Error(),
+			"hint":   "Valid types: BANK, NBFC, MERCHANT, GATEWAY",
+		})
+		return
+	}
+
 	headersBytes, _ := json.Marshal(c.Request.Header)
 	headersHashSum := sha256.Sum256(headersBytes)
 	headersHash := headersHashSum[:]
@@ -240,6 +259,8 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		var resultsMu sync.Mutex
 		resultsMap := make(map[int]BulkResult)
 		jobs := make(chan BulkJob, 500)
+
+		var acceptedCount, failedCount, duplicateCount int32
 
 		workerCount := runtime.NumCPU() * 2
 		var wg sync.WaitGroup
@@ -282,10 +303,12 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 						&fileHash,
 						&rowCountEstimate,
 						func(s string) *string { return &s }("CSV"),
+						&tenantType, // Use tenantType as the audit hint
 					)
 
 					resultsMu.Lock()
 					if err != nil {
+						atomic.AddInt32(&failedCount, 1)
 						if errors.Is(err, services.ErrFingerprintMismatch) {
 							resultsMap[job.Row] = BulkResult{
 								Row:    job.Row,
@@ -301,6 +324,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 							}
 						}
 					} else if duplicateID != uuid.Nil {
+						atomic.AddInt32(&duplicateCount, 1)
 						resultsMap[job.Row] = BulkResult{
 							Row:        job.Row,
 							Status:     "DUPLICATE",
@@ -309,6 +333,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 							Error:      "duplicate idempotency key",
 						}
 					} else {
+						atomic.AddInt32(&acceptedCount, 1)
 						resultsMap[job.Row] = BulkResult{
 							Row:        job.Row,
 							Status:     "Accepted",
@@ -332,22 +357,17 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 			return
 		}
 
-		for i := 1; ; i++ {
+		// ── Collect all non-empty rows for batch parse ──────────────────────
+		var allCSVRows [][]string
+		for {
 			row, err := reader.Read()
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				resultsMu.Lock()
-				resultsMap[i] = BulkResult{
-					Row:    i,
-					Status: "FAILED",
-					Error:  "failed to parse CSV row: " + err.Error(),
-				}
-				resultsMu.Unlock()
+				log.Printf("CSV read error (skipping row): %v", err)
 				continue
 			}
-
 			isEmpty := true
 			for _, col := range row {
 				if strings.TrimSpace(col) != "" {
@@ -355,52 +375,55 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 					break
 				}
 			}
-			if isEmpty {
-				continue
+			if !isEmpty {
+				allCSVRows = append(allCSVRows, row)
 			}
+		}
 
-			jsonPayload, err := buildRowPayload(headers, row)
+		// ── Parse all rows through the static parser ───────────────────────
+		shapes, parseErrors := parser.Parse(allCSVRows, headers)
+
+		// Record parse failures directly in resultsMap
+		for _, pe := range parseErrors {
+			resultsMu.Lock()
+			resultsMap[pe.RowIndex] = BulkResult{
+				Row:    pe.RowIndex,
+				Status: "FAILED",
+				Error:  fmt.Sprintf("parse error on field %q: %s", pe.Field, pe.Message),
+			}
+			resultsMu.Unlock()
+		}
+
+		// Fan out clean shapes to the jobs channel
+		for _, shape := range shapes {
+			// Recover original 1-based row number from SourceRowRef ("row:N")
+			rowNum, _ := strconv.Atoi(strings.TrimPrefix(shape.SourceRowRef, "row:"))
+
+			jsonPayload, err := json.Marshal(shape)
 			if err != nil {
 				resultsMu.Lock()
-				resultsMap[i] = BulkResult{
-					Row:    i,
-					Status: "FAILED",
-					Error:  "failed to marshal JSON payload",
-				}
-				resultsMu.Unlock()
-				continue
-			}
-
-			if err := validator.ValidateIntentRequestJSON(jsonPayload); err != nil {
-				resultsMu.Lock()
-				resultsMap[i] = BulkResult{
-					Row:    i,
-					Status: "FAILED",
-					Error:  fmt.Sprintf("schema validation failed: %v", err),
-				}
+				resultsMap[rowNum] = BulkResult{Row: rowNum, Status: "FAILED", Error: "failed to serialize shape"}
 				resultsMu.Unlock()
 				continue
 			}
 
 			// Resolve idempotency key — priority order:
-			//   1. Client-provided "idempotency_key" column in the row (always wins)
-			//   2. Force-reprocess:  SHA256(fileHash:rowIndex:tenantID:reprocess:batchID)
-			//      — batchID acts as nonce so each reprocess batch is unique, but
-			//        re-sending the same batch+file combo is still caught as duplicate.
-			//   3. Normal upload:    SHA256(fileHash:rowIndex:tenantID)
+			//   1. Client-provided "idempotency_key" field in payload (always wins)
+			//   2. Force-reprocess: SHA256(fileHash:rowNum:tenantID:reprocess:batchID)
+			//   3. Normal upload:   SHA256(fileHash:rowNum:tenantID)
 			rowIdempotencyKey := extractIdempotencyKey(jsonPayload)
 			if rowIdempotencyKey == "" {
 				var input string
 				if forceReprocess {
-					input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, i, tenantID.String(), batchIDHeader)
+					input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, rowNum, tenantID.String(), batchIDHeader)
 				} else {
-					input = fmt.Sprintf("%s:%d:%s", fileHash, i, tenantID.String())
+					input = fmt.Sprintf("%s:%d:%s", fileHash, rowNum, tenantID.String())
 				}
 				sum := sha256.Sum256([]byte(input))
 				rowIdempotencyKey = hex.EncodeToString(sum[:])
 			}
 
-			jobs <- BulkJob{Row: i, Payload: jsonPayload, IdempotencyKey: rowIdempotencyKey}
+			jobs <- BulkJob{Row: rowNum, Payload: jsonPayload, IdempotencyKey: rowIdempotencyKey}
 		}
 
 		close(jobs)
@@ -463,6 +486,8 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		resultsMap := make(map[int]BulkResult)
 		jobs := make(chan BulkJob, 500)
 
+		var acceptedCount, failedCount, duplicateCount int32
+
 		workerCount := runtime.NumCPU() * 2
 		var wg sync.WaitGroup
 
@@ -504,10 +529,12 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 						&fileHash,
 						&xlsxRowCount,
 						func(s string) *string { return &s }("XLSX"),
+						&tenantType, // Use tenantType as the audit hint
 					)
 
 					resultsMu.Lock()
 					if err != nil {
+						atomic.AddInt32(&failedCount, 1)
 						if errors.Is(err, services.ErrFingerprintMismatch) {
 							resultsMap[job.Row] = BulkResult{
 								Row:    job.Row,
@@ -523,6 +550,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 							}
 						}
 					} else if duplicateID != uuid.Nil {
+						atomic.AddInt32(&duplicateCount, 1)
 						resultsMap[job.Row] = BulkResult{
 							Row:        job.Row,
 							Status:     "DUPLICATE",
@@ -531,6 +559,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 							Error:      "duplicate idempotency key",
 						}
 					} else {
+						atomic.AddInt32(&acceptedCount, 1)
 						resultsMap[job.Row] = BulkResult{
 							Row:        job.Row,
 							Status:     "Accepted",
@@ -567,19 +596,14 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 			return
 		}
 
-		for i := 1; dataRows.Next(); i++ {
+		// ── Collect all non-empty XLSX rows for batch parse ─────────────────
+		var allXLSXRows [][]string
+		for dataRows.Next() {
 			row, err := dataRows.Columns()
 			if err != nil {
-				resultsMu.Lock()
-				resultsMap[i] = BulkResult{
-					Row:    i,
-					Status: "FAILED",
-					Error:  "failed to read excel row: " + err.Error(),
-				}
-				resultsMu.Unlock()
+				log.Printf("XLSX read error (skipping row): %v", err)
 				continue
 			}
-
 			isEmpty := true
 			for _, col := range row {
 				if strings.TrimSpace(col) != "" {
@@ -587,52 +611,55 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 					break
 				}
 			}
-			if isEmpty {
-				continue
+			if !isEmpty {
+				allXLSXRows = append(allXLSXRows, row)
 			}
+		}
 
-			jsonPayload, err := buildRowPayload(headers, row)
+		// ── Parse all rows through the static parser ───────────────────────
+		shapes, parseErrors := parser.Parse(allXLSXRows, headers)
+
+		// Record parse failures directly in resultsMap
+		for _, pe := range parseErrors {
+			resultsMu.Lock()
+			resultsMap[pe.RowIndex] = BulkResult{
+				Row:    pe.RowIndex,
+				Status: "FAILED",
+				Error:  fmt.Sprintf("parse error on field %q: %s", pe.Field, pe.Message),
+			}
+			resultsMu.Unlock()
+		}
+
+		// Fan out clean shapes to the jobs channel
+		for _, shape := range shapes {
+			// Recover original 1-based row number from SourceRowRef ("row:N")
+			rowNum, _ := strconv.Atoi(strings.TrimPrefix(shape.SourceRowRef, "row:"))
+
+			jsonPayload, err := json.Marshal(shape)
 			if err != nil {
 				resultsMu.Lock()
-				resultsMap[i] = BulkResult{
-					Row:    i,
-					Status: "FAILED",
-					Error:  "failed to marshal JSON payload",
-				}
-				resultsMu.Unlock()
-				continue
-			}
-
-			if err := validator.ValidateIntentRequestJSON(jsonPayload); err != nil {
-				resultsMu.Lock()
-				resultsMap[i] = BulkResult{
-					Row:    i,
-					Status: "FAILED",
-					Error:  fmt.Sprintf("schema validation failed: %v", err),
-				}
+				resultsMap[rowNum] = BulkResult{Row: rowNum, Status: "FAILED", Error: "failed to serialize shape"}
 				resultsMu.Unlock()
 				continue
 			}
 
 			// Resolve idempotency key — priority order:
-			//   1. Client-provided "idempotency_key" column in the row (always wins)
-			//   2. Force-reprocess:  SHA256(fileHash:rowIndex:tenantID:reprocess:batchID)
-			//      — batchID acts as nonce so each reprocess batch is unique, but
-			//        re-sending the same batch+file combo is still caught as duplicate.
-			//   3. Normal upload:    SHA256(fileHash:rowIndex:tenantID)
+			//   1. Client-provided "idempotency_key" field in payload (always wins)
+			//   2. Force-reprocess: SHA256(fileHash:rowNum:tenantID:reprocess:batchID)
+			//   3. Normal upload:   SHA256(fileHash:rowNum:tenantID)
 			rowIdempotencyKey := extractIdempotencyKey(jsonPayload)
 			if rowIdempotencyKey == "" {
 				var input string
 				if forceReprocess {
-					input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, i, tenantID.String(), batchIDHeader)
+					input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, rowNum, tenantID.String(), batchIDHeader)
 				} else {
-					input = fmt.Sprintf("%s:%d:%s", fileHash, i, tenantID.String())
+					input = fmt.Sprintf("%s:%d:%s", fileHash, rowNum, tenantID.String())
 				}
 				sum := sha256.Sum256([]byte(input))
 				rowIdempotencyKey = hex.EncodeToString(sum[:])
 			}
 
-			jobs <- BulkJob{Row: i, Payload: jsonPayload, IdempotencyKey: rowIdempotencyKey}
+			jobs <- BulkJob{Row: rowNum, Payload: jsonPayload, IdempotencyKey: rowIdempotencyKey}
 		}
 
 		close(jobs)
@@ -652,6 +679,13 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		}
 
 		respondBulkResults(c, actualResults, file.Filename, fileHash)
+
+		// ── Final Audit Trail: Persist run stats to DB ──────────────────────
+		runStatus := "COMPLETED"
+		if int(failedCount) > 0 {
+			runStatus = "PARTIAL"
+		}
+		db.UpsertIngestRun(c.Request.Context(), db.DB, fileTraceID, *finalBatchID, tenantID.String(), tenantType, file.Filename, fileHash, len(actualResults), int(acceptedCount), int(failedCount), int(duplicateCount), runStatus)
 
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -764,7 +798,9 @@ func buildRowPayload(headers, row []string) ([]byte, error) {
 	return json.Marshal(payloadMap)
 }
 
-// processBulkIntentRow is unchanged from the original.
+// processBulkIntentRow persists one canonical row envelope through the
+// S3 → idempotency → ingress pipeline. profileID is stamped on every
+// envelope as a permanent audit trail of which profile parsed the row.
 func (h *Handler) processBulkIntentRow(
 	ctx context.Context,
 	rawPayload []byte,
@@ -786,6 +822,7 @@ func (h *Handler) processBulkIntentRow(
 	fileContentHash *string,
 	rowCountEstimate *int,
 	fileUploadChannel *string,
+	profileID *string, // audit: which mapping profile parsed this row
 ) (*model.AckMessage, uuid.UUID, error) {
 
 	encryptedPayload, err := vault.Encrypt(rawPayload)
@@ -812,6 +849,7 @@ func (h *Handler) processBulkIntentRow(
 		RequestHeadersHash: headersHash,
 		RequestFingerprint: fingerprint,
 		SchemaHint:         nil,
+		MappingProfileHint: profileID, // permanent audit trail
 
 		// Hardcoded values
 		ObjectEncryptionAlg:  "AES256",

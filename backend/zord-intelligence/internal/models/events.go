@@ -196,7 +196,7 @@ type EvidencePackReadyEvent struct {
 	ContractID     string    `json:"contract_id"`
 	EvidencePackID string    `json:"evidence_pack_id"`
 	MerkleRoot     string    `json:"merkle_root"` // cryptographic proof of evidence contents
-	CreatedAt      time.Time `json:"created_at"`
+	OccurredAt     time.Time `json:"occurred_at"`
 	TraceID        string    `json:"trace_id"`
 }
 
@@ -326,6 +326,7 @@ type CanonicalSettlementCreatedEvent struct {
 
 	// ── Status observation ────────────────────────────────────────────────────
 	StatusObservation string `json:"status_observation"` // "SETTLED", "REVERSED", "PENDING", "UNKNOWN"
+	IngestRunID       string `json:"ingest_run_id"`
 }
 
 // ── NEW EVENT B: from Service 5C ─────────────────────────────────────────────

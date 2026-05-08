@@ -95,6 +95,8 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 
 		// 2. Build canonical observation.
 		obs := buildCanonicalObservation(tenantID, jobID, parsedRowID, envelopeID, shape, parseConfidence, profile, clientBatchID)
+		obs.IngestRunID = ingestRunID
+		obs.SettlementBatchID = settlementBatchID
 
 		// 3. Insert into Postgres.
 		_, err = db.DB.ExecContext(ctx, `

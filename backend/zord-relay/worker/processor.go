@@ -30,6 +30,7 @@ type processor struct {
 	pub          publisher.Publisher
 	retryPolicy  retry.Policy
 	defaultTopic string
+	topicMap     map[string]string
 	serviceName  string
 	instanceID   string
 	log          *zap.Logger
@@ -51,6 +52,7 @@ func newProcessor(
 			Multiplier:  2.0,
 		},
 		defaultTopic: svcCfg.DefaultTopic,
+		topicMap:     svcCfg.TopicMap,
 		serviceName:  svcCfg.Name,
 		instanceID:   instanceID,
 		log:          log.With(zap.String("component", "processor")),
@@ -87,7 +89,11 @@ func (p *processor) process(ctx context.Context, event *model.OutboxEvent) proce
 
 	topic := event.Topic
 	if topic == "" {
-		topic = p.defaultTopic
+		if t, ok := p.topicMap[event.EventType]; ok {
+			topic = t
+		} else {
+			topic = p.defaultTopic
+		}
 	}
 
 	firstAttemptAt := time.Now()

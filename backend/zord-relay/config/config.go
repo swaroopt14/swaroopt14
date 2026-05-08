@@ -88,8 +88,12 @@ type ServiceConfig struct {
 	// HTTPTimeout for lease/ack/nack calls to this service.
 	HTTPTimeout time.Duration `mapstructure:"http_timeout"`
 
-	// DefaultTopic is the Kafka topic to publish to.
+	// DefaultTopic is the Kafka topic to publish to if no specific mapping exists.
 	DefaultTopic string `mapstructure:"default_topic"`
+
+	// TopicMap allows routing specific event types to different topics.
+	// Key: event_type, Value: Kafka topic name.
+	TopicMap map[string]string `mapstructure:"topic_map"`
 
 	// Retry settings (Kafka-side) — override global if set.
 	MaxRetryAttempts int           `mapstructure:"max_retry_attempts"`

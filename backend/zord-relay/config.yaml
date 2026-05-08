@@ -55,6 +55,8 @@ services:
     # All Merkle leaf-bundle events land on this dedicated topic.
     # zord-evidence consumes it with group: evidence-outcome-consumer-group.
     default_topic: payments.outcome.events.v1
+    topic_map:
+      "canonical.settlement.created": "canonical.settlement.created"
 
   - name: evidence-service
     base_url: http://zord-evidence-service:8088

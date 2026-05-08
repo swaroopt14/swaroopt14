@@ -48,6 +48,6 @@ func buildEdgeHandler(pg PackGenerator) MessageHandler {
 		}
 
 		// Buffering by envelope_id (intent_id and contract_id are unknown at this point, but pass relayEvt.ContractID if relay has it)
-		return pg.HandleLeafUpdate(ctx, relayEvt.TenantID, relayEvt.EnvelopeID, "", relayEvt.ContractID, pendingLeaves)
+		return pg.HandleLeafUpdate(ctx, relayEvt.TenantID, relayEvt.EnvelopeID, "", relayEvt.ContractID, relayEvt.TraceID, pendingLeaves)
 	}
 }

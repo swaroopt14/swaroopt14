@@ -56,7 +56,7 @@ func NewEvidenceService(
 }
 
 // HandleLeafUpdate orchestrates the buffered leaf ingestion and pack generation.
-func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID, contractID string, newLeaves []models.PendingLeafCandidate) error {
+func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID, contractID, traceID string, newLeaves []models.PendingLeafCandidate) error {
 	// 0. If intentID is missing but envelopeID is present, try to resolve it from existing leaves
 	if intentID == "" && envelopeID != "" {
 		resolved, err := s.pendingLeafRepo.ResolveIntentID(ctx, tenantID, envelopeID)
@@ -71,7 +71,7 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		}
 	}
 
-	// 1. Link envelope if intentID is present
+	// 1. Link logic (if we just got an intentID, link any buffered envelope_id leaves)
 	if intentID != "" && envelopeID != "" {
 		if err := s.pendingLeafRepo.LinkEnvelopeToIntent(ctx, tenantID, envelopeID, intentID, contractID); err != nil {
 			return err
@@ -143,12 +143,20 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		}
 	}
 
+	// 5c. Defensive: ensure we have a traceID (even if hardcoded here) to satisfy NOT NULL constraints.
+	if traceID == "" {
+		traceID = "00000000-0000-0000-0000-000000000000"
+		log.Printf("evidence.service.readiness_check intent=%s trace_id missing — using zero UUID fallback", intentID)
+	}
+
 	log.Printf("evidence.service.readiness_check intent=%s ALL_LEAVES_PRESENT — triggering generation", intentID)
 
 	// 6. Generate the pack!
 	req := models.GenerateEvidenceRequest{
 		TenantID:       tenantID,
 		IntentID:       intentID,
+		EnvelopeID:     envelopeID,
+		TraceID:        traceID,
 		ContractID:     contractID,
 		Mode:           "INTELLIGENCE_ATTACH",
 		RulesetVersion: "v1",
@@ -269,13 +277,8 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		return nil, fmt.Errorf("store archive: %w", err)
 	}
 
-	// --- Step 10b: persist metadata to Postgres ---
-	log.Printf("evidence.service.generate_pack saving metadata pack=%s intent=%s items=%d", packID, req.IntentID, len(items))
-	if err := s.repo.SavePack(ctx, pack, objectRef); err != nil {
-		log.Printf("evidence.service.generate_pack save_failed pack=%s err=%v", packID, err)
-		return nil, fmt.Errorf("save pack metadata: %w", err)
-	}
-	log.Printf("evidence.service.generate_pack save_ok pack=%s", packID)
+	// --- Step 10b: persist metadata and outbox event to Postgres ---
+	log.Printf("evidence.service.generate_pack saving metadata and outbox event pack=%s intent=%s", packID, req.IntentID)
 
 	// --- Persist §14.3 archive metadata row ---
 	archiveHash := sha256Hex(encryptedArchive)
@@ -289,7 +292,6 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		CreatedAt:      now,
 	}
 	if err := s.repo.SaveArchive(ctx, archiveRecord); err != nil {
-		// Non-fatal: metadata only, pack is already committed
 		fmt.Printf("warn: save archive record failed: %v\n", err)
 	}
 
@@ -315,12 +317,13 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		}
 	}
 
-	// --- Step 11: publish evidence.pack.created event ---
+	// --- Step 11: prepare outbox event for relay polling ---
 	eventType := kafka.EventPackCreated
 	if req.SupersedesPackID != "" {
 		eventType = kafka.EventPackReversalSupersed
 	}
-	_ = s.publisher.Publish(ctx, kafka.PackEvent{
+
+	packEvent := kafka.PackEvent{
 		EventType:      eventType,
 		EvidencePackID: packID,
 		TenantID:       req.TenantID,
@@ -330,7 +333,27 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		MerkleRoot:     merkleRoot,
 		RulesetVersion: req.RulesetVersion,
 		OccurredAt:     now,
-	})
+	}
+	payloadBytes, _ := json.Marshal(packEvent)
+
+	outboxEvt := &models.OutboxEvent{
+		TraceID:       req.TraceID,
+		EnvelopeID:    req.EnvelopeID,
+		TenantID:      req.TenantID,
+		ContractID:    req.ContractID,
+		AggregateType: "evidence_pack",
+		AggregateID:   req.IntentID,
+		EventType:     eventType,
+		Payload:       payloadBytes,
+		Status:        "PENDING",
+		CreatedAt:     now,
+	}
+
+	if err := s.repo.SavePack(ctx, pack, objectRef, outboxEvt); err != nil {
+		log.Printf("evidence.service.generate_pack save_failed pack=%s err=%v", packID, err)
+		return nil, fmt.Errorf("save pack metadata: %w", err)
+	}
+	log.Printf("evidence.service.generate_pack save_ok pack=%s", packID)
 
 	return pack, nil
 }

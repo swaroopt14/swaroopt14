@@ -54,6 +54,7 @@ type PendingLeafCandidate struct {
 // published by zord-relay to Kafka.
 type RelayEvent struct {
 	EventID         string          `json:"event_id"`
+	TraceID         string          `json:"trace_id"`
 	EnvelopeID      string          `json:"envelope_id"`
 	TenantID        string          `json:"tenant_id"`
 	AggregateType   string          `json:"aggregate_type"`
@@ -108,6 +109,8 @@ type EvidencePack struct {
 type GenerateEvidenceRequest struct {
 	TenantID         string            `json:"tenant_id" binding:"required"`
 	IntentID         string            `json:"intent_id" binding:"required"`
+	EnvelopeID       string            `json:"envelope_id"`
+	TraceID          string            `json:"trace_id"`
 	ContractID       string            `json:"contract_id"`
 	Mode             string            `json:"mode" binding:"required"`
 	RulesetVersion   string            `json:"ruleset_version" binding:"required"`

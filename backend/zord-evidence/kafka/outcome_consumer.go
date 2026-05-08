@@ -30,7 +30,7 @@ import (
 //	kafka → models            (safe: models has no kafka dependency)
 type PackGenerator interface {
 	GeneratePack(ctx context.Context, req models.GenerateEvidenceRequest) (*models.EvidencePack, error)
-	HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID, contractID string, newLeaves []models.PendingLeafCandidate) error
+	HandleLeafUpdate(ctx context.Context, tenantID, envelopeID, intentID, contractID, traceID string, newLeaves []models.PendingLeafCandidate) error
 }
 
 // OutcomeEventType constants understood by this consumer.
@@ -155,8 +155,7 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 	}
 
 	// Use HandleLeafUpdate to buffer and check for pack readiness.
-	// We don't have an envelope_id here (it's in the edge/intent events).
-	err := pg.HandleLeafUpdate(ctx, tenantID, "", intentID, contractID, pendingLeaves)
+	err := pg.HandleLeafUpdate(ctx, tenantID, relayEvt.EnvelopeID, intentID, contractID, relayEvt.TraceID, pendingLeaves)
 	if err != nil {
 		log.Printf("outcome.consumer.handle_leaf_update_failed tenant=%s intent=%s err=%v", tenantID, intentID, err)
 		return err

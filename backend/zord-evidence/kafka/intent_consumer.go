@@ -59,6 +59,6 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 		pendingLeaves := []models.PendingLeafCandidate{l6, l7}
 
 		// Pass intent_id, envelope_id and contract_id to link any buffered edge leaves
-		return pg.HandleLeafUpdate(ctx, relayEvt.TenantID, relayEvt.EnvelopeID, relayEvt.AggregateID, relayEvt.ContractID, pendingLeaves)
+		return pg.HandleLeafUpdate(ctx, relayEvt.TenantID, relayEvt.EnvelopeID, relayEvt.AggregateID, relayEvt.ContractID, relayEvt.TraceID, pendingLeaves)
 	}
 }

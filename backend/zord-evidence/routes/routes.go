@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Register(r *gin.Engine, h *handlers.EvidenceHandler) {
+func Register(r *gin.Engine, h *handlers.EvidenceHandler, outboxHandler *handlers.OutboxHandler) {
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
@@ -28,5 +28,12 @@ func Register(r *gin.Engine, h *handlers.EvidenceHandler) {
 
 		// §17: Replay and equivalence check
 		v1.POST("/replay", h.ReplayEvidencePack)
+	}
+
+	internal := r.Group("/internal/outbox")
+	{
+		internal.GET("/lease", outboxHandler.Lease)
+		internal.POST("/ack", outboxHandler.Ack)
+		internal.POST("/nack", outboxHandler.Nack)
 	}
 }

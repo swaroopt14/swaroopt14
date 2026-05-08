@@ -14,19 +14,9 @@ func (p *BankParser) Parse(rows [][]string, headers []string) ([]model.Universal
 	var shapes []model.UniversalIntentShape
 	var errs []ParseRowError
 
-	// Static mapping for BANKS
-	mapping := map[string]string{
-		"beneficiary_name":       "beneficiary name",
-		"beneficiary_account_no": "account number",
-		"beneficiary_ifsc":      "ifsc",
-		"amount":                 "amount",
-		"client_payout_ref":      "transaction id",
-		"narration":              "remarks",
-	}
-
 	for i, row := range rows {
 		rowNum := i + 1
-		shape, rowErrs := p.parseRow(rowNum, row, colIndex, mapping)
+		shape, rowErrs := p.parseRow(rowNum, row, colIndex)
 		if len(rowErrs) > 0 {
 			errs = append(errs, rowErrs...)
 		} else {
@@ -36,47 +26,50 @@ func (p *BankParser) Parse(rows [][]string, headers []string) ([]model.Universal
 	return shapes, errs
 }
 
-func (p *BankParser) parseRow(rowNum int, row []string, colIndex map[string]int, mapping map[string]string) (model.UniversalIntentShape, []ParseRowError) {
+func (p *BankParser) parseRow(rowNum int, row []string, colIndex map[string]int) (model.UniversalIntentShape, []ParseRowError) {
 	var errs []ParseRowError
 	var shape model.UniversalIntentShape
 
-	getValue := func(field string) string {
-		header, ok := mapping[field]
-		if !ok {
-			return ""
-		}
-		idx, ok := colIndex[header]
-		if !ok {
-			return ""
-		}
-		return p.get(row, idx)
+	// Helper to try common variations of headers
+	get := func(candidates ...string) string {
+		return p.getFromCandidates(row, colIndex, candidates...)
 	}
 
-	// Populate Nested Structure
-	shape.SchemaVersion = "1.0.0"
-	shape.IntentType = "PAYOUT"
-	
-	shape.Beneficiary.Name = getValue("beneficiary_name")
-	shape.Beneficiary.Instrument.Kind = "BANK_ACCOUNT"
-	shape.Beneficiary.Instrument.AccountNo = getValue("beneficiary_account_no")
-	shape.Beneficiary.Instrument.IFSC = getValue("beneficiary_ifsc")
-	shape.Beneficiary.Country = "IN"
+	// Populate Nested Structure (Service 2 Spec)
+	shape.SchemaVersion = get("schema_version", "1.0.0")
+	shape.IntentType = get("intent_type", "PAYOUT")
 
-	shape.ClientPayoutRef = getValue("client_payout_ref")
-	shape.PurposeCode = getValue("narration") // using narration as purpose for now
-	
-	shape.Amount.Currency = "INR"
-	amtStr := getValue("amount")
+	// Service 2 expects account_number at TOP LEVEL
+	shape.AccountNumber = get("account_number", "account number", "beneficiary.instrument.account_number")
+
+	shape.Beneficiary.Name = get("beneficiary.name", "beneficiary name", "name")
+	shape.Beneficiary.Instrument.Kind = get("beneficiary.instrument.kind", "instrument_kind", "BANK_ACCOUNT")
+	shape.Beneficiary.Instrument.IFSC = get("beneficiary.instrument.ifsc", "ifsc", "ifsc code")
+	shape.Beneficiary.Instrument.VPA = get("beneficiary.instrument.vpa", "vpa")
+	shape.Beneficiary.Country = get("beneficiary.country", "country", "IN")
+
+	shape.Remitter.Phone = get("remitter.phone", "remitter_phone")
+	shape.Remitter.Email = get("remitter.email", "remitter_email")
+	shape.Remitter.CustomerID = get("remitter.customer_id", "customer_id")
+
+	shape.ClientPayoutRef = get("client_payout_ref", "transaction id", "payout_ref")
+	shape.ClientBatchRef = get("client_batch_ref", "batch_id")
+	shape.PurposeCode = get("purpose_code", "remarks", "narration")
+	shape.ProviderHint = get("provider_hint")
+	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "schedule_at")
+	shape.Amount.Currency = get("amount.currency", "currency", "INR")
+	amtStr := get("amount.value", "amount", "value")
 	amt, err := p.parseAmount(amtStr)
 	if err != nil {
 		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "amount", Message: err.Error()})
 	} else {
-		shape.Amount.Value = amt
+		// Service 2 expects amount.value as a STRING
+		shape.Amount.Value = fmt.Sprintf("%.2f", amt)
 	}
 
 	// Static validation
-	if shape.Beneficiary.Instrument.AccountNo == "" {
-		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "beneficiary_account_no", Message: "missing account number"})
+	if shape.AccountNumber == "" && shape.Beneficiary.Instrument.VPA == "" {
+		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "account_number", Message: "missing account number or vpa"})
 	}
 
 	shape.SourceRowRef = fmt.Sprintf("row:%d", rowNum)

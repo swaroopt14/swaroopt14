@@ -7,44 +7,41 @@ import (
 )
 
 // UniversalIntentShape is the canonical nested structure expected by the zord-intent-engine.
-// It uses nested structs and JSON tags to match the exact schema requirements.
+// This model is a 1:1 mirror of models.ParsedIncomingIntent in Service 2.
 type UniversalIntentShape struct {
 	SchemaVersion string `json:"schema_version"`
 	IntentType    string `json:"intent_type"`
+	AccountNumber string `json:"account_number"` // Top level expected by Service 2
 
 	Amount struct {
-		Value    float64 `json:"value"`
-		Currency string  `json:"currency"`
+		Value    string `json:"value"` // Expected as string for precision
+		Currency string `json:"currency"`
 	} `json:"amount"`
 
 	Beneficiary struct {
 		Name       string `json:"name"`
 		Instrument struct {
-			Kind      string `json:"kind"`
-			IFSC      string `json:"ifsc,omitempty"`
-			VPA       string `json:"vpa,omitempty"`
-			AccountNo string `json:"account_number,omitempty"`
+			Kind string `json:"kind"`
+			IFSC string `json:"ifsc,omitempty"`
+			VPA  string `json:"vpa,omitempty"`
 		} `json:"instrument"`
 		Country string `json:"country"`
 	} `json:"beneficiary"`
 
 	Remitter struct {
-		Phone      string `json:"phone"`
-		Email      string `json:"email"`
-		CustomerID string `json:"customer_id"`
-	} `json:"remitter"`
+		Phone      string `json:"phone,omitempty"`
+		Email      string `json:"email,omitempty"`
+		CustomerID string `json:"customer_id,omitempty"`
+	} `json:"remitter,omitempty"`
 
-	Constraints struct {
-		ExecutionWindow string `json:"execution_window"`
-	} `json:"constraints"`
+	Constraints map[string]any `json:"constraints,omitempty"`
 
 	PurposeCode     string    `json:"purpose_code"`
-	Source          string    `json:"source"`
-	SourceSystem    string    `json:"source_system"`
-	ClientPayoutRef     string    `json:"client_payout_ref"`
-	ClientBatchRef      string    `json:"client_batch_ref"`
-	ProviderHint        string    `json:"provider_hint"`
-	IntendedExecutionAt time.Time `json:"intended_execution_at"`
+	IdempotencyKey  string    `json:"idempotency_key"`
+	ClientPayoutRef string    `json:"client_payout_ref,omitempty"`
+	ClientBatchRef  string    `json:"client_batch_ref,omitempty"`
+	ProviderHint    string    `json:"provider_hint,omitempty"`
+	IntendedExecutionAt string `json:"intended_execution_at,omitempty"`
 
 	// Internal Audit Metadata (Excluded from the JSON payload sent downstream)
 	SourceRowRef    string  `json:"-"`
@@ -61,7 +58,6 @@ const (
 )
 
 // IntentMappingProfile is the tenant-specific configuration stored in DB.
-// Note: In the static parser model, this is used primarily for DELIMITER and generic fallback.
 type IntentMappingProfile struct {
 	ProfileID      string            `db:"profile_id"`
 	ProfileVersion string            `db:"profile_version"`

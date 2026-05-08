@@ -43,3 +43,16 @@ func (p *baseParser) buildColIndex(headers []string) map[string]int {
 	}
 	return m
 }
+
+// getFromCandidates tries multiple header names and returns the first non-empty value found.
+func (p *baseParser) getFromCandidates(row []string, colIndex map[string]int, candidates ...string) string {
+	for _, c := range candidates {
+		if idx, ok := colIndex[strings.ToLower(strings.TrimSpace(c))]; ok && idx < len(row) {
+			val := strings.TrimSpace(row[idx])
+			if val != "" {
+				return val
+			}
+		}
+	}
+	return ""
+}

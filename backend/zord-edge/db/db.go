@@ -216,7 +216,7 @@ func CreateTable() error {
 	    run_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 	    batch_id       TEXT NOT NULL UNIQUE,
 	    tenant_id      UUID NOT NULL,
-	    profile_id     TEXT REFERENCES intent_mapping_profiles(profile_id),
+	    profile_id     TEXT,  --Hint for which parser was used(BANK,NBFC etc)
 	    file_name      TEXT,
 	    file_hash      TEXT,
 	    total_rows     INT  DEFAULT 0,

@@ -156,6 +156,7 @@ func (e *AttachmentEngine) runAttachment(
 		allCandidates       []models.AttachmentCandidate
 		totalIntendedAmount decimal.Decimal
 		clientBatchRef      *string
+		intentsMap          = make(map[uuid.UUID]*models.CanonicalIntent)
 	)
 
 	counters := struct {
@@ -269,6 +270,7 @@ func (e *AttachmentEngine) runAttachment(
 		if winnerIntentID != nil {
 			winnerIntent := findIntentByID(intents, *winnerIntentID)
 			if winnerIntent != nil {
+				intentsMap[*winnerIntentID] = winnerIntent
 				if clientBatchRef == nil && winnerIntent.ClientBatchRef != nil {
 					clientBatchRef = winnerIntent.ClientBatchRef
 				}
@@ -329,13 +331,6 @@ func (e *AttachmentEngine) runAttachment(
 		log.Printf("attachment.engine.batch_summary_failed job=%s err=%v", job.AttachmentJobID, err)
 	}
 
-	// ── Step 8: Emit downstream events (internal ops topics) ────────────
-	outboxSvc := &AttachmentOutboxService{}
-	if err := outboxSvc.EmitForJob(ctx, job, allDecisions, allVariances); err != nil {
-		log.Printf("attachment.engine.outbox_failed job=%s err=%v", job.AttachmentJobID, err)
-	}
-
-	// ── Step 8b: Emit Merkle leaf bundles for zord-evidence ───────────────
 	// Build observation map keyed by settlement_observation_id.
 	obsMap := make(map[uuid.UUID]*models.CanonicalSettlementObservation, len(observations))
 	rowRefs := make([]string, 0, len(observations))
@@ -343,6 +338,14 @@ func (e *AttachmentEngine) runAttachment(
 		obsMap[observations[i].SettlementObservationID] = &observations[i]
 		rowRefs = append(rowRefs, observations[i].SourceRowRef)
 	}
+
+	// ── Step 8: Emit downstream events (internal ops topics) ────────────
+	outboxSvc := &AttachmentOutboxService{}
+	if err := outboxSvc.EmitForJob(ctx, job, allDecisions, allVariances, obsMap); err != nil {
+		log.Printf("attachment.engine.outbox_failed job=%s err=%v", job.AttachmentJobID, err)
+	}
+
+	// ── Step 8b: Emit Merkle leaf bundles for zord-evidence ───────────────
 	// Load corresponding parsed rows so we can include raw_line_hash in Leaf 1.
 	parsedByRowRef, err := loadParsedRowsBySourceRowRefs(ctx, tenantID, rowRefs)
 	if err != nil {
@@ -588,6 +591,7 @@ func computeBatchSummary(
 
 	for _, d := range decisions {
 		summary.AggregateScore += d.ConfidenceScore
+		summary.AmbiguityScore += d.AmbiguityScore
 		switch d.DecisionType {
 		case models.DecisionMatchExact:
 			summary.ExactMatchCount++
@@ -625,8 +629,10 @@ func computeBatchSummary(
 	if total == 0 {
 		summary.BatchAttachmentStatus = models.BatchStatusUnattached
 		summary.AggregateScore = 0
+		summary.AmbiguityScore = 0
 	} else {
 		summary.AggregateScore = summary.AggregateScore / float64(total)
+		summary.AmbiguityScore = summary.AmbiguityScore / float64(total)
 		strongCount := summary.ExactMatchCount + summary.HighConfidenceCount
 		ratio := float64(strongCount) / float64(total)
 		switch {
@@ -816,16 +822,16 @@ func insertBatchSummary(ctx context.Context, s models.BatchAttachmentSummary) er
 			total_intent_count, exact_match_count, high_confidence_count,
 			ambiguous_count, unresolved_count, conflicted_count,
 			total_intended_amount, total_observed_amount, total_variance,
-			batch_attachment_status, aggregate_score, created_at, updated_at
+			batch_attachment_status, aggregate_score, ambiguity_score, created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
 		) ON CONFLICT DO NOTHING`,
 		s.BatchAttachmentSummaryID, s.TenantID, s.BatchID, s.SourceReference,
 		s.AttachmentJobID,
 		s.TotalIntentCount, s.ExactMatchCount, s.HighConfidenceCount,
 		s.AmbiguousCount, s.UnresolvedCount, s.ConflictedCount,
 		s.TotalIntendedAmount, s.TotalObservedAmount, s.TotalVariance,
-		s.BatchAttachmentStatus, s.AggregateScore, s.CreatedAt, s.UpdatedAt,
+		s.BatchAttachmentStatus, s.AggregateScore, s.AmbiguityScore, s.CreatedAt, s.UpdatedAt,
 	)
 	return err
 }

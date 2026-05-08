@@ -28,7 +28,8 @@ func nullStr(s string) sql.NullString {
 //   - evidence_packs row (§14.1)
 //   - evidence_items rows (§14.2)
 //   - evidence_signatures rows
-func (r *EvidenceRepository) SavePack(ctx context.Context, pack *models.EvidencePack, objectRef string) error {
+//   - evidence_outbox_events row (for relay polling)
+func (r *EvidenceRepository) SavePack(ctx context.Context, pack *models.EvidencePack, objectRef string, outboxEvent *models.OutboxEvent) error {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -91,7 +92,37 @@ VALUES($1,$2,$3,$4,$5)`,
 		}
 	}
 
+	if outboxEvent != nil {
+		if err := r.SaveToOutbox(ctx, tx, outboxEvent); err != nil {
+			return fmt.Errorf("save to outbox: %w", err)
+		}
+	}
+
 	return tx.Commit()
+}
+
+func (r *EvidenceRepository) SaveToOutbox(ctx context.Context, tx *sql.Tx, event *models.OutboxEvent) error {
+	query := `
+INSERT INTO evidence_outbox_events (
+	trace_id, envelope_id, tenant_id, contract_id, aggregate_type, aggregate_id, 
+	event_type, payload, status, created_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+`
+	var err error
+	if tx != nil {
+		_, err = tx.ExecContext(ctx, query,
+			nullStr(event.TraceID), nullStr(event.EnvelopeID), event.TenantID, nullStr(event.ContractID),
+			event.AggregateType, event.AggregateID, event.EventType,
+			event.Payload, event.Status, event.CreatedAt,
+		)
+	} else {
+		_, err = r.db.ExecContext(ctx, query,
+			nullStr(event.TraceID), nullStr(event.EnvelopeID), event.TenantID, nullStr(event.ContractID),
+			event.AggregateType, event.AggregateID, event.EventType,
+			event.Payload, event.Status, event.CreatedAt,
+		)
+	}
+	return err
 }
 
 // GetPackByID fetches a pack with its items from evidence_packs + evidence_items.

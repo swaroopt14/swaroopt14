@@ -135,6 +135,32 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS evidence_replay_jobs_tenant_idx ON evidence_replay_jobs(tenant_id, source_evidence_pack_id)`,
 		`CREATE INDEX IF NOT EXISTS evidence_replay_jobs_status_idx ON evidence_replay_jobs(status)`,
+
+		// outbox for relay polling
+		`CREATE TABLE IF NOT EXISTS evidence_outbox_events (
+    event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    trace_id UUID,
+    envelope_id UUID,
+    tenant_id UUID NOT NULL,
+    contract_id TEXT,
+    aggregate_type TEXT NOT NULL DEFAULT 'evidence_pack',
+    aggregate_id UUID NOT NULL, -- evidence_pack_id (uuid part)
+    event_type TEXT NOT NULL,   -- evidence.pack.created
+    schema_version TEXT DEFAULT 'v1',
+    payload JSONB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    retry_count INT NOT NULL DEFAULT 0,
+    next_attempt_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    sent_at TIMESTAMPTZ,
+    lease_id UUID,
+    leased_by TEXT,
+    lease_until TIMESTAMPTZ
+);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_pending_lease ON evidence_outbox_events(status, lease_until, created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_lease_id ON evidence_outbox_events(lease_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_status ON evidence_outbox_events(status);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_tenant_id ON evidence_outbox_events(tenant_id);`,
 	}
 
 	for _, s := range stmts {

@@ -41,7 +41,6 @@ type SettlementParsedRow struct {
 	RawLineHash           *string         `json:"raw_line_hash,omitempty" db:"raw_line_hash"`
 	RawColumnsJSON        json.RawMessage `json:"raw_columns_json" db:"raw_columns_json"`
 	ParsedCandidatesJSON  json.RawMessage `json:"parsed_candidates_json" db:"parsed_candidates_json"`
-	ParseWarningsJSON     json.RawMessage `json:"parse_warnings_json,omitempty" db:"parse_warnings_json"`
 	ParseConfidence       float64         `json:"parse_confidence" db:"parse_confidence"`
 	MappingProfileID      string          `json:"mapping_profile_id" db:"mapping_profile_id"`
 	MappingProfileVersion string          `json:"mapping_profile_version" db:"mapping_profile_version"`
@@ -55,7 +54,6 @@ type CanonicalSettlementObservation struct {
 	TenantID                   uuid.UUID  `json:"tenant_id" db:"tenant_id"`
 	TraceID                    *uuid.UUID        `json:"trace_id" db:"trace_id"`
 	SettlementEnvelopeID       uuid.UUID  `json:"settlement_envelope_id" db:"settlement_envelope_id"`
-	JobID                      string  `json:"job_id" db:"job_id"`
 	IngestRunID                string  `json:"ingest_run_id" db:"ingest_run_id"`
 	SettlementBatchID          string  `json:"settlement_batch_id" db:"settlement_batch_id"`
 	SourceFileRef              string     `json:"source_file_ref" db:"source_file_ref"`
@@ -103,6 +101,7 @@ type CanonicalSettlementObservation struct {
 	SourceType                 string           `json:"source_type" db:"source_type"`
 	SourceSystemID             string           `json:"source_system_id" db:"source_system_id"`
 	CorridorID                 string           `json:"corridor_id" db:"corridor_id"`
+	WarningsJSON               []byte           `json:"warnings_json,omitempty" db:"warnings_json"`
 	CreatedAt                  time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt                  time.Time  `json:"updated_at" db:"updated_at"`
 }
@@ -111,7 +110,7 @@ type CanonicalSettlementObservation struct {
 type CanonicalSettlementBatch struct {
 	SettlementBatchID           uuid.UUID `json:"settlement_batch_id" db:"settlement_batch_id"`
 	TenantID                    uuid.UUID `json:"tenant_id" db:"tenant_id"`
-	JobID                       string `json:"job_id" db:"job_id"`
+	IngestRunID                 string `json:"ingest_run_id" db:"ingest_run_id"`
 	SourceFileRef               string    `json:"source_file_ref" db:"source_file_ref"`
 	SourceSystem                string    `json:"source_system" db:"source_system"`
 	ConnectorID                 *uuid.UUID `json:"connector_id,omitempty" db:"connector_id"`
@@ -153,7 +152,7 @@ type SettlementOutboxEvent struct {
 	OutboxEventID uuid.UUID       `json:"outbox_event_id" db:"outbox_event_id"`
 	TenantID      uuid.UUID       `json:"tenant_id" db:"tenant_id"`
 	TraceID       *uuid.UUID       `json:"trace_id" db:"trace_id"`
-	JobID         string          `json:"job_id" db:"job_id"`
+	IngestRunID   string          `json:"ingest_run_id" db:"ingest_run_id"`
 	EntityFamily  string          `json:"entity_family" db:"entity_family"`
 	EntityID      uuid.UUID       `json:"entity_id" db:"entity_id"`
 	EventType     string          `json:"event_type" db:"event_type"`

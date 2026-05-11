@@ -36,9 +36,9 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		SELECT 
 			parsed_row_id, settlement_envelope_id, source_file_ref, source_row_ref,
 			ingest_run_id, settlement_batch_id, client_batch_id,
-			parsed_candidates_json, parse_confidence, parse_warnings_json
+			parsed_candidates_json, parse_confidence
 		FROM settlement_parsed_rows
-		WHERE job_id = $1 AND tenant_id = $2
+		WHERE ingest_run_id = $1 AND tenant_id = $2
 		ORDER BY source_row_ref::int`,
 		jobID, tenantID,
 	)
@@ -69,10 +69,9 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			clientBatchID     string
 			shapeJSON         []byte
 			parseConfidence   float64
-			warningsJSON      []byte
 		)
 
-		if err := rows.Scan(&parsedRowID, &envelopeID, &sourceFileRef, &sourceRowRef, &ingestRunID, &settlementBatchID, &clientBatchID, &shapeJSON, &parseConfidence, &warningsJSON); err != nil {
+		if err := rows.Scan(&parsedRowID, &envelopeID, &sourceFileRef, &sourceRowRef, &ingestRunID, &settlementBatchID, &clientBatchID, &shapeJSON, &parseConfidence); err != nil {
 			log.Printf("settlement.canonicalize.scan_error job_id=%s err=%v", jobID, err)
 			continue
 		}
@@ -102,7 +101,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		_, err = db.DB.ExecContext(ctx, `
 			INSERT INTO canonical_settlement_observations (
 				settlement_observation_id, tenant_id, trace_id,
-				settlement_envelope_id, job_id, ingest_run_id, settlement_batch_id,
+				settlement_envelope_id, ingest_run_id, settlement_batch_id,
 				source_file_ref, source_row_ref, source_system,
 				observation_kind, source_strength_class,
 				client_reference_candidate, provider_reference, bank_reference,
@@ -117,18 +116,17 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				carrier_richness_score, attachment_readiness_score,
 				canonical_hash, client_batch_id,
 				source_strength, source_type, source_system_id,
-				corridor_id,
+				corridor_id, warnings_json,
 				created_at, updated_at
 			) VALUES (
 				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 				$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 				$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
 				$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
-				$41,$42,$43,
-				$44
+				$41,$42,$43,$44
 			) ON CONFLICT (settlement_observation_id) DO NOTHING`,
 			obs.SettlementObservationID, obs.TenantID, obs.TraceID,
-			obs.SettlementEnvelopeID, obs.JobID, ingestRunID, settlementBatchID,
+			obs.SettlementEnvelopeID, ingestRunID, settlementBatchID,
 			obs.SourceFileRef, obs.SourceRowRef, obs.SourceSystem,
 			obs.ObservationKind, obs.SourceStrengthClass,
 			obs.ClientReferenceCandidate, obs.ProviderReference, obs.BankReference,
@@ -140,14 +138,14 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			obs.ParseConfidence, obs.MappingConfidence, obs.CarrierRichnessScore,
 			obs.AttachmentReadinessScore, obs.CanonicalHash, obs.ClientBatchID,
 			obs.SourceStrength, obs.SourceType, obs.SourceSystemID,
-			obs.CorridorID,
+			obs.CorridorID, obs.WarningsJSON,
 			obs.CreatedAt, obs.UpdatedAt,
 		)
 
 		if err != nil {
 			log.Printf("settlement.canonicalize.insert_failed job_id=%s row=%s err=%v", jobID, sourceRowRef, err)
 			svc := &SettlementIngestService{}
-			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "INSERT_FAILED", profile, ingestRunID, settlementBatchID, clientBatchID)
+			_ = svc.PersistParseError(ctx, tenantID, jobID, envelopeID, sourceRowRef, "CANONICALIZATION", "CANONICAL_PERSIST_FAILED", profile, ingestRunID, settlementBatchID, clientBatchID)
 			canonicalizeFailed++
 			continue
 		}
@@ -207,7 +205,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 
 		_, err = db.DB.ExecContext(ctx, `
 			INSERT INTO canonical_settlement_batches (
-				settlement_batch_id, tenant_id, job_id, ingest_run_id, settlement_batch_id_ref,
+				settlement_batch_id, tenant_id, ingest_run_id, settlement_batch_id_ref,
 				source_file_ref, source_system,
 				source_batch_ref, client_batch_id, artifact_family,
 				row_count, success_count_estimate, failed_count_estimate,
@@ -217,7 +215,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				parse_confidence_overall, attachment_readiness_overall,
 				created_at, updated_at
 			) VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
 			) ON CONFLICT (ingest_run_id, client_batch_id) DO UPDATE SET
 				row_count = EXCLUDED.row_count,
 				success_count_estimate = EXCLUDED.success_count_estimate,
@@ -227,7 +225,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				parse_confidence_overall = EXCLUDED.parse_confidence_overall,
 				attachment_readiness_overall = EXCLUDED.attachment_readiness_overall,
 				updated_at = EXCLUDED.updated_at`,
-			batchID, tenantID, jobID, ingestRunIDForJob, settlementBatchIDForJob,
+			batchID, tenantID, ingestRunIDForJob, settlementBatchIDForJob,
 			firstObs.SourceFileRef, firstObs.SourceSystem,
 			sourceBatchRef, clientBatchID, profile.ArtifactFamily,
 			len(group), successCount, 0,
@@ -274,7 +272,6 @@ func buildCanonicalObservation(
 		SettlementObservationID:  uuid.New(),
 		TenantID:                 tenantID,
 		SettlementEnvelopeID:     envelopeID,
-		JobID:                    jobID,
 		SourceFileRef:            shape.SourceFileRef,
 		SourceRowRef:             shape.SourceRowRef,
 		SourceSystem:             shape.SourceSystem,
@@ -312,6 +309,7 @@ func buildCanonicalObservation(
 	}
 	obs.SourceStrength = computeSourceStrength(obs.AttachmentReadinessScore)
 	obs.CanonicalHash = computeCanonicalHash(tenantID, obs.SettlementObservationID, shape)
+	obs.WarningsJSON = computeQualityWarnings(shape, obs.ParseConfidence, obs.MappingConfidence, obs.AttachmentReadinessScore)
 	return obs
 }
 
@@ -431,4 +429,46 @@ func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.Univ
 	combined := strings.Join(parts, "|")
 	hash := sha256.Sum256([]byte(combined))
 	return hex.EncodeToString(hash[:])
+}
+
+func computeQualityWarnings(shape models.UniversalSettlementShape, parseConf, mapConf, attachScore float64) []byte {
+	var warnings []string
+	if shape.BankReference == nil || *shape.BankReference == "" {
+		warnings = append(warnings, "MISSING_UTR")
+	}
+	if shape.ExternalReference == nil || *shape.ExternalReference == "" {
+		warnings = append(warnings, "MISSING_REFERENCE_ID")
+	}
+	if shape.ProviderReference == nil || *shape.ProviderReference == "" {
+		warnings = append(warnings, "MISSING_PROVIDER_REF")
+	}
+	if shape.Amount.IsNegative() {
+		warnings = append(warnings, "NEGATIVE_AMOUNT")
+	} else if shape.Amount.IsZero() {
+		warnings = append(warnings, "ZERO_AMOUNT")
+	}
+	if shape.CurrencyCode == "" || len(shape.CurrencyCode) != 3 {
+		warnings = append(warnings, "INVALID_CURRENCY")
+	}
+	if shape.ObservationTimestamp.IsZero() {
+		warnings = append(warnings, "INVALID_TIMESTAMP")
+	}
+	if shape.PaymentMethod == "" {
+		warnings = append(warnings, "UNKNOWN_CORRIDOR")
+	}
+	if parseConf < 0.8 {
+		warnings = append(warnings, "LOW_PARSE_CONFIDENCE")
+	}
+	if mapConf < 0.8 {
+		warnings = append(warnings, "LOW_MAPPING_CONFIDENCE")
+	}
+	if attachScore < 0.75 { // Below HIGH
+		warnings = append(warnings, "LOW_ATTACHMENT_READINESS")
+	}
+
+	if len(warnings) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(warnings)
+	return b
 }

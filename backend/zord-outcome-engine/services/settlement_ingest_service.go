@@ -198,7 +198,8 @@ func (s *SettlementIngestService) RegisterJob(
 	return nil
 }
 
-// PersistParsedRow saves a successfully parsed row to the database.
+// PersistParsedRow saves a row to the database — both successful and failed rows are recorded here.
+// For failed rows, pass status="FAILED" and the failure reason; shape/columns will be empty/zero.
 // profile is passed through so the row records which PSP mapping was used.
 func (s *SettlementIngestService) PersistParsedRow(
 	ctx context.Context,
@@ -209,6 +210,8 @@ func (s *SettlementIngestService) PersistParsedRow(
 	ingestRunID string,
 	settlementBatchID string,
 	clientBatchID string,
+	status string,
+	failureReasonCode string,
 ) error {
 	parsedRowID := uuid.New()
 	rawColsJSON, _ := json.Marshal(result.RawColumns)
@@ -219,24 +222,26 @@ func (s *SettlementIngestService) PersistParsedRow(
 	finalHash := sha256.Sum256([]byte(lineageStr))
 	rawLineHash := hex.EncodeToString(finalHash[:])
 
-	var warningsJSON []byte
-	if len(result.Warnings) > 0 {
-		warningsJSON, _ = json.Marshal(result.Warnings)
+	var failureCode interface{}
+	if failureReasonCode != "" {
+		failureCode = failureReasonCode
 	}
 
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO settlement_parsed_rows (
-			parsed_row_id, job_id, ingest_run_id, settlement_batch_id,
+			parsed_row_id, ingest_run_id, settlement_batch_id,
 			tenant_id, settlement_envelope_id,
 			source_file_ref, source_row_ref, raw_line_hash,
-			raw_columns_json, parsed_candidates_json, parse_warnings_json,
-			parse_confidence, mapping_profile_id, mapping_profile_version, parser_version, client_batch_id, created_at
+			raw_columns_json, parsed_candidates_json,
+			parse_confidence, mapping_profile_id, mapping_profile_version, parser_version,
+			client_batch_id, status, failure_reason_code, created_at
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
-		parsedRowID, jobID, ingestRunID, settlementBatchID,
+		parsedRowID, ingestRunID, settlementBatchID,
 		tenantID, envelopeID,
 		objRef, rowRef, rawLineHash,
-		rawColsJSON, shapeJSON, warningsJSON,
-		result.Confidence, profile.ProfileID, profile.ProfileVersion, profile.ProfileVersion, clientBatchID, time.Now().UTC(),
+		rawColsJSON, shapeJSON,
+		result.Confidence, profile.ProfileID, profile.ProfileVersion, profile.ProfileVersion,
+		clientBatchID, status, failureCode, time.Now().UTC(),
 	)
 	return err
 }
@@ -255,9 +260,10 @@ func (s *SettlementIngestService) FinalizeJob(
 		    row_count_parsed         = $2,
 		    row_count_failed         = $3,
 		    parse_confidence_overall = $4,
-		    completed_at             = $5
-		WHERE ingest_run_id = $6`,
-		"DONE", parsedCount, failedCount, avgConfidence, time.Now().UTC(), jobID,
+		    completed_at             = $5,
+		    row_count_expected       = $6
+		WHERE ingest_run_id = $7`,
+		"DONE", parsedCount, failedCount, avgConfidence, time.Now().UTC(), parsedCount+failedCount, jobID,
 	)
 	return err
 }
@@ -285,12 +291,12 @@ func (s *SettlementIngestService) PersistParseError(
 ) error {
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO settlement_parse_errors (
-			error_id, tenant_id, job_id, ingest_run_id, settlement_batch_id,
+			error_id, tenant_id, ingest_run_id, settlement_batch_id,
 			settlement_envelope_id,
 			source_row_ref, error_stage, reason_code,
 			severity, mapping_profile_id, mapping_profile_version, parser_version, client_batch_id, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
-		uuid.New(), tenantID, jobID, ingestRunID, settlementBatchID,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		uuid.New(), tenantID, ingestRunID, settlementBatchID,
 		envID,
 		rowRef, errorStage, reason,
 		"ERROR", profile.ProfileID, profile.ProfileVersion, profile.ProfileVersion, clientBatchID, time.Now().UTC(),

@@ -1,7 +1,7 @@
 package model
 
 import (
-	// "encoding/json"
+	"encoding/json"
 	"time"
 )
 
@@ -89,6 +89,42 @@ type ResolvedBeneficiary struct {
 	IFSC          string
 }
 
+type AttachmentDecisionCreatedPayload struct {
+	EventID                  string          `json:"event_id"`
+	AttachmentDecisionID    string          `json:"attachment_decision_id"`
+	AttachmentJobID         string          `json:"attachment_job_id"`
+	TenantID                string          `json:"tenant_id"`
+	TraceID                 string          `json:"trace_id"`
+	OccurredAt              string          `json:"occurred_at"`
+	SettlementObservationID string          `json:"settlement_observation_id"`
+	IntentID                string          `json:"intent_id"`
+	ContractID              string          `json:"contract_id"`
+	CorridorID              string          `json:"corridor_id"`
+	BatchID                 string          `json:"batch_id"`
+	SettledAmount           string          `json:"settled_amount"`
+	IntendedAmount          string          `json:"intended_amount"`
+	Currency                string          `json:"currency"`
+	CandidateSetSize        int             `json:"candidate_set_size"`
+	DecisionType            string          `json:"decision_type"`
+	DecisionReasonCode      string          `json:"decision_reason_code"`
+	ConfidenceScore         float64         `json:"confidence_score"`
+	AmbiguityScore          float64         `json:"ambiguity_score"`
+	MatchingRulesetVersion  string          `json:"matching_ruleset_version"`
+	WinningScore            float64         `json:"winning_score"`
+	RunnerUpScore           float64         `json:"runner_up_score"`
+	ScoreMargin             float64         `json:"score_margin"`
+	CandidateSetHash        string          `json:"candidate_set_hash"`
+	SupportingCarriers      json.RawMessage `json:"supporting_carriers"`
+	VarianceSummary         *VarianceSummary `json:"variance_summary,omitempty"`
+}
+
+type VarianceSummary struct {
+	AmountVariance    string `json:"amount_variance"`
+	VarianceSeverity  string `json:"variance_severity"`
+	ValueDateMismatch bool   `json:"value_date_mismatch"`
+	CrossPeriod       bool   `json:"cross_period"`
+	EvidenceGap       bool   `json:"evidence_gap"`
+}
 // Zero clears all plaintext fields from memory.
 // Always call via defer immediately after populating this struct:
 //

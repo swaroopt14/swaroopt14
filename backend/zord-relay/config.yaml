@@ -57,6 +57,7 @@ services:
     default_topic: payments.outcome.events.v1
     topic_map:
       "canonical.settlement.created": "canonical.settlement.created"
+      "attachment.decision.created": "attachment.decision.created"
       "attachment.batch.updated": "batch.summary.updated"
 
   - name: evidence-service

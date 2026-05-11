@@ -61,11 +61,12 @@ func (s *AttachmentOutboxService) EmitForJob(
 
 	// 1. Fetch intent details for enrichment
 	type intentInfo struct {
-		IntentID   uuid.UUID
-		ContractID uuid.UUID
-		CorridorID string
-		Currency   string
-		Amount     decimal.Decimal
+		IntentID            uuid.UUID
+		ContractID          uuid.UUID
+		CorridorID          string
+		Currency            string
+		Amount              decimal.Decimal
+		IntendedExecutionAt *time.Time
 	}
 	intentLookup := make(map[uuid.UUID]intentInfo)
 	var intentIDs []uuid.UUID
@@ -77,47 +78,49 @@ func (s *AttachmentOutboxService) EmitForJob(
 	if len(intentIDs) > 0 {
 		rows, err := db.DB.QueryContext(ctx, `
 			SELECT
-				ci.intent_id,
-				COALESCE(di.contract_id::text, ''),
-				COALESCE(di.corridor_id, ci.corridor, ''),
-				ci.currency_code,
-				ci.amount
-			FROM canonical_intents ci
-			LEFT JOIN dispatch_index di ON ci.intent_id = di.intent_id
-			WHERE ci.intent_id = ANY($1)`, pq.Array(intentIDs))
+				intent_id,
+				contract_id,
+				COALESCE(corridor, ''),
+				currency_code,
+				amount,
+				intended_execution_at
+			FROM canonical_intents
+			WHERE intent_id = ANY($1)`, pq.Array(intentIDs))
 		if err != nil {
 			return fmt.Errorf("failed to lookup intents for outbox: %w", err)
 		}
 		defer rows.Close()
 
 		for rows.Next() {
-			var idStr, cIDStr, corrID, curr string
+			var idStr, corrID, curr string
+			var cID uuid.UUID
 			var amt decimal.Decimal
-			if err := rows.Scan(&idStr, &cIDStr, &corrID, &curr, &amt); err != nil {
+			var intendedAt *time.Time
+			if err := rows.Scan(&idStr, &cID, &corrID, &curr, &amt, &intendedAt); err != nil {
 				continue
 			}
 			id, _ := uuid.Parse(idStr)
-			cID, _ := uuid.Parse(cIDStr)
 			intentLookup[id] = intentInfo{
-				IntentID:   id,
-				ContractID: cID,
-				CorridorID: corrID,
-				Currency:   curr,
-				Amount:     amt,
+				IntentID:            id,
+				ContractID:          cID,
+				CorridorID:          corrID,
+				Currency:            curr,
+				Amount:              amt,
+				IntendedExecutionAt: intendedAt,
 			}
 		}
 	}
 
 	// 2. Fetch batch summary data for aggregate amounts
-	var totalIntendedAmount, totalConfirmedAmount decimal.Decimal
+	var totalIntendedAmount, totalConfirmedAmount, totalVariance decimal.Decimal
 	row := db.DB.QueryRowContext(ctx, `
-		SELECT total_intended_amount, total_observed_amount
+		SELECT total_intended_amount, total_observed_amount, total_variance
 		FROM batch_attachment_summaries 
 		WHERE attachment_job_id = $1 
 		LIMIT 1`,
 		job.AttachmentJobID,
 	)
-	_ = row.Scan(&totalIntendedAmount, &totalConfirmedAmount)
+	_ = row.Scan(&totalIntendedAmount, &totalConfirmedAmount, &totalVariance)
 
 	for _, d := range decisions {
 		// ── 1. attachment.decision.created ────────────────────────────────
@@ -167,17 +170,17 @@ func (s *AttachmentOutboxService) EmitForJob(
 				if err == nil {
 					intentID = &foundID
 					// Re-enrich identifiers from the found intent
-					var cIDStr, corrIDStr string
+					var corrIDStr string
+					var foundContractID uuid.UUID
 					_ = db.DB.QueryRowContext(ctx, `
 						SELECT 
-							COALESCE(di.contract_id::text, ''),
-							COALESCE(di.corridor_id, ci.corridor, ''),
-							ci.currency_code,
-							ci.amount
-						FROM canonical_intents ci
-						LEFT JOIN dispatch_index di ON ci.intent_id = di.intent_id
-						WHERE ci.intent_id = $1`, foundID).Scan(&cIDStr, &corrIDStr, &curr, &intendedAmount)
-					cID, _ = uuid.Parse(cIDStr)
+							contract_id,
+							COALESCE(corridor, ''),
+							currency_code,
+							amount
+						FROM canonical_intents
+						WHERE intent_id = $1`, foundID).Scan(&foundContractID, &corrIDStr, &curr, &intendedAmount)
+					cID = foundContractID
 					corrID = corrIDStr
 				}
 			}
@@ -307,20 +310,88 @@ func (s *AttachmentOutboxService) EmitForJob(
 
 	// ── 3. variance.record.created — one per variance record ─────────────
 	for _, v := range variances {
+		var (
+			corridorID        string
+			batchID           string
+			currency          string
+			actualValueDate   *time.Time
+			expectedValueDate *time.Time
+			intendedAmount    decimal.Decimal
+			settledAmount     decimal.Decimal
+		)
+
+		if obs, ok := obsMap[v.SettlementObservationID]; ok {
+			corridorID = obs.CorridorID
+			batchID = obs.ClientBatchID
+			currency = obs.CurrencyCode
+			actualValueDate = obs.ValueDate
+			settledAmount = obs.Amount
+		}
+
+		if info, ok := intentLookup[v.IntentID]; ok {
+			expectedValueDate = info.IntendedExecutionAt
+			intendedAmount = info.Amount
+		}
+
+		var expectedDateStr, actualDateStr string
+		if expectedValueDate != nil {
+			expectedDateStr = expectedValueDate.Format("2006-01-02")
+		}
+		if actualValueDate != nil {
+			actualDateStr = actualValueDate.Format("2006-01-02")
+		}
+
+		var evidenceGapFlags []string
+		if v.EvidenceGapFlag {
+			evidenceGapFlags = append(evidenceGapFlags, "evidence_gap")
+		}
+		if v.ProviderRefMissingFlag {
+			evidenceGapFlags = append(evidenceGapFlags, "missing_provider_ref")
+		}
+		if v.BankRefMissingFlag {
+			evidenceGapFlags = append(evidenceGapFlags, "missing_bank_ref")
+		}
+
+		vType := "UNDER_SETTLEMENT"
+		if v.AmountVariance.IsNegative() {
+			vType = "OVER_SETTLEMENT"
+		} else if v.DeductionVariance != nil && !v.DeductionVariance.IsZero() {
+			vType = "DEDUCTION"
+		} else if v.ValueDateMismatchFlag {
+			vType = "VALUE_DATE_MISMATCH"
+		} else if v.CrossPeriodFlag {
+			vType = "CROSS_PERIOD"
+		} else if v.StatusVarianceFlag {
+			vType = "REVERSAL"
+		}
+
+		vTraceID := uuid.Nil
+		if obs, ok := obsMap[v.SettlementObservationID]; ok && obs.TraceID != nil {
+			vTraceID = *obs.TraceID
+		}
+
 		vPayload := map[string]interface{}{
-			"variance_record_id":        v.VarianceRecordID,
-			"tenant_id":                 v.TenantID,
-			"attachment_decision_id":    v.AttachmentDecisionID,
+			"event_id":                  uuid.New().String(),
+			"tenant_id":                 v.TenantID.String(),
+			"trace_id":                  vTraceID.String(),
+			"occurred_at":               time.Now().UTC().Format(time.RFC3339),
+			"variance_id":               v.VarianceRecordID,
+			"decision_id":               v.AttachmentDecisionID,
 			"intent_id":                 v.IntentID,
-			"settlement_observation_id": v.SettlementObservationID,
-			"amount_variance":           v.AmountVariance,
-			"variance_severity":         v.VarianceSeverity,
-			"value_date_mismatch_flag":  v.ValueDateMismatchFlag,
-			"settlement_delay_days":     v.SettlementDelayDays,
-			"cross_period_flag":         v.CrossPeriodFlag,
-			"evidence_gap_flag":         v.EvidenceGapFlag,
-			"provider_ref_missing_flag": v.ProviderRefMissingFlag,
-			"bank_ref_missing_flag":     v.BankRefMissingFlag,
+			"settlement_id":             v.SettlementObservationID,
+			"corridor_id":               corridorID,
+			"batch_id":                  batchID,
+			"variance_type":             vType,
+			"intended_amount_minor":     intendedAmount.String(),
+			"settled_amount_minor":  settledAmount.String(),
+			"variance_amount_minor": v.AmountVariance.String(),
+			"currency":              currency,
+			"expected_value_date":   expectedDateStr,
+			"actual_value_date":     actualDateStr,
+			"cross_period_flag":     v.CrossPeriodFlag,
+			"deduction_reason":      "TAX",
+			"is_whitelisted":        false,
+			"evidence_gap_flags":    evidenceGapFlags,
 		}
 		if err := s.insertEvent(ctx, v.TenantID, job.AttachmentJobID,
 			"", "",
@@ -339,7 +410,6 @@ func (s *AttachmentOutboxService) EmitForJob(
 		failedCount        int
 		pendingCount       int
 		reversedCount      int
-		totalVariance      decimal.Decimal
 		aggregateAmbiguity float64
 		finalityStatus     string
 	)

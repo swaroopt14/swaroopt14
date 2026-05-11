@@ -9,6 +9,7 @@ import (
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/models"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -18,7 +19,7 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 	}
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO canonical_intents (
-			intent_id, tenant_id,
+			intent_id, tenant_id, contract_id,
 			client_payout_ref, client_batch_ref, business_idempotency_key,
 			amount, currency_code,
 			intended_execution_at, payout_type, provider_hint, corridor,
@@ -26,8 +27,10 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 			canonical_hash, governance_state, 
 			created_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
 		) ON CONFLICT (intent_id) DO UPDATE SET
+			tenant_id               = EXCLUDED.tenant_id,
+			contract_id             = EXCLUDED.contract_id,
 			client_payout_ref       = EXCLUDED.client_payout_ref,
 			client_batch_ref        = EXCLUDED.client_batch_ref,
 			business_idempotency_key= EXCLUDED.business_idempotency_key,
@@ -41,7 +44,7 @@ func upsertCanonicalIntent(ctx context.Context, intent models.CanonicalIntent) e
 			matchability_score      = EXCLUDED.matchability_score,
 			canonical_hash          = EXCLUDED.canonical_hash,
 			governance_state        = EXCLUDED.governance_state`,
-		intent.IntentID, intent.TenantID,
+		intent.IntentID, intent.TenantID, intent.ContractID,
 		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
 		intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
@@ -73,6 +76,8 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 	if err != nil {
 		return models.CanonicalIntent{}, err
 	}
+	contractID, _ := uuid.Parse(payload.ContractID)
+
 	amount, err := validateAmount(payload.Amount)
 	if err != nil {
 		return models.CanonicalIntent{}, err
@@ -120,6 +125,7 @@ func canonicalIntentFromPayload(payload models.IntentPayload) (models.CanonicalI
 	return models.CanonicalIntent{
 		IntentID:               intentID,
 		TenantID:               tenantID,
+		ContractID:             contractID,
 		ClientPayoutRef:        clientPayoutRef,
 		ClientBatchRef:         clientBatchRef,
 		BusinessIdempotencyKey: bizIdemKey,

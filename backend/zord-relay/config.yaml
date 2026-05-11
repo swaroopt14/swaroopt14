@@ -58,6 +58,7 @@ services:
     topic_map:
       "canonical.settlement.created": "canonical.settlement.created"
       "attachment.decision.created": "attachment.decision.created"
+      "variance.record.created": "variance.record.created"
       "attachment.batch.updated": "batch.summary.updated"
 
   - name: evidence-service

@@ -22,9 +22,9 @@ type CanonicalIntent struct {
 	CanonicalVersion string `json:"canonical_version"`
 	SchemaVersion    string `json:"schema_version"`
 
-	Amount                decimal.Decimal `json:"amount"`
-	Currency              string          `json:"currency"`
-	IntendedExecutionAt   *time.Time      `json:"intended_execution_at,omitempty" db:"intended_execution_at"`
+	Amount              decimal.Decimal `json:"amount"`
+	Currency            string          `json:"currency"`
+	IntendedExecutionAt *time.Time      `json:"intended_execution_at,omitempty" db:"intended_execution_at"`
 
 	Constraints json.RawMessage `json:"constraints,omitempty"`
 
@@ -71,7 +71,17 @@ type CanonicalIntent struct {
 	DuplicateReasonCode       string          `json:"duplicate_reason_code,omitempty" db:"duplicate_reason_code"`
 	ClientBatchRef            string          `json:"client_batch_ref,omitempty" db:"client_batch_ref"`
 
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
-	BatchID   *string    `json:"batchid,omitempty" db:"batchid"`
-	AggregateConfidenceScore *float64 `json:"aggregate_confidence_score,omitempty" db:"aggregate_confidence_score"` // NEW
+	UpdatedAt                *time.Time `json:"updated_at,omitempty"`
+	BatchID                  *string    `json:"batchid,omitempty" db:"batchid"`
+	AggregateConfidenceScore *float64   `json:"aggregate_confidence_score,omitempty" db:"aggregate_confidence_score"` // NEW
+}
+type BatchSidebarItem struct {
+	BatchID             string   `json:"batchId"`
+	Type                string   `json:"type"`
+	TotalValue          string   `json:"totalValue"`
+	Transactions        int      `json:"transactions"`
+	ConfirmedCount      int      `json:"confirmedCount"`
+	HighConfidenceCount *float64 `json:"highConfidenceCount,omitempty"`
+	MismatchCount       int      `json:"mismatchCount"`
+	UnresolvedCount     int      `json:"unresolvedCount"`
 }

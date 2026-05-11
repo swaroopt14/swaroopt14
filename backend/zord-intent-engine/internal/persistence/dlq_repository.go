@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"strconv"
 
-	"github.com/google/uuid"
 	"zord-intent-engine/internal/models"
+
+	"github.com/google/uuid"
 )
 
 // DLQRepository defines how DLQ entries are persisted
@@ -42,8 +43,8 @@ func (r *DLQPostgresRepo) Save(
 		INSERT INTO dlq_items (
 			dlq_id, tenant_id, envelope_id,
 			stage, reason_code, error_detail,
-			replayable, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+			replayable,client_batch_ref, created_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
 	`,
 		entry.DLQID,
 		entry.TenantID,
@@ -52,6 +53,7 @@ func (r *DLQPostgresRepo) Save(
 		entry.ReasonCode,
 		entry.ErrorDetail,
 		entry.Replayable,
+		entry.ClientBatchRef,
 		entry.CreatedAt,
 	)
 
@@ -69,7 +71,7 @@ func (r *DLQPostgresRepo) List(
 	query := `
 		SELECT dlq_id, tenant_id, envelope_id,
 		       stage, reason_code, error_detail,
-		       replayable, created_at
+		       replayable, client_batch_ref, created_at
 		FROM dlq_items
 		WHERE tenant_id = $1
 	`
@@ -107,6 +109,7 @@ func (r *DLQPostgresRepo) List(
 			&e.ReasonCode,
 			&e.ErrorDetail,
 			&e.Replayable,
+			&e.ClientBatchRef,
 			&e.CreatedAt,
 		)
 		if err != nil {
@@ -149,6 +152,7 @@ func (r *DLQPostgresRepo) ListAll(
 			reason_code,
 			error_detail,
 			replayable,
+			client_batch_ref,
 			created_at
 		FROM dlq_items
 		ORDER BY created_at DESC
@@ -170,6 +174,7 @@ func (r *DLQPostgresRepo) ListAll(
 			&e.ReasonCode,
 			&e.ErrorDetail,
 			&e.Replayable,
+			&e.ClientBatchRef,
 			&e.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -197,6 +202,7 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 			reason_code,
 			error_detail,
 			replayable,
+			client_batch_ref,
 			created_at
 		FROM dlq_items
 		WHERE tenant_id = $1
@@ -212,6 +218,7 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 		&e.ReasonCode,
 		&e.ErrorDetail,
 		&e.Replayable,
+		&e.ClientBatchRef,
 		&e.CreatedAt,
 	)
 
@@ -224,6 +231,7 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 
 	return &e, nil
 }
+
 // NEW: GetByID fetches a single DLQ entry by primary key (no tenant required)
 // Used by the /v1/dlq/:dlq_id endpoint for the console frontend
 func (r *DLQPostgresRepo) GetByID(
@@ -242,6 +250,7 @@ func (r *DLQPostgresRepo) GetByID(
 			reason_code,
 			error_detail,
 			replayable,
+			client_batch_ref,
 			created_at
 		FROM dlq_items
 		WHERE dlq_id = $1
@@ -253,6 +262,7 @@ func (r *DLQPostgresRepo) GetByID(
 		&e.ReasonCode,
 		&e.ErrorDetail,
 		&e.Replayable,
+		&e.ClientBatchRef,
 		&e.CreatedAt,
 	)
 

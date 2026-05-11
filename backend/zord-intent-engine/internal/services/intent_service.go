@@ -677,12 +677,16 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 
 	// -------- STEP 6: VALIDATION --------
-
+	batchRef := ""
+	if in.BatchID != nil {
+		batchRef = *in.BatchID
+	}
 	intent, dlq, err := s.validator.ValidateParsed(
 		ctx,
 		in.TenantID.String(),
 		in.EnvelopeID.String(),
 		parsed,
+		batchRef,
 	)
 	if err != nil {
 		return nil, nil, err

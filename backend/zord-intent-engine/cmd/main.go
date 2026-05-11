@@ -128,6 +128,7 @@ func main() {
 	mux.HandleFunc("/v1/intents", intentHandler.List)
 	mux.HandleFunc("/internal/outbox/lease", outboxHandler.Lease)
 	mux.HandleFunc("/internal/outbox/ack", outboxHandler.Ack)
+	mux.HandleFunc("/api/prod/intents/batches", intentHandler.ListBatchesSidebar)
 	mux.HandleFunc("/internal/outbox/nack", outboxHandler.Nack)
 
 	handler := func(msg []byte) error {
@@ -153,6 +154,10 @@ func main() {
 				if dlq.EnvelopeID == "" {
 					dlq.EnvelopeID = event.EnvelopeID.String()
 				}
+				if dlq.ClientBatchRef == "" && event.BatchID != nil {
+					dlq.ClientBatchRef = *event.BatchID
+				}
+
 				_, err := dlqRepo.Save(ctx, *dlq)
 				if err != nil {
 					log.Printf("Failed to save DLQ entry: %v", err)

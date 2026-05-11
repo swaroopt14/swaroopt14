@@ -22,6 +22,7 @@ func (v *Validator) ValidateParsed(
 	tenantID string,
 	envelopeID string,
 	intent models.ParsedIncomingIntent,
+	clientBatchRef string,
 ) (*models.ParsedIncomingIntent, *models.DLQEntry, error) {
 
 	// STEP 2 — STRUCTURAL validation
@@ -33,6 +34,7 @@ func (v *Validator) ValidateParsed(
 			"STRUCTURAL_VALIDATION",
 			err,
 			false,
+			clientBatchRef,
 		)
 		return nil, dlq, nil
 	}
@@ -46,6 +48,7 @@ func (v *Validator) ValidateParsed(
 			"SEMANTIC_VALIDATION",
 			err,
 			false,
+			clientBatchRef,
 		)
 		if perr != nil {
 			return nil, nil, perr
@@ -63,6 +66,7 @@ func (v *Validator) persistDLQ(
 	stage string,
 	err error,
 	replayable bool,
+	clientBatchRef string,
 ) (*models.DLQEntry, error) {
 
 	ve, ok := err.(ValidationError)
@@ -77,10 +81,11 @@ func (v *Validator) persistDLQ(
 		TenantID:   tenantID,
 		EnvelopeID: envelopeID,
 
-		Stage:       stage,
-		ReasonCode:  ve.Code,
-		ErrorDetail: ve.Msg,
-		Replayable:  replayable,
+		Stage:          stage,
+		ReasonCode:     ve.Code,
+		ErrorDetail:    ve.Msg,
+		Replayable:     replayable,
+		ClientBatchRef: clientBatchRef,
 
 		CreatedAt: time.Now().UTC(),
 	}

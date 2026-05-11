@@ -12,8 +12,8 @@ WORKDIR /app
 
 # Install dependencies based on the preferred package manager
 COPY package.json package-lock.json* ./
-# Install all dependencies (including devDependencies) for building
-RUN npm ci
+# Install all dependencies (including optional platform binaries needed by Next SWC)
+RUN npm ci --include=optional
 
 # Rebuild the source code only when needed
 FROM base AS builder
@@ -56,8 +56,6 @@ EXPOSE 3000
 
 ENV PORT 3000
 ENV HOSTNAME "0.0.0.0"
-# Bulk-ingest is proxied to zord-edge `/v1/bulk-ingest`. Use host gateway when console is not on the same compose network as edge.
-ENV ZORD_INTELLIGENCE_URL=http://host.docker.internal:8080
 
 # server.js is created by next build from the standalone output
 # https://nextjs.org/docs/pages/api-reference/next-config-js/output

@@ -11,6 +11,7 @@ export type WorkspaceConversationMessage = {
   confidence?: string | null
   citationSnippet?: string | null
   hasVisualization?: boolean
+  visualization?: PromptLayerVisualization | null
 }
 
 export type PromptLayerCitation = {
@@ -26,10 +27,42 @@ export type WorkspaceLiveAnswer = {
   body: string
   confidence: string | null
   citations: PromptLayerCitation[]
-  visualization: unknown
+  visualization: PromptLayerVisualization | null
 }
 
 export type AskZordResponse = {
   title: string
   body: string
+  confidence?: string | null
+  citationSnippet?: string | null
+  visualization?: PromptLayerVisualization | null
 }
+
+export type PromptLayerTimelineVisualization = {
+  type: 'timeline'
+  series: Array<{
+    t: string
+    v: number
+  }>
+}
+
+export type PromptLayerBarsVisualization = {
+  type: 'bars' | 'bar'
+  items: Array<{
+    label: string
+    value: number
+  }>
+}
+
+export type PromptLayerCardsVisualization = {
+  type: 'cards'
+  cards: Array<{
+    title: string
+    value: string
+  }>
+}
+
+export type PromptLayerVisualization =
+  | PromptLayerTimelineVisualization
+  | PromptLayerBarsVisualization
+  | PromptLayerCardsVisualization

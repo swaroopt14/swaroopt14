@@ -3,8 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        NODE_BASE_IMAGE: ${NODE_BASE_IMAGE:-public.ecr.aws/docker/library/node:18-alpine}
     container_name: zord-console
     ports:
       - "3000:3000"
@@ -13,20 +11,15 @@ services:
       - NEXT_TELEMETRY_DISABLED=1
       - PORT=3000
       - HOSTNAME=0.0.0.0
-      - NEXT_PUBLIC_PROMPT_LAYER_URL=${NEXT_PUBLIC_PROMPT_LAYER_URL:-/api/prompt-layer}
-      - PROMPT_LAYER_URL=${PROMPT_LAYER_URL:-http://localhost:8086}
-      - ZORD_INTELLIGENCE_URL=${ZORD_INTELLIGENCE_URL:-http://host.docker.internal:8080}
-      - ZORD_BULK_INGEST_API_KEY=${ZORD_BULK_INGEST_API_KEY:-}
-      - ZORD_BULK_INGEST_SOURCE_TYPE=${ZORD_BULK_INGEST_SOURCE_TYPE:-batch_upload}
-      - ZORD_BULK_INGEST_SOURCE_CLASS=${ZORD_BULK_INGEST_SOURCE_CLASS:-operator}
+      - AUTH_COOKIE_SECURE=false
       - ZORD_EDGE_URL=${ZORD_EDGE_URL:-http://host.docker.internal:8080}
+      # Same host as edge — `/v1/bulk-ingest` is implemented on zord-edge, not a separate intelligence host.
+      - ZORD_INTELLIGENCE_URL=${ZORD_INTELLIGENCE_URL:-http://host.docker.internal:8080}
       - ZORD_VAULT_URL=${ZORD_VAULT_URL:-http://host.docker.internal:8081}
       - ZORD_RELAY_URL=${ZORD_RELAY_URL:-http://host.docker.internal:8082}
       - ZORD_INTENT_ENGINE_URL=${ZORD_INTENT_ENGINE_URL:-http://host.docker.internal:8083}
       - ZORD_CONTRACTS_URL=${ZORD_CONTRACTS_URL:-http://host.docker.internal:8084}
       - ZORD_PII_ENCLAVE_URL=${ZORD_PII_ENCLAVE_URL:-http://host.docker.internal:8085}
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     restart: unless-stopped
     healthcheck:
       test:

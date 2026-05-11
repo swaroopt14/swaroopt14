@@ -210,6 +210,16 @@ func CreateTable() error {
 		log.Fatal(err)
 	}
 
+	alterProfile := `
+	ALTER TABLE intent_mapping_profiles
+	ADD COLUMN IF NOT EXISTS parser_class TEXT NOT NULL DEFAULT 'generic'
+	    CHECK (parser_class IN ('generic', 'merchant', 'vendor'));
+	`
+	_, err = DB.Exec(alterProfile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	// ── Ingest run audit trail ────────────────────────────────────────────────
 	ingestRuns := `
 	CREATE TABLE IF NOT EXISTS intent_ingest_runs (

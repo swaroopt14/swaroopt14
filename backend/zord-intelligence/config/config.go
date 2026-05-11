@@ -115,12 +115,12 @@ func Load() *Config {
 		KafkaGroupID: getWithDefault("KAFKA_GROUP_ID", "zord-intelligence-group"),
 
 		// ── Kafka Input Topics ───────────────────────────────────
-		TopicIntentCreated:      getWithDefault("TOPIC_INTENT_CREATED", "canonical.intent.created"),
+		TopicIntentCreated:      getWithDefault("TOPIC_INTENT_CREATED", "payments.intent.events.v1"),
 		TopicDispatchCreated:    getWithDefault("TOPIC_DISPATCH_CREATED", "dispatch.attempt.created"),
 		TopicOutcomeNormalized:  getWithDefault("TOPIC_OUTCOME_NORMALIZED", "outcome.event.normalized"),
 		TopicFinalityCert:       getWithDefault("TOPIC_FINALITY_CERT", "finality.certificate.issued"),
 		TopicFinalContract:      getWithDefault("TOPIC_FINAL_CONTRACT", "final.contract.updated"),
-		TopicEvidenceReady:      getWithDefault("TOPIC_EVIDENCE_READY", "evidence.pack.ready"),
+		TopicEvidenceReady:      getWithDefault("TOPIC_EVIDENCE_CREATED", "evidence.pack.created"),
 		TopicDLQ:                getWithDefault("TOPIC_DLQ", "dlq.event"),
 		TopicStatementMatch:     getWithDefault("TOPIC_STATEMENT_MATCH", "statement.match.event"),
 		TopicCorridorHealthTick: getWithDefault("TOPIC_CORRIDOR_HEALTH_TICK", "corridor.health.tick"),

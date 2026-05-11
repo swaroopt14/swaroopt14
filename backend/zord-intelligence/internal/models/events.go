@@ -363,15 +363,15 @@ type AttachmentDecisionCreatedEvent struct {
 	OccurredAt time.Time `json:"occurred_at"`
 
 	// ── Decision identity ─────────────────────────────────────────────────────
-	DecisionID   string `json:"decision_id"`   // "adec_" + uuid — the decision's own ID
-	SettlementID string `json:"settlement_id"` // which settlement observation was being attached
-	IntentID     string `json:"intent_id"`     // which intent was selected (empty if UNRESOLVED)
-	ContractID   string `json:"contract_id"`   // the contract associated with the intent (if found)
-	CorridorID   string `json:"corridor_id"`   // which payment corridor this belongs to
-	BatchID      string `json:"batch_id"`      // which batch this belongs to (if applicable)
+	DecisionID   string `json:"attachment_decision_id"`
+	SettlementID string `json:"settlement_observation_id"`
+	IntentID     string `json:"intent_id"`
+	ContractID   string `json:"contract_id"`
+	CorridorID   string `json:"corridor_id"`
+	BatchID      string `json:"batch_id"`
 
 	// ── Decision outcome ──────────────────────────────────────────────────────
-	DecisionType string `json:"decision_type"` // one of the 5 types below:
+	DecisionType string `json:"decision_type"`
 	// "MATCH_EXACT"      — perfect match, all carriers agree
 	// "MATCH_HIGH"       — strong match, most carriers agree
 	// "MATCH_AMBIGUOUS"  — multiple candidates, cannot auto-confirm
@@ -379,29 +379,34 @@ type AttachmentDecisionCreatedEvent struct {
 	// "MATCH_DUPLICATE"  — duplicate settlement detected
 
 	// ── Confidence and ambiguity scores ──────────────────────────────────────
-	ConfidenceScore float64 `json:"confidence_score"` // 0.0–1.0: how sure is Service 5C?
+	ConfidenceScore float64 `json:"confidence_score"`
 	// 1.0  = certain (MATCH_EXACT with all carriers matching)
 	// 0.85 = strong (MATCH_HIGH)
 	// 0.50 = uncertain (MATCH_AMBIGUOUS)
 	// 0.0  = no match (MATCH_UNRESOLVED)
 
-	AmbiguityScore float64 `json:"ambiguity_score"` // 0.0–1.0: how hard was this to resolve?
+	AmbiguityScore float64 `json:"ambiguity_score"`
 	// 0.0 = trivial (one obvious match)
 	// 1.0 = maximum ambiguity (payroll batch: 500 employees, same amount)
 
+	DecisionReasonCode     string  `json:"decision_reason_code"`
+	MatchingRulesetVersion string  `json:"matching_ruleset_version"`
+	WinningScore           float64 `json:"winning_score"`
+	RunnerUpScore          float64 `json:"runner_up_score"`
+	ScoreMargin            float64 `json:"score_margin"`
+
 	// ── Supporting evidence ────────────────────────────────────────────────────
-	SupportingCarriers []string `json:"supporting_carriers"` // which carrier fields matched
-	// e.g. ["utr", "client_ref"] or ["amount_only"] (weak)
-	CandidateSetSize int `json:"candidate_set_size"` // how many intents were considered
+	SupportingCarriers json.RawMessage `json:"supporting_carriers"` // JSON object of matched fields
+	CandidateSetSize   int             `json:"candidate_set_size"`  // how many intents were considered
 	// 1 = trivial (only one candidate)
 	// 50 = hard (payroll-like batch with many same-amount payouts)
 
-	CandidateSetHash string `json:"candidate_set_hash"` // hash of the candidate set for audit
+	CandidateSetHash string `json:"candidate_set_hash"`
 	// Stored so we can replay the decision without storing all candidate IDs
 
 	// ── Financial details ─────────────────────────────────────────────────────
-	SettledAmountMinor  decimal.Decimal `json:"settled_amount_minor"`  // amount from the settlement observation
-	IntendedAmountMinor decimal.Decimal `json:"intended_amount_minor"` // amount from the matched intent (0 if unresolved)
+	SettledAmountMinor  decimal.Decimal `json:"settled_amount"`
+	IntendedAmountMinor decimal.Decimal `json:"intended_amount"`
 	Currency            string          `json:"currency"`
 }
 

@@ -163,8 +163,10 @@ type AttachmentDecision struct {
 	AmbiguityScore           float64         `json:"ambiguity_score" db:"ambiguity_score"`
 	SupportingCarriersJSON   json.RawMessage `json:"supporting_carriers_json" db:"supporting_carriers_json"`
 	CandidateSetHash         string          `json:"candidate_set_hash" db:"candidate_set_hash"`
+	CandidateSetSize         int             `json:"candidate_set_size" db:"candidate_set_size"`
 	CreatedAt                time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt                time.Time       `json:"updated_at" db:"updated_at"`
+	Currency                 string          `json:"currency" db:"currency"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

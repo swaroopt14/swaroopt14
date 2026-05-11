@@ -3,6 +3,7 @@ package services
 import (
 	"bytes"
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -49,19 +50,19 @@ func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 	header, err := reader.Read()
 	if err != nil {
 		if err == io.EOF {
-			return nil, fmt.Errorf("cashfree parser: header mismatch: expected cashfree settlement format")
+			return nil, &RunLevelError{Kind: RunLevelFileCorrupted, Message: "cashfree: file is empty or has no header row"}
 		}
-		return nil, fmt.Errorf("cashfree parser: failed to read csv: %w", err)
+		return nil, &RunLevelError{Kind: RunLevelFileCorrupted, Message: "cashfree: failed to read csv: " + err.Error()}
 	}
 
 	if len(header) < len(cashfreeHeaders) {
-		return nil, fmt.Errorf("cashfree parser: header mismatch: expected cashfree settlement format")
+		return nil, &RunLevelError{Kind: RunLevelUnsupportedFormat, Message: fmt.Sprintf("cashfree: header mismatch: expected %d columns, got %d", len(cashfreeHeaders), len(header))}
 	}
 
 	for i, expected := range cashfreeHeaders {
 		got := strings.TrimSpace(strings.ToLower(header[i]))
 		if got != expected {
-			return nil, fmt.Errorf("cashfree parser: header mismatch: expected cashfree settlement format")
+			return nil, &RunLevelError{Kind: RunLevelUnsupportedFormat, Message: fmt.Sprintf("cashfree: header mismatch: col %d expected %q, got %q", i, expected, got)}
 		}
 	}
 
@@ -76,16 +77,37 @@ func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 			if err == io.EOF {
 				break
 			}
-			// Track malformed rows as failed results.
 			rowIndex++
+			
+			failureReason := "CSV_PARSE_ERROR"
+			if errors.Is(err, csv.ErrFieldCount) {
+				failureReason = "ROW_COLUMN_MISMATCH"
+			}
+			
 			results = append(results, ParsedRowResult{
 				RowIndex:      rowIndex,
 				Failed:        true,
-				FailureReason: fmt.Sprintf("csv parse error at row %d: %v", rowIndex, err),
+				FailureReason: failureReason,
 			})
 			continue
 		}
 		rowIndex++
+
+		isEmpty := true
+		for _, col := range row {
+			if strings.TrimSpace(col) != "" {
+				isEmpty = false
+				break
+			}
+		}
+		if isEmpty {
+			results = append(results, ParsedRowResult{
+				RowIndex:      rowIndex,
+				Failed:        true,
+				FailureReason: "EMPTY_RAW_ROW",
+			})
+			continue
+		}
 
 		result := parseCashfreeRow(row, rowIndex, sourceFileRef, envelopeID, header, profile)
 		results = append(results, result)

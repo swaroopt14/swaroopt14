@@ -43,23 +43,23 @@ func (p *RazorpayParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 	// 1. Initialize excelize reader from raw bytes.
 	f, err := excelize.OpenReader(bytes.NewReader(fileBytes))
 	if err != nil {
-		return nil, fmt.Errorf("razorpay parser: corrupt or invalid xlsx: %w", err)
+		return nil, &RunLevelError{Kind: RunLevelFileCorrupted, Message: "corrupt or invalid xlsx: " + err.Error()}
 	}
 	defer f.Close()
 
 	// 2. Locate the data sheet (default to first sheet).
 	sheets := f.GetSheetList()
 	if len(sheets) == 0 {
-		return nil, fmt.Errorf("razorpay parser: file has no sheets")
+		return nil, &RunLevelError{Kind: RunLevelFileCorrupted, Message: "file has no sheets"}
 	}
 
 	rows, err := f.GetRows(sheets[0])
 	if err != nil {
-		return nil, fmt.Errorf("razorpay parser: failed to extract rows: %w", err)
+		return nil, &RunLevelError{Kind: RunLevelFileCorrupted, Message: "failed to extract rows: " + err.Error()}
 	}
 
 	if len(rows) == 0 {
-		return nil, fmt.Errorf("razorpay parser: empty file")
+		return nil, &RunLevelError{Kind: RunLevelFileCorrupted, Message: "empty file"}
 	}
 
 	// 3. Header Validation: Ensure the columns match the expected Razorpay format.
@@ -71,6 +71,23 @@ func (p *RazorpayParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 	var results []ParsedRowResult
 	for i, row := range rows[1:] {
 		rowIndex := i + 1
+
+		isEmpty := true
+		for _, col := range row {
+			if strings.TrimSpace(col) != "" {
+				isEmpty = false
+				break
+			}
+		}
+		if isEmpty {
+			results = append(results, ParsedRowResult{
+				RowIndex:      rowIndex,
+				Failed:        true,
+				FailureReason: "EMPTY_RAW_ROW",
+			})
+			continue
+		}
+
 		result := parseRazorpayRow(row, rowIndex, sourceFileRef, envelopeID, rows[0], profile)
 		results = append(results, result)
 	}
@@ -80,12 +97,12 @@ func (p *RazorpayParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 // validateRazorpayHeaders checks for column sequence and count integrity.
 func validateRazorpayHeaders(headerRow []string) error {
 	if len(headerRow) < len(razorpayHeaders) {
-		return fmt.Errorf("header mismatch: expected %d columns, got %d", len(razorpayHeaders), len(headerRow))
+		return &RunLevelError{Kind: RunLevelUnsupportedFormat, Message: fmt.Sprintf("header mismatch: expected %d columns, got %d", len(razorpayHeaders), len(headerRow))}
 	}
 	for i, expected := range razorpayHeaders {
 		got := strings.TrimSpace(strings.ToLower(headerRow[i]))
 		if got != expected {
-			return fmt.Errorf("header mismatch: col %d expected %q, got %q", i, expected, got)
+			return &RunLevelError{Kind: RunLevelUnsupportedFormat, Message: fmt.Sprintf("header mismatch: col %d expected %q, got %q", i, expected, got)}
 		}
 	}
 	return nil

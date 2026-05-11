@@ -199,7 +199,6 @@ CREATE TABLE IF NOT EXISTS settlement_ingest_runs (
 		`
 CREATE TABLE IF NOT EXISTS settlement_parsed_rows(
 	parsed_row_id UUID PRIMARY KEY,
-	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
 	settlement_batch_id TEXT NOT NULL,
 	tenant_id UUID NOT NULL,
@@ -209,15 +208,15 @@ CREATE TABLE IF NOT EXISTS settlement_parsed_rows(
 	raw_line_hash TEXT,
 	raw_columns_json JSONB NOT NULL,
 	parsed_candidates_json JSONB NOT NULL,
-	parse_warnings_json JSONB,
 	parse_confidence NUMERIC(5,4) NOT NULL DEFAULT 0,
 	mapping_profile_id TEXT NOT NULL,
 	mapping_profile_version TEXT NOT NULL,
 	parser_version TEXT NOT NULL DEFAULT '',
 	client_batch_id TEXT,
+	status TEXT NOT NULL DEFAULT 'PARSED',
+	failure_reason_code TEXT,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
-		`CREATE INDEX IF NOT EXISTS settlement_parsed_rows_job_idx ON settlement_parsed_rows(job_id);`,
 		`CREATE INDEX IF NOT EXISTS settlement_parsed_rows_run_idx ON settlement_parsed_rows(ingest_run_id);`,
 
 		`
@@ -226,7 +225,6 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	tenant_id UUID NOT NULL,
 	trace_id UUID,
 	settlement_envelope_id UUID NOT NULL,
-	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
 	settlement_batch_id TEXT NOT NULL,
 	source_file_ref TEXT NOT NULL,
@@ -275,11 +273,11 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	source_type TEXT,
 	source_system_id TEXT,
 	corridor_id TEXT,
+	warnings_json JSONB,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
 		`CREATE INDEX IF NOT EXISTS canonical_settlement_observations_tenant_idx ON canonical_settlement_observations(tenant_id);`,
-		`CREATE INDEX IF NOT EXISTS canonical_settlement_observations_job_idx ON canonical_settlement_observations(job_id);`,
 		`CREATE INDEX IF NOT EXISTS canonical_obs_run_idx ON canonical_settlement_observations(ingest_run_id);`,
 		`CREATE INDEX IF NOT EXISTS canonical_obs_batch_idx ON canonical_settlement_observations(settlement_batch_id);`,
 		`CREATE INDEX IF NOT EXISTS canonical_settlement_observations_envelope_idx ON canonical_settlement_observations(settlement_envelope_id);`,
@@ -289,7 +287,6 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 	settlement_batch_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
 	settlement_batch_id_ref TEXT NOT NULL,
 	source_file_ref TEXT NOT NULL,
@@ -317,7 +314,6 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_batches(
 CREATE TABLE IF NOT EXISTS settlement_parse_errors(
 	error_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
-	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
 	settlement_batch_id TEXT NOT NULL,
 	settlement_envelope_id UUID NOT NULL,
@@ -338,7 +334,6 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 	outbox_event_id UUID PRIMARY KEY,
 	tenant_id UUID NOT NULL,
 	trace_id UUID,
-	job_id TEXT NOT NULL,
 	ingest_run_id TEXT NOT NULL,
 	settlement_batch_id TEXT NOT NULL,
 	entity_family TEXT NOT NULL,

@@ -17,6 +17,7 @@ type IntentOutboxEvent struct {
 type IntentPayload struct {
 	IntentID               string     `json:"intent_id"`
 	TenantID               string     `json:"tenant_id"`
+	ContractID             string     `json:"contract_id"`
 	IntentType             string     `json:"intent_type"`
 	ProviderHint           string     `json:"provider_hint,omitempty"`
 	SourceSystem           string     `json:"source_system"`

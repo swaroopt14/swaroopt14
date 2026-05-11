@@ -34,6 +34,7 @@ func EnsureTables(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS canonical_intents (
 			intent_id                UUID PRIMARY KEY,
 			tenant_id                UUID NOT NULL,
+			contract_id              UUID,
 			client_payout_ref        TEXT,
 			client_batch_ref         TEXT,
 			business_idempotency_key TEXT,

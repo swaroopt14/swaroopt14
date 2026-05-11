@@ -15,6 +15,7 @@ import (
 type IntentQueryRepository interface {
 	ListIntents(ctx context.Context, filter IntentFilter) ([]models.CanonicalIntent, int, error)
 	GetIntentByID(ctx context.Context, intentID string) (models.CanonicalIntent, error)
+	ListBatchesForSidebar(ctx context.Context, tenantID string) ([]models.BatchSidebarItem, error)
 }
 
 // FILTER STRUCT
@@ -250,4 +251,70 @@ func (r *IntentQueryRepo) GetIntentByID(
 	}
 
 	return intent, nil
+}
+func (r *IntentQueryRepo) ListBatchesForSidebar(
+	ctx context.Context,
+	tenantID string,
+) ([]models.BatchSidebarItem, error) {
+	const query = `
+		SELECT
+			batchid,
+			intent_type,
+			COALESCE(SUM(amount), 0)::text AS total_value,
+			COUNT(*) AS transactions,
+			COUNT(*) AS confirmed_count,
+			MAX(aggregate_confidence_score) AS high_confidence_count,
+			SUM(CASE WHEN duplicate_risk_flag = true THEN 1 ELSE 0 END) AS mismatch_count,
+			(
+				SELECT COUNT(*)
+				FROM dlq_items d
+				WHERE d.tenant_id = $1
+					AND d.client_batch_ref = pi.batchid
+				) AS unresolved_count
+
+		FROM payment_intents pi
+		WHERE pi.tenant_id = $1
+		  AND pi.batchid IS NOT NULL
+		  AND pi.batchid <> ''
+		GROUP BY pi.batchid, pi.intent_type
+		ORDER BY MAX(pi.created_at) DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch batches sidebar data: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.BatchSidebarItem, 0)
+	for rows.Next() {
+		var item models.BatchSidebarItem
+		var highConfidence sql.NullFloat64
+
+		if err := rows.Scan(
+			&item.BatchID,
+			&item.Type,
+			&item.TotalValue,
+			&item.Transactions,
+			&item.ConfirmedCount,
+			&highConfidence,
+			&item.MismatchCount,
+			&item.UnresolvedCount,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan batch sidebar row: %w", err)
+		}
+
+		if highConfidence.Valid {
+			v := highConfidence.Float64
+			item.HighConfidenceCount = &v
+		}
+
+		items = append(items, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating batch sidebar rows: %w", err)
+	}
+
+	return items, nil
 }

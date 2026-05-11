@@ -35,6 +35,9 @@ type IntentListResponse struct {
 	Items      []models.CanonicalIntent `json:"items"`
 	Pagination PaginationInfo           `json:"pagination"`
 }
+type BatchSidebarResponse struct {
+	Items []models.BatchSidebarItem `json:"items"`
+}
 
 type ErrorResponse struct {
 	Error   string `json:"error"`
@@ -148,6 +151,31 @@ func getIntParam(r *http.Request, key string, defaultValue int) int {
 	}
 
 	return intVal
+}
+
+// ENDPOINT 3: LIST BATCH SIDEBAR — GET /api/prod/intents/batches?tenant_id=...
+func (h *IntentHandler) ListBatchesSidebar(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	tenantID := strings.TrimSpace(r.URL.Query().Get("tenant_id"))
+	if tenantID == "" {
+		respondError(w, "INVALID_REQUEST", "tenant_id is required", http.StatusBadRequest, nil)
+		return
+	}
+
+	items, err := h.queryRepo.ListBatchesForSidebar(ctx, tenantID)
+	if err != nil {
+		respondError(w, "DATABASE_ERROR", "Failed to fetch batches sidebar data", http.StatusInternalServerError, err)
+		return
+	}
+
+	if items == nil {
+		items = []models.BatchSidebarItem{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(BatchSidebarResponse{Items: items})
 }
 
 func respondError(w http.ResponseWriter, code, message string, httpStatus int, err error) {

@@ -198,6 +198,7 @@ func CreateTables() error {
 		reason_code TEXT NOT NULL,
 		error_detail TEXT,
 		replayable BOOLEAN NOT NULL,
+		client_batch_ref TEXT,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 	);`
 

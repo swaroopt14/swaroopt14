@@ -19,13 +19,13 @@ export function AskZordPanel({ isOpen, close, input, setInput, status, response,
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Ask Zord</div>
-          <div className="mt-1 text-[15px] font-medium text-[#111111]">AI analyst on evidence stack</div>
+          <div className="text-[14px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Ask Zord</div>
+          <div className="mt-1 text-[19px] font-medium text-[#111111]">AI analyst on evidence stack</div>
         </div>
         <button
           type="button"
           onClick={close}
-          className="rounded-[10px] border border-[#E5E5E5] bg-[#f7f7f4] px-2 py-1 text-[12px] text-[#6f716d]"
+          className="rounded-[10px] border border-[#E5E5E5] bg-[#f7f7f4] px-2 py-1 text-[16px] text-[#6f716d]"
         >
           Close
         </button>
@@ -38,7 +38,7 @@ export function AskZordPanel({ isOpen, close, input, setInput, status, response,
             key={prompt}
             type="button"
             onClick={() => run(prompt)}
-            className="w-full rounded-[0.9rem] border border-[#E5E5E5] bg-[#f8f8f6] px-3 py-2.5 text-left text-[12px] leading-5 text-[#6f716d] transition hover:border-[#4ADE80]/30 hover:text-[#111111]"
+            className="w-full rounded-[0.9rem] border border-[#E5E5E5] bg-[#f8f8f6] px-3 py-2.5 text-left text-[16px] leading-5 text-[#6f716d] transition hover:border-[#4ADE80]/30 hover:text-[#111111]"
           >
             {prompt}
           </button>
@@ -47,12 +47,27 @@ export function AskZordPanel({ isOpen, close, input, setInput, status, response,
 
       {/* Answer panel */}
       <div className="mt-3 rounded-[0.95rem] border border-[#E5E5E5] bg-[#fcfcfa] p-3">
-        <div className="text-[11px] font-medium text-[#111111]">{response?.title ?? 'Latest answer'}</div>
-        <div className="mt-2 whitespace-pre-line text-[12px] leading-5 text-[#6f716d]">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[15px] font-medium text-[#111111]">{response?.title ?? 'Latest answer'}</div>
+          {response?.confidence ? (
+            <span className="rounded-full border border-[#4ADE80]/35 bg-[#4ADE80]/16 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#166534]">
+              {response.confidence}
+            </span>
+          ) : null}
+        </div>
+        <div className="mt-2 whitespace-pre-line text-[16px] leading-5 text-[#6f716d]">
           {status === 'loading'
             ? 'Reading payout evidence…'
             : response?.body ?? 'Ask about any payment or pattern.'}
         </div>
+        {response?.citationSnippet ? (
+          <div className="mt-2 rounded-[10px] border border-[#d4deec] bg-[#f5f9ff] px-2.5 py-2 text-[12px] leading-5 text-[#5d6e87]">
+            {response.citationSnippet}
+          </div>
+        ) : null}
+        {response?.visualization ? (
+          <div className="mt-2 text-[11px] text-[#5c7194]">Visualization payload detected in Ask response.</div>
+        ) : null}
       </div>
 
       {/* Input row */}
@@ -64,7 +79,7 @@ export function AskZordPanel({ isOpen, close, input, setInput, status, response,
             if (e.key === 'Enter') run(input)
           }}
           placeholder="Ask Zord about any payment or pattern"
-          className="h-10 min-w-0 flex-1 rounded-[0.85rem] border border-[#E5E5E5] bg-[#f8f8f6] px-3 text-[12px] text-[#111111] outline-none placeholder:text-[#8a8a86]"
+          className="h-10 min-w-0 flex-1 rounded-[0.85rem] border border-[#E5E5E5] bg-[#f8f8f6] px-3 text-[16px] text-[#111111] outline-none placeholder:text-[#8a8a86]"
         />
         <button
           type="button"

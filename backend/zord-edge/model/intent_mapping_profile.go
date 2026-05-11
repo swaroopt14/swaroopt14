@@ -46,6 +46,51 @@ type UniversalIntentShape struct {
 	// Internal Audit Metadata (Excluded from the JSON payload sent downstream)
 	SourceRowRef    string  `json:"-"`
 	ParseConfidence float64 `json:"-"`
+
+	// ── Gateway routing ───────────────────────────────────────────────────────
+	GatewayName   string `json:"gateway_name,omitempty"`   // "razorpay" / "cashfree" / "payu"
+	FundAccountID string `json:"fund_account_id,omitempty"` // fa_XXXXX — if set, gateway skips bank detail lookup
+	ContactID     string `json:"contact_id,omitempty"`      // gateway's existing contact record ID
+
+	// ── GST breakdown ─────────────────────────────────────────────────────────
+	TaxableValue  float64 `json:"taxable_value,omitempty"` // base amount before GST
+	GSTType       string  `json:"gst_type,omitempty"`      // "IGST" (inter-state) | "CGST_SGST" (intra-state)
+	IGSTAmount    float64 `json:"igst_amount,omitempty"`
+	CGSTAmount    float64 `json:"cgst_amount,omitempty"`
+	SGSTAmount    float64 `json:"sgst_amount,omitempty"`
+	GSTRate       float64 `json:"gst_rate,omitempty"`       // 5 / 12 / 18 / 28
+	VendorGSTIN   string  `json:"vendor_gstin,omitempty"`   // 15-char GSTIN of the vendor
+	HSNSACCode    string  `json:"hsn_sac_code,omitempty"`   // HSN (goods) or SAC (services) code
+	ReverseCharge bool    `json:"reverse_charge,omitempty"` // if true, buyer pays GST — vendor doesn't charge it
+
+	// ── TDS ───────────────────────────────────────────────────────────────────
+	TDSSection    string  `json:"tds_section,omitempty"`     // "194C" / "194J" / "194H" / "192" etc.
+	TDSRate       float64 `json:"tds_rate,omitempty"`        // percentage e.g. 2.0
+	TDSAmount     float64 `json:"tds_amount,omitempty"`      // deducted before transfer
+	NetPayable    float64 `json:"net_payable,omitempty"`     // TaxableValue + GSTAmount - TDSAmount
+	PANNumber     string  `json:"pan_number,omitempty"`      // mandatory for TDS reporting
+	TANOfDeductor string  `json:"tan_of_deductor,omitempty"` // tenant's TAN for Form 26Q filing
+
+	// ── Product / Invoice context ─────────────────────────────────────────────
+	InvoiceNumber string    `json:"invoice_number,omitempty"`
+	InvoiceDate   time.Time `json:"invoice_date,omitempty"`
+	PONumber      string    `json:"po_number,omitempty"` // Purchase Order this invoice is against
+	ProductID     string    `json:"product_id,omitempty"` // SKU / internal item code
+	ProductDesc   string    `json:"product_desc,omitempty"`
+	MCCCode       string    `json:"mcc_code,omitempty"`       // Merchant Category Code — merchant rows only
+	PayoutPurpose string    `json:"payout_purpose,omitempty"` // "refund" / "cashback" / "payout" / "salary"
+
+	// ── KYC / Compliance ──────────────────────────────────────────────────────
+	VendorType     string     `json:"vendor_type,omitempty"`      // "INDIVIDUAL" / "PROPRIETORSHIP" / "PVT_LTD" / "LLP" / "PARTNERSHIP"
+	KYCStatus      string     `json:"kyc_status,omitempty"`       // "verified" / "pending" / "re_kyc_required" / "suspended"
+	KYCPolicyClass string     `json:"kyc_policy_class,omitempty"` // "simplified" / "standard" / "enhanced"
+	KYCVerifiedAt  *time.Time `json:"kyc_verified_at,omitempty"`
+	BankVerified   bool       `json:"bank_verified,omitempty"`
+	CINNumber      string     `json:"cin_number,omitempty"`  // Corporate Identification Number
+	MSMENumber     string     `json:"msme_number,omitempty"` // Udyam registration e.g. "UDYAM-MH-00-0000001"
+
+	// Internal
+	Warnings []string `json:"-"`
 }
 
 type AmountFormat string
@@ -62,6 +107,7 @@ type IntentMappingProfile struct {
 	ProfileID      string            `db:"profile_id"`
 	ProfileVersion string            `db:"profile_version"`
 	TenantID       uuid.UUID         `db:"tenant_id"`
+	ParserClass    string            `db:"parser_class"` // "generic" / "merchant" / "vendor"
 	TenantName     string            `db:"tenant_name"`
 	FileFormat     string            `db:"file_format"`
 	Delimiter      string            `db:"delimiter"`

@@ -9,7 +9,8 @@ var (
 	parsers = map[string]IntentParser{
 		"BANK":     &BankParser{},
 		"NBFC":     &NBFCParser{},
-		"MERCHANT": &BankParser{}, // Defaulting to Bank for now
+		"MERCHANT": &MerchantParser{},
+		"VENDOR":   &VendorParser{},
 		"GATEWAY":  &BankParser{}, // Defaulting to Bank for now
 	}
 )

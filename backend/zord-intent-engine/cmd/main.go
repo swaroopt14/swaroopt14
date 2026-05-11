@@ -22,6 +22,8 @@ import (
 	"zord-intent-engine/internal/handlers"
 
 	"zord-intent-engine/internal/persistence"
+	"zord-intent-engine/internal/etl"
+	"zord-intent-engine/internal/worker"
 
 	//"zord-intent-engine/internal/pii"
 
@@ -93,6 +95,10 @@ func main() {
 	intentHandler := handlers.NewIntentHandler(intentQueryRepo)
 	outboxHandler := handlers.NewOutboxHandler(outboxPullRepo)
 
+	runRepo := etl.NewRunRepository(db.DB)
+	airflowWorker := worker.NewAirflowWorker(outboxPullRepo, runRepo)
+	airflowHandler := handlers.NewAirflowHandler(airflowWorker)
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -128,8 +134,8 @@ func main() {
 	mux.HandleFunc("/v1/intents", intentHandler.List)
 	mux.HandleFunc("/internal/outbox/lease", outboxHandler.Lease)
 	mux.HandleFunc("/internal/outbox/ack", outboxHandler.Ack)
-	mux.HandleFunc("/api/prod/intents/batches", intentHandler.ListBatchesSidebar)
 	mux.HandleFunc("/internal/outbox/nack", outboxHandler.Nack)
+	mux.HandleFunc("/internal/airflow/transform", airflowHandler.Transform)
 
 	handler := func(msg []byte) error {
 		var event models.Event
@@ -154,10 +160,6 @@ func main() {
 				if dlq.EnvelopeID == "" {
 					dlq.EnvelopeID = event.EnvelopeID.String()
 				}
-				if dlq.ClientBatchRef == "" && event.BatchID != nil {
-					dlq.ClientBatchRef = *event.BatchID
-				}
-
 				_, err := dlqRepo.Save(ctx, *dlq)
 				if err != nil {
 					log.Printf("Failed to save DLQ entry: %v", err)

@@ -293,5 +293,53 @@ CREATE INDEX IF NOT EXISTS idx_intent_versions_intent_version
 	}
 
 	log.Println("✅ Canonical Intent Engine tables ensured")
+
+	etlIngestRuns := `
+CREATE TABLE IF NOT EXISTS etl_ingest_runs (
+    run_id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id           UUID NOT NULL,
+    envelope_id         UUID NOT NULL,
+    intent_id           UUID,
+    outbox_event_id     TEXT NOT NULL,
+    artifact_family     TEXT NOT NULL DEFAULT 'PAYOUT_INTENT',
+    source_system       TEXT,
+    mapping_profile_id  TEXT,
+    parser_version      TEXT NOT NULL DEFAULT 'v1',
+    run_generation      INT  NOT NULL DEFAULT 1,
+    status              TEXT NOT NULL DEFAULT 'PROCESSING',
+    is_active            BOOLEAN NOT NULL DEFAULT false,
+    supersedes_run_id   UUID,
+    parse_success_rate  FLOAT8,
+    quality_score       FLOAT8,
+    proof_readiness_score FLOAT8,
+    started_at          TIMESTAMPTZ DEFAULT now(),
+    completed_at        TIMESTAMPTZ,
+    created_at          TIMESTAMPTZ DEFAULT now()
+);`
+
+	etlQualityResults := `
+CREATE TABLE IF NOT EXISTS etl_quality_results (
+    quality_result_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    run_id                  UUID NOT NULL REFERENCES etl_ingest_runs(run_id),
+    tenant_id               UUID NOT NULL,
+    scope_type              TEXT NOT NULL DEFAULT 'INTENT',
+    quality_score           FLOAT8,
+    parse_success_rate      FLOAT8,
+    required_field_gap_count INT DEFAULT 0,
+    low_confidence_field_count INT DEFAULT 0,
+    attachment_readiness_score FLOAT8,
+    proof_readiness_score   FLOAT8,
+    status                  TEXT NOT NULL DEFAULT 'PASS',
+    reason_codes_json       JSONB DEFAULT '[]',
+    created_at              TIMESTAMPTZ DEFAULT now()
+);`
+
+	if _, err := DB.Exec(etlIngestRuns); err != nil {
+		log.Fatal("etl_ingest_runs:", err)
+	}
+	if _, err := DB.Exec(etlQualityResults); err != nil {
+		log.Fatal("etl_quality_results:", err)
+	}
+
 	return nil
 }

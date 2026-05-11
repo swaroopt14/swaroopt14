@@ -261,6 +261,7 @@ func (e *AttachmentEngine) runAttachment(
 			AmbiguityScore:           ambiguityScore,
 			SupportingCarriersJSON:   carriersJSON,
 			CandidateSetHash:         candidateSetHash,
+			CandidateSetSize:         len(scored),
 			CreatedAt:                time.Now().UTC(),
 			UpdatedAt:                time.Now().UTC(),
 		}
@@ -857,7 +858,8 @@ func loadObservationsByBatch(ctx context.Context, tenantID uuid.UUID, batchRef s
 			mapping_profile_id, mapping_profile_version,
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
-			canonical_hash, created_at, updated_at
+			canonical_hash, client_batch_id, corridor_id,
+			created_at, updated_at
 		FROM canonical_settlement_observations
 		WHERE tenant_id = $1 AND batch_reference = $2
 		ORDER BY observation_timestamp`,
@@ -887,7 +889,8 @@ func loadObservationsByJobID(ctx context.Context, tenantID uuid.UUID, jobID stri
 			mapping_profile_id, mapping_profile_version,
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
-			canonical_hash, created_at, updated_at
+			canonical_hash, client_batch_id, corridor_id,
+			created_at, updated_at
 		FROM canonical_settlement_observations
 		WHERE tenant_id = $1 AND job_id = $2
 		ORDER BY observation_timestamp`,
@@ -917,7 +920,8 @@ func loadObservationByID(ctx context.Context, tenantID uuid.UUID, obsID uuid.UUI
 			mapping_profile_id, mapping_profile_version,
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
-			canonical_hash, created_at, updated_at
+			canonical_hash, client_batch_id, corridor_id,
+			created_at, updated_at
 		FROM canonical_settlement_observations
 		WHERE tenant_id = $1 AND settlement_observation_id = $2`,
 		tenantID, obsID,
@@ -955,7 +959,8 @@ func scanObservations(rows *sql.Rows) ([]models.CanonicalSettlementObservation, 
 			&o.MappingProfileID, &o.MappingProfileVersion,
 			&o.ParseConfidence, &o.MappingConfidence,
 			&o.CarrierRichnessScore, &o.AttachmentReadinessScore,
-			&o.CanonicalHash, &o.CreatedAt, &o.UpdatedAt,
+			&o.CanonicalHash, &o.ClientBatchID, &o.CorridorID,
+			&o.CreatedAt, &o.UpdatedAt,
 		)
 		if err != nil {
 			log.Printf("attachment.engine.scan_err: %v", err)

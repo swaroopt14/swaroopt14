@@ -439,6 +439,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ambiguity_score             NUMERIC(5,4) NOT NULL DEFAULT 0,
 			supporting_carriers_json    JSONB,
 			candidate_set_hash          TEXT NOT NULL,
+			candidate_set_size          INT NOT NULL DEFAULT 0,
 			created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,

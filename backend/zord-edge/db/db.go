@@ -142,7 +142,8 @@ func CreateTable() error {
 	updated_at TIMESTAMPTZ,
 	published_at TIMESTAMPTZ,
 	failure_reason_code TEXT,
-	batchid TEXT
+	batchid TEXT,
+	file_content_hash TEXT
 	);`
 
 	_, err = DB.Exec(ingress_outbox)

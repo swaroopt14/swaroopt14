@@ -278,3 +278,34 @@ func UpsertIngestRun(
 	}
 	return nil
 }
+
+func UpsertIngestRun(
+	ctx context.Context,
+	db *sql.DB,
+	runID, batchID, tenantID, profileID, fileName, fileHash string,
+	total, accepted, failed, duplicate int,
+	status string,
+) error {
+	const q = `
+		INSERT INTO intent_ingest_runs
+		    (run_id, batch_id, tenant_id, profile_id, file_name, file_hash,
+		     total_rows, accepted_rows, failed_rows, duplicate_rows, status, completed_at)
+		VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''),
+		        $7, $8, $9, $10, $11, now())
+		ON CONFLICT (batch_id) DO UPDATE SET
+		    total_rows     = EXCLUDED.total_rows,
+		    accepted_rows  = EXCLUDED.accepted_rows,
+		    failed_rows    = EXCLUDED.failed_rows,
+		    duplicate_rows = EXCLUDED.duplicate_rows,
+		    status         = EXCLUDED.status,
+		    completed_at   = now()`
+
+	_, err := db.ExecContext(ctx, q,
+		runID, batchID, tenantID, profileID, fileName, fileHash,
+		total, accepted, failed, duplicate, status,
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertIngestRun: %w", err)
+	}
+	return nil
+}

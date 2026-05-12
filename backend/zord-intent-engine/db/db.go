@@ -341,5 +341,20 @@ CREATE TABLE IF NOT EXISTS etl_quality_results (
 		log.Fatal("etl_quality_results:", err)
 	}
 
+	tenantSynonymProfiles := `
+	CREATE TABLE IF NOT EXISTS tenant_synonym_profiles (
+		profile_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+		tenant_id    UUID NOT NULL,
+		source_key   TEXT NOT NULL,        -- tenant's raw column name, e.g. "Payout Amount"
+		canonical_path TEXT NOT NULL,      -- Zord path, e.g. "amount.value"
+		match_method TEXT NOT NULL DEFAULT 'exact',
+		is_active    BOOLEAN NOT NULL DEFAULT true,
+		created_at   TIMESTAMPTZ DEFAULT now(),
+		UNIQUE (tenant_id, source_key)
+	);`
+	if _, err := DB.Exec(tenantSynonymProfiles); err != nil {
+		log.Fatal("tenant_synonym_profiles:", err)
+	}
+
 	return nil
 }

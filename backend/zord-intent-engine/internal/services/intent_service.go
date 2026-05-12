@@ -20,6 +20,7 @@ import (
 
 	"zord-intent-engine/internal/canonicalizer"
 	"zord-intent-engine/internal/models"
+	"zord-intent-engine/internal/normalizer"
 
 	// "zord-intent-engine/internal/pii"
 	"zord-intent-engine/internal/guards"
@@ -44,6 +45,14 @@ type IntentService struct {
 var enclaveHTTPClient = &http.Client{
 	Timeout:   10 * time.Second,
 	Transport: otelhttp.NewTransport(http.DefaultTransport),
+}
+
+// getTenantSynonyms returns tenant-specific synonym overrides from DB.
+// Returns empty map if tenant has no custom synonyms — falls back to global dict.
+func (s *IntentService) getTenantSynonyms(tenantID uuid.UUID) map[string]string {
+    // TODO Phase 2: load from tenant_synonym_profiles table
+    // For now return empty — global synonym dict in normalizer package handles everything
+    return map[string]string{}
 }
 
 // Repository abstraction
@@ -547,6 +556,21 @@ func (s *IntentService) ProcessIncomingIntent(
 		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "PAYLOAD_DECRYPTION_FAILED"}, nil
 	}
 
+	// -------- STEP 5.1: Header normalization (ETL 10.1 / 10.2 / 10.3) --------
+	// Normalize tenant-specific field names → Zord canonical JSON keys.
+	// If payload is already canonical, this is a no-op (fast path).
+	normResult, normErr := normalizer.Normalize(decryptedPayload, s.getTenantSynonyms(in.TenantID))
+	if normErr != nil {
+		log.Printf("⚠️ Normalization failed for EnvelopeID=%s: %v — falling back to raw payload", in.EnvelopeID, normErr)
+		// Do NOT DLQ — fall through with original payload (graceful degradation)
+	} else {
+		decryptedPayload = normResult.NormalizedJSON
+		if normResult.WasNormalized {
+			log.Printf("ℹ️ Payload normalized for EnvelopeID=%s warnings=%v", in.EnvelopeID, normResult.Warnings)
+		}
+	}
+	// ── END STEP 5.1 ──────────────────────────────────────────────────────────
+
 	// -------- STEP 4: Recompute SHA256(raw_bytes) and compare --------
 	rawHash := sha256.Sum256(decryptedPayload)
 	hexRawHash := hex.EncodeToString(rawHash[:])
@@ -642,6 +666,26 @@ func (s *IntentService) ProcessIncomingIntent(
 		CreatedAt:               time.Now().UTC(),
 	}
 
+	if normResult != nil && normResult.WasNormalized {
+		unmappedBytes, _ := json.Marshal(normResult.UnmappedFields)
+		nir.UnmappedJSON = unmappedBytes
+		nir.MappingUncertainFlag = len(normResult.Warnings) > 0
+
+		// Stamp provenance into each NIRField's TransformApplied
+		for _, prov := range normResult.FieldProvenance {
+			if field, ok := fieldsMap[canonicalPathToFieldName(prov.CanonicalPath)]; ok {
+				field.TransformApplied = prov.Transform
+				field.ExtractionNotes  = prov.MatchMethod
+				field.ConfidenceScore  = prov.Confidence
+				fieldsMap[canonicalPathToFieldName(prov.CanonicalPath)] = field
+			}
+		}
+		
+		// Update FieldsJSON after adding provenance
+		updatedFieldsJSON, _ := json.Marshal(fieldsMap)
+		nir.FieldsJSON = updatedFieldsJSON
+	}
+
 	// -------- STEP 6.5: APPLY GOVERNANCE POLICY (NEW) --------
 	governance := s.ApplyPolicy(nir, parsed)
 	if !governance.SemanticValid {
@@ -677,10 +721,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 
 	// -------- STEP 6: VALIDATION --------
-	batchRef := ""
-	if in.BatchID != nil {
-		batchRef = *in.BatchID
-	}
+
 	intent, dlq, err := s.validator.ValidateParsed(
 		ctx,
 		in.TenantID.String(),
@@ -1493,4 +1534,13 @@ func (s *IntentService) computeGovernanceHashInternal(state, reasonsJSON, versio
 
 	hashBytes := sha256.Sum256([]byte(hashInput))
 	return hex.EncodeToString(hashBytes[:])
+}
+
+func canonicalPathToFieldName(path string) string {
+    // "amount.value" → "amount", "beneficiary.name" → "beneficiary_name"
+    parts := strings.Split(path, ".")
+    if len(parts) == 1 {
+        return path
+    }
+    return strings.Join(parts[:len(parts)-1], "_")
 }

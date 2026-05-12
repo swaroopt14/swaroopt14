@@ -1,6 +1,6 @@
 'use client'
 
-import { ReactNode, useState, useEffect } from 'react'
+import { ReactNode } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 
@@ -8,154 +8,262 @@ interface DarkLoginLayoutProps {
   children: ReactNode
   logoText?: string
   tagline?: string
-  heroImages?: string[]
   backToWebsiteLink?: string
   showSignUp?: boolean
   signUpLink?: string
 }
 
-export function DarkLoginLayout({ 
+export function DarkLoginLayout({
   children,
   logoText = 'ZORD',
   tagline = 'Ingesting Data, Creating Evidence',
-  heroImages = ['/login/login-hero.png', '/login/login-hero2.png', '/login/login-hero3.png', '/login/login-hero4.png'],
   backToWebsiteLink = '#',
   showSignUp = false,
-  signUpLink = '#'
+  signUpLink = '#',
 }: DarkLoginLayoutProps) {
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
-  const [isAutoPlaying, setIsAutoPlaying] = useState(true)
-
-  // Auto-advance carousel
-  useEffect(() => {
-    if (!isAutoPlaying || heroImages.length <= 1) return
-
-    const interval = setInterval(() => {
-      setCurrentImageIndex((prev) => (prev + 1) % heroImages.length)
-    }, 5000) // Change image every 5 seconds
-
-    return () => clearInterval(interval)
-  }, [isAutoPlaying, heroImages.length])
-
-  const goToImage = (index: number) => {
-    setCurrentImageIndex(index)
-    setIsAutoPlaying(false)
-    // Resume auto-play after 10 seconds
-    setTimeout(() => setIsAutoPlaying(true), 10000)
-  }
-
-  const nextImage = () => {
-    setCurrentImageIndex((prev) => (prev + 1) % heroImages.length)
-    setIsAutoPlaying(false)
-    setTimeout(() => setIsAutoPlaying(true), 10000)
-  }
-
-  const prevImage = () => {
-    setCurrentImageIndex((prev) => (prev - 1 + heroImages.length) % heroImages.length)
-    setIsAutoPlaying(false)
-    setTimeout(() => setIsAutoPlaying(true), 10000)
-  }
-
   return (
-    <div className="min-h-screen flex bg-gray-900">
-      {/* Left Section - Image Carousel */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden">
-        {/* Image Carousel Container */}
-        <div className="absolute inset-0 flex">
-          {heroImages.map((imageSrc, index) => (
-            <div
-              key={index}
-              className={`absolute inset-0 transition-opacity duration-1000 ${
-                index === currentImageIndex ? 'opacity-100 z-10' : 'opacity-0 z-0'
-              }`}
-            >
-              <Image
-                src={imageSrc}
-                alt={`Promotional image ${index + 1}`}
-                fill
-                className="object-cover"
-                priority={index === 0}
-                quality={90}
-              />
-              {/* Overlay gradient */}
-              <div className="absolute inset-0 bg-gradient-to-b from-purple-900/20 via-blue-900/20 to-transparent"></div>
-            </div>
-          ))}
+    <>
+      <style jsx>{`
+        .liquid-auth-root {
+          position: relative;
+          min-height: 100vh;
+          overflow: hidden;
+          background: #020202;
+        }
+
+        .liquid-bg-layer {
+          position: absolute;
+          inset: 0;
+          z-index: 0;
+          pointer-events: none;
+        }
+
+        .liquid-bg-overlay {
+          position: absolute;
+          inset: 0;
+          z-index: 1;
+          background:
+            linear-gradient(180deg, rgba(4, 4, 4, 0.4), rgba(4, 4, 4, 0.78)),
+            radial-gradient(circle at 18% 10%, rgba(255, 255, 255, 0.09), transparent 34%),
+            radial-gradient(circle at 84% 14%, rgba(255, 255, 255, 0.12), transparent 30%),
+            radial-gradient(circle at 50% 60%, transparent 38%, rgba(0, 0, 0, 0.36) 100%);
+        }
+
+        .liquid-auth-noise {
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140' viewBox='0 0 140 140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.36'/%3E%3C/svg%3E");
+          opacity: 0.03;
+          mix-blend-mode: soft-light;
+          z-index: 2;
+        }
+
+        .liquid-page {
+          position: relative;
+          z-index: 4;
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          min-height: 100vh;
+          padding: 24px 44px;
+        }
+
+        .main-glass {
+          position: relative;
+          isolation: isolate;
+          overflow: hidden;
+          width: min(860px, 62vw);
+          max-width: calc(100vw - 88px);
+          min-height: min(760px, calc(100vh - 64px));
+          border-radius: 24px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(10, 10, 10, 0.78);
+          backdrop-filter: blur(18px);
+          -webkit-backdrop-filter: blur(18px);
+          box-shadow:
+            0 40px 100px rgba(0, 0, 0, 0.86),
+            inset 0 1px 0 rgba(255, 255, 255, 0.06),
+            inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+          padding: 62px 56px 56px;
+          animation: glassEnter 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+          will-change: transform, opacity, filter;
+        }
+
+        .main-glass::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: linear-gradient(
+            135deg,
+            rgba(255, 255, 255, 0.1),
+            transparent 30%,
+            transparent 70%,
+            rgba(255, 255, 255, 0.06)
+          );
+          pointer-events: none;
+          z-index: 1;
+          opacity: 0;
+          animation: glowIn 1s ease forwards;
+          animation-delay: 0.3s;
+        }
+
+        .main-glass::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: inherit;
+          background: radial-gradient(circle at 18% 8%, rgba(255, 255, 255, 0.13), transparent 46%);
+          pointer-events: none;
+          z-index: 1;
+          opacity: 0;
+          animation: glowIn 1s ease forwards;
+          animation-delay: 0.3s;
+        }
+
+        .main-glass-content {
+          position: relative;
+          z-index: 3;
+          width: min(700px, 100%);
+          margin: 0 auto;
+          display: flex;
+          flex-direction: column;
+          gap: 22px;
+        }
+
+        :global(.liquid-stagger-scope > *) {
+          opacity: 0;
+          transform: translateY(10px);
+          animation: fadeUp 0.5s ease forwards;
+        }
+
+        :global(.liquid-stagger-scope > *:nth-child(1)) { animation-delay: 0.1s; }
+        :global(.liquid-stagger-scope > *:nth-child(2)) { animation-delay: 0.2s; }
+        :global(.liquid-stagger-scope > *:nth-child(3)) { animation-delay: 0.3s; }
+        :global(.liquid-stagger-scope > *:nth-child(4)) { animation-delay: 0.4s; }
+        :global(.liquid-stagger-scope > *:nth-child(5)) { animation-delay: 0.5s; }
+        :global(.liquid-stagger-scope > *:nth-child(6)) { animation-delay: 0.6s; }
+
+        @keyframes glassEnter {
+          0% {
+            opacity: 0;
+            transform: translateY(20px) scale(0.96);
+            filter: blur(10px);
+          }
+          60% {
+            opacity: 1;
+            transform: translateY(-4px) scale(1.01);
+            filter: blur(2px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            filter: blur(0);
+          }
+        }
+
+        @keyframes fadeUp {
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+
+        @keyframes glowIn {
+          to {
+            opacity: 0.6;
+          }
+        }
+
+        .main-close {
+          position: absolute;
+          right: 24px;
+          top: 20px;
+          z-index: 4;
+          display: inline-flex;
+          height: 42px;
+          width: 42px;
+          align-items: center;
+          justify-content: center;
+          border-radius: 12px;
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: rgba(10, 10, 10, 0.42);
+          color: rgba(255, 255, 255, 0.5);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+          transition: all 0.2s ease;
+        }
+
+        .main-close:hover {
+          background: rgba(24, 24, 24, 0.72);
+          color: rgba(255, 255, 255, 0.9);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .main-glass,
+          .main-glass::before,
+          .main-glass::after,
+          :global(.liquid-stagger-scope > *) {
+            animation: none !important;
+            filter: none !important;
+            transform: none !important;
+            opacity: 1 !important;
+          }
+        }
+
+        @media (max-width: 980px) {
+          .liquid-page {
+            padding: 20px;
+            justify-content: center;
+          }
+
+          .main-glass {
+            width: 100%;
+            max-width: 100%;
+            min-height: auto;
+            padding: 36px 24px 28px;
+            border-radius: 20px;
+          }
+
+          .main-close {
+            right: 16px;
+            top: 14px;
+          }
+        }
+      `}</style>
+
+      <div className="liquid-auth-root">
+        <div className="liquid-bg-layer">
+          <Image
+            src="/login/login-hero5.jpg"
+            alt="Login background"
+            fill
+            className="object-cover"
+            priority
+            quality={90}
+          />
+          <div className="liquid-bg-overlay" />
         </div>
-        
-        <div className="relative z-20 flex flex-col justify-between p-8 lg:p-12 text-white h-full w-full">
-          {/* Top Left - Logo */}
-          <div className="flex-shrink-0">
-            <div className="text-2xl lg:text-3xl font-bold">{logoText}</div>
-          </div>
 
-          {/* Navigation Arrows */}
-          {heroImages.length > 1 && (
-            <div className="absolute inset-0 flex items-center justify-between pointer-events-none">
-              <button
-                onClick={prevImage}
-                className="pointer-events-auto ml-4 p-2 bg-black/30 hover:bg-black/50 rounded-full transition-all backdrop-blur-sm"
-                aria-label="Previous image"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </button>
-              <button
-                onClick={nextImage}
-                className="pointer-events-auto mr-4 p-2 bg-black/30 hover:bg-black/50 rounded-full transition-all backdrop-blur-sm"
-                aria-label="Next image"
-              >
-                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
-            </div>
-          )}
+        <div className="liquid-auth-noise" />
 
-          {/* Bottom Left - Tagline and Pagination */}
-          <div className="flex-shrink-0">
-            <p className="text-xl lg:text-2xl font-medium mb-4">{tagline}</p>
-            {/* Pagination dots */}
-            {heroImages.length > 1 && (
-              <div className="flex space-x-2">
-                {heroImages.map((_, index) => (
-                  <button
-                    key={index}
-                    onClick={() => goToImage(index)}
-                    className={`h-1 rounded transition-all ${
-                      index === currentImageIndex
-                        ? 'w-8 bg-white'
-                        : 'w-8 bg-white/30 hover:bg-white/50'
-                    }`}
-                    aria-label={`Go to image ${index + 1}`}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Right Section - Dark Form */}
-      <div className="w-full lg:w-1/2 flex flex-col bg-gray-900">
-        <div className="flex-1 flex flex-col justify-center px-6 py-8 sm:px-8 lg:px-12 lg:py-12">
-          {/* Top Right - Back to Website Button */}
-          <div className="flex justify-end mb-8">
+        <div className="liquid-page">
+          <div className="main-glass">
             <Link
               href={backToWebsiteLink}
-              className="px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all"
+              aria-label="Close"
+              className="main-close focus:outline-none focus:ring-2 focus:ring-violet-400/70"
             >
-              Back to website →
+              <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />
+              </svg>
             </Link>
-          </div>
-
-          {/* Form Content */}
-          <div className="max-w-md mx-auto w-full">
-            {children}
+            <div className="main-glass-content liquid-stagger-scope">{children}</div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   )
 }

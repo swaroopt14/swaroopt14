@@ -6,6 +6,7 @@ export const metadata: Metadata = {
   description: 'Route posture, owner handoff, and proof readiness in one operating workspace.',
 }
 
+// Live-mode entry. Sandbox lives at /sandbox.
 export default function PayoutCommandViewTodayPage() {
-  return <PayoutCommandViewClient />
+  return <PayoutCommandViewClient forceMode="live" />
 }

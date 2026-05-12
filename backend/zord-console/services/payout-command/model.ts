@@ -9,14 +9,72 @@ export type GlyphName =
   | 'shield'
   | 'grid'
   | 'eye'
+  | 'eye-off'
   | 'zap'
   | 'refresh'
   | 'arrow-up-right'
   | 'chart'
+  | 'bell'
+  | 'terminal'
+  | 'key'
+  | 'copy'
+  | 'check'
+  | 'lock'
 
-export type DockId = 'home' | 'workspace' | 'recoveries' | 'grid' | 'sync' | 'proof'
+export type DockId =
+  | 'home'
+  | 'workspace'
+  | 'leakage'
+  | 'ambiguity'
+  | 'grid'
+  | 'connectors'
+  | 'sync'
+  | 'proof'
+  | 'sandbox'
+  | 'billing'
+
+/** Dock IDs that show in sandbox mode (same surfaces as home; no separate Sandbox rail). */
+export const SANDBOX_DOCK_IDS: DockId[] = ['home', 'grid', 'connectors', 'billing']
 export type WorkspaceTab = 'Today' | 'Routing' | 'Proof' | 'Banks'
-export type HomeTimeframe = 'Week' | 'Month' | 'Quarter' | 'Year'
+/** Command center time window. 'Quarter' is set by the `onQuarterChange` handler
+ * in PayoutCommandViewClient when the user picks a specific quarter. */
+export type HomeTimeframe = 'Today' | 'Week' | 'Month' | 'Custom' | 'Quarter'
+
+export type HomeSourceFilter = 'All' | 'Loan System' | 'Payment Partner'
+export type HomeMethodFilter = 'All' | 'NACH' | 'LSM' | 'Bank Transfer'
+export type HomeStatusFilter = 'All' | 'Confirmed' | 'Pending' | 'Review'
+
+export type HomeCommandFilters = {
+  source: HomeSourceFilter
+  method: HomeMethodFilter
+  status: HomeStatusFilter
+  batchQuery: string
+}
+
+export const defaultHomeCommandFilters: HomeCommandFilters = {
+  source: 'All',
+  method: 'All',
+  status: 'All',
+  batchQuery: '',
+}
+
+export function homeCommandFilterMultiplier(filters: HomeCommandFilters): number {
+  let m = 1
+  if (filters.source === 'Loan System') m *= 0.96
+  if (filters.source === 'Payment Partner') m *= 0.93
+  if (filters.method === 'NACH') m *= 0.88
+  if (filters.method === 'LSM') m *= 0.95
+  if (filters.method === 'Bank Transfer') m *= 1.02
+  if (filters.status === 'Confirmed') m *= 0.9
+  if (filters.status === 'Pending') m *= 0.97
+  if (filters.status === 'Review') m *= 0.84
+  const q = filters.batchQuery.trim().toLowerCase()
+  if (q.length > 0) {
+    const narrow = 0.45 + Math.min(q.length, 12) * 0.038
+    m *= clamp(narrow, 0.45, 0.9)
+  }
+  return clamp(m, 0.32, 1.12)
+}
 
 export type HomeSimulation = {
   prompt: string
@@ -103,49 +161,130 @@ export type HomeCommandStatus = 'idle' | 'loading' | 'typing' | 'complete'
 
 export const DASHBOARD_FONT_STACK = '"DM Sans", "Geist", "Plus Jakarta Sans", "Inter", system-ui, sans-serif'
 
-export const dockItems: Array<{ id: DockId; label: string; title: string; summary: string; icon: GlyphName }> = [
+export const dockItems = [
+  {
+    id: 'sandbox',
+    label: 'Sandbox',
+    title: 'Sandbox',
+    breadcrumbLabel: 'Sandbox',
+    summary: 'Test the full Intent Journal flow without touching real funds. Use canned scenarios or upload your own files.',
+    icon: 'terminal',
+  },
   {
     id: 'home',
-    label: 'Home',
-    title: 'Home overview',
-    summary: 'Track disbursement completion, confirmation status, risk exposure, and required actions.',
+    label: 'Today',
+    title: 'Command center',
+    breadcrumbLabel: 'Command center',
+    summary: 'Unified view of disbursements, confirmations, and risk across all systems.',
     icon: 'home',
   },
   {
     id: 'workspace',
-    label: 'Command',
-    title: 'Payout command view',
-    summary: 'The main operating workspace for routed value, live recovery, and finance-ready evidence.',
+    label: 'Ask',
+    title: 'Ask Zord workspace',
+    breadcrumbLabel: 'Ask Zord',
+    summary: 'Ask Zord about routed value, live recovery, and finance-ready evidence — get grounded answers with citations.',
     icon: 'folder',
   },
   {
-    id: 'recoveries',
-    label: 'Finality',
-    title: 'Reconciliation & Finality',
-    summary: 'How much is fully reconciled, how much is pending, and where mismatches remain across payout books, PSP records, and bank confirmation.',
+    id: 'leakage',
+    label: 'Leakage',
+    title: 'Leakage',
+    breadcrumbLabel: 'Leakage',
+    summary: 'Where money is leaking — unmatched intents, under-settlement, reversals — quantified in rupees for CFO action.',
+    icon: 'zap',
+  },
+  {
+    id: 'ambiguity',
+    label: 'Ambiguity',
+    title: 'Ambiguity',
+    breadcrumbLabel: 'Ambiguity',
+    summary: 'Open signals, unresolved intents, attachment confidence — operational queue for the ops manager.',
     icon: 'zap',
   },
   {
     id: 'grid',
-    label: 'Trace',
-    title: 'Trace & Evidence',
+    label: 'Journal',
+    title: 'Intent Journal',
+    breadcrumbLabel: 'Intent Journal',
     summary: 'One screen to explain exactly what happened to a payout end-to-end, from request to final outcome.',
     icon: 'grid',
   },
   {
+    id: 'connectors',
+    label: 'Connectors',
+    title: 'Connector Intelligence',
+    breadcrumbLabel: 'Connectors',
+    summary: 'Per-connector ambiguity, latency, and defensibility exposure — walk into a QBR with the exact ₹ exposure each connector creates per month.',
+    icon: 'shield',
+  },
+  {
     id: 'sync',
-    label: 'Intelligence',
-    title: 'Payout Intelligence',
-    summary: 'Trends, cohorts, and where money is at risk across clients, rails, and PSPs.',
+    label: 'Systems',
+    title: 'Connected Systems',
+    breadcrumbLabel: 'Systems',
+    summary: 'Real-time view of loan system, payment partner, bank, and mandate connections in one place.',
     icon: 'refresh',
   },
   {
     id: 'proof',
-    label: 'Failures',
-    title: 'Failure Intelligence',
-    summary: 'Error taxonomy and ops queue so issues are solved by the right team, fast, with clear owner routing and queue depth.',
-    icon: 'document',
+    label: 'Evidence',
+    title: 'Defensibility & Evidence',
+    breadcrumbLabel: 'Evidence',
+    summary: 'Cryptographic proof packs per intent · audit-ready exports · active dispute tracker. Win disputes by downloading evidence, not by chasing PSP logs.',
+    icon: 'shield',
   },
+  {
+    id: 'billing',
+    label: 'Billing',
+    title: 'Billing',
+    breadcrumbLabel: 'Billing',
+    summary: 'Plan, payment method, and invoice history. Sandbox uses test billing — no real charges.',
+    icon: 'bank',
+  },
+] as const
+
+/** Base URLs for payout console + settings (use for links and docs). */
+export const PAYOUT_VIEW_URLS = {
+  sandboxConsole: '/sandbox',
+  liveConsole: '/payout-command-view/today',
+  batchCommandCenter: '/payout-command-view/batch-command-center',
+  settingsAccount: '/payout-command-view/settings/account',
+  settingsApiKeys: '/payout-command-view/settings/api-keys',
+  connectorIntelligence: '/payout-command-view/connector-intelligence',
+} as const
+
+/** One row per dock icon: tooltip label + full page name (matches `dockItems`). */
+export type PayoutConsoleDockPage = {
+  dockId: DockId
+  /** Icon tooltip in the dock */
+  dockLabel: string
+  /** Full surface / page name */
+  pageName: string
+}
+
+function dockPageRow(id: DockId): PayoutConsoleDockPage {
+  const d = dockItems.find((x) => x.id === id)!
+  return { dockId: id, dockLabel: d.label, pageName: d.title }
+}
+
+/** Sandbox mode — dock order matches `SANDBOX_DOCK_IDS`. */
+export const SANDBOX_CONSOLE_DOCK_PAGES: readonly PayoutConsoleDockPage[] = SANDBOX_DOCK_IDS.map(dockPageRow)
+
+/**
+ * Live (active) account — dock shows every surface except Sandbox and Billing.
+ * Order follows `dockItems`.
+ */
+export const LIVE_CONSOLE_DOCK_PAGES: readonly PayoutConsoleDockPage[] = dockItems
+  .filter((d) => d.id !== 'sandbox' && d.id !== 'billing')
+  .map((d) => ({ dockId: d.id, dockLabel: d.label, pageName: d.title }))
+
+/** Routes outside the main console shell (header links, deep links). */
+export const PAYOUT_STANDALONE_PAGE_NAMES = [
+  { path: PAYOUT_VIEW_URLS.batchCommandCenter, name: 'Batch Command Center' },
+  { path: PAYOUT_VIEW_URLS.settingsAccount, name: 'Settings — Account' },
+  { path: PAYOUT_VIEW_URLS.settingsApiKeys, name: 'Settings — API keys' },
+  { path: PAYOUT_VIEW_URLS.connectorIntelligence, name: 'Connector Intelligence' },
 ] as const
 
 export const workspaceTabs: WorkspaceTab[] = ['Today', 'Routing', 'Proof', 'Banks']
@@ -212,6 +351,15 @@ export function formatUsdCompactK(value: number) {
   return `$${(value / 1000).toFixed(1).replace('.', ',')}k`
 }
 
+/** Compact billions / millions for command center cards. */
+export function formatUsdShort(value: number) {
+  const v = Math.abs(value)
+  if (v >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`
+  if (v >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`
+  if (v >= 1000) return `$${(value / 1000).toFixed(1)}K`
+  return formatUsdWhole(value)
+}
+
 export function formatPercentBadge(value: number) {
   const rounded = Math.round(value)
   return `${rounded >= 0 ? '+' : ''}${rounded}%`
@@ -219,10 +367,11 @@ export function formatPercentBadge(value: number) {
 
 export function resolveHomeTimeframeFromPrompt(prompt: string, currentTimeframe: HomeTimeframe) {
   const lowerPrompt = prompt.toLowerCase()
-  if (lowerPrompt.includes('week') || lowerPrompt.includes('today') || lowerPrompt.includes('now')) return 'Week'
+  if (lowerPrompt.includes('today') || lowerPrompt.includes('now')) return 'Today'
+  if (lowerPrompt.includes('week')) return 'Week'
   if (lowerPrompt.includes('month')) return 'Month'
-  if (lowerPrompt.includes('quarter') || lowerPrompt.includes('qtd')) return 'Quarter'
-  if (lowerPrompt.includes('year') || lowerPrompt.includes('ytd')) return 'Year'
+  if (lowerPrompt.includes('quarter') || lowerPrompt.includes('qtd') || lowerPrompt.includes('custom')) return 'Custom'
+  if (lowerPrompt.includes('year') || lowerPrompt.includes('ytd')) return 'Custom'
   return currentTimeframe
 }
 
@@ -243,6 +392,16 @@ export function resolveHomeQuarterFromPrompt(prompt: string, currentQuarterIndex
 }
 
 function buildTimeframeConfig(timeframe: HomeTimeframe, quarterIndex: number, selectedYear: 2026 | 2027 | 2028) {
+  if (timeframe === 'Today') {
+    return {
+      totalBars: 48,
+      labels: ['6a', '9a', '12p', '3p', '6p', '9p', '12a', '3a'],
+      holidayLabels: [] as readonly string[],
+      timeframeLabel: `Today • operating day • ${selectedYear}`,
+      rangeLength: 24,
+    }
+  }
+
   if (timeframe === 'Week') {
     return {
       totalBars: 84,
@@ -253,31 +412,21 @@ function buildTimeframeConfig(timeframe: HomeTimeframe, quarterIndex: number, se
     }
   }
 
-  if (timeframe === 'Quarter') {
+  if (timeframe === 'Custom') {
     const quarter = HOME_QUARTERS[clamp(quarterIndex, 0, HOME_QUARTERS.length - 1)]
     return {
       totalBars: 90,
       labels: quarter.months.map((month) => month.slice(0, 3)),
-      holidayLabels: [],
-      timeframeLabel: `${quarter.name} • ${quarter.months.join(', ')} • ${selectedYear}`,
+      holidayLabels: [] as readonly string[],
+      timeframeLabel: `Custom range • ${quarter.name} • ${selectedYear}`,
       rangeLength: 54,
-    }
-  }
-
-  if (timeframe === 'Year') {
-    return {
-      totalBars: 144,
-      labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-      holidayLabels: [],
-      timeframeLabel: `Year view • ${selectedYear}`,
-      rangeLength: 102,
     }
   }
 
   return {
     totalBars: 112,
     labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep'],
-    holidayLabels: [],
+    holidayLabels: [] as readonly string[],
     timeframeLabel: `Month view • ${selectedYear}`,
     rangeLength: 30,
   }
@@ -304,10 +453,14 @@ export function buildSimulatedHomeOverviewSnapshot(
   tick: number,
   selectedYear: 2026 | 2027 | 2028,
   quarterIndex: number,
+  filterMultiplier = 1,
 ): HomeOverviewSnapshot {
-  const timeframeScale = timeframe === 'Week' ? 0.42 : timeframe === 'Month' ? 1 : timeframe === 'Quarter' ? 1.42 : 1.95
-  const volatilityScale = timeframe === 'Week' ? 1.38 : timeframe === 'Month' ? 1 : timeframe === 'Quarter' ? 0.88 : 0.7
-  const rangeLift = timeframe === 'Week' ? 0.92 : timeframe === 'Month' ? 1 : timeframe === 'Quarter' ? 1.08 : 1.16
+  const timeframeScale =
+    timeframe === 'Today' ? 0.2 : timeframe === 'Week' ? 0.42 : timeframe === 'Month' ? 1 : 1.42
+  const volatilityScale =
+    timeframe === 'Today' ? 1.45 : timeframe === 'Week' ? 1.38 : timeframe === 'Month' ? 1 : 0.88
+  const rangeLift =
+    timeframe === 'Today' ? 0.88 : timeframe === 'Week' ? 0.92 : timeframe === 'Month' ? 1 : 1.08
   const yearScale = selectedYear === 2026 ? 1 : selectedYear === 2027 ? 1.07 : 1.14
   const timeframeConfig = buildTimeframeConfig(timeframe, quarterIndex, selectedYear)
   const phase = tick * 0.26
@@ -336,8 +489,9 @@ export function buildSimulatedHomeOverviewSnapshot(
       Math.sin(index * 0.17 + 0.8 + phase * 0.09) * 1800 * volatilityScale +
       Math.cos(index * 0.31 - 0.4 - phase * 0.07) * 1100 * volatilityScale +
       Math.sin(index * 0.58 + phase * 0.16) * 560 * volatilityScale
-    const dayIndex = timeframe === 'Week' ? Math.floor(index / 12) : -1
-    const isHoliday = timeframe === 'Week' && (dayIndex === 3 || dayIndex === 6)
+    const dayIndex = timeframe === 'Week' ? Math.floor(index / 12) : timeframe === 'Today' ? Math.floor(index / 8) : -1
+    const isHoliday =
+      (timeframe === 'Week' && (dayIndex === 3 || dayIndex === 6)) || (timeframe === 'Today' && dayIndex === 5)
 
     return {
       point: index,
@@ -349,8 +503,6 @@ export function buildSimulatedHomeOverviewSnapshot(
     }
   })
 
-  const forecastBars = chartData.slice(selectedRangeStart, selectedRangeStart + 6).map((entry) => entry.barValue / HOME_CHART_DOMAIN_MAX)
-  const budgetBars = chartData.slice(selectedRangeStart + 6, selectedRangeStart + 14).map((entry) => entry.lineValue / HOME_CHART_DOMAIN_MAX)
   const phaseLift = Math.sin(phase * 0.72) + Math.cos(phase * 0.31)
   const activeQuarter = HOME_QUARTERS[clamp(quarterIndex, 0, HOME_QUARTERS.length - 1)]
   const metricBaseScaled = scenario.metricBase * yearScale
@@ -359,20 +511,32 @@ export function buildSimulatedHomeOverviewSnapshot(
   const budgetBaseScaled = scenario.budgetBase * yearScale
   const insightBaseScaled = scenario.insightValueBase * yearScale
 
+  const scaledChartData = chartData.map((row) => ({
+    ...row,
+    barValue: Math.round(row.barValue * filterMultiplier),
+    lineValue: Math.round(row.lineValue * filterMultiplier),
+    lowerLineValue: Math.round(row.lowerLineValue * filterMultiplier),
+  }))
+
+  const forecastBars = scaledChartData.slice(selectedRangeStart, selectedRangeStart + 6).map((entry) => entry.barValue / HOME_CHART_DOMAIN_MAX)
+  const budgetBars = scaledChartData.slice(selectedRangeStart + 6, selectedRangeStart + 14).map((entry) => entry.lineValue / HOME_CHART_DOMAIN_MAX)
+
   return {
-    metricValue: formatUsdWhole(metricBaseScaled + phaseLift * 2_400_000 * timeframeScale),
+    metricValue: formatUsdWhole((metricBaseScaled + phaseLift * 2_400_000 * timeframeScale) * filterMultiplier),
     title: scenario.title,
     summary: scenario.summary,
-    tooltipValue: formatUsdCompactK(scenario.tooltipValueBase * yearScale + phaseLift * 4200 * timeframeScale),
+    tooltipValue: formatUsdCompactK(
+      (scenario.tooltipValueBase * yearScale + phaseLift * 4200 * timeframeScale) * filterMultiplier,
+    ),
     tooltipDelta: formatPercentBadge(scenario.tooltipDeltaBase + Math.sin(phase * 0.62) * 2.4),
     tooltipNote: scenario.tooltipNote,
     range,
-    chartData,
-    salesValue: formatUsdCompactK(salesBaseScaled + phaseLift * 1700 * timeframeScale),
-    expensesValue: formatUsdCompactK(expensesBaseScaled + Math.cos(phase * 0.48) * 780 * timeframeScale),
-    budgetValue: formatUsdCompactK(budgetBaseScaled + Math.sin(phase * 0.4) * 1200 * timeframeScale),
+    chartData: scaledChartData,
+    salesValue: formatUsdCompactK((salesBaseScaled + phaseLift * 1700 * timeframeScale) * filterMultiplier),
+    expensesValue: formatUsdCompactK((expensesBaseScaled + Math.cos(phase * 0.48) * 780 * timeframeScale) * filterMultiplier),
+    budgetValue: formatUsdCompactK((budgetBaseScaled + Math.sin(phase * 0.4) * 1200 * timeframeScale) * filterMultiplier),
     insightText: scenario.insightText,
-    insightValue: formatUsdCompactK(insightBaseScaled + Math.sin(phase * 0.58) * 1600 * timeframeScale),
+    insightValue: formatUsdCompactK((insightBaseScaled + Math.sin(phase * 0.58) * 1600 * timeframeScale) * filterMultiplier),
     insightGaugeProgress: clamp(0.54 + Math.sin(phase * 0.46) * 0.12 + timeframeScale * 0.03, 0.4, 0.92),
     forecastBars,
     budgetBars,
@@ -381,15 +545,15 @@ export function buildSimulatedHomeOverviewSnapshot(
     quarterMonths: activeQuarter.months,
     selectedYear,
     holidayLabels: timeframeConfig.holidayLabels,
-    salesBaseValue: salesBaseScaled,
-    expensesBaseValue: expensesBaseScaled,
-    budgetBaseValue: budgetBaseScaled,
-    insightBaseValue: insightBaseScaled,
+    salesBaseValue: salesBaseScaled * filterMultiplier,
+    expensesBaseValue: expensesBaseScaled * filterMultiplier,
+    budgetBaseValue: budgetBaseScaled * filterMultiplier,
+    insightBaseValue: insightBaseScaled * filterMultiplier,
     timeframeLabel: timeframeConfig.timeframeLabel,
   }
 }
 
-export const homeTimeframes: readonly HomeTimeframe[] = ['Week', 'Month', 'Quarter', 'Year']
+export const homeTimeframes: readonly HomeTimeframe[] = ['Today', 'Week', 'Month', 'Custom']
 export const HOME_SIMULATION_INTERVAL_MS = 2600
 export const HOME_CHART_DOMAIN_MAX = 150000
 export const HOME_YEAR_OPTIONS = [2026, 2027, 2028] as const
@@ -406,7 +570,7 @@ export const homeSimulationScenarios: readonly HomeSimulation[] = [
     prompt: 'Where are delays occurring?',
     keywords: ['delay', 'delays', 'disbursement', 'confirmation', 'where', 'cycle'],
     title: 'Total Disbursement Value',
-    summary: 'Total value of loan disbursements processed during the selected period.',
+    summary: 'Across all batches and payment methods.',
     tooltipNote: 'Value of disbursements successfully completed during this period.',
     metricBase: 1651045139,
     tooltipValueBase: 115000,
@@ -701,6 +865,112 @@ export const intentRows = [
   { intent: 'PAYOUT_24071', owner: 'Bank Ops', risk: 'High', proof: 'Pending', next: 'Escalation' },
   { intent: 'PAYOUT_24063', owner: 'Finance', risk: 'Medium', proof: 'Ready', next: 'Export now' },
 ] as const
+
+export type IntentJournalBatchRecord = {
+  batchId: string
+  type: 'Disbursement' | 'Settlement'
+  source: string
+  totalValue: number
+  transactions: number
+  confirmedCount: number
+  highConfidenceCount: number
+  mismatchCount: number
+  unresolvedCount: number
+}
+
+export type IntentJournalIntentRow = {
+  batchId: string
+  requestId: string
+  reference: string
+  amount: number
+  method: 'Bank Transfer' | 'LSM' | 'NACH'
+  status: 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
+  match: 'Matched' | 'Likely Matched' | 'Awaiting' | 'Mismatch' | 'Not Found'
+  lastUpdated: string
+  paymentPartner: 'Razorpay' | 'Cashfree' | 'PayU'
+  bank: 'HDFC Bank' | 'ICICI Bank' | 'SBI'
+}
+
+export type IntentJournalFailureRow = {
+  batchId: string
+  requestId: string
+  reference: string
+  amount: number
+  method: 'Bank Transfer' | 'LSM' | 'NACH'
+  paymentPartner: 'Razorpay' | 'Cashfree' | 'PayU'
+  failureReason: string
+  failureStage: 'Validation' | 'Dispatch' | 'Processing' | 'Settlement'
+  lastUpdated: string
+  action: 'Retry' | 'Fix Details' | 'Investigate' | 'Escalate' | 'Fix Mandate'
+}
+
+export function getIntentJournalBatches(): IntentJournalBatchRecord[] {
+  const seed: IntentJournalBatchRecord[] = [
+    { batchId: 'B-2026-021', type: 'Disbursement', source: 'Loan System', totalValue: 1_200_000, transactions: 1200, confirmedCount: 840, highConfidenceCount: 60, mismatchCount: 20, unresolvedCount: 20 },
+    { batchId: 'ZB-2041', type: 'Disbursement', source: 'Loan System', totalValue: 2_400_000, transactions: 847, confirmedCount: 760, highConfidenceCount: 64, mismatchCount: 12, unresolvedCount: 11 },
+    { batchId: 'B-2026-023', type: 'Settlement', source: 'Payment Hub', totalValue: 980_000, transactions: 870, confirmedCount: 580, highConfidenceCount: 90, mismatchCount: 110, unresolvedCount: 90 },
+    { batchId: 'B-2026-024', type: 'Disbursement', source: 'Loan System', totalValue: 740_000, transactions: 640, confirmedCount: 320, highConfidenceCount: 40, mismatchCount: 120, unresolvedCount: 90 },
+  ]
+  const generated: IntentJournalBatchRecord[] = Array.from({ length: 22 }, (_, i) => ({
+    batchId: `B-2026-${String(25 + i).padStart(3, '0')}`,
+    type: i % 3 === 0 ? 'Settlement' : 'Disbursement',
+    source: i % 2 === 0 ? 'Loan System' : 'Payment Hub',
+    totalValue: 600_000 + ((i * 175_000) % 2_200_000),
+    transactions: 500 + ((i * 241) % 5100),
+    confirmedCount: 330 + ((i * 200) % 3200),
+    highConfidenceCount: 45 + ((i * 31) % 300),
+    mismatchCount: 40 + ((i * 19) % 240),
+    unresolvedCount: 20 + ((i * 23) % 220),
+  }))
+  return [...seed, ...generated]
+}
+
+export function getIntentJournalIntents(): IntentJournalIntentRow[] {
+  const b = 'ZB-2041'
+  const b2 = 'B-2026-021'
+  const rows: IntentJournalIntentRow[] = [
+    { batchId: b, requestId: 'INT-1001', reference: 'salary_emp_101', amount: 1500, method: 'Bank Transfer', status: 'Confirmed', match: 'Matched', lastUpdated: '10:42 AM', paymentPartner: 'Razorpay', bank: 'HDFC Bank' },
+    { batchId: b, requestId: 'INT-1002', reference: 'salary_emp_102', amount: 1500, method: 'LSM', status: 'Pending', match: 'Awaiting', lastUpdated: '10:44 AM', paymentPartner: 'Razorpay', bank: 'ICICI Bank' },
+    { batchId: b, requestId: 'INT-1003', reference: 'salary_emp_103', amount: 2200, method: 'Bank Transfer', status: 'Confirmed', match: 'Matched', lastUpdated: '10:45 AM', paymentPartner: 'Razorpay', bank: 'HDFC Bank' },
+    { batchId: b, requestId: 'INT-1004', reference: 'salary_emp_104', amount: 1800, method: 'Bank Transfer', status: 'Needs Review', match: 'Mismatch', lastUpdated: '10:47 AM', paymentPartner: 'Razorpay', bank: 'HDFC Bank' },
+    { batchId: b, requestId: 'INT-1005', reference: 'salary_emp_105', amount: 2000, method: 'NACH', status: 'Confirmed', match: 'Likely Matched', lastUpdated: '10:48 AM', paymentPartner: 'Razorpay', bank: 'SBI' },
+    { batchId: b, requestId: 'INT-1006', reference: 'salary_emp_106', amount: 1200, method: 'LSM', status: 'Pending', match: 'Awaiting', lastUpdated: '10:49 AM', paymentPartner: 'Cashfree', bank: 'ICICI Bank' },
+    { batchId: b, requestId: 'INT-1007', reference: 'salary_emp_107', amount: 2500, method: 'Bank Transfer', status: 'Confirmed', match: 'Matched', lastUpdated: '10:50 AM', paymentPartner: 'Razorpay', bank: 'HDFC Bank' },
+    { batchId: b, requestId: 'INT-1008', reference: 'salary_emp_108', amount: 1400, method: 'NACH', status: 'In Progress', match: 'Awaiting', lastUpdated: '10:51 AM', paymentPartner: 'PayU', bank: 'SBI' },
+    { batchId: b, requestId: 'INT-1009', reference: 'salary_emp_109', amount: 1700, method: 'Bank Transfer', status: 'Pending', match: 'Awaiting', lastUpdated: '10:52 AM', paymentPartner: 'Razorpay', bank: 'ICICI Bank' },
+    { batchId: b, requestId: 'INT-1010', reference: 'salary_emp_110', amount: 2300, method: 'LSM', status: 'Confirmed', match: 'Matched', lastUpdated: '10:53 AM', paymentPartner: 'Cashfree', bank: 'HDFC Bank' },
+    { batchId: b, requestId: 'INT-1011', reference: 'salary_emp_111', amount: 1600, method: 'Bank Transfer', status: 'Needs Review', match: 'Mismatch', lastUpdated: '10:54 AM', paymentPartner: 'Razorpay', bank: 'HDFC Bank' },
+    { batchId: b, requestId: 'INT-1012', reference: 'salary_emp_112', amount: 1900, method: 'NACH', status: 'Confirmed', match: 'Matched', lastUpdated: '10:55 AM', paymentPartner: 'PayU', bank: 'SBI' },
+    { batchId: b, requestId: 'INT-1013', reference: 'salary_emp_113', amount: 2100, method: 'Bank Transfer', status: 'Pending', match: 'Awaiting', lastUpdated: '10:56 AM', paymentPartner: 'Razorpay', bank: 'ICICI Bank' },
+    { batchId: b, requestId: 'INT-1014', reference: 'salary_emp_114', amount: 1300, method: 'LSM', status: 'Confirmed', match: 'Likely Matched', lastUpdated: '10:57 AM', paymentPartner: 'Cashfree', bank: 'HDFC Bank' },
+    { batchId: b, requestId: 'INT-1015', reference: 'salary_emp_115', amount: 2000, method: 'Bank Transfer', status: 'Confirmed', match: 'Matched', lastUpdated: '10:58 AM', paymentPartner: 'Razorpay', bank: 'HDFC Bank' },
+  ]
+  return [
+    ...rows,
+    ...rows.map((r, i) => ({
+      ...r,
+      batchId: b2,
+      requestId: `INT-${1023 + i}`,
+      reference: `salary_emp_${201 + i}`,
+    })),
+  ]
+}
+
+export function getIntentJournalFailures(): IntentJournalFailureRow[] {
+  const b = 'ZB-2041'
+  return [
+    { batchId: b, requestId: 'INT-2001', reference: 'salary_emp_201', amount: 1500, method: 'Bank Transfer', paymentPartner: 'Razorpay', failureReason: 'Invalid account details', failureStage: 'Validation', lastUpdated: '10:42 AM', action: 'Fix Details' },
+    { batchId: b, requestId: 'INT-2002', reference: 'salary_emp_202', amount: 2000, method: 'LSM', paymentPartner: 'Cashfree', failureReason: 'Payment partner rejected', failureStage: 'Dispatch', lastUpdated: '10:45 AM', action: 'Retry' },
+    { batchId: b, requestId: 'INT-2003', reference: 'salary_emp_203', amount: 1800, method: 'Bank Transfer', paymentPartner: 'Razorpay', failureReason: 'No confirmation found', failureStage: 'Settlement', lastUpdated: '10:47 AM', action: 'Investigate' },
+    { batchId: b, requestId: 'INT-2004', reference: 'salary_emp_204', amount: 2200, method: 'NACH', paymentPartner: 'PayU', failureReason: 'Mandate not active', failureStage: 'Processing', lastUpdated: '10:49 AM', action: 'Fix Mandate' },
+    { batchId: b, requestId: 'INT-2005', reference: 'salary_emp_205', amount: 1700, method: 'Bank Transfer', paymentPartner: 'Razorpay', failureReason: 'Missing IFSC', failureStage: 'Validation', lastUpdated: '10:50 AM', action: 'Fix Details' },
+    { batchId: b, requestId: 'INT-2006', reference: 'salary_emp_206', amount: 2400, method: 'LSM', paymentPartner: 'Cashfree', failureReason: 'Timeout during processing', failureStage: 'Processing', lastUpdated: '10:52 AM', action: 'Retry' },
+    { batchId: b, requestId: 'INT-2007', reference: 'salary_emp_207', amount: 1600, method: 'Bank Transfer', paymentPartner: 'Razorpay', failureReason: 'Duplicate transaction', failureStage: 'Dispatch', lastUpdated: '10:53 AM', action: 'Investigate' },
+    { batchId: b, requestId: 'INT-2008', reference: 'salary_emp_208', amount: 1900, method: 'NACH', paymentPartner: 'PayU', failureReason: 'Mandate expired', failureStage: 'Processing', lastUpdated: '10:54 AM', action: 'Fix Mandate' },
+    { batchId: b, requestId: 'INT-2009', reference: 'salary_emp_209', amount: 2100, method: 'Bank Transfer', paymentPartner: 'Razorpay', failureReason: 'No settlement record', failureStage: 'Settlement', lastUpdated: '10:55 AM', action: 'Investigate' },
+    { batchId: b, requestId: 'INT-2010', reference: 'salary_emp_210', amount: 1300, method: 'LSM', paymentPartner: 'Cashfree', failureReason: 'PSP internal error', failureStage: 'Processing', lastUpdated: '10:56 AM', action: 'Retry' },
+  ]
+}
 
 export const spiderData = [
   { subject: 'Routing', value: 86 },

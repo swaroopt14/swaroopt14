@@ -9,6 +9,7 @@ import (
 )
 
 func Routes(router *gin.Engine, h *handler.Handler) {
+	handler.RegisterPublicAuthRoutes(router)
 
 	public := router.Group("/v1")
 	{

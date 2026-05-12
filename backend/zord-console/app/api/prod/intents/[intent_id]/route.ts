@@ -28,6 +28,7 @@ export async function GET(
     // Transform backend response to match frontend IntentDetail type
     const intentDetail = {
       intent_id: intent.intent_id,
+      batch_id: intent.batch_id,
       status: intent.status,
       source: intent.intent_type || 'API',
       canonical: {

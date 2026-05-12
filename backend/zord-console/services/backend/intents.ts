@@ -10,6 +10,8 @@ export interface BackendIntent {
   schema_version?: string
   amount: string
   currency: string
+  /** Optional ingest / intelligence batch correlation when engine exposes it. */
+  batch_id?: string
   deadline_at?: string
   constraints?: Record<string, unknown>
   beneficiary_type?: string
@@ -34,6 +36,7 @@ export interface IntentListParams {
   page_size?: number
   tenant_id?: string
   status?: string
+  batch_id?: string
 }
 
 /**
@@ -41,13 +44,14 @@ export interface IntentListParams {
  * Endpoint: GET http://localhost:8083/v1/intents
  */
 export async function fetchIntents(params: IntentListParams = {}): Promise<IntentListResponse> {
-  const { page = 1, page_size = 50, tenant_id, status } = params
+  const { page = 1, page_size = 50, tenant_id, status, batch_id } = params
 
   const queryParams = new URLSearchParams()
   queryParams.set('page', String(page))
   queryParams.set('page_size', String(page_size))
   if (tenant_id) queryParams.set('tenant_id', tenant_id)
   if (status) queryParams.set('status', status)
+  if (batch_id) queryParams.set('batch_id', batch_id)
 
   const url = buildUrl('INTENT_ENGINE', BACKEND_SERVICES.INTENT_ENGINE.ENDPOINTS.INTENTS)
   const fullUrl = `${url}?${queryParams.toString()}`

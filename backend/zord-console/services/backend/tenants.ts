@@ -4,6 +4,7 @@ import { BACKEND_SERVICES, buildUrl, DEFAULT_FETCH_OPTIONS, API_TIMEOUT } from '
 export interface BackendTenant {
   tenant_id: string
   tenant_name: string
+  workspace_code: string
   api_key?: string // Not returned by backend (only hash is stored)
   status: 'ACTIVE' | 'DISABLED'
   created_at: string

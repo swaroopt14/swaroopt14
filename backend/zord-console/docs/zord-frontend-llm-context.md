@@ -59,12 +59,6 @@ Dock surfaces in code (`DockId`):
   - escalation readiness
   - AI Intelligence Layer panel (tabs + chat-like reasoning)
 
-- `recoveries` → **Reconciliation & Finality**  
-  CFO/auditor-style view:
-  - closure and pending pressure
-  - mismatch posture
-  - agreement trend across multi-source confirmation
-
 - `grid` → **Trace & Evidence**  
   Payment-level drilldown:
   - intent trace journal table

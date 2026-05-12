@@ -55,9 +55,9 @@ const BENEFICIARY_MASKS = [
 
 const STAGES_BY_STATUS: Record<BatchRowStatus, string> = {
   Success: 'Confirmed',
-  Failed: 'Dispatched',
-  Pending: 'Awaiting Bank',
-  Processing: 'Rows Processing',
+  Failed: 'Sent to payment partner',
+  Pending: 'Awaiting bank confirmation',
+  Processing: 'Disbursement processing',
 }
 
 const PROVIDERS: BatchRow['provider'][] = ['RazorpayX', 'Cashfree', 'PayU', 'Stripe']
@@ -81,25 +81,25 @@ function resolveStatus(index: number): BatchRowStatus {
 
 function buildTimeline(status: BatchRowStatus, rowTime: string): BatchRowTimelineStep[] {
   const base = [
-    { label: 'Ingested', time: '10:01:02', state: 'done' as const },
-    { label: 'Canonicalized', time: '10:01:05', state: 'done' as const },
+    { label: 'Loan system', time: '10:01:02', state: 'done' as const },
+    { label: 'Standardized', time: '10:01:05', state: 'done' as const },
     { label: 'Validated', time: '10:01:07', state: 'done' as const },
-    { label: 'Dispatched', time: '10:01:10', state: 'done' as const },
+    { label: 'Payment partner', time: '10:01:10', state: 'done' as const },
   ]
 
   if (status === 'Success') {
-    return [...base, { label: 'Awaiting Bank', time: '10:02:04', state: 'done' }, { label: 'Confirmed (UTR)', time: rowTime, state: 'done' }]
+    return [...base, { label: 'Bank confirmation', time: '10:02:04', state: 'done' }, { label: 'Reference on record', time: rowTime, state: 'done' }]
   }
 
   if (status === 'Failed') {
-    return [...base, { label: 'Awaiting Bank', time: '-', state: 'active' }, { label: 'Confirmed (UTR)', time: '-', state: 'pending' }]
+    return [...base, { label: 'Bank confirmation', time: '-', state: 'active' }, { label: 'Reference on record', time: '-', state: 'pending' }]
   }
 
   if (status === 'Pending') {
-    return [...base, { label: 'Awaiting Bank', time: '-', state: 'active' }, { label: 'Confirmed (UTR)', time: '-', state: 'pending' }]
+    return [...base, { label: 'Bank confirmation', time: '-', state: 'active' }, { label: 'Reference on record', time: '-', state: 'pending' }]
   }
 
-  return [...base, { label: 'Awaiting Bank', time: '-', state: 'active' }, { label: 'Confirmed (UTR)', time: '-', state: 'pending' }]
+  return [...base, { label: 'Bank confirmation', time: '-', state: 'active' }, { label: 'Reference on record', time: '-', state: 'pending' }]
 }
 
 export function formatInr(value: number) {
@@ -124,7 +124,7 @@ export function formatClock(offsetSeconds: number) {
 }
 
 function actionFor(status: BatchRowStatus) {
-  if (status === 'Success') return 'Export evidence'
+  if (status === 'Success') return 'Export confirmation row'
   if (status === 'Failed') return 'Retry row'
   if (status === 'Pending') return 'Inspect queue'
   return 'Track progress'
@@ -179,16 +179,16 @@ export function buildSeedSummary(): BatchSummary {
 
 export function deriveTimeline(summary: BatchSummary, fileUploaded: boolean): BatchTimelineStep[] {
   const processing = Math.max(0, summary.totalRows - summary.processed)
-  const hasPendingFinality = summary.pending > 0
-  const isFinalized = processing === 0 && summary.pending === 0
+  const hasPendingConfirmation = summary.pending > 0
+  const batchComplete = processing === 0 && summary.pending === 0
 
   return [
-    { label: 'Batch Received', state: fileUploaded ? 'done' : 'active' },
-    { label: 'File Processed', state: fileUploaded ? 'done' : 'upcoming' },
-    { label: 'Rows Processing', state: processing > 0 ? 'active' : 'done' },
-    { label: 'Dispatch In Progress', state: processing > 0 ? 'active' : 'done' },
-    { label: 'Awaiting Finality', state: hasPendingFinality ? 'warning' : 'done' },
-    { label: 'Batch Finalized', state: isFinalized ? 'done' : 'upcoming' },
+    { label: 'Batch received', state: fileUploaded ? 'done' : 'active' },
+    { label: 'File processed', state: fileUploaded ? 'done' : 'upcoming' },
+    { label: 'Disbursement processing', state: processing > 0 ? 'active' : 'done' },
+    { label: 'Payment partner', state: processing > 0 ? 'active' : 'done' },
+    { label: 'Bank confirmation pending', state: hasPendingConfirmation ? 'warning' : 'done' },
+    { label: 'Batch closed', state: batchComplete ? 'done' : 'upcoming' },
   ]
 }
 
@@ -246,7 +246,7 @@ export async function parseUploadedSheet(file: File): Promise<BatchRow[]> {
   const [headerLine, ...dataLines] = lines
   const headers = headerLine.split(',').map((header) => header.trim().toLowerCase())
 
-  const refIdx = headers.findIndex((header) => header.includes('ref'))
+  const refIdx = headers.findIndex((header) => header.includes('ref') || header.includes('request'))
   const amountIdx = headers.findIndex((header) => header.includes('amount'))
   const beneficiaryIdx = headers.findIndex((header) => header.includes('beneficiary') || header.includes('account'))
   const statusIdx = headers.findIndex((header) => header.includes('status'))

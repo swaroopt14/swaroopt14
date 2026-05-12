@@ -16,6 +16,15 @@ import {
 } from 'recharts'
 import { EntityLogo, inferBankNameFromReference } from '../entity-logo'
 import { chartTooltipStyle } from '@/services/payout-command/model'
+import { getProdEnvelopeDetail } from '@/services/payout-command/prod-api/getProdEnvelopeDetail'
+import { getProdIntentDetail } from '@/services/payout-command/prod-api/getProdIntentDetail'
+import { loadProdTraceTableDataset } from '@/services/payout-command/prod-api/loadProdTraceTableDataset'
+import type {
+  ApiDlqRow,
+  ApiEnvelopeRow,
+  ApiIntentRow,
+  ApiPayoutContract,
+} from '@/services/payout-command/prod-api/prodApiTypes'
 import { Glyph, LightCard, SurfaceEyebrow } from '../shared'
 
 type TraceTab = 'Intent Table' | 'DLQ Queue' | 'Heat Map' | 'Web Map' | 'Bar Analysis'
@@ -27,110 +36,6 @@ const INTENT_ROWS_PER_PAGE = 5
 const FALLBACK_PSPS = ['Razorpay', 'Cashfree', 'PayU', 'Stripe'] as const
 const FALLBACK_RAILS = ['IMPS', 'NEFT', 'RTGS', 'UPI'] as const
 const FALLBACK_BANK_PREFIXES = ['ICICI', 'HDFC', 'SBI', 'AXIS'] as const
-
-type ApiListResponse<T> = {
-  items?: T[]
-  pagination?: {
-    page?: number
-    page_size?: number
-    total?: number
-  }
-}
-
-type ApiOverviewResponse = {
-  kpis?: {
-    intents_received_24h?: number
-    p95_ingest_latency_ms?: number
-    slo?: {
-      success_rate_pct?: number
-    }
-  }
-}
-
-type ApiIntentRow = {
-  intent_id: string
-  amount?: string | number
-  currency?: string
-  instrument?: string
-  source?: string
-  status?: string
-  created_at?: string
-  envelope_id?: string
-  tenant_id?: string
-}
-
-type ApiIntentDetail = {
-  status?: string
-  source?: string
-  created_at?: string
-  canonical?: {
-    amount?: {
-      value?: string | number
-      currency?: string
-    }
-    instrument?: {
-      kind?: string
-    }
-  }
-  beneficiary?: {
-    name?: string
-  }
-  evidence?: {
-    raw_envelope_id?: string
-  }
-}
-
-type ApiEnvelopeRow = {
-  envelope_id: string
-  source?: string
-  parse_status?: string
-  object_ref?: string
-}
-
-type ApiEnvelopeDetail = {
-  envelope_id?: string
-  source?: string
-  parse_status?: string
-  object_ref?: string
-}
-
-type ApiDlqRow = {
-  dlq_id: string
-  envelope_id?: string
-  tenant_id?: string
-  stage?: string
-  reason_code?: string
-  error_detail?: string
-  replayable?: boolean
-  created_at?: string
-}
-
-type ApiPayoutContract = {
-  contract_id: string
-  tenant_id?: string
-  intent_id?: string
-  envelope_id?: string
-  contract_payload?: string
-  trace_id?: string
-}
-
-type ApiTenant = {
-  tenant_id: string
-  tenant_name?: string
-}
-
-async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const response = await fetch(url, {
-      method: 'GET',
-      cache: 'no-store',
-    })
-    if (!response.ok) return null
-    return (await response.json()) as T
-  } catch {
-    return null
-  }
-}
 
 function parseNumber(value: unknown) {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -537,14 +442,7 @@ export function OperationsGridSurface() {
     setTablesLoading(true)
     setTablesError(null)
 
-    const [overview, intents, envelopes, dlq, contracts, tenants] = await Promise.all([
-      fetchJson<ApiOverviewResponse>('/api/prod/overview'),
-      fetchJson<ApiListResponse<ApiIntentRow>>('/api/prod/intents?page=1&page_size=120'),
-      fetchJson<ApiListResponse<ApiEnvelopeRow>>('/api/prod/raw-envelopes?page=1&page_size=200'),
-      fetchJson<ApiListResponse<ApiDlqRow>>('/api/prod/dlq?page=1&page_size=100'),
-      fetchJson<ApiListResponse<ApiPayoutContract>>('/api/prod/payout-contracts'),
-      fetchJson<ApiListResponse<ApiTenant>>('/api/prod/tenants?page=1&page_size=200'),
-    ])
+    const { overview, intents, envelopes, dlq, contracts, tenants } = await loadProdTraceTableDataset()
 
     const tenantItems = Array.isArray(tenants?.items) ? tenants.items : []
     const contractItems = Array.isArray(contracts?.items) ? contracts.items : []
@@ -668,10 +566,8 @@ export function OperationsGridSurface() {
     setDrilldownError(null)
     setSelectedIntentDrilldown(null)
 
-    const intentDetail = await fetchJson<ApiIntentDetail>(`/api/prod/intents/${encodeURIComponent(row.intentId)}`)
-    const envelopeDetail = row.envelopeId
-      ? await fetchJson<ApiEnvelopeDetail>(`/api/prod/raw-envelopes/${encodeURIComponent(row.envelopeId)}`)
-      : null
+    const intentDetail = await getProdIntentDetail(row.intentId)
+    const envelopeDetail = row.envelopeId ? await getProdEnvelopeDetail(row.envelopeId) : null
 
     if (!intentDetail && !envelopeDetail) {
       setDrilldownError('Could not load live intent detail right now. Retrying from fallback data.')
@@ -766,8 +662,8 @@ export function OperationsGridSurface() {
       return (
         <div className="mt-4 rounded-[1.25rem] border border-black/10 bg-white p-4">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <div className="text-[15px] font-medium text-[#111111]">Money-at-risk heat map by cause and hour</div>
-            <div className="flex items-center gap-2 text-[12px] text-[#6f716d]">
+            <div className="text-[16px] font-medium text-[#111111]">Money-at-risk heat map by cause and hour</div>
+            <div className="flex items-center gap-2 text-[13px] text-[#6f716d]">
               <span className="h-2.5 w-2.5 rounded-full bg-[#111111]" />
               Higher concentration
             </div>
@@ -775,7 +671,7 @@ export function OperationsGridSurface() {
           <div className="grid gap-2.5" style={{ gridTemplateColumns: `170px repeat(${heatMapHours.length}, minmax(0, 1fr))` }}>
             <div />
             {heatMapHours.map((hour) => (
-              <div key={hour} className="text-center text-[11px] font-medium text-[#8a8a86]">
+              <div key={hour} className="text-center text-[12px] font-medium text-[#8a8a86]">
                 {hour}
               </div>
             ))}
@@ -784,7 +680,7 @@ export function OperationsGridSurface() {
                 key={row.label}
                 className="contents"
               >
-                <div className="flex items-center text-[12px] font-medium text-[#6f716d]">
+                <div className="flex items-center text-[13px] font-medium text-[#6f716d]">
                   {row.label}
                 </div>
                 {row.values.map((value, index) => (
@@ -805,8 +701,8 @@ export function OperationsGridSurface() {
     if (activeTab === 'Web Map') {
       return (
         <div className="mt-4 rounded-[1.25rem] border border-black/10 bg-white p-4">
-          <div className="mb-2 text-[15px] font-medium text-[#111111]">Operational web map</div>
-          <div className="text-[12px] text-[#6f716d]">
+          <div className="mb-2 text-[16px] font-medium text-[#111111]">Operational web map</div>
+          <div className="text-[13px] text-[#6f716d]">
             Composite health across routing quality, callback trust, finality, and evidence discipline.
           </div>
           <div className="mt-4 h-[19rem]">
@@ -827,14 +723,14 @@ export function OperationsGridSurface() {
       return (
         <div className="mt-4 rounded-[1.25rem] border border-black/10 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="text-[15px] font-medium text-[#111111]">At-risk vs recovered payout value by lane</div>
+            <div className="text-[16px] font-medium text-[#111111]">At-risk vs recovered payout value by lane</div>
             <div className="flex items-center gap-2 rounded-full bg-[#f5f5f3] p-1">
               {ANALYSIS_WINDOWS.map((window) => (
                 <button
                   key={window}
                   type="button"
                   onClick={() => setAnalysisWindow(window)}
-                  className={`rounded-full px-3 py-1.5 text-[12px] transition ${
+                  className={`rounded-full px-3 py-1.5 text-[13px] transition ${
                     analysisWindow === window ? 'bg-[#111111] text-white' : 'text-[#6f716d]'
                   }`}
                 >
@@ -854,7 +750,7 @@ export function OperationsGridSurface() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <div className="mt-4 rounded-[0.95rem] bg-[#f7f7f5] p-3 text-[12px] leading-5 text-[#6f716d]">
+          <div className="mt-4 rounded-[0.95rem] bg-[#f7f7f5] p-3 text-[13px] leading-5 text-[#6f716d]">
             Analysis: recovered value is catching up fastest on IMPS and NEFT lanes; RTGS remains lower volume but stable, while UPI
             still needs tighter confirmation discipline in the active window.
           </div>
@@ -866,13 +762,13 @@ export function OperationsGridSurface() {
       return (
         <div className="mt-4 overflow-hidden rounded-[1.25rem] border border-black/10 bg-white">
           <div className="border-b border-black/8 bg-[#f7f7f8] px-4 py-3">
-            <div className="text-[13px] font-medium text-[#111111]">DLQ queue and failure taxonomy</div>
-            <div className="mt-1 text-[12px] text-[#6f716d]">Live view of intents waiting on replay, escalation, or payload repair.</div>
+            <div className="text-[14px] font-medium text-[#111111]">DLQ queue and failure taxonomy</div>
+            <div className="mt-1 text-[13px] text-[#6f716d]">Live view of intents waiting on replay, escalation, or payload repair.</div>
           </div>
           <div className="max-h-[24rem] overflow-auto">
             <table className="min-w-[1080px] w-full text-left">
               <thead className="sticky top-0 z-10 border-b border-black/10 bg-[#f7f7f8]">
-                <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a86]">
+                <tr className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8a8a86]">
                   <th className="px-4 py-3">DLQ / Intent</th>
                   <th className="px-4 py-3">Company</th>
                   <th className="px-4 py-3">PSP</th>
@@ -887,10 +783,10 @@ export function OperationsGridSurface() {
                 {dlqRows.map((row, index) => (
                   <tr key={row.dlqId} className="border-b border-black/8" style={{ background: index % 2 === 0 ? '#ffffff' : '#fbfbf9' }}>
                     <td className="px-4 py-4">
-                      <div className="text-[13px] font-semibold text-[#111111]">{row.dlqId}</div>
-                      <div className="mt-1 text-[12px] text-[#6f716d]">{row.intentId}</div>
+                      <div className="text-[14px] font-semibold text-[#111111]">{row.dlqId}</div>
+                      <div className="mt-1 text-[13px] text-[#6f716d]">{row.intentId}</div>
                     </td>
-                    <td className="px-4 py-4 text-[13px] text-[#111111]">{row.company}</td>
+                    <td className="px-4 py-4 text-[14px] text-[#111111]">{row.company}</td>
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2.5">
                         <EntityLogo name={row.psp} kind="psp" size={30} className="rounded-[10px]" />
@@ -898,14 +794,14 @@ export function OperationsGridSurface() {
                       </div>
                     </td>
                     <td className="px-4 py-4">
-                      <div className="text-[13px] text-[#111111]">{row.reason}</div>
-                      <span className={`mt-1 inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-medium ${dlqFamilyPill(row.family)}`}>
+                      <div className="text-[14px] text-[#111111]">{row.reason}</div>
+                      <span className={`mt-1 inline-flex rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${dlqFamilyPill(row.family)}`}>
                         {row.family}
                       </span>
                     </td>
-                    <td className="px-4 py-4 text-[13px] text-[#6f716d]">{row.retries}</td>
-                    <td className="px-4 py-4 text-[13px] font-semibold text-[#111111]">{row.moneyAtRisk}</td>
-                    <td className="px-4 py-4 text-[12px] text-[#8a8a86]">{row.age}</td>
+                    <td className="px-4 py-4 text-[14px] text-[#6f716d]">{row.retries}</td>
+                    <td className="px-4 py-4 text-[14px] font-semibold text-[#111111]">{row.moneyAtRisk}</td>
+                    <td className="px-4 py-4 text-[13px] text-[#8a8a86]">{row.age}</td>
                     <td className="px-4 py-4 text-right">
                       <button
                         type="button"
@@ -917,7 +813,7 @@ export function OperationsGridSurface() {
                           }
                           document.getElementById('trace-evidence-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                         }}
-                        className="rounded-[0.75rem] border border-black/15 bg-white px-3 py-1.5 text-[12px] text-[#111111]"
+                        className="rounded-[0.75rem] border border-black/15 bg-white px-3 py-1.5 text-[13px] text-[#111111]"
                       >
                         {row.nextMove}
                       </button>
@@ -927,7 +823,7 @@ export function OperationsGridSurface() {
               </tbody>
             </table>
           </div>
-          <div className="border-t border-black/8 bg-white px-4 py-3 text-[12px] text-[#6f716d]">
+          <div className="border-t border-black/8 bg-white px-4 py-3 text-[13px] text-[#6f716d]">
             {dlqRows.length} DLQ records in focus • owners: Ops, Engineering, Bank Ops • ready for trace-level evidence drilldown.
           </div>
         </div>
@@ -937,13 +833,13 @@ export function OperationsGridSurface() {
     return (
       <div className="mt-4 overflow-hidden rounded-[1.25rem] border border-black/10 bg-white">
         <div className="border-b border-black/8 bg-[#f7f7f8] px-4 py-3">
-          <div className="text-[13px] font-medium text-[#111111]">Intent trace journal</div>
-          <div className="mt-1 text-[12px] text-[#6f716d]">Payment-level operating truth with PSP and bank references for fast incident response.</div>
+          <div className="text-[14px] font-medium text-[#111111]">Intent trace journal</div>
+          <div className="mt-1 text-[13px] text-[#6f716d]">Payment-level operating truth with PSP and bank references for fast incident response.</div>
         </div>
         <div className="max-h-[34rem] overflow-auto">
           <table className="min-w-[1320px] w-full text-left">
             <thead className="sticky top-0 z-10 border-b border-black/10 bg-[#f7f7f8]">
-              <tr className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a86]">
+              <tr className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8a8a86]">
                 <th className="px-4 py-3">Intent / Beneficiary</th>
                 <th className="px-4 py-3">Amount</th>
                 <th className="px-4 py-3">Company</th>
@@ -961,37 +857,37 @@ export function OperationsGridSurface() {
                 return (
                   <tr key={row.intentId} className="border-b border-black/8" style={{ background: index % 2 === 0 ? '#ffffff' : '#fbfbf9' }}>
                     <td className="px-4 py-5">
-                      <div className="text-[15px] font-semibold text-[#111111]">{row.intentId}</div>
-                      <div className="mt-1 text-[13px] text-[#6f716d]">{row.beneficiary}</div>
+                      <div className="text-[16px] font-semibold text-[#111111]">{row.intentId}</div>
+                      <div className="mt-1 text-[14px] text-[#6f716d]">{row.beneficiary}</div>
                     </td>
-                    <td className="px-4 py-5 text-[15px] font-semibold text-[#111111]">{row.amount}</td>
-                    <td className="px-4 py-5 text-[13px] text-[#6f716d]">{row.company}</td>
+                    <td className="px-4 py-5 text-[16px] font-semibold text-[#111111]">{row.amount}</td>
+                    <td className="px-4 py-5 text-[14px] text-[#6f716d]">{row.company}</td>
                     <td className="px-4 py-5">
                       <div className="flex items-center">
                         <EntityLogo name={row.psp} kind="psp" size={34} className="rounded-[10px]" />
                         <span className="sr-only">{row.psp}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-5 text-[13px] text-[#111111]">{row.rail}</td>
+                    <td className="px-4 py-5 text-[14px] text-[#111111]">{row.rail}</td>
                     <td className="px-4 py-5">
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusPill(row.status)}`}>
+                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-[12px] font-medium ${statusPill(row.status)}`}>
                         {row.status}
                       </span>
                     </td>
                     <td className="px-4 py-5">
-                      <div className="text-[13px] font-medium text-[#111111]">{row.traceId}</div>
+                      <div className="text-[14px] font-medium text-[#111111]">{row.traceId}</div>
                       <div className="mt-1 flex items-center gap-2">
                         {bankName ? <EntityLogo name={bankName} kind="bank" size={26} className="rounded-[8px]" /> : null}
                         <span className="sr-only">{bankName ?? 'No bank yet'}</span>
-                        <span className="text-[12px] text-[#6f716d]">{row.bankRef}</span>
+                        <span className="text-[13px] text-[#6f716d]">{row.bankRef}</span>
                       </div>
                     </td>
-                    <td className="px-4 py-5 text-[12px] text-[#8a8a86]">{row.updated}</td>
+                    <td className="px-4 py-5 text-[13px] text-[#8a8a86]">{row.updated}</td>
                     <td className="px-4 py-5 text-right">
                       <button
                         type="button"
                         onClick={() => void openIntentTrail(row)}
-                        className="rounded-[0.75rem] border border-black/15 bg-white px-3 py-1.5 text-[12px] text-[#111111]"
+                        className="rounded-[0.75rem] border border-black/15 bg-white px-3 py-1.5 text-[13px] text-[#111111]"
                       >
                         {row.action}
                       </button>
@@ -1003,7 +899,7 @@ export function OperationsGridSurface() {
           </table>
         </div>
         <div className="flex flex-col gap-3 border-t border-black/8 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-[12px] text-[#6f716d]">
+          <div className="text-[13px] text-[#6f716d]">
             Showing {intentShownStart}-{intentShownEnd} of {intentTotal} intents • sorted by recency.
           </div>
           <div className="flex items-center gap-1.5">
@@ -1011,7 +907,7 @@ export function OperationsGridSurface() {
               type="button"
               onClick={() => setIntentPage((current) => Math.max(1, current - 1))}
               disabled={intentPage === 1}
-              className="rounded-[0.65rem] border border-black/15 bg-white px-2.5 py-1.5 text-[12px] text-[#111111] disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-[0.65rem] border border-black/15 bg-white px-2.5 py-1.5 text-[13px] text-[#111111] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Prev
             </button>
@@ -1020,7 +916,7 @@ export function OperationsGridSurface() {
                 key={page}
                 type="button"
                 onClick={() => setIntentPage(page)}
-                className={`h-8 min-w-8 rounded-[0.65rem] border px-2 text-[12px] transition ${
+                className={`h-8 min-w-8 rounded-[0.65rem] border px-2 text-[13px] transition ${
                   page === intentPage
                     ? 'border-[#111111] bg-[#111111] text-white'
                     : 'border-black/15 bg-white text-[#111111]'
@@ -1033,7 +929,7 @@ export function OperationsGridSurface() {
               type="button"
               onClick={() => setIntentPage((current) => Math.min(intentTotalPages, current + 1))}
               disabled={intentPage === intentTotalPages}
-              className="rounded-[0.65rem] border border-black/15 bg-white px-2.5 py-1.5 text-[12px] text-[#111111] disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-[0.65rem] border border-black/15 bg-white px-2.5 py-1.5 text-[13px] text-[#111111] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next
             </button>
@@ -1049,10 +945,10 @@ export function OperationsGridSurface() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <SurfaceEyebrow>Trace &amp; Evidence</SurfaceEyebrow>
-            <div className="mt-2 text-[1.12rem] font-medium text-[#111111]">
+            <div className="mt-2 text-[1.2rem] font-medium text-[#111111]">
               One screen to explain exactly what happened to this payment, end-to-end.
             </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[#6f716d]">
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[12px] text-[#6f716d]">
               <span className="rounded-full border border-black/10 bg-white px-2.5 py-1">Live sync: {lastSyncAt}</span>
               <span className="rounded-full border border-black/10 bg-white px-2.5 py-1">Intents (24h): {overviewSummary.intentsReceived24h}</span>
               <span className="rounded-full border border-black/10 bg-white px-2.5 py-1">Success rate: {overviewSummary.successRatePct.toFixed(1)}%</span>
@@ -1064,7 +960,7 @@ export function OperationsGridSurface() {
           <button
             type="button"
             onClick={() => document.getElementById('trace-evidence-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-            className="inline-flex items-center gap-2 rounded-[0.85rem] border border-black/15 bg-white px-3 py-2 text-[12px] font-medium text-[#111111]"
+            className="inline-flex items-center gap-2 rounded-[0.85rem] border border-black/15 bg-white px-3 py-2 text-[13px] font-medium text-[#111111]"
           >
             <Glyph name="document" className="h-4 w-4" />
             Open evidence pack
@@ -1072,34 +968,34 @@ export function OperationsGridSurface() {
         </div>
 
         {tablesLoading ? (
-          <div className="mt-4 rounded-[0.95rem] border border-black/10 bg-[#f8f8f6] px-3 py-2 text-[12px] text-[#6f716d]">
+          <div className="mt-4 rounded-[0.95rem] border border-black/10 bg-[#f8f8f6] px-3 py-2 text-[13px] text-[#6f716d]">
             Loading live table data from overview, intents, envelopes, DLQ, contracts, and tenants APIs…
           </div>
         ) : null}
 
         {tablesError ? (
-          <div className="mt-4 rounded-[0.95rem] border border-[#e3d58a] bg-[#fffbe6] px-3 py-2 text-[12px] text-[#7b6b2a]">
+          <div className="mt-4 rounded-[0.95rem] border border-[#e3d58a] bg-[#fffbe6] px-3 py-2 text-[13px] text-[#7b6b2a]">
             {tablesError}
           </div>
         ) : null}
 
         <div className="mt-5 overflow-hidden rounded-[1.25rem] border border-black/10 bg-[#f7f7f8]">
-          <div className="grid grid-cols-2 gap-x-5 gap-y-4 px-4 py-4 text-[12px] text-[#6f716d] sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-x-5 gap-y-4 px-4 py-4 text-[13px] text-[#6f716d] sm:grid-cols-4">
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Amount</div>
-              <div className="mt-1 text-[1.05rem] font-medium text-[#111111]">{activeIntentDrilldown?.amount ?? '—'}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Amount</div>
+              <div className="mt-1 text-[1.13rem] font-medium text-[#111111]">{activeIntentDrilldown?.amount ?? '—'}</div>
             </div>
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Beneficiary</div>
-              <div className="mt-1 text-[1.05rem] font-medium text-[#111111]">{activeIntentDrilldown?.beneficiary ?? '—'}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Beneficiary</div>
+              <div className="mt-1 text-[1.13rem] font-medium text-[#111111]">{activeIntentDrilldown?.beneficiary ?? '—'}</div>
             </div>
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Client</div>
-              <div className="mt-1 text-[1.05rem] font-medium text-[#111111]">{activeIntentDrilldown?.company ?? '—'}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Client</div>
+              <div className="mt-1 text-[1.13rem] font-medium text-[#111111]">{activeIntentDrilldown?.company ?? '—'}</div>
             </div>
             <div>
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Status</div>
-              <div className={`mt-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${statusPill(activeIntentDrilldown?.status || 'Pending finality')}`}>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Status</div>
+              <div className={`mt-1 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium ${statusPill(activeIntentDrilldown?.status || 'Pending finality')}`}>
                 <span className="h-2 w-2 rounded-full bg-[#4ADE80]" />
                 {activeIntentDrilldown?.status ?? 'Pending finality'}
               </div>
@@ -1113,7 +1009,7 @@ export function OperationsGridSurface() {
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className={`rounded-[0.7rem] px-3 py-2 text-[12px] transition ${
+              className={`rounded-[0.7rem] px-3 py-2 text-[13px] transition ${
                 activeTab === tab ? 'bg-[#111111] text-white' : 'text-[#6f716d] hover:bg-white'
               }`}
             >
@@ -1125,12 +1021,12 @@ export function OperationsGridSurface() {
         {renderTabContent()}
 
         <div className="mt-4 rounded-[1.2rem] border border-black/10 bg-white p-4">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Timeline</div>
+          <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]">Timeline</div>
           <div className="mt-3 flex flex-wrap gap-2.5">
             {timelineSteps.map((item) => (
               <div key={item.step} className="rounded-[0.8rem] border border-black/10 bg-[#f7f7f5] px-3 py-2">
-                <div className="text-[12px] font-medium text-[#111111]">{item.step}</div>
-                <div className="mt-0.5 text-[11px] text-[#6f716d]">
+                <div className="text-[13px] font-medium text-[#111111]">{item.step}</div>
+                <div className="mt-0.5 text-[12px] text-[#6f716d]">
                   {item.time} • {item.status}
                 </div>
               </div>
@@ -1145,16 +1041,16 @@ export function OperationsGridSurface() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <SurfaceEyebrow>Evidence pack</SurfaceEyebrow>
-            <div className="mt-2 text-[1.05rem] font-medium text-[#111111]">Evidence pack: 100% complete</div>
+            <div className="mt-2 text-[1.13rem] font-medium text-[#111111]">Evidence pack: 100% complete</div>
           </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#4ADE80]/30 bg-[#4ADE80]/14 px-2.5 py-1 text-[11px] font-medium text-[#166534]">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-[#4ADE80]/30 bg-[#4ADE80]/14 px-2.5 py-1 text-[12px] font-medium text-[#166534]">
             <span className="h-2 w-2 rounded-full bg-[#4ADE80]" />
             {drilldownLoading ? 'Syncing' : 'Complete'}
           </div>
         </div>
 
             {drilldownError ? (
-              <div className="mt-3 rounded-[0.8rem] border border-[#f0d5d5] bg-[#fff4f4] px-3 py-2 text-[12px] text-[#8d3b3b]">
+              <div className="mt-3 rounded-[0.8rem] border border-[#f0d5d5] bg-[#fff4f4] px-3 py-2 text-[13px] text-[#8d3b3b]">
                 {drilldownError}
               </div>
             ) : null}
@@ -1168,17 +1064,17 @@ export function OperationsGridSurface() {
                 ['Final outcome certificate', activeIntentDrilldown?.status ?? 'Pending finality'],
               ].map(([label, value]) => (
                 <div key={label} className="flex items-center justify-between rounded-[0.9rem] border border-black/8 bg-[#f8f8f5] px-3 py-2.5">
-                  <span className="text-[13px] text-[#111111]">{label}</span>
-                  <span className="text-[12px] text-[#6f716d]">{value}</span>
+                  <span className="text-[14px] text-[#111111]">{label}</span>
+                  <span className="text-[13px] text-[#6f716d]">{value}</span>
                 </div>
               ))}
             </div>
 
             <div className="mt-4 flex flex-wrap gap-2">
-              <button type="button" className="rounded-[0.9rem] bg-[#111111] px-3.5 py-2 text-[12px] font-medium text-white">
+              <button type="button" className="rounded-[0.9rem] bg-[#111111] px-3.5 py-2 text-[13px] font-medium text-white">
                 Download pack (PDF)
               </button>
-              <button type="button" className="rounded-[0.9rem] border border-black/15 bg-white px-3.5 py-2 text-[12px] font-medium text-[#111111]">
+              <button type="button" className="rounded-[0.9rem] border border-black/15 bg-white px-3.5 py-2 text-[13px] font-medium text-[#111111]">
                 Download pack (ZIP)
               </button>
             </div>
@@ -1187,14 +1083,14 @@ export function OperationsGridSurface() {
 
         <LightCard className="bg-[#fcfcfa]">
           <SurfaceEyebrow>Safe exposure</SurfaceEyebrow>
-          <div className="mt-2 text-[1rem] font-medium text-[#111111]">Business-safe drilldown output</div>
-          <div className="mt-3 text-[13px] leading-6 text-[#6f716d]">
+          <div className="mt-2 text-[1.07rem] font-medium text-[#111111]">Business-safe drilldown output</div>
+          <div className="mt-3 text-[14px] leading-6 text-[#6f716d]">
             This screen intentionally hides raw envelope IDs, event IDs, dispatch IDs, trace IDs, and cryptographic internals.
             Operators see a defensible payout story, while exported evidence can carry generic metadata labels when needed.
           </div>
           <div className="mt-4 rounded-[1rem] border border-black/8 bg-white p-3">
-            <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-[#8a8a86]">External narrative</div>
-            <div className="mt-2 text-[13px] leading-6 text-[#6f716d]">
+            <div className="text-[12px] font-medium uppercase tracking-[0.08em] text-[#8a8a86]">External narrative</div>
+            <div className="mt-2 text-[14px] leading-6 text-[#6f716d]">
               Request received → Provider processed → Bank confirmation pending → Finality expected in the same close window.
             </div>
           </div>

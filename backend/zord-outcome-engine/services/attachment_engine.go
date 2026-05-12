@@ -845,7 +845,7 @@ func loadObservationsByBatch(ctx context.Context, tenantID uuid.UUID, batchRef s
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT
 			settlement_observation_id, tenant_id, trace_id,
-			settlement_envelope_id, job_id, ingest_run_id,
+			settlement_envelope_id, ingest_run_id,
 			source_file_ref, source_row_ref, source_system,
 			observation_kind, source_strength_class,
 			client_reference_candidate, provider_reference, bank_reference,
@@ -876,7 +876,7 @@ func loadObservationsByJobID(ctx context.Context, tenantID uuid.UUID, jobID stri
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT
 			settlement_observation_id, tenant_id, trace_id,
-			settlement_envelope_id, job_id, ingest_run_id,
+			settlement_envelope_id, ingest_run_id,
 			source_file_ref, source_row_ref, source_system,
 			observation_kind, source_strength_class,
 			client_reference_candidate, provider_reference, bank_reference,
@@ -892,7 +892,7 @@ func loadObservationsByJobID(ctx context.Context, tenantID uuid.UUID, jobID stri
 			canonical_hash, client_batch_id, corridor_id,
 			created_at, updated_at
 		FROM canonical_settlement_observations
-		WHERE tenant_id = $1 AND job_id = $2
+		WHERE tenant_id = $1 AND ingest_run_id = $2
 		ORDER BY observation_timestamp`,
 		tenantID, jobID,
 	)
@@ -907,7 +907,7 @@ func loadObservationByID(ctx context.Context, tenantID uuid.UUID, obsID uuid.UUI
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT
 			settlement_observation_id, tenant_id, trace_id,
-			settlement_envelope_id, job_id, ingest_run_id,
+			settlement_envelope_id, ingest_run_id,
 			source_file_ref, source_row_ref, source_system,
 			observation_kind, source_strength_class,
 			client_reference_candidate, provider_reference, bank_reference,
@@ -946,7 +946,7 @@ func scanObservations(rows *sql.Rows) ([]models.CanonicalSettlementObservation, 
 		var o models.CanonicalSettlementObservation
 		err := rows.Scan(
 			&o.SettlementObservationID, &o.TenantID, &o.TraceID,
-			&o.SettlementEnvelopeID, &o.JobID, &o.IngestRunID,
+			&o.SettlementEnvelopeID, &o.IngestRunID,
 			&o.SourceFileRef, &o.SourceRowRef, &o.SourceSystem,
 			&o.ObservationKind, &o.SourceStrengthClass,
 			&o.ClientReferenceCandidate, &o.ProviderReference, &o.BankReference,
@@ -1029,7 +1029,7 @@ func loadParsedRowsBySourceRowRefs(
 	// Build a parameterised ANY($2) query.
 	rows, err := db.DB.QueryContext(ctx, `
 		SELECT
-			parsed_row_id, job_id, tenant_id, settlement_envelope_id,
+			parsed_row_id, tenant_id, settlement_envelope_id,
 			source_file_ref, source_row_ref,
 			raw_line_hash,
 			mapping_profile_id, mapping_profile_version,
@@ -1049,7 +1049,7 @@ func loadParsedRowsBySourceRowRefs(
 	for rows.Next() {
 		pr := &models.SettlementParsedRow{}
 		if err := rows.Scan(
-			&pr.ParsedRowID, &pr.JobID, &pr.TenantID, &pr.SettlementEnvelopeID,
+			&pr.ParsedRowID, &pr.TenantID, &pr.SettlementEnvelopeID,
 			&pr.SourceFileRef, &pr.SourceRowRef,
 			&pr.RawLineHash,
 			&pr.MappingProfileID, &pr.MappingProfileVersion,

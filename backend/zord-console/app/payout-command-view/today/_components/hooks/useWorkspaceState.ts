@@ -10,16 +10,13 @@ import {
   type WorkspaceTab,
 } from '@/services/payout-command/model'
 import type {
+  PromptLayerCitation,
   WorkspaceConversationMessage,
   WorkspaceLiveAnswer,
 } from '@/services/payout-command/types'
-import {
-  postPromptLayerQuery,
-  PROMPT_LAYER_DEMO_TENANT_ID,
-} from '@/services/payout-command/prompt-layer/postPromptLayerQuery'
-import { parsePromptLayerAnswer } from '@/services/payout-command/prompt-layer/parsePromptLayerResponse'
 
 // ── Prompt-layer API constants ───────────────────────────────────────────────
+const PROMPT_LAYER_DEMO_TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const WORKSPACE_LIVE_ANSWER_TITLE = 'Latest answer'
 
 // ── Module-private helpers ───────────────────────────────────────────────────
@@ -37,6 +34,22 @@ function buildIntroConversation(tab: WorkspaceTab): WorkspaceConversationMessage
     { id: `${tab}-intro-question`, role: 'assistant', body: copy.question, timestamp: '11:32 AM', status: 'done' },
     { id: `${tab}-intro-supporting`, role: 'assistant', body: copy.supporting, timestamp: '11:32 AM', status: 'done' },
   ]
+}
+
+function mapLiveAnswer(raw: unknown): WorkspaceLiveAnswer | null {
+  if (!raw || typeof raw !== 'object') return null
+  const root = (raw as { response?: unknown }).response ?? raw
+  if (!root || typeof root !== 'object') return null
+  const res = root as Record<string, unknown>
+  const answer = typeof res.answer === 'string' ? res.answer.trim() : ''
+  if (!answer) return null
+  return {
+    title: WORKSPACE_LIVE_ANSWER_TITLE,
+    body: answer,
+    confidence: typeof res.confidence === 'string' ? res.confidence : null,
+    citations: Array.isArray(res.citations) ? (res.citations as PromptLayerCitation[]) : [],
+    visualization: 'visualization' in res ? res.visualization : null,
+  }
 }
 
 // ── Public types ─────────────────────────────────────────────────────────────
@@ -83,6 +96,14 @@ export function useWorkspaceState(
       const cleaned = prompt.trim()
       if (!cleaned) return
 
+      // Forward to injected sendPrompt bridge if present (SDK integration hook)
+      if (typeof window !== 'undefined') {
+        const win = window as Window & { sendPrompt?: (msg: string) => void | Promise<void> }
+        if (typeof win.sendPrompt === 'function') {
+          void Promise.resolve(win.sendPrompt(cleaned)).catch(() => {})
+        }
+      }
+
       const scenarios = workspaceSimulationScenarios[activeTab]
       const nextScenario = resolvePromptScenario(cleaned, scenarios, scenarios[0])
       setScenario(nextScenario)
@@ -111,28 +132,26 @@ export function useWorkspaceState(
       ])
 
       try {
-        const { ok, payload } = await postPromptLayerQuery({
-          query: cleaned,
-          tenant_id: PROMPT_LAYER_DEMO_TENANT_ID,
-          top_k: 6,
+        const response = await fetch('/api/prompt-layer/query', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          cache: 'no-store',
+          body: JSON.stringify({ query: cleaned, tenant_id: PROMPT_LAYER_DEMO_TENANT_ID, top_k: 6 }),
         })
+
+        const payload = await response.json()
         if (requestIdRef.current !== requestId) return
 
-        if (!ok) {
-          const details =
-            payload && typeof payload === 'object' && 'details' in payload && typeof (payload as { details?: unknown }).details === 'string'
-              ? (payload as { details: string }).details
-              : 'Prompt-layer request failed'
-          throw new Error(details)
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.details === 'string' ? payload.details : 'Prompt-layer request failed',
+          )
         }
 
-        const mapped = parsePromptLayerAnswer(payload)
-        if (!mapped) {
-          throw new Error('Prompt-layer returned an empty or invalid answer')
-        }
-        const finalBody = mapped.body
-        const citationSnippet = mapped.citations[0]?.snippet ?? null
-        const hasVisualization = mapped.visualization != null
+        const mapped = mapLiveAnswer(payload)
+        const finalBody = mapped?.body ?? nextScenario.assistant
+        const citationSnippet = mapped?.citations[0]?.snippet ?? null
+        const hasVisualization = mapped?.visualization != null
 
         setConversation((prev) =>
           prev.map((msg) =>
@@ -141,15 +160,22 @@ export function useWorkspaceState(
                   ...msg,
                   body: finalBody,
                   status: 'done',
-                  confidence: mapped.confidence ?? null,
+                  confidence: mapped?.confidence ?? null,
                   citationSnippet,
                   hasVisualization,
-                  visualization: mapped.visualization,
                 }
               : msg,
           ),
         )
-        setLiveAnswer(mapped)
+        setLiveAnswer(
+          mapped ?? {
+            title: WORKSPACE_LIVE_ANSWER_TITLE,
+            body: nextScenario.assistant,
+            confidence: null,
+            citations: [],
+            visualization: null,
+          },
+        )
         setConnectionState('connected')
         setAnswerStatus('complete')
       } catch {

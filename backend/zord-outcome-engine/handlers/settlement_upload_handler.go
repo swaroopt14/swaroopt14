@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -221,13 +222,21 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 		// ── PHASE 3: PARSING ─────────────────────────────────────────────────────
 		parser, err := services.GetParser(pspProfile.ParserKey)
 		if err != nil {
-			svc.MarkJobFailed(bgCtx, bgIngestRunID, "PARSER_NOT_FOUND")
+			svc.MarkJobFailed(bgCtx, bgIngestRunID, "MAPPING_PROFILE_MISSING")
 			return
 		}
 
 		results, err := parser.Parse(data, bgRef, bgEnvelope, pspProfile)
 		if err != nil {
-			svc.MarkJobFailed(bgCtx, bgIngestRunID, "HEADER_MISMATCH")
+			// Type-assert to RunLevelError to get the exact failure code.
+			// All parsers are required to return *RunLevelError for fatal file-level errors.
+			failureCode := "FILE_CORRUPTED" // safe fallback
+			var rle *services.RunLevelError
+			if errors.As(err, &rle) {
+				failureCode = string(rle.Kind)
+			}
+			log.Printf("settlement.parse.file_failed job_id=%s code=%s err=%v", bgIngestRunID, failureCode, err)
+			svc.MarkJobFailed(bgCtx, bgIngestRunID, failureCode)
 			return
 		}
 
@@ -242,11 +251,16 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 				log.Printf("settlement.parse.row_failed job_id=%s row=%d reason=%s",
 					bgIngestRunID, result.RowIndex, result.FailureReason)
 				rowCountFailed++
+
+				// Insert the failed row into settlement_parsed_rows for full row ledger visibility.
+				_ = svc.PersistParsedRow(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, bgRef, rowRef, result, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID, "FAILED", result.FailureReason)
+
+				// Also mirror to settlement_parse_errors as the audit/error log.
 				_ = svc.PersistParseError(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID)
 				continue
 			}
 
-			if err := svc.PersistParsedRow(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, bgRef, rowRef, result, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID); err != nil {
+			if err := svc.PersistParsedRow(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, bgRef, rowRef, result, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID, "PARSED", ""); err != nil {
 				log.Printf("settlement.upload.row_persist_error job_id=%s row=%s err=%v", bgIngestRunID, rowRef, err)
 				continue
 			}

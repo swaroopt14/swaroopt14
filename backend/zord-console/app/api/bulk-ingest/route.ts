@@ -1,20 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { normalizeAuthorizationHeader } from '@/services/payout-command/batch-intake/intakeHttpShared'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 function candidateBases() {
-  if (process.env.ZORD_INTELLIGENCE_URL?.trim()) return [process.env.ZORD_INTELLIGENCE_URL.trim()]
-  if (process.env.ZORD_EDGE_URL?.trim()) return [process.env.ZORD_EDGE_URL.trim()]
+  if (process.env.ZORD_INTELLIGENCE_URL) return [process.env.ZORD_INTELLIGENCE_URL]
   return ['http://localhost:8080', 'http://zord-intelligence:8080']
 }
 
 function resolveAuthHeader(req: NextRequest) {
   const incoming = req.headers.get('authorization')
-  if (incoming) return normalizeAuthorizationHeader(incoming)
+  if (incoming) return incoming
   const apiKey = process.env.ZORD_BULK_INGEST_API_KEY
-  return normalizeAuthorizationHeader(apiKey ?? '')
+  if (!apiKey) return null
+  return apiKey.startsWith('Bearer ') || apiKey.startsWith('ApiKey ') ? apiKey : `ApiKey ${apiKey}`
 }
 
 export async function POST(req: NextRequest) {
@@ -25,8 +24,8 @@ export async function POST(req: NextRequest) {
 
   const bodyBuffer = Buffer.from(await req.arrayBuffer())
   const authHeader = resolveAuthHeader(req)
-  const sourceType = req.headers.get('x-zord-source-type') || process.env.ZORD_BULK_INGEST_SOURCE_TYPE || 'CSV'
-  const sourceClass = req.headers.get('x-zord-source-class') || process.env.ZORD_BULK_INGEST_SOURCE_CLASS || 'INTENT'
+  const sourceType = req.headers.get('x-zord-source-type') || process.env.ZORD_BULK_INGEST_SOURCE_TYPE || 'batch_upload'
+  const sourceClass = req.headers.get('x-zord-source-class') || process.env.ZORD_BULK_INGEST_SOURCE_CLASS || 'operator'
 
   const headers: Record<string, string> = {
     'content-type': contentType,
@@ -34,10 +33,6 @@ export async function POST(req: NextRequest) {
     'x-zord-source-class': sourceClass,
   }
   if (authHeader) headers.authorization = authHeader
-
-  const batchId =
-    req.headers.get('batch-id') || req.headers.get('Batch-Id') || req.headers.get('batchid') || req.headers.get('BatchId')
-  if (batchId?.trim()) headers['Batch-Id'] = batchId.trim()
 
   const candidateUrls = candidateBases().map((base) => `${base.replace(/\/$/, '')}/v1/bulk-ingest`)
   let lastError: unknown = null

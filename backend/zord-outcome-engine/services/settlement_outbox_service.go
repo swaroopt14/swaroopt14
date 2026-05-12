@@ -124,7 +124,6 @@ func (s *SettlementOutboxService) EmitForJob(
 
 	// 2. Emit one event for the entire client batch: canonical.settlement.batch_ready
 	payload := map[string]interface{}{
-		"job_id":          jobID,
 		"tenant_id":       tenantID,
 		"client_batch_id": clientBatchID,
 		"row_count":       len(observations),

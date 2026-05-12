@@ -14,8 +14,8 @@ func Connect(dsn string) (*sql.DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	database.SetMaxOpenConns(40)
-	database.SetMaxIdleConns(20)
+	database.SetMaxOpenConns(1000)
+	database.SetMaxIdleConns(500)
 	database.SetConnMaxLifetime(30 * time.Minute)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

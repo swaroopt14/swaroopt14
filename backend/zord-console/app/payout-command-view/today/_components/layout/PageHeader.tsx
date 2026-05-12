@@ -1,11 +1,10 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import Link from 'next/link'
-import type { dockItems } from '@/services/payout-command/model'
 import { type GlyphName } from '@/services/payout-command/model'
+import { ApiKeysPopoverButton } from './ApiKeysPopoverButton'
 import { Glyph } from '../shared'
-
-type DockItem = (typeof dockItems)[number]
 
 const ICON_BUTTONS: GlyphName[] = ['refresh', 'eye', 'menu-dots']
 
@@ -16,66 +15,138 @@ const TEAM_AVATARS = [
 ] as const
 
 type PageHeaderProps = {
-  activeSurface: DockItem
+  /** Dock label (e.g. Today, Journal) — shown as small eyebrow above the title */
+  pageEyebrow?: string
+  /** Full surface name (e.g. Command center, Intent Journal) */
+  pageTitle?: string
+  /** Optional second line under title (e.g. Ask workspace tab) */
+  pageSubtitle?: string
   onAskZordToggle: () => void
+  /** When false, hides refresh / eye / menu on Disbursement Command Center only. */
+  showUtilityIconButtons?: boolean
+  /** Command center (home): filter toggle + expandable panel below the header row */
+  homeCommandFilters?: {
+    open: boolean
+    onToggle: () => void
+    panel: ReactNode
+  }
+  /** Home: toggle command center vs connected-systems (knowledge flow) view */
+  homeSystemKnowledgeFlow?: {
+    enabled: boolean
+    onChange: (enabled: boolean) => void
+  }
 }
 
-export function PageHeader({ activeSurface, onAskZordToggle }: PageHeaderProps) {
+export function PageHeader({
+  pageEyebrow,
+  pageTitle,
+  pageSubtitle,
+  onAskZordToggle,
+  showUtilityIconButtons = true,
+  homeCommandFilters,
+  homeSystemKnowledgeFlow,
+}: PageHeaderProps) {
+  const showPageHeading = Boolean(pageEyebrow && pageTitle)
+
   return (
-    <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-      {/* Breadcrumb + title */}
-      <div>
-        <div className="flex flex-wrap items-center gap-2 text-[13px] text-[#8a8a86]">
-          <span>Workspaces</span>
-          <span>/</span>
-          <span>Overview</span>
-          <span>/</span>
-          <span className="text-[#111111]">{activeSurface.title}</span>
-        </div>
-        <h1 className="mt-3 text-[2.25rem] font-medium tracking-[-0.05em] text-[#111111] md:text-[2.85rem]">
-          {activeSurface.title}
-        </h1>
-        <p className="mt-2 max-w-2xl text-[14px] leading-6 text-[#6f716d]">{activeSurface.summary}</p>
+    <div className="flex flex-col gap-0">
+    <div
+      className={`flex flex-col gap-2 xl:flex-row xl:items-center ${
+        showPageHeading || homeSystemKnowledgeFlow ? 'xl:justify-between' : 'xl:justify-end'
+      }`}
+    >
+      <div className="min-w-0 space-y-3">
+        {showPageHeading ? (
+          <div>
+            <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#64748b]">{pageEyebrow}</p>
+            <h1 className="mt-0.5 text-[1.52rem] font-bold tracking-[-0.02em] text-[#0a0a0a] sm:text-[1.7rem]">
+              {pageTitle}
+            </h1>
+            {pageSubtitle ? (
+              <p className="mt-1 text-[15px] font-semibold text-[#475569]">{pageSubtitle}</p>
+            ) : null}
+          </div>
+        ) : null}
+        {homeSystemKnowledgeFlow ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[14px] font-medium text-[#111111]">System knowledge flow</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={homeSystemKnowledgeFlow.enabled}
+              onClick={() => homeSystemKnowledgeFlow.onChange(!homeSystemKnowledgeFlow.enabled)}
+              className={`relative flex h-7 w-[3rem] shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4ADE80] ${
+                homeSystemKnowledgeFlow.enabled
+                  ? 'justify-end bg-[#4ADE80] shadow-[0_0_18px_rgba(74,222,128,0.4)]'
+                  : 'justify-start bg-[#d4d4d0]'
+              }`}
+            >
+              <span className="pointer-events-none block h-6 w-6 rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.12)]" />
+            </button>
+            <span className="text-[13px] text-[#52525b]">
+              {homeSystemKnowledgeFlow.enabled ? 'Showing connected systems' : 'Command center metrics'}
+            </span>
+          </div>
+        ) : null}
       </div>
 
-      {/* Action buttons */}
-      <div className="flex flex-wrap items-center gap-2">
-        {ICON_BUTTONS.map((icon) => (
+      <div className="flex flex-wrap items-center gap-1.5 xl:shrink-0">
+        {showUtilityIconButtons
+          ? ICON_BUTTONS.map((icon) => (
+              <button
+                key={icon}
+                type="button"
+                className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-black/10 bg-white text-[#111111] hover:bg-[#fafafa]"
+                aria-label={icon}
+              >
+                <Glyph name={icon} className="h-4 w-4" />
+              </button>
+            ))
+          : null}
+
+        {homeCommandFilters ? (
           <button
-            key={icon}
             type="button"
-            className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-black/10 bg-white text-[#111111]"
-            aria-label={icon}
+            onClick={homeCommandFilters.onToggle}
+            aria-expanded={homeCommandFilters.open}
+            className={`flex h-9 items-center gap-1.5 rounded-[8px] border px-2.5 text-[14px] font-medium transition ${
+              homeCommandFilters.open
+                ? 'border-[#111111] bg-[#f4f4f2] text-[#111111]'
+                : 'border-black/10 bg-white text-[#111111] hover:bg-[#fafafa]'
+            }`}
           >
-            <Glyph name={icon} className="h-4 w-4" />
+            <Glyph name="search" className="h-4 w-4 opacity-80" />
+            Filters
           </button>
-        ))}
+        ) : null}
 
         <button
           type="button"
           onClick={onAskZordToggle}
-          className="flex items-center gap-2 rounded-[12px] border border-[#111111] bg-[#111111] px-3 py-2.5 text-[13px] font-medium text-white"
+          className="flex h-9 items-center gap-1.5 rounded-[8px] border border-[#111111] bg-[#111111] px-2.5 text-[14px] font-semibold text-white"
         >
-          <span className="h-2.5 w-2.5 rounded-full bg-[#4ADE80]" />
+          <span className="h-2 w-2 rounded-full bg-[#4ADE80]" />
           Ask Zord
         </button>
 
         <Link
           href="/payout-command-view/batch-command-center"
-          className="inline-flex items-center rounded-[12px] border border-[#111111] bg-white px-3 py-2.5 text-[13px] font-medium text-[#111111]"
+          className="inline-flex h-9 items-center rounded-[8px] border border-[#111111] bg-white px-2.5 text-[14px] font-semibold text-[#111111] hover:bg-[#fafafa]"
         >
           Batch Center
         </Link>
 
+        <ApiKeysPopoverButton />
+
         <button
           type="button"
-          className="flex items-center gap-3 rounded-[12px] bg-[#111111] px-4 py-2.5 text-sm font-medium text-white shadow-[0_8px_20px_rgba(0,0,0,0.08)]"
+          className="flex h-9 items-center gap-2 rounded-[8px] bg-[#111111] px-2.5 text-[14px] font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.06)]"
         >
-          <div className="flex -space-x-2">
+          <div className="flex -space-x-1.5">
             {TEAM_AVATARS.map(({ initial, bg }) => (
               <span
                 key={initial}
-                className="flex h-7 w-7 items-center justify-center rounded-full border border-white/60 text-[11px] font-medium text-[#111111]"
+                className="flex h-5 w-5 items-center justify-center rounded-full border border-white/60 text-[11px] font-semibold text-[#111111]"
                 style={{ background: bg }}
               >
                 {initial}
@@ -85,6 +156,11 @@ export function PageHeader({ activeSurface, onAskZordToggle }: PageHeaderProps) 
           <span>Share</span>
         </button>
       </div>
+    </div>
+
+    {homeCommandFilters?.open ? (
+      <div className="mt-3 border-t border-black/8 bg-[#fafaf8] pt-3">{homeCommandFilters.panel}</div>
+    ) : null}
     </div>
   )
 }

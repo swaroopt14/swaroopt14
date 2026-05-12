@@ -1,15 +1,19 @@
 'use client'
 
+import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   buildSimulatedHomeOverviewSnapshot,
+  defaultHomeCommandFilters,
   HOME_QUARTERS,
   HOME_SIMULATION_INTERVAL_MS,
+  homeCommandFilterMultiplier,
   homeSimulationScenarios,
   resolveHomeQuarterFromPrompt,
   resolveHomeTimeframeFromPrompt,
   resolveHomeYearFromPrompt,
   resolvePromptScenario,
+  type HomeCommandFilters,
   type HomeCommandResponse,
   type HomeCommandStatus,
   type HomeOverviewSnapshot,
@@ -35,6 +39,8 @@ export type HomeState = {
   runSimulation: (prompt: string) => void
   dismissCommandResponse: () => void
   clearInput: () => void
+  commandFilters: HomeCommandFilters
+  setCommandFilters: Dispatch<SetStateAction<HomeCommandFilters>>
 }
 
 export function useHomeState(isActive: boolean): HomeState {
@@ -48,10 +54,13 @@ export function useHomeState(isActive: boolean): HomeState {
   const [pendingResponse, setPendingResponse] = useState<HomeCommandResponse | null>(null)
   const [commandResponse, setCommandResponse] = useState<HomeCommandResponse | null>(null)
   const [promptInput, setPromptInput] = useState('')
+  const [commandFilters, setCommandFilters] = useState<HomeCommandFilters>(defaultHomeCommandFilters)
+
+  const filterMultiplier = useMemo(() => homeCommandFilterMultiplier(commandFilters), [commandFilters])
 
   const snapshot = useMemo(
-    () => buildSimulatedHomeOverviewSnapshot(scenario, timeframe, tick, year, quarterIndex),
-    [quarterIndex, scenario, tick, timeframe, year],
+    () => buildSimulatedHomeOverviewSnapshot(scenario, timeframe, tick, year, quarterIndex, filterMultiplier),
+    [filterMultiplier, quarterIndex, scenario, tick, timeframe, year],
   )
 
   // Smart setters that bump the tick so the chart re-renders immediately
@@ -132,7 +141,7 @@ export function useHomeState(isActive: boolean): HomeState {
       setPendingResponse({
         title: nextScenario.title,
         body: `${nextScenario.summary} Current simulation scope: ${nextTimeframe} ${
-          nextTimeframe === 'Quarter' ? HOME_QUARTERS[nextQuarterIndex].name : ''
+          nextTimeframe === 'Custom' ? HOME_QUARTERS[nextQuarterIndex].name : ''
         } ${nextYear}.`,
       })
       setPromptInput('')
@@ -166,5 +175,7 @@ export function useHomeState(isActive: boolean): HomeState {
     runSimulation,
     dismissCommandResponse,
     clearInput,
+    commandFilters,
+    setCommandFilters,
   }
 }

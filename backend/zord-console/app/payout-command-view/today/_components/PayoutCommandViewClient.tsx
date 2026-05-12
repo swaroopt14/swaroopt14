@@ -9,28 +9,48 @@ import {
   type DockId,
   type WorkspaceTab,
 } from '@/services/payout-command/model'
+import { EnvironmentProvider, type EnvMode } from '@/services/auth/EnvironmentProvider'
 import { useHomeState } from './hooks/useHomeState'
 import { useWorkspaceState } from './hooks/useWorkspaceState'
 import { useAskZordState } from './hooks/useAskZordState'
 import { AskZordPanel } from './layout/AskZordPanel'
 import { DockNav } from './layout/DockNav'
 import { PageHeader } from './layout/PageHeader'
+import ConnectorIntelligenceClient from '@/app/payout-command-view/connector-intelligence/ConnectorIntelligenceClient'
 import {
+  AmbiguitySurface,
+  BillingSurface,
+  EvidenceSurface,
   HomeSurface,
+  IntentJournalSurface,
+  LeakageSurface,
   LiveSyncSurface,
-  OperationsGridSurface,
   ProofSurface,
-  RecoverySurface,
+  SandboxConnectorsSurface,
   WorkspaceSurface,
 } from './surfaces'
+import { ActivateLiveWizard } from './sandbox/ActivateLiveWizard'
 
 const WORKSPACE_LIVE_ANSWER_TITLE = 'Latest answer'
 
-export default function PayoutCommandViewClient() {
+type PayoutCommandViewClientProps = {
+  /** When set, pins sandbox vs live for this route (`/sandbox` vs `/today`). */
+  forceMode?: EnvMode
+}
+
+export default function PayoutCommandViewClient({ forceMode }: PayoutCommandViewClientProps) {
   // ── Navigation state ───────────────────────────────────────────────────────
-  const [activeDock, setActiveDock] = useState<DockId>('home')
+  // Allow other pages (e.g. /batch-command-center) to deep-link a surface via
+  // ?dock=<id>. Read once on mount; subsequent dock changes stay local.
+  const initialDock: DockId = (() => {
+    if (typeof window === 'undefined') return 'home'
+    const fromQuery = new URLSearchParams(window.location.search).get('dock') as DockId | null
+    return fromQuery && dockItems.some((d) => d.id === fromQuery) ? fromQuery : 'home'
+  })()
+  const [activeDock, setActiveDock] = useState<DockId>(initialDock)
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('Today')
   const [selectedSuggestion, setSelectedSuggestion] = useState<string | null>(null)
+  const [activateWizardOpen, setActivateWizardOpen] = useState(false)
 
   const activeSurface = dockItems.find((item) => item.id === activeDock) ?? dockItems[0]
   const activePrompt = useMemo(() => workspacePromptCopy[activeTab], [activeTab])
@@ -116,14 +136,21 @@ export default function PayoutCommandViewClient() {
       )
     }
 
-    if (activeDock === 'recoveries') return <RecoverySurface />
-    if (activeDock === 'grid') return <OperationsGridSurface />
+    if (activeDock === 'leakage') return <LeakageSurface />
+    if (activeDock === 'ambiguity') return <AmbiguitySurface />
+    if (activeDock === 'grid') return <IntentJournalSurface />
+    if (activeDock === 'connectors') {
+      return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
+    }
     if (activeDock === 'sync') return <LiveSyncSurface />
+    if (activeDock === 'proof') return <EvidenceSurface />
+    if (activeDock === 'billing') return <BillingSurface />
     return <ProofSurface />
   }, [
     activeDock,
     activePrompt.suggestions,
     activeTab,
+    forceMode,
     handleTabChange,
     home,
     selectedSuggestion,
@@ -132,33 +159,38 @@ export default function PayoutCommandViewClient() {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <main className="min-h-screen bg-[#ebebeb]" style={{ fontFamily: DASHBOARD_FONT_STACK }}>
-      <div className="w-full overflow-hidden border border-black/10 bg-white shadow-[0_24px_64px_rgba(0,0,0,0.12)]">
-        <DockNav
-          activeDock={activeDock}
-          activeSurfaceTitle={activeSurface.title}
-          onDockChange={handleDockChange}
-        />
-
-        <section className="relative p-4 sm:p-5 lg:p-6">
-          <PageHeader
-            activeSurface={activeSurface}
-            onAskZordToggle={askZord.toggle}
+    <EnvironmentProvider routeMode={forceMode}>
+      <main className="min-h-screen bg-[#ebebeb]" style={{ fontFamily: DASHBOARD_FONT_STACK }}>
+        <div className="w-full overflow-hidden border border-black/10 bg-white shadow-[0_24px_64px_rgba(0,0,0,0.12)]">
+          <DockNav
+            activeDock={activeDock}
+            onDockChange={handleDockChange}
+            onActivateClick={() => setActivateWizardOpen(true)}
           />
 
-          {surfaceBody}
+          <section className="relative p-4 sm:p-5 lg:p-6">
+            <PageHeader
+              activeSurface={activeSurface}
+              onAskZordToggle={askZord.toggle}
+            />
 
-          <AskZordPanel
-            isOpen={askZord.isOpen}
-            close={askZord.close}
-            input={askZord.input}
-            setInput={askZord.setInput}
-            status={askZord.status}
-            response={askZord.response}
-            run={askZord.run}
-          />
-        </section>
-      </div>
-    </main>
+            {surfaceBody}
+
+            <AskZordPanel
+              isOpen={askZord.isOpen}
+              close={askZord.close}
+              input={askZord.input}
+              setInput={askZord.setInput}
+              status={askZord.status}
+              response={askZord.response}
+              run={askZord.run}
+            />
+          </section>
+        </div>
+      </main>
+      {activateWizardOpen ? (
+        <ActivateLiveWizard onClose={() => setActivateWizardOpen(false)} />
+      ) : null}
+    </EnvironmentProvider>
   )
 }

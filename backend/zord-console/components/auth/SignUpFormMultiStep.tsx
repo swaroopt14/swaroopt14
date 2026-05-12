@@ -2,6 +2,7 @@
 
 import { useState, FormEvent, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ZordLogo } from '@/components/ZordLogo'
 
 interface SignUpFormMultiStepProps {
@@ -15,21 +16,24 @@ interface SignUpData {
   organizationType: string
   country: string
   useCases: string[]
-  
+
   // Step 2: First Admin User
   firstName: string
   lastName: string
   email: string
   password: string
-  
+
   // Step 3: Tenant Setup
   tenantId: string
   timezone: string
-  
+
   // Step 4: Verification
   agreeToTerms: boolean
   agreeToDPA: boolean
   understandNoFunds: boolean
+
+  // Step 5: Choose mode (sandbox vs live)
+  mode: 'sandbox' | 'live' | ''
 }
 
 interface FormErrors {
@@ -46,15 +50,17 @@ interface FormErrors {
   agreeToTerms?: string
   agreeToDPA?: string
   understandNoFunds?: string
+  mode?: string
   general?: string
 }
 
-type Step = 1 | 2 | 3 | 4
+type Step = 1 | 2 | 3 | 4 | 5
 
 export function SignUpFormMultiStep({ 
   onSubmit,
   onLoginClick
 }: SignUpFormMultiStepProps) {
+  const router = useRouter()
   const [currentStep, setCurrentStep] = useState<Step>(1)
   const [formData, setFormData] = useState<SignUpData>({
     organizationName: '',
@@ -70,6 +76,7 @@ export function SignUpFormMultiStep({
     agreeToTerms: false,
     agreeToDPA: false,
     understandNoFunds: false,
+    mode: '',
   })
   const [showPassword, setShowPassword] = useState(false)
   const [errors, setErrors] = useState<FormErrors>({})
@@ -183,6 +190,10 @@ export function SignUpFormMultiStep({
       if (!formData.understandNoFunds) {
         newErrors.understandNoFunds = 'You must acknowledge this requirement'
       }
+    } else if (step === 5) {
+      if (formData.mode !== 'sandbox' && formData.mode !== 'live') {
+        newErrors.mode = 'Choose a starting mode'
+      }
     }
 
     setErrors(newErrors)
@@ -191,7 +202,7 @@ export function SignUpFormMultiStep({
 
   const handleNext = () => {
     if (validateStep(currentStep)) {
-      if (currentStep < 4) {
+      if (currentStep < 5) {
         setCurrentStep((currentStep + 1) as Step)
         setErrors({})
       }
@@ -205,18 +216,52 @@ export function SignUpFormMultiStep({
     }
   }
 
+  /**
+   * Persist the chosen mode to localStorage so the EnvironmentProvider in the
+   * post-signup app picks it up on first mount. Live-chosen accounts start
+   * with `liveActivationStatus = 'not_started'` so the toggle stays locked
+   * until the activate-live wizard is completed inside the app.
+   */
+  const persistChosenMode = (mode: 'sandbox' | 'live') => {
+    if (typeof window === 'undefined') return
+    try {
+      window.localStorage.setItem(
+        'zord:environment',
+        JSON.stringify({
+          mode,
+          liveActivationStatus: 'not_started',
+          checklistComplete: { run_scenario: false, upload_test_file: false, view_api_keys: false, view_docs: false },
+        }),
+      )
+    } catch {
+      // Privacy mode / quota — silently ignore.
+    }
+  }
+
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    
-    if (!validateStep(4)) {
+
+    if (!validateStep(5)) {
       return
     }
 
     setIsLoading(true)
     setErrors({})
 
+    if (formData.mode === 'sandbox' || formData.mode === 'live') {
+      persistChosenMode(formData.mode)
+    }
+
     try {
       await onSubmit(formData)
+      // Sandbox + live live at separate routes — navigate based on the user's
+      // chosen mode. The EnvironmentProvider on the destination route reads
+      // the localStorage state we persisted above.
+      if (formData.mode === 'sandbox') {
+        router.push('/sandbox')
+      } else if (formData.mode === 'live') {
+        router.push('/payout-command-view/today')
+      }
     } catch (error) {
       setErrors({
         general: error instanceof Error ? error.message : 'An error occurred. Please try again.',
@@ -585,6 +630,97 @@ export function SignUpFormMultiStep({
     </div>
   )
 
+  // Step 5: Choose starting mode (sandbox vs live)
+  const renderStep5 = () => (
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-lg font-semibold text-white">Choose how you want to start</h2>
+        <p className="mt-1 text-sm text-gray-400">
+          You can switch later. Most teams start in sandbox to wire up the integration before activating live.
+        </p>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        {/* Sandbox */}
+        <button
+          type="button"
+          onClick={() => updateFormData('mode', 'sandbox')}
+          disabled={isLoading}
+          className={`flex flex-col rounded-xl border p-5 text-left transition ${
+            formData.mode === 'sandbox'
+              ? 'border-purple-500 bg-purple-500/10 ring-2 ring-purple-500/30'
+              : 'border-gray-700 bg-gray-800/40 hover:border-gray-600'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-amber-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+              Recommended
+            </span>
+            {formData.mode === 'sandbox' ? (
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500 text-white">
+                <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M3 6.5 5.2 8.7 9.5 4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            ) : null}
+          </div>
+          <h3 className="mt-3 text-base font-semibold text-white">Start in sandbox</h3>
+          <p className="mt-1 text-sm text-gray-400">
+            Frictionless setup. Test data only · no real funds move. Upgrade to live anytime.
+          </p>
+          <ul className="mt-3 space-y-1 text-xs text-gray-400">
+            <li>✓ <span className="font-mono text-gray-300">pk_test_…</span> keys issued immediately</li>
+            <li>✓ Canned test scenarios + Postman collection</li>
+            <li>✓ No KYC, no payment method, no business info</li>
+          </ul>
+        </button>
+
+        {/* Live */}
+        <button
+          type="button"
+          onClick={() => updateFormData('mode', 'live')}
+          disabled={isLoading}
+          className={`flex flex-col rounded-xl border p-5 text-left transition ${
+            formData.mode === 'live'
+              ? 'border-purple-500 bg-purple-500/10 ring-2 ring-purple-500/30'
+              : 'border-gray-700 bg-gray-800/40 hover:border-gray-600'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              Production
+            </span>
+            {formData.mode === 'live' ? (
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-purple-500 text-white">
+                <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <path d="M3 6.5 5.2 8.7 9.5 4" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+            ) : null}
+          </div>
+          <h3 className="mt-3 text-base font-semibold text-white">Set up live account</h3>
+          <p className="mt-1 text-sm text-gray-400">
+            For teams ready to move real money. We'll guide you through KYC, connectors, and plan after signup.
+          </p>
+          <ul className="mt-3 space-y-1 text-xs text-gray-400">
+            <li>✓ Sandbox available too — switch anytime</li>
+            <li>✓ Activation wizard inside the app (~24h review)</li>
+            <li>✓ Live keys issued only after KYC + connectors approved</li>
+          </ul>
+        </button>
+      </div>
+
+      {errors.mode ? <p className="text-sm text-red-400">{errors.mode}</p> : null}
+
+      <div className="rounded-lg border border-gray-700 bg-gray-800/40 p-3 text-xs text-gray-400">
+        Tip: developers and integrators almost always start in sandbox to validate the integration end-to-end before
+        flipping to live.
+      </div>
+    </div>
+  )
+
   return (
     <form onSubmit={handleSubmit} className="space-y-6" noValidate>
       {errors.general && (
@@ -595,7 +731,7 @@ export function SignUpFormMultiStep({
 
       {/* Progress Indicator */}
       <div className="flex items-center justify-between mb-6">
-        {[1, 2, 3, 4].map((step) => (
+        {[1, 2, 3, 4, 5].map((step) => (
           <div key={step} className="flex items-center flex-1">
             <div className={`flex items-center justify-center w-8 h-8 rounded-full border-2 ${
               currentStep >= step
@@ -604,7 +740,7 @@ export function SignUpFormMultiStep({
             }`}>
               {step}
             </div>
-            {step < 4 && (
+            {step < 5 && (
               <div className={`flex-1 h-0.5 mx-2 ${
                 currentStep > step ? 'bg-purple-600' : 'bg-gray-700'
               }`} />
@@ -619,6 +755,7 @@ export function SignUpFormMultiStep({
         {currentStep === 2 && renderStep2()}
         {currentStep === 3 && renderStep3()}
         {currentStep === 4 && renderStep4()}
+        {currentStep === 5 && renderStep5()}
       </div>
 
       {/* Navigation Buttons */}
@@ -631,8 +768,8 @@ export function SignUpFormMultiStep({
         >
           ← Back
         </button>
-        
-        {currentStep < 4 ? (
+
+        {currentStep < 5 ? (
           <button
             type="button"
             onClick={handleNext}
@@ -644,10 +781,16 @@ export function SignUpFormMultiStep({
         ) : (
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || (formData.mode !== 'sandbox' && formData.mode !== 'live')}
             className="px-6 py-2 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isLoading ? 'Creating account...' : 'Create account'}
+            {isLoading
+              ? 'Creating account...'
+              : formData.mode === 'sandbox'
+                ? 'Create sandbox account'
+                : formData.mode === 'live'
+                  ? 'Create live account'
+                  : 'Create account'}
           </button>
         )}
       </div>

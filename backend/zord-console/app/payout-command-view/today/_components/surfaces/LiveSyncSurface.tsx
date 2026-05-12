@@ -1,473 +1,939 @@
 'use client'
 
-import {
-  Area,
-  AreaChart,
-  Bar,
-  ComposedChart,
-  Legend,
-  Line,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-  type TooltipProps,
-} from 'recharts'
-import { chartTooltipStyle } from '@/services/payout-command/model'
-import { ClientChart, LightCard, SurfaceEyebrow } from '../shared'
+import type { CSSProperties } from 'react'
+import { DM_Sans } from 'next/font/google'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
-const intelligenceTrendData = [
-  { month: 'Jan', baseCleared: 72, reroutedLift: 9, quality: 88.4, drift: 2.6 },
-  { month: 'Feb', baseCleared: 74, reroutedLift: 11, quality: 89.2, drift: 2.4 },
-  { month: 'Mar', baseCleared: 78, reroutedLift: 15, quality: 90.8, drift: 2.2 },
-  { month: 'Apr', baseCleared: 81, reroutedLift: 18, quality: 92.6, drift: 1.9 },
-  { month: 'May', baseCleared: 79, reroutedLift: 16, quality: 91.7, drift: 2.1 },
-  { month: 'Jun', baseCleared: 85, reroutedLift: 20, quality: 94.1, drift: 1.7 },
-  { month: 'Jul', baseCleared: 84, reroutedLift: 19, quality: 93.4, drift: 1.8 },
-  { month: 'Aug', baseCleared: 86, reroutedLift: 21, quality: 94.7, drift: 1.5 },
-  { month: 'Sep', baseCleared: 88, reroutedLift: 23, quality: 95.2, drift: 1.4 },
-  { month: 'Oct', baseCleared: 87, reroutedLift: 22, quality: 95.1, drift: 1.5 },
-  { month: 'Nov', baseCleared: 89, reroutedLift: 24, quality: 96.1, drift: 1.2 },
-  { month: 'Dec', baseCleared: 92, reroutedLift: 26, quality: 96.8, drift: 1.1 },
-] as const
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+})
 
-const processorRateData = [
-  { month: 'Jan', razorpay: 90, stripe: 86, cashfree: 84, payu: 82, neftHub: 88 },
-  { month: 'Feb', razorpay: 91, stripe: 87, cashfree: 83, payu: 81, neftHub: 89 },
-  { month: 'Mar', razorpay: 89, stripe: 85, cashfree: 82, payu: 83, neftHub: 88 },
-  { month: 'Apr', razorpay: 92, stripe: 88, cashfree: 84, payu: 82, neftHub: 90 },
-  { month: 'May', razorpay: 93, stripe: 89, cashfree: 85, payu: 83, neftHub: 91 },
-  { month: 'Jun', razorpay: 91, stripe: 86, cashfree: 82, payu: 81, neftHub: 90 },
-  { month: 'Jul', razorpay: 92, stripe: 87, cashfree: 84, payu: 82, neftHub: 91 },
-  { month: 'Aug', razorpay: 94, stripe: 90, cashfree: 86, payu: 84, neftHub: 93 },
-  { month: 'Sep', razorpay: 95, stripe: 91, cashfree: 87, payu: 85, neftHub: 94 },
-  { month: 'Oct', razorpay: 94, stripe: 90, cashfree: 86, payu: 84, neftHub: 93 },
-  { month: 'Nov', razorpay: 96, stripe: 92, cashfree: 88, payu: 86, neftHub: 95 },
-  { month: 'Dec', razorpay: 97, stripe: 93, cashfree: 89, payu: 87, neftHub: 96 },
-] as const
+const VB = { w: 760, h: 600 }
 
-const riskCauseData = [
-  { name: 'PSP degradation', value: 38 },
-  { name: 'Bank callback lag', value: 27 },
-  { name: 'Data-quality rules', value: 19 },
-  { name: 'Governance hold', value: 16 },
-] as const
+type EdgeKey = 'loan' | 'banks' | 'payment' | 'mandate' | 'other'
 
-const ticketHistogram = [
-  { band: '<₹10k', count: 44 },
-  { band: '₹10k-25k', count: 66 },
-  { band: '₹25k-50k', count: 84 },
-  { band: '₹50k-1L', count: 92 },
-  { band: '₹1L-2L', count: 78 },
-  { band: '₹2L-5L', count: 53 },
-  { band: '>₹5L', count: 29 },
-] as const
+type SystemKey = EdgeKey
 
-const issuingBankRows = [
-  { bank: 'JPMorgan India', payouts: 12904, authRate: 98 },
-  { bank: 'Wells Fargo APAC', payouts: 12398, authRate: 93 },
-  { bank: 'Barclays Mumbai', payouts: 11983, authRate: 91 },
-  { bank: 'Revolut Lane', payouts: 10837, authRate: 89 },
-  { bank: 'Lloyds Bank Rail', payouts: 10522, authRate: 85 },
-  { bank: 'Capital One Desk', payouts: 9633, authRate: 83 },
-] as const
+type Health = 'ok' | 'warn'
 
-const exposureRows = [
-  { label: 'IMPS corridor', value: '₹19.4L', note: 'High throughput • stable callbacks' },
-  { label: 'NEFT corridor', value: '₹11.2L', note: 'Delay pockets in one branch cluster' },
-  { label: 'RTGS corridor', value: '₹8.8L', note: 'Low volume • high-value clears' },
-  { label: 'UPI push', value: '₹14.6L', note: 'Fast confirmation • low exception drift' },
-] as const
+/** Card width in design coordinates — inset from edges so cards stay inside the diagram */
+const CARD_W = 226
+const CARD_W_PCT = (CARD_W / VB.w) * 100
 
-type NetworkNode = {
-  id: string
-  label: string
-  x: number
-  y: number
-  r: number
-  tone: 'hub' | 'warning' | 'stable'
+const SYSTEM_LAYOUT: Record<
+  SystemKey,
+  { top?: number; left?: number; right?: number; bottom?: number; centerX?: boolean }
+> = {
+  loan: { top: 42, left: 22 },
+  banks: { top: 286, left: 22 },
+  payment: { top: 42, right: 22 },
+  mandate: { top: 286, right: 22 },
+  other: { bottom: 18, centerX: true },
 }
 
-const networkNodes: NetworkNode[] = [
-  { id: 'ops-hub', label: 'Ops Hub', x: 332, y: 214, r: 40, tone: 'hub' },
-  { id: 'risk-hub', label: 'Risk Hub', x: 236, y: 168, r: 34, tone: 'warning' },
-  { id: 'proof-hub', label: 'Proof Hub', x: 425, y: 152, r: 32, tone: 'warning' },
-  { id: 'rail-imps', label: 'IMPS', x: 170, y: 274, r: 18, tone: 'stable' },
-  { id: 'rail-neft', label: 'NEFT', x: 280, y: 292, r: 20, tone: 'warning' },
-  { id: 'rail-rtgs', label: 'RTGS', x: 434, y: 282, r: 18, tone: 'stable' },
-  { id: 'psp-rzp', label: 'Razorpay', x: 122, y: 176, r: 18, tone: 'stable' },
-  { id: 'psp-cf', label: 'Cashfree', x: 204, y: 92, r: 16, tone: 'stable' },
-  { id: 'psp-st', label: 'Stripe', x: 410, y: 84, r: 16, tone: 'stable' },
-  { id: 'bank-icici', label: 'ICICI', x: 508, y: 232, r: 17, tone: 'warning' },
-  { id: 'bank-axis', label: 'Axis', x: 474, y: 332, r: 15, tone: 'stable' },
-  { id: 'bank-hdfc', label: 'HDFC', x: 266, y: 354, r: 16, tone: 'stable' },
-] as const
-
-const networkEdges: Array<[string, string]> = [
-  ['ops-hub', 'risk-hub'],
-  ['ops-hub', 'proof-hub'],
-  ['ops-hub', 'rail-imps'],
-  ['ops-hub', 'rail-neft'],
-  ['ops-hub', 'rail-rtgs'],
-  ['risk-hub', 'psp-rzp'],
-  ['risk-hub', 'psp-cf'],
-  ['proof-hub', 'psp-st'],
-  ['proof-hub', 'bank-icici'],
-  ['rail-neft', 'bank-icici'],
-  ['rail-neft', 'bank-axis'],
-  ['rail-rtgs', 'bank-axis'],
-  ['rail-imps', 'bank-hdfc'],
-  ['risk-hub', 'bank-hdfc'],
-  ['proof-hub', 'bank-axis'],
-] as const
-
-const heatmapRows = ['North', 'West', 'South', 'East'] as const
-const heatmapCols = ['PSP', 'Bank', 'Rail', 'Risk', 'Proof', 'SLA'] as const
-const heatmapData = [
-  [74, 52, 86, 41, 92, 88],
-  [83, 58, 79, 47, 90, 86],
-  [68, 63, 88, 39, 94, 89],
-  [77, 56, 81, 43, 91, 87],
-] as const
-
-const pieColors = ['#111111', '#4ADE80', '#8A8A86', '#D0D0CB']
-const riskCauseSeries = riskCauseData.map((item, index) => ({
-  ...item,
-  fill: pieColors[index % pieColors.length],
-}))
-
-function heatColor(value: number) {
-  if (value >= 90) return '#4ADE80'
-  if (value >= 80) return '#b7f1cb'
-  if (value >= 70) return '#dce8dc'
-  if (value >= 60) return '#e9ede7'
-  if (value >= 50) return '#efefeb'
-  return '#f5f5f2'
+const SYSTEM_DETAILS: Record<
+  SystemKey,
+  {
+    title: string
+    subtitle: string
+    connectionSummary: string
+    protocol: string
+    latencyMs: number
+    endpoint: string
+    whatsHappening: string
+    history: { t: string; msg: string }[]
+  }
+> = {
+  loan: {
+    title: 'Loan System',
+    subtitle: 'SAP / LMS',
+    connectionSummary: 'Primary LMS feed into Zord for disbursement batches, tranche state, and borrower obligations.',
+    protocol: 'HTTPS + mTLS · OData-style entity sync',
+    latencyMs: 120,
+    endpoint: 'lms.prod.internal:443 /v2/disbursements/stream',
+    whatsHappening:
+      'Incremental sync is pulling the latest tranche updates for today’s payout window. No schema drift detected; watermark advancing normally.',
+    history: [
+      { t: '2 min ago', msg: 'Full delta sync completed — 1.2k rows' },
+      { t: '14 min ago', msg: 'Heartbeat OK; SLA within bounds' },
+      { t: '1 hr ago', msg: 'Schema contract v2.4 acknowledged' },
+    ],
+  },
+  banks: {
+    title: 'Banks',
+    subtitle: 'Multiple banks',
+    connectionSummary: 'Bank confirmation webhooks and polling for NEFT/RTGS/UPI final statuses tied to disbursement IDs.',
+    protocol: 'REST webhooks + signed callbacks',
+    latencyMs: 890,
+    endpoint: 'bank-gateway.zord.internal /callbacks/*',
+    whatsHappening:
+      'A subset of partner banks is slower to ACK confirmations today. Retries are spaced with exponential backoff; no hard failures in the last hour.',
+    history: [
+      { t: '4 min ago', msg: 'Webhook burst — 3 banks > p95 latency' },
+      { t: '22 min ago', msg: 'Manual reconcile job queued' },
+      { t: '48 min ago', msg: 'SBI path recovered after 6m delay' },
+    ],
+  },
+  payment: {
+    title: 'Payment Partner',
+    subtitle: 'Razorpay',
+    connectionSummary: 'Settlement and payout status from the payment processor, including UTR mapping and reversals.',
+    protocol: 'REST + HMAC-signed payloads',
+    latencyMs: 410,
+    endpoint: 'api.razorpay.com /v1/settlements',
+    whatsHappening:
+      'Settlement file ingestion is running behind schedule. Zord is holding downstream notifications until settlement IDs reconcile.',
+    history: [
+      { t: '1 min ago', msg: 'Settlement poll returned partial page' },
+      { t: '9 min ago', msg: 'Retry #2 succeeded — 180 events' },
+      { t: '31 min ago', msg: 'Rate limit backoff applied (60s)' },
+    ],
+  },
+  mandate: {
+    title: 'Mandate System',
+    subtitle: 'NACH (NPCI)',
+    connectionSummary: 'Debit mandate registration, presentation, and bounce signals for EMI collections.',
+    protocol: 'NPCI ISO XML over SFTP bridge',
+    latencyMs: 210,
+    endpoint: 'nach-bridge.zord.internal /presentations/out',
+    whatsHappening:
+      'Presentation file for the afternoon slot was accepted. Some mandates remain in “pending authorization” until sponsor bank ACK.',
+    history: [
+      { t: '6 min ago', msg: 'ACK file ingested — 94 mandates' },
+      { t: '35 min ago', msg: 'Bounce file empty (expected)' },
+      { t: '3 hr ago', msg: 'Registration batch closed' },
+    ],
+  },
+  other: {
+    title: 'Other Platforms',
+    subtitle: 'Analytics, KYC, Credit Bureau',
+    connectionSummary: 'Supporting enrichment: bureau pulls, KYC vault checks, and analytics feature store for risk scoring.',
+    protocol: 'gRPC + JSON fallbacks',
+    latencyMs: 95,
+    endpoint: 'enrichment.zord.internal /batch',
+    whatsHappening:
+      'Low-volume async jobs are draining normally. Feature store lag is under 2 minutes for all consumers.',
+    history: [
+      { t: '3 min ago', msg: 'Bureau cache warm — hit ratio 0.94' },
+      { t: '18 min ago', msg: 'KYC vault diff sync — 40 docs' },
+      { t: '2 hr ago', msg: 'Analytics rollup job OK' },
+    ],
+  },
 }
 
-function SyncTooltipContent({ active, payload, label }: TooltipProps<number, string>) {
-  if (!active || !payload || payload.length === 0) return null
+/** Stable reference time for SSR + first client paint (must match `MOCK_GRAPH_NOW_MS` base). */
+const MOCK_GRAPH_NOW_MS = 1_748_064_000_000
+
+function formatUpdated(lastSyncMs: number, nowMs: number) {
+  const sec = Math.floor((nowMs - lastSyncMs) / 1000)
+  if (sec < 10) return 'Updated just now'
+  if (sec < 60) return `Updated ${sec}s ago`
+  const min = Math.floor(sec / 60)
+  if (min === 1) return 'Updated 1 min ago'
+  if (min < 60) return `Updated ${min} min ago`
+  const hr = Math.floor(min / 60)
+  return hr === 1 ? 'Updated 1 hour ago' : `Updated ${hr} hours ago`
+}
+
+function useMockKnowledgeGraph() {
+  const [clockMs, setClockMs] = useState<number | null>(null)
+  const [health, setHealth] = useState<Record<SystemKey, Health>>({
+    loan: 'ok',
+    banks: 'warn',
+    payment: 'warn',
+    mandate: 'ok',
+    other: 'ok',
+  })
+  const [lastSync, setLastSync] = useState<Record<SystemKey, number>>(() => ({
+    loan: MOCK_GRAPH_NOW_MS - 120_000,
+    banks: MOCK_GRAPH_NOW_MS - 900_000,
+    payment: MOCK_GRAPH_NOW_MS - 420_000,
+    mandate: MOCK_GRAPH_NOW_MS - 300_000,
+    other: MOCK_GRAPH_NOW_MS - 180_000,
+  }))
+
+  const nowMs = clockMs ?? MOCK_GRAPH_NOW_MS
+
+  useEffect(() => {
+    setClockMs(Date.now())
+    const id = window.setInterval(() => setClockMs(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setLastSync((prev) => {
+        const keys = Object.keys(prev) as SystemKey[]
+        const pick = keys[Math.floor(Math.random() * keys.length)]!
+        return { ...prev, [pick]: Date.now() - Math.floor(Math.random() * 4000) }
+      })
+      setHealth((prev) => {
+        if (Math.random() > 0.35) return prev
+        const next = { ...prev }
+        if (Math.random() < 0.5) next.banks = prev.banks === 'warn' ? 'ok' : 'warn'
+        if (Math.random() < 0.5) next.payment = prev.payment === 'warn' ? 'ok' : 'warn'
+        return next
+      })
+    }, 5000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const edgeOk = (k: EdgeKey) => health[k] === 'ok'
+
+  const insight = useMemo(() => {
+    const delayed = (['banks', 'payment'] as const).filter((k) => health[k] === 'warn').length
+    if (delayed >= 2) {
+      return (
+        <>
+          All systems are connected. Minor delays observed in bank <strong className="font-semibold text-[#0F0F0F]">confirmations may impact pending disbursements.</strong>
+        </>
+      )
+    }
+    if (health.banks === 'warn' || health.payment === 'warn') {
+      return (
+        <>
+          Feeds are live; <strong className="font-semibold text-[#0F0F0F]">one partner path is slower than usual.</strong> Disbursement windows remain open — watch settlement ACKs.
+        </>
+      )
+    }
+    return (
+      <>
+        All links are within SLA. <strong className="font-semibold text-[#0F0F0F]">Mock telemetry</strong> refreshes timestamps every second.
+      </>
+    )
+  }, [health])
+
+  const delayed = (Object.keys(health) as SystemKey[]).filter((k) => health[k] === 'warn').length
+  const connected = (Object.keys(health) as SystemKey[]).filter((k) => health[k] === 'ok').length
+  const stalest = Math.min(...Object.values(lastSync))
+  const syncTitle = formatUpdated(stalest, nowMs).replace(/^Updated\s+/i, '')
+
+  return { health, edgeOk, lastSync, insight, connected, delayed, syncTitle, nowMs }
+}
+
+function EdgePaths({
+  edgeOk,
+  onEdgeSelect,
+}: {
+  edgeOk: (k: EdgeKey) => boolean
+  onEdgeSelect: (k: EdgeKey) => void
+}) {
+  const g = (ok: boolean) => (ok ? '#BBF7D0' : '#FDE68A')
+  const s = (ok: boolean) => (ok ? '#22C55E' : '#F59E0B')
+  const cls = (ok: boolean) => (ok ? 'skg-flow-green' : 'skg-flow-amber')
+
+  const hit = (d: string, k: EdgeKey) => (
+    <path
+      d={d}
+      fill="none"
+      stroke="transparent"
+      strokeWidth={28}
+      strokeLinecap="round"
+      className="cursor-pointer"
+      onClick={() => onEdgeSelect(k)}
+    />
+  )
+
   return (
-    <div style={chartTooltipStyle} className="min-w-[12rem] p-3">
-      <div className="text-[11px] uppercase tracking-[0.08em] text-[#8a8a86]">{label}</div>
-      <div className="mt-1.5 space-y-1 text-[12px] text-[#111111]">
-        {payload.map((entry) => (
-          <div key={entry.name} className="flex items-center justify-between gap-4">
-            <span>{entry.name}</span>
-            <span className="font-medium">
-              {typeof entry.value === 'number' && entry.name?.toString().toLowerCase().includes('rate')
-                ? `${entry.value.toFixed(1)}%`
-                : `${entry.value}`}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <svg
+      className="absolute inset-0 h-full w-full"
+      viewBox={`0 0 ${VB.w} ${VB.h}`}
+      preserveAspectRatio="xMidYMid meet"
+      xmlns="http://www.w3.org/2000/svg"
+      role="presentation"
+    >
+      <circle cx="380" cy="292" r="162" fill="none" stroke="#E4E4DE" strokeWidth="1" strokeDasharray="5 7" pointerEvents="none" />
+      <circle cx="380" cy="292" r="136" fill="none" stroke="rgba(99,102,241,0.08)" strokeWidth="1" pointerEvents="none" />
+
+      {hit('M 224 110 Q 292 168 315 238', 'loan')}
+      <path d="M 224 110 Q 292 168 315 238" fill="none" stroke={g(edgeOk('loan'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      <path
+        d="M 224 110 Q 292 168 315 238"
+        fill="none"
+        stroke={s(edgeOk('loan'))}
+        strokeWidth="2"
+        strokeLinecap="round"
+        className={cls(edgeOk('loan'))}
+        pointerEvents="none"
+      />
+      <circle cx="270" cy="178" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="296" cy="212" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+
+      {hit('M 224 378 Q 290 360 316 338', 'banks')}
+      <path d="M 224 378 Q 290 360 316 338" fill="none" stroke={g(edgeOk('banks'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      <path
+        d="M 224 378 Q 290 360 316 338"
+        fill="none"
+        stroke={s(edgeOk('banks'))}
+        strokeWidth="2"
+        strokeLinecap="round"
+        className={cls(edgeOk('banks'))}
+        pointerEvents="none"
+      />
+      <circle cx="268" cy="360" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="294" cy="346" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+
+      {hit('M 536 110 Q 468 168 445 238', 'payment')}
+      <path d="M 536 110 Q 468 168 445 238" fill="none" stroke={g(edgeOk('payment'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      <path
+        d="M 536 110 Q 468 168 445 238"
+        fill="none"
+        stroke={s(edgeOk('payment'))}
+        strokeWidth="2"
+        strokeLinecap="round"
+        className={cls(edgeOk('payment'))}
+        pointerEvents="none"
+      />
+      <circle cx="490" cy="178" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="464" cy="212" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+
+      {hit('M 536 378 Q 470 360 444 338', 'mandate')}
+      <path d="M 536 378 Q 470 360 444 338" fill="none" stroke={g(edgeOk('mandate'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      <path
+        d="M 536 378 Q 470 360 444 338"
+        fill="none"
+        stroke={s(edgeOk('mandate'))}
+        strokeWidth="2"
+        strokeLinecap="round"
+        className={cls(edgeOk('mandate'))}
+        pointerEvents="none"
+      />
+      <circle cx="492" cy="360" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="466" cy="346" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+
+      {hit('M 380 500 L 380 357', 'other')}
+      <path d="M 380 500 L 380 357" fill="none" stroke={g(edgeOk('other'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      <path
+        d="M 380 500 L 380 357"
+        fill="none"
+        stroke={s(edgeOk('other'))}
+        strokeWidth="2"
+        strokeLinecap="round"
+        className={cls(edgeOk('other'))}
+        pointerEvents="none"
+      />
+      <circle cx="380" cy="444" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="380" cy="406" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="380" cy="369" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+    </svg>
   )
 }
 
-function formatCompactNumber(value: number) {
-  return new Intl.NumberFormat('en-US').format(value)
+function ClIconCheck() {
+  return (
+    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" aria-hidden>
+      <polyline points="20 6 9 17 4 12" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
-function nodeById(id: string) {
-  return networkNodes.find((node) => node.id === id)
+function ClIconWarn() {
+  return (
+    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" aria-hidden>
+      <line x1="12" y1="8" x2="12" y2="13" stroke="#D97706" strokeWidth="2.2" strokeLinecap="round" />
+      <circle cx="12" cy="16" r="1.2" fill="#D97706" />
+    </svg>
+  )
 }
 
-function nodeToneStyle(tone: NetworkNode['tone']) {
-  if (tone === 'hub') {
-    return { fill: '#111111', stroke: '#111111', label: '#ffffff' as const }
+function ConnLabel({
+  ok,
+  line1,
+  line2,
+  style,
+  label,
+  systemId,
+  onSelect,
+}: {
+  ok: boolean
+  line1: string
+  line2: string
+  style: CSSProperties
+  label: string
+  systemId: SystemKey
+  onSelect: (k: SystemKey) => void
+}) {
+  const border = ok ? '1.5px solid #BBF7D0' : '1.5px solid #FDE68A'
+  const bg = ok ? '#F0FDF4' : '#FFFBEB'
+  const color = ok ? '#16A34A' : '#D97706'
+
+  return (
+    <button
+      type="button"
+      className="absolute z-[6] flex cursor-pointer flex-col items-center gap-[3px] rounded-md border border-transparent bg-transparent p-1 text-center outline-none ring-indigo-500/0 transition hover:ring-2 hover:ring-indigo-400/40 focus-visible:ring-2"
+      style={style}
+      aria-label={`${label}. Open connection details.`}
+      onClick={() => onSelect(systemId)}
+    >
+      <div className="flex h-7 w-7 items-center justify-center rounded-full shadow-[0_1px_2px_rgba(0,0,0,0.05)]" style={{ background: bg, border }}>
+        {ok ? <ClIconCheck /> : <ClIconWarn />}
+          </div>
+      <div className="max-w-[100px] text-center text-[12px] font-semibold leading-[1.3] tracking-[-0.01em] sm:text-[13px]" style={{ color, textShadow: '0 0 8px white, 0 0 12px white' }}>
+        {line1}
+        <br />
+        {line2}
+      </div>
+    </button>
+  )
+}
+
+function InfoIco() {
+  return (
+    <span className="inline-flex text-[#9A9A95]">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" aria-hidden>
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M12 8v4m0 4h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    </span>
+  )
+}
+
+function ClockIco() {
+  return (
+    <svg width="11" height="11" fill="none" viewBox="0 0 24 24" className="shrink-0 text-[#9A9A95]" aria-hidden>
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M12 7v5l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function SystemDetailDrawer({
+  systemId,
+  health,
+  lastSyncMs,
+  nowMs,
+  onClose,
+}: {
+  systemId: SystemKey
+  health: Health
+  lastSyncMs: number
+  nowMs: number
+  onClose: () => void
+}) {
+  const d = SYSTEM_DETAILS[systemId]
+  const ok = health === 'ok'
+
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-[60] cursor-default bg-black/25 backdrop-blur-[2px]"
+        aria-label="Close details"
+        onClick={onClose}
+      />
+      <aside
+        className="fixed bottom-0 right-0 top-0 z-[70] flex w-full max-w-lg flex-col border-l border-[rgba(0,0,0,0.08)] bg-white shadow-[-8px_0_40px_rgba(0,0,0,0.12)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="skg-detail-title"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-[rgba(0,0,0,0.07)] px-5 py-4">
+          <div>
+            <p className="text-[12px] font-semibold uppercase tracking-wide text-[#6366F1]">Connection details</p>
+            <h2 id="skg-detail-title" className="mt-1 text-xl font-bold tracking-[-0.03em] text-[#0F0F0F]">
+              {d.title}
+            </h2>
+            <p className="mt-0.5 text-base text-[#9A9A95]">{d.subtitle}</p>
+          </div>
+          <button
+            type="button"
+            className="rounded-lg border border-[rgba(0,0,0,0.08)] bg-[#F8F8F5] px-3 py-1.5 text-base font-semibold text-[#0F0F0F] transition hover:bg-[#F2F2EF]"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <section className="rounded-xl border border-[rgba(0,0,0,0.07)] bg-[#F8F8F5] p-4">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#555550]">Health</h3>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-base font-semibold ${
+                  ok ? 'border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A]' : 'border-[#FDE68A] bg-[#FFFBEB] text-[#D97706]'
+                }`}
+              >
+                <span className={`h-2 w-2 rounded-full ${ok ? 'skg-badge-dot-pulse bg-[#22C55E]' : 'bg-[#F59E0B]'}`} />
+                {ok ? 'Connected' : 'Delayed'}
+              </span>
+              <span className="text-base text-[#555550]">Last sync · {formatUpdated(lastSyncMs, nowMs)}</span>
+            </div>
+            <p className="mt-3 text-base leading-relaxed text-[#555550]">{d.connectionSummary}</p>
+          </section>
+
+          <section className="mt-4">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#555550]">Connection</h3>
+            <dl className="mt-2 space-y-2 text-base">
+              <div className="flex justify-between gap-4 border-b border-[rgba(0,0,0,0.06)] py-2">
+                <dt className="text-[#9A9A95]">Protocol</dt>
+                <dd className="max-w-[60%] text-right font-medium text-[#0F0F0F]">{d.protocol}</dd>
+              </div>
+              <div className="flex justify-between gap-4 border-b border-[rgba(0,0,0,0.06)] py-2">
+                <dt className="text-[#9A9A95]">p95 latency (mock)</dt>
+                <dd className="font-mono text-[#0F0F0F]">{d.latencyMs} ms</dd>
+              </div>
+              <div className="flex flex-col gap-1 py-2">
+                <dt className="text-[#9A9A95]">Endpoint</dt>
+                <dd className="break-all rounded-md bg-[#F8F8F5] px-2 py-1.5 font-mono text-sm text-[#312E81]">{d.endpoint}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section className="mt-4">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#555550]">What&apos;s happening</h3>
+            <p className="mt-2 text-base leading-relaxed text-[#0F0F0F]">{d.whatsHappening}</p>
+          </section>
+
+          <section className="mt-4">
+            <h3 className="text-sm font-bold uppercase tracking-wide text-[#555550]">History</h3>
+            <ul className="mt-2 space-y-2">
+              {d.history.map((row) => (
+                <li key={row.t + row.msg} className="flex gap-3 rounded-lg border border-[rgba(0,0,0,0.06)] bg-white px-3 py-2.5">
+                  <span className="shrink-0 font-mono text-sm text-[#9A9A95]">{row.t}</span>
+                  <span className="text-base text-[#555550]">{row.msg}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </aside>
+    </>
+  )
+}
+
+function cardPositionStyle(layout: (typeof SYSTEM_LAYOUT)[SystemKey]): CSSProperties {
+  const s: CSSProperties = { width: `${CARD_W_PCT}%` }
+  if (layout.centerX) {
+    s.left = '50%'
+    s.transform = 'translateX(-50%)'
+    if (layout.bottom != null) s.bottom = `${(layout.bottom / VB.h) * 100}%`
+    return s
   }
-  if (tone === 'warning') {
-    return { fill: '#f2f2ef', stroke: '#111111', label: '#111111' as const }
-  }
-  return { fill: '#e9f9ee', stroke: '#4ADE80', label: '#14532d' as const }
+  if (layout.top != null) s.top = `${(layout.top / VB.h) * 100}%`
+  if (layout.bottom != null) s.bottom = `${(layout.bottom / VB.h) * 100}%`
+  if (layout.left != null) s.left = `${(layout.left / VB.w) * 100}%`
+  if (layout.right != null) s.right = `${(layout.right / VB.w) * 100}%`
+  return s
 }
 
 export function LiveSyncSurface() {
+  const { health, edgeOk, lastSync, insight, connected, delayed, syncTitle, nowMs } = useMockKnowledgeGraph()
+  const [selected, setSelected] = useState<SystemKey | null>(null)
+
+  const open = useCallback((k: SystemKey) => setSelected(k), [])
+  const close = useCallback(() => setSelected(null), [])
+
+  useEffect(() => {
+    if (selected == null) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selected, close])
+
+  const loanOk = edgeOk('loan')
+  const banksOk = edgeOk('banks')
+  const payOk = edgeOk('payment')
+  const manOk = edgeOk('mandate')
+  const othOk = edgeOk('other')
+
+  const healthPct = Math.min(99, 92 + connected * 2 - delayed)
+
   return (
-    <div className="mt-8 space-y-4">
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {[
-          { label: 'Success rate trend', value: '98.4%', delta: '+1.2 pts', note: 'Cleared payouts across routed intents.' },
-          { label: 'SLA breach rate', value: '1.1%', delta: '-0.6 pts', note: 'Breach pressure is dropping cycle over cycle.' },
-          { label: 'Recon closure rate', value: '94.2%', delta: '+2.4 pts', note: 'Faster closure on statement-linked records.' },
-          { label: 'Evidence completeness', value: '97.6%', delta: '+1.8 pts', note: 'More intents are export-ready without manual joins.' },
-        ].map((item) => (
-          <LightCard key={item.label} className="border-[#E5E5E5] shadow-[0_4px_18px_rgba(0,0,0,0.04)]">
-            <SurfaceEyebrow>{item.label}</SurfaceEyebrow>
-            <div className="mt-3 text-[2.35rem] font-light tracking-[-0.04em] text-[#111111]">{item.value}</div>
-            <div className="mt-2 inline-flex rounded-full border border-[#4ADE80]/35 bg-[#effcf3] px-2.5 py-1 text-[11px] font-medium text-[#166534]">
-              {item.delta}
+    <div
+      className={`${dmSans.className} relative -mx-4 min-h-[calc(100dvh-7rem)] w-[calc(100%+2rem)] bg-[#F2F2EF] pb-6 sm:-mx-6 sm:w-[calc(100%+3rem)] lg:min-h-[calc(100dvh-8.5rem)]`}
+    >
+      <div className="mx-auto w-full max-w-none px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+        {/* AI Insight strip + inline legend chips — replaces duplicate header */}
+        <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-2.5 rounded-[12px] border border-[#E5E5E5] bg-white px-3.5 py-2.5 shadow-[0_2px_12px_rgba(0,0,0,0.04)]">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="mt-0.5 shrink-0" aria-hidden>
+              <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6L12 2z" fill="#4F46E5" />
+            </svg>
+            <div className="min-w-0">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#4F46E5]">AI Insight · </span>
+              <span className="text-[13px] leading-[1.55] text-[#475569]">{insight}</span>
             </div>
-            <p className="mt-3 text-[12px] leading-5 text-[#6f716d]">{item.note}</p>
-          </LightCard>
-        ))}
+          </div>
+
+          {/* Legend chips — replaces the right sidebar */}
+          <div className="flex flex-wrap items-center gap-2 text-[12px] text-[#64748b]">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />Connected
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />Delayed
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 font-medium text-rose-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" aria-hidden />Needs attention
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-[#fafafa] px-2 py-0.5 font-medium text-[#475569]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#D1D5DB]" aria-hidden />Disconnected
+            </span>
+          </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.48fr_0.92fr]">
-        <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <SurfaceEyebrow>Stacked outcome trend</SurfaceEyebrow>
-              <div className="mt-2 text-[15px] font-medium text-[#111111]">
-                Cleared base volume + rerouted lift with a line view for quality rate
-              </div>
-            </div>
-            <div className="text-[12px] text-[#8a8a86]">Jan-Dec intelligence window</div>
-          </div>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-5">
+          <div className="relative isolate z-0 min-h-0 w-full min-w-0 flex-1 overflow-hidden rounded-[18px] border border-[rgba(0,0,0,0.08)] bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.04)]">
+            <div className="flex min-h-[min(520px,calc(100dvh-20rem))] items-center justify-center bg-[radial-gradient(ellipse_85%_65%_at_50%_42%,#fafaf8_0%,#ffffff_55%,#f6f6f3_100%)] px-3 py-5 sm:px-5 sm:py-6">
+              <div
+                className="relative w-full max-w-[min(100%,920px)] shrink-0"
+                style={{ aspectRatio: `${VB.w} / ${VB.h}` }}
+              >
+            <EdgePaths edgeOk={edgeOk} onEdgeSelect={open} />
 
-          <ClientChart className="mt-6 h-[19rem]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
-              <ComposedChart data={intelligenceTrendData} margin={{ top: 6, right: 10, left: -8, bottom: 0 }}>
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 12 }} />
-                <YAxis yAxisId="value" axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 12 }} />
-                <YAxis
-                  yAxisId="percent"
-                  orientation="right"
-                  domain={[80, 100]}
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#8a8a86', fontSize: 12 }}
-                  tickFormatter={(value: number) => `${value}%`}
-                />
-                <Tooltip content={<SyncTooltipContent />} cursor={{ fill: 'rgba(17,17,17,0.03)' }} />
-                <Legend verticalAlign="bottom" height={28} wrapperStyle={{ fontSize: 12, color: '#6f716d' }} />
-                <Bar yAxisId="value" dataKey="baseCleared" name="Base cleared (₹L)" stackId="trend" fill="#d7ddd9" barSize={18} radius={[5, 5, 0, 0]} />
-                <Bar yAxisId="value" dataKey="reroutedLift" name="Rerouted lift (₹L)" stackId="trend" fill="#111111" barSize={18} radius={[5, 5, 0, 0]} />
-                <Line yAxisId="percent" type="monotone" dataKey="quality" name="Quality rate" stroke="#4ADE80" strokeWidth={2.4} dot={false} activeDot={{ r: 4, fill: '#4ADE80' }} />
-                <Line yAxisId="percent" type="monotone" dataKey="drift" name="Drift risk" stroke="#8a8a86" strokeWidth={1.6} strokeDasharray="4 4" dot={false} />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </ClientChart>
-        </LightCard>
+            <ConnLabel
+              systemId="loan"
+              onSelect={open}
+              ok={loanOk}
+              line1="Syncing"
+              line2="Normally"
+              label="Loan → Zord link"
+              style={{ left: `${(234 / VB.w) * 100}%`, top: `${(136 / VB.h) * 100}%`, transform: 'translateX(-50%)' }}
+            />
+            <ConnLabel
+              systemId="banks"
+              onSelect={open}
+              ok={banksOk}
+              line1="Confirmation"
+              line2="Delays"
+              label="Banks → Zord link"
+              style={{ left: `${(234 / VB.w) * 100}%`, top: `${(382 / VB.h) * 100}%`, transform: 'translateX(-50%)' }}
+            />
+            <ConnLabel
+              systemId="payment"
+              onSelect={open}
+              ok={payOk}
+              line1="Delayed"
+              line2="Updates"
+              label="Payment → Zord link"
+              style={{ right: `${(234 / VB.w) * 100}%`, top: `${(136 / VB.h) * 100}%`, transform: 'translateX(50%)' }}
+            />
+            <ConnLabel
+              systemId="mandate"
+              onSelect={open}
+              ok={manOk}
+              line1="Syncing"
+              line2="Normally"
+              label="Mandate → Zord link"
+              style={{ right: `${(234 / VB.w) * 100}%`, top: `${(382 / VB.h) * 100}%`, transform: 'translateX(50%)' }}
+            />
+            <ConnLabel
+              systemId="other"
+              onSelect={open}
+              ok={othOk}
+              line1="Syncing"
+              line2="Normally"
+              label="Other platforms → Zord link"
+              style={{ left: '50%', bottom: `${(94 / VB.h) * 100}%`, transform: 'translateX(22px)' }}
+            />
 
-        <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <SurfaceEyebrow>Money at risk by cause</SurfaceEyebrow>
-              <div className="mt-2 text-[14px] text-[#6f716d]">Aggregated and anonymized exposure split</div>
-            </div>
-          </div>
-
-          <ClientChart className="mt-3 h-[14rem]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={170}>
-              <PieChart>
-                <Pie data={riskCauseSeries} dataKey="value" nameKey="name" innerRadius={42} outerRadius={78} paddingAngle={2} cornerRadius={4} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(value: number) => [`₹${value.toFixed(1)}L`, 'At risk']} />
-              </PieChart>
-            </ResponsiveContainer>
-          </ClientChart>
-
-          <div className="mt-2 space-y-2.5">
-            {riskCauseSeries.map((item) => (
-              <div key={item.name} className="flex items-center justify-between text-[12px] text-[#111111]">
-                <div className="flex items-center gap-2.5">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ background: item.fill }} />
-                  <span>{item.name}</span>
+            <div className="pointer-events-none absolute left-1/2 top-1/2 z-[15] -translate-x-1/2 -translate-y-1/2 scale-100 sm:scale-[1.08]">
+              <div
+                className="skg-center-glow absolute left-1/2 top-1/2 h-[220px] w-[220px] rounded-full bg-[radial-gradient(circle,rgba(99,102,241,0.2)_0%,transparent_70%)]"
+                aria-hidden
+              />
+              <div className="pointer-events-none absolute left-1/2 top-1/2 h-[188px] w-[188px] -translate-x-1/2 -translate-y-1/2 rounded-full border-[1.5px] border-dashed border-[rgba(99,102,241,0.22)]" />
+              <div className="pointer-events-none absolute left-1/2 top-1/2 h-[160px] w-[160px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[rgba(99,102,241,0.14)]" />
+              <div
+                className="relative flex h-36 w-36 flex-col items-center justify-center gap-0.5 rounded-full shadow-[0_0_0_1px_rgba(255,255,255,0.12)_inset,0_12px_48px_rgba(55,48,163,0.5),0_4px_16px_rgba(55,48,163,0.3)]"
+                style={{
+                  background: 'linear-gradient(150deg, #5B54E8 0%, #3730A3 50%, #2D27A0 100%)',
+                }}
+              >
+                <svg width="40" height="40" viewBox="0 0 44 44" fill="none" aria-hidden>
+                  <path d="M9 11h18L14 22h16L9 33h18" stroke="white" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                <div className="text-[13px] font-extrabold tracking-[0.18em] text-white">ZORD</div>
+                <div className="mt-px text-[9px] font-medium tracking-[0.18em] text-white/50">CONSOLE</div>
+                <div className="mt-2 flex items-center gap-1.5 rounded-full border border-[rgba(34,197,94,0.35)] bg-[rgba(34,197,94,0.18)] px-2.5 py-0.5 text-[10.5px] font-semibold text-[#4ADE80]">
+                  <span className="skg-badge-dot-pulse h-[5px] w-[5px] rounded-full bg-[#4ADE80]" aria-hidden />
+                  Healthy
                 </div>
-                <span className="font-medium">₹{item.value.toFixed(1)}L</span>
               </div>
-            ))}
-          </div>
-        </LightCard>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
-        <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <SurfaceEyebrow>Processor quality line graph</SurfaceEyebrow>
-              <div className="mt-2 text-[14px] text-[#6f716d]">Auth rate by processor and bank rail partner</div>
             </div>
-            <button type="button" className="rounded-full border border-[#E5E5E5] bg-[#f8f8f6] px-3 py-1.5 text-[12px] text-[#111111]">
-              View all data
-            </button>
-          </div>
 
-          <ClientChart className="mt-5 h-[17rem]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={180}>
-              <AreaChart data={processorRateData} margin={{ top: 4, right: 12, left: -8, bottom: 0 }}>
-                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 12 }} />
-                <YAxis
-                  domain={[70, 100]}
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: '#8a8a86', fontSize: 12 }}
-                  tickFormatter={(value: number) => `${value}%`}
+            <button
+              type="button"
+              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              style={cardPositionStyle(SYSTEM_LAYOUT.loan)}
+              onClick={() => open('loan')}
+              aria-label="Open Loan System connection details"
+            >
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[11px] bg-[#EEF2FF] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" aria-hidden>
+                  <rect x="3" y="10" width="18" height="11" rx="2" stroke="#4F46E5" strokeWidth="1.8" />
+                  <path d="M7 10V7a5 5 0 0 1 10 0v3" stroke="#4F46E5" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </div>
+              <div className="mb-0.5 flex items-center gap-1 text-[16px] font-bold tracking-[-0.015em] text-[#0F0F0F]">
+                Loan System
+                <InfoIco />
+          </div>
+              <div className="mb-2.5 text-sm tracking-[-0.005em] text-[#9A9A95] sm:text-[14px]">SAP / LMS</div>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-semibold tracking-[0.01em] sm:text-[14px] ${
+                  health.loan === 'ok'
+                    ? 'border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A]'
+                    : 'border-[#FDE68A] bg-[#FFFBEB] text-[#D97706]'
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${health.loan === 'ok' ? 'skg-badge-dot-pulse bg-[#22C55E]' : 'bg-[#F59E0B]'}`}
+                  aria-hidden
                 />
-                <Tooltip content={<SyncTooltipContent />} />
-                <Legend verticalAlign="bottom" height={26} wrapperStyle={{ fontSize: 12 }} />
-                <Area type="monotone" dataKey="razorpay" name="Razorpay" stroke="#111111" fill="none" strokeWidth={2.1} />
-                <Area type="monotone" dataKey="stripe" name="Stripe" stroke="#4ADE80" fill="none" strokeWidth={2.1} />
-                <Area type="monotone" dataKey="cashfree" name="Cashfree" stroke="#8a8a86" fill="none" strokeWidth={1.9} />
-                <Area type="monotone" dataKey="payu" name="PayU" stroke="#d0d0cb" fill="none" strokeWidth={1.9} />
-                <Area type="monotone" dataKey="neftHub" name="NEFT hub" stroke="#6b7280" fill="none" strokeWidth={1.9} strokeDasharray="5 4" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </ClientChart>
-        </LightCard>
-
-        <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <SurfaceEyebrow>Risk network graph</SurfaceEyebrow>
-              <div className="mt-2 text-[14px] text-[#6f716d]">Node connectivity across ops hubs, PSP lanes, and bank clusters</div>
+                {health.loan === 'ok' ? 'Connected' : 'Delayed'}
+              </span>
+              <div className="mb-2 mt-2 text-[14px] leading-[1.55] tracking-[-0.005em] text-[#555550]">Data syncing normally</div>
+              <div className="mt-1 flex items-center gap-1.5 border-t border-[rgba(0,0,0,0.07)] pt-2 text-[12px] tracking-[-0.005em] text-[#9A9A95]">
+                <ClockIco />
+                <span className="tabular-nums">{formatUpdated(lastSync.loan, nowMs)}</span>
             </div>
-          </div>
+            </button>
 
-          <div className="mt-5 rounded-[1.15rem] border border-[#E5E5E5] bg-[#fafaf8] p-3">
-            <svg viewBox="0 0 620 430" className="h-[20rem] w-full">
-              {networkEdges.map(([from, to]) => {
-                const source = nodeById(from)
-                const target = nodeById(to)
-                if (!source || !target) return null
-                return (
-                  <line
-                    key={`${from}-${to}`}
-                    x1={source.x}
-                    y1={source.y}
-                    x2={target.x}
-                    y2={target.y}
-                    stroke="#c9c9c2"
-                    strokeWidth="2"
-                    opacity="0.9"
+            <button
+              type="button"
+              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              style={cardPositionStyle(SYSTEM_LAYOUT.banks)}
+              onClick={() => open('banks')}
+              aria-label="Open Banks connection details"
+            >
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[11px] bg-[#F0FDF4] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" aria-hidden>
+                  <rect x="3" y="10" width="18" height="11" rx="2" stroke="#16A34A" strokeWidth="1.8" />
+                  <path d="M12 3L3 9h18L12 3z" stroke="#16A34A" strokeWidth="1.8" strokeLinejoin="round" />
+                  <line x1="7" y1="14" x2="7" y2="17" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="12" y1="14" x2="12" y2="17" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="17" y1="14" x2="17" y2="17" stroke="#16A34A" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+          </div>
+              <div className="mb-0.5 flex items-center gap-1 text-[16px] font-bold tracking-[-0.015em] text-[#0F0F0F]">
+                Banks
+                <InfoIco />
+                </div>
+              <div className="mb-2.5 text-sm tracking-[-0.005em] text-[#9A9A95] sm:text-[14px]">Multiple banks</div>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-semibold tracking-[0.01em] sm:text-[14px] ${
+                  health.banks === 'ok'
+                    ? 'border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A]'
+                    : 'border-[#FDE68A] bg-[#FFFBEB] text-[#D97706]'
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${health.banks === 'ok' ? 'skg-badge-dot-pulse bg-[#22C55E]' : 'bg-[#F59E0B]'}`}
+                  aria-hidden
+                />
+                {health.banks === 'ok' ? 'Connected' : 'Delayed'}
+              </span>
+              <div className="mb-2 mt-2 text-[14px] leading-[1.55] tracking-[-0.005em] text-[#555550]">
+                {health.banks === 'warn' ? 'Confirmation delays observed' : 'Confirmations flowing normally'}
+              </div>
+              <div className="mt-1 flex items-center gap-1.5 border-t border-[rgba(0,0,0,0.07)] pt-2 text-[12px] tracking-[-0.005em] text-[#9A9A95]">
+                <ClockIco />
+                <span className="tabular-nums">{formatUpdated(lastSync.banks, nowMs)}</span>
+          </div>
+            </button>
+
+            <button
+              type="button"
+              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              style={cardPositionStyle(SYSTEM_LAYOUT.payment)}
+              onClick={() => open('payment')}
+              aria-label="Open Payment Partner connection details"
+            >
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[11px] bg-[#EFF6FF] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" aria-hidden>
+                  <rect x="2" y="5" width="20" height="14" rx="3" stroke="#2563EB" strokeWidth="1.8" />
+                  <line x1="2" y1="10" x2="22" y2="10" stroke="#2563EB" strokeWidth="1.8" />
+                  <rect x="5" y="14" width="4" height="2" rx="1" fill="#2563EB" />
+                </svg>
+              </div>
+              <div className="mb-0.5 flex items-center gap-1 text-[16px] font-bold tracking-[-0.015em] text-[#0F0F0F]">
+                Payment Partner
+                <InfoIco />
+          </div>
+              <div className="mb-2.5 text-sm tracking-[-0.005em] text-[#9A9A95] sm:text-[14px]">Razorpay</div>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-semibold tracking-[0.01em] sm:text-[14px] ${
+                  health.payment === 'ok'
+                    ? 'border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A]'
+                    : 'border-[#FDE68A] bg-[#FFFBEB] text-[#D97706]'
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${health.payment === 'ok' ? 'skg-badge-dot-pulse bg-[#22C55E]' : 'bg-[#F59E0B]'}`}
+                  aria-hidden
+                />
+                {health.payment === 'ok' ? 'Connected' : 'Delayed'}
+              </span>
+              <div className="mb-2 mt-2 text-[14px] leading-[1.55] tracking-[-0.005em] text-[#555550]">
+                {health.payment === 'warn' ? 'Minor delay in settlement updates' : 'Settlement feed within SLA'}
+              </div>
+              <div className="mt-1 flex items-center gap-1.5 border-t border-[rgba(0,0,0,0.07)] pt-2 text-[12px] tracking-[-0.005em] text-[#9A9A95]">
+                <ClockIco />
+                <span className="tabular-nums">{formatUpdated(lastSync.payment, nowMs)}</span>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              style={cardPositionStyle(SYSTEM_LAYOUT.mandate)}
+              onClick={() => open('mandate')}
+              aria-label="Open Mandate System connection details"
+            >
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[11px] bg-[#F0FDFA] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" aria-hidden>
+                  <rect x="4" y="3" width="16" height="18" rx="3" stroke="#0D9488" strokeWidth="1.8" />
+                  <line x1="8" y1="8" x2="16" y2="8" stroke="#0D9488" strokeWidth="1.5" strokeLinecap="round" />
+                  <line x1="8" y1="12" x2="14" y2="12" stroke="#0D9488" strokeWidth="1.5" strokeLinecap="round" />
+                  <polyline points="8,16 10,18 14,14" stroke="#0D9488" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                </svg>
+              </div>
+              <div className="mb-0.5 flex items-center gap-1 text-[16px] font-bold tracking-[-0.015em] text-[#0F0F0F]">
+                Mandate System
+                <InfoIco />
+            </div>
+              <div className="mb-2.5 text-sm tracking-[-0.005em] text-[#9A9A95] sm:text-[14px]">NACH (NPCI)</div>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-semibold tracking-[0.01em] sm:text-[14px] ${
+                  health.mandate === 'ok'
+                    ? 'border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A]'
+                    : 'border-[#FDE68A] bg-[#FFFBEB] text-[#D97706]'
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${health.mandate === 'ok' ? 'skg-badge-dot-pulse bg-[#22C55E]' : 'bg-[#F59E0B]'}`}
+                  aria-hidden
+                />
+                {health.mandate === 'ok' ? 'Connected' : 'Delayed'}
+              </span>
+              <div className="mb-2 mt-2 text-[14px] leading-[1.55] tracking-[-0.005em] text-[#555550]">Some mandates pending authorization</div>
+              <div className="mt-1 flex items-center gap-1.5 border-t border-[rgba(0,0,0,0.07)] pt-2 text-[12px] tracking-[-0.005em] text-[#9A9A95]">
+                <ClockIco />
+                <span className="tabular-nums">{formatUpdated(lastSync.mandate, nowMs)}</span>
+          </div>
+            </button>
+
+            <button
+              type="button"
+              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              style={cardPositionStyle(SYSTEM_LAYOUT.other)}
+              onClick={() => open('other')}
+              aria-label="Open Other Platforms connection details"
+            >
+              <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[11px] bg-[#F5F3FF] shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" aria-hidden>
+                  <circle cx="12" cy="12" r="3" stroke="#7C3AED" strokeWidth="1.8" />
+                  <path
+                    d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"
+                    stroke="#7C3AED"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
                   />
-                )
-              })}
-              {networkNodes.map((node) => {
-                const style = nodeToneStyle(node.tone)
-                return (
-                  <g key={node.id}>
-                    <circle cx={node.x} cy={node.y} r={node.r} fill={style.fill} stroke={style.stroke} strokeWidth="2" />
-                    <text
-                      x={node.x}
-                      y={node.y + 4}
-                      textAnchor="middle"
-                      fontSize={node.r > 30 ? 14 : 12}
-                      fontWeight={600}
-                      fill={style.label}
-                    >
-                      {node.label}
-                    </text>
-                  </g>
-                )
-              })}
             </svg>
           </div>
-        </LightCard>
+              <div className="mb-0.5 flex items-center gap-1 text-[16px] font-bold tracking-[-0.015em] text-[#0F0F0F]">
+                Other Platforms
+                <InfoIco />
       </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1.02fr_0.98fr]">
-        <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <SurfaceEyebrow>Auth rate and payouts by issuing bank</SurfaceEyebrow>
-              <div className="mt-2 text-[14px] text-[#6f716d]">Institutional quality surface for bank-wise payout confidence</div>
+              <div className="mb-2.5 text-sm tracking-[-0.005em] text-[#9A9A95] sm:text-[14px]">Analytics, KYC, Credit Bureau</div>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-sm font-semibold tracking-[0.01em] sm:text-[14px] ${
+                  health.other === 'ok'
+                    ? 'border-[#BBF7D0] bg-[#F0FDF4] text-[#16A34A]'
+                    : 'border-[#FDE68A] bg-[#FFFBEB] text-[#D97706]'
+                }`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${health.other === 'ok' ? 'skg-badge-dot-pulse bg-[#22C55E]' : 'bg-[#F59E0B]'}`}
+                  aria-hidden
+                />
+                {health.other === 'ok' ? 'Connected' : 'Delayed'}
+              </span>
+              <div className="mb-2 mt-2 text-[14px] leading-[1.55] tracking-[-0.005em] text-[#555550]">Data syncing normally</div>
+              <div className="mt-1 flex items-center gap-1.5 border-t border-[rgba(0,0,0,0.07)] pt-2 text-[12px] tracking-[-0.005em] text-[#9A9A95]">
+                <ClockIco />
+                <span className="tabular-nums">{formatUpdated(lastSync.other, nowMs)}</span>
             </div>
-            <button type="button" className="rounded-[0.8rem] border border-[#E5E5E5] bg-[#f7f7f4] px-3 py-2 text-[12px] text-[#111111]">
-              View all data
             </button>
           </div>
-
-          <div className="mt-4 overflow-hidden rounded-[1rem] border border-[#E5E5E5]">
-            <div className="grid grid-cols-[1.2fr_0.8fr_1fr] bg-[#f8f8f6] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8a8a86]">
-              <span>Issuing bank</span>
-              <span className="text-right">No. of payouts</span>
-              <span className="text-right">Auth rate</span>
-            </div>
-            <div className="divide-y divide-[#ececea]">
-              {issuingBankRows.map((row) => (
-                <div key={row.bank} className="grid grid-cols-[1.2fr_0.8fr_1fr] items-center gap-3 px-4 py-3 text-[13px]">
-                  <span className="truncate text-[#111111]">{row.bank}</span>
-                  <span className="text-right text-[#6f716d]">{formatCompactNumber(row.payouts)}</span>
-                  <span className="text-right">
-                    <span className="inline-flex min-w-[3.1rem] justify-center rounded-md bg-[#ece7f8] px-2 py-1 font-medium text-[#3c3550]">
-                      {row.authRate}%
-                    </span>
-                  </span>
-                </div>
-              ))}
             </div>
           </div>
-        </LightCard>
 
-        <div className="grid gap-4">
-          <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <SurfaceEyebrow>Ticket risk histogram</SurfaceEyebrow>
-                <div className="mt-2 text-[14px] text-[#6f716d]">Risk-weighted payout profile by ticket-size bands</div>
-              </div>
-            </div>
-            <ClientChart className="mt-4 h-[13rem]">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={140}>
-                <ComposedChart data={ticketHistogram} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
-                  <XAxis dataKey="band" axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 11 }} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 11 }} />
-                  <Tooltip content={<SyncTooltipContent />} />
-                  <Bar dataKey="count" name="Intent count" fill="#111111" radius={[7, 7, 0, 0]} />
-                  <Line type="monotone" dataKey="count" name="Distribution line" stroke="#4ADE80" strokeWidth={2} dot={{ r: 2.4 }} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </ClientChart>
-          </LightCard>
-
-          <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <SurfaceEyebrow>Regional exposure heat map</SurfaceEyebrow>
-                <div className="mt-2 text-[14px] text-[#6f716d]">Risk concentration by region and operating lens</div>
-              </div>
             </div>
 
-            <div className="mt-4 overflow-hidden rounded-[1rem] border border-[#E5E5E5]">
-              <div className="grid grid-cols-[0.9fr_repeat(6,minmax(0,1fr))] bg-[#f8f8f6] px-2 py-2 text-[11px] font-medium text-[#8a8a86]">
-                <div />
-                {heatmapCols.map((col) => (
-                  <div key={col} className="text-center">{col}</div>
-                ))}
+        {/* Bottom KPI strip — unified card system (matches Connector Intelligence + Outcomes) */}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            {
+              eyebrow: 'Systems connected',
+              value: String(connected),
+              sub: 'All internal systems integrated',
+              accent: 'border-l-emerald-500',
+              eyebrowTone: 'text-emerald-700',
+              dot: 'bg-emerald-500',
+            },
+            {
+              eyebrow: 'Overall last sync',
+              value: syncTitle,
+              sub: 'Most recent successful update',
+              accent: 'border-l-sky-500',
+              eyebrowTone: 'text-sky-700',
+              dot: 'bg-sky-500',
+              isText: true,
+            },
+            {
+              eyebrow: 'Systems delayed',
+              value: String(delayed),
+              sub: delayed > 0 ? 'Bank & Payment Partner' : 'No delays detected',
+              accent: 'border-l-amber-500',
+              eyebrowTone: 'text-amber-700',
+              dot: 'bg-amber-500',
+            },
+            {
+              eyebrow: 'Connectivity health',
+              value: `${healthPct}%`,
+              sub: 'Overall system health score',
+              accent: 'border-l-emerald-500',
+              eyebrowTone: 'text-emerald-700',
+              dot: 'bg-emerald-500',
+            },
+          ].map((row) => (
+            <article
+              key={row.eyebrow}
+              className={`rounded-[16px] border border-[#E5E5E5] bg-white p-4 shadow-[0_2px_12px_rgba(0,0,0,0.04)] border-l-[3px] ${row.accent}`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className={`h-1.5 w-1.5 rounded-full ${row.dot}`} aria-hidden />
+                <p className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${row.eyebrowTone}`}>
+                  {row.eyebrow}
+                </p>
               </div>
-              {heatmapRows.map((rowLabel, rowIndex) => (
-                <div key={rowLabel} className="grid grid-cols-[0.9fr_repeat(6,minmax(0,1fr))] gap-2 px-2 py-2">
-                  <div className="flex items-center px-1 text-[12px] font-medium text-[#6f716d]">{rowLabel}</div>
-                  {heatmapData[rowIndex].map((value, cellIndex) => (
-                    <div
-                      key={`${rowLabel}-${heatmapCols[cellIndex]}`}
-                      className="rounded-[0.55rem] border border-white px-1.5 py-1 text-center text-[11px] font-medium text-[#31443a]"
-                      style={{ background: heatColor(value) }}
-                    >
-                      {value}
-                    </div>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </LightCard>
+              <p
+                className={`mt-3 font-light leading-none tracking-[-0.02em] tabular-nums text-[#0f172a] ${
+                  row.isText ? 'text-[19px]' : 'text-[29px]'
+                }`}
+              >
+                {row.value}
+              </p>
+              <p className="mt-2 text-[12px] leading-relaxed text-[#64748b]">{row.sub}</p>
+            </article>
+          ))}
         </div>
       </div>
 
-      <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <SurfaceEyebrow>Safe exposure view</SurfaceEyebrow>
-            <div className="mt-2 text-[14px] leading-6 text-[#6f716d]">
-              All values are aggregated and anonymized at business level. No internal service boundaries are shown.
-            </div>
-          </div>
-        </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {exposureRows.map((row) => (
-            <div key={row.label} className="rounded-[1rem] border border-[#E5E5E5] bg-[#fafaf8] p-4">
-              <div className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#8a8a86]">{row.label}</div>
-              <div className="mt-2 text-[1.6rem] font-light tracking-[-0.03em] text-[#111111]">{row.value}</div>
-              <div className="mt-2 text-[12px] leading-5 text-[#6f716d]">{row.note}</div>
-            </div>
-          ))}
-        </div>
-      </LightCard>
+      {selected != null && (
+        <SystemDetailDrawer
+          systemId={selected}
+          health={health[selected]}
+          lastSyncMs={lastSync[selected]}
+          nowMs={nowMs}
+          onClose={close}
+        />
+      )}
     </div>
   )
 }

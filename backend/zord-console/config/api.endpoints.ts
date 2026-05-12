@@ -12,6 +12,11 @@ export const BACKEND_SERVICES = {
       TENANT_REGISTER: '/v1/tenantReg',
       TENANTS: '/v1/tenants',
       TENANT_BY_ID: (id: string) => `/v1/tenants/${id}`,
+      AUTH_SIGNUP: '/v1/auth/signup',
+      AUTH_LOGIN: '/v1/auth/login',
+      AUTH_REFRESH: '/v1/auth/refresh',
+      AUTH_LOGOUT: '/v1/auth/logout',
+      AUTH_ME: '/v1/auth/me',
     },
   },
 
@@ -65,6 +70,20 @@ export const BACKEND_SERVICES = {
     BASE_URL: process.env.ZORD_PII_ENCLAVE_URL || 'http://localhost:8085',
     ENDPOINTS: {
       HEALTH: '/health',
+    },
+  },
+
+  // zord-intelligence: KPI dashboards + batch intelligence (Port 8089)
+  INTELLIGENCE: {
+    BASE_URL: process.env.ZORD_INTELLIGENCE_URL || 'http://localhost:8089',
+    ENDPOINTS: {
+      LEAKAGE: '/v1/intelligence/dashboard/leakage',
+      AMBIGUITY: '/v1/intelligence/dashboard/ambiguity',
+      DEFENSIBILITY: '/v1/intelligence/dashboard/defensibility',
+      PATTERNS: '/v1/intelligence/dashboard/patterns',
+      RECOMMENDATIONS: '/v1/intelligence/dashboard/recommendations',
+      BATCHES: '/v1/intelligence/batches',
+      BATCH_BY_ID: (id: string) => `/v1/intelligence/batches/${id}`,
     },
   },
 } as const

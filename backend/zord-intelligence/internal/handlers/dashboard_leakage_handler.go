@@ -12,6 +12,10 @@ package handlers
 //   KPI 5  reversal_exposure            → reversal_exposure_minor
 //   KPI 6  leakage_rate                 → leakage_percentage
 //
+// Derived (not a separate snapshot field): total_observed_settled_volume_minor =
+//   intended − unmatched − under_settlement − reversal_exposure
+//   (complement of the leakage_percentage numerator; orphan is excluded there — projection_repo.recomputeLeakageTotals).
+//
 // Data source: intelligence_snapshots WHERE snapshot_type = 'LEAKAGE'.
 // The LeakageIntelligenceService writes these snapshots after every
 // attachment decision / variance record event.

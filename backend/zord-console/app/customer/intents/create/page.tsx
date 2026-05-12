@@ -563,3 +563,8 @@ export default function CustomerCreateIntentPage() {
   )
 }
 
+// Re-export for embedding outside the /customer route (e.g. as a tab inside
+// Batch Command Center). Same component, same behavior — page metadata is at
+// the route level so reusing the body has no side effects.
+export { CustomerCreateIntentPage as CreatePaymentRequestForm }
+

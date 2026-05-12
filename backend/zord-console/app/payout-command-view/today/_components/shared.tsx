@@ -35,6 +35,61 @@ export function Glyph({ name, className = '' }: { name: GlyphName; className?: s
       return <svg className={base} viewBox="0 0 20 20" fill="none"><path d="M16 6.5V3.8l-2.6 2.3A6.2 6.2 0 1 0 16 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
     case 'chart':
       return <svg className={base} viewBox="0 0 20 20" fill="none"><path d="M4 14.5V9.5M10 14.5V5.5M16 14.5V7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /><path d="M3 16.5h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+    case 'bell':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none">
+          <path
+            d="M10 2.5a4.2 4.2 0 0 0-4.2 4.2v2.1c0 .3-.1.7-.3 1l-.9 1.8h10.8l-.9-1.8a2 2 0 0 1-.3-1V6.7A4.2 4.2 0 0 0 10 2.5Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          <path d="M7.2 14.5h5.6a1.8 1.8 0 0 1-5.6 0Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        </svg>
+      )
+    case 'terminal':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none">
+          <rect x="2.5" y="3.5" width="15" height="13" rx="1.6" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M6 8.2 8.2 10 6 11.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M10.4 12.2h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      )
+    case 'key':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none">
+          <circle cx="6.8" cy="13.2" r="3.2" stroke="currentColor" strokeWidth="1.6" />
+          <path d="m9.1 11 7.4-7.4M13.7 6.4l1.7 1.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )
+    case 'copy':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none">
+          <rect x="6" y="6" width="10" height="10" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M4 12.5V5.4A1.4 1.4 0 0 1 5.4 4h7.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )
+    case 'eye-off':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none">
+          <path d="m3 3 14 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          <path d="M8.4 5.6A8.5 8.5 0 0 1 10 5.5c5 0 8 5 8 5a13 13 0 0 1-2 2.5M6.2 7.6A12.7 12.7 0 0 0 2 10.5s3 5 8 5a8.7 8.7 0 0 0 3.5-.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <path d="M8.4 9a2.4 2.4 0 0 0 3.1 3.1" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      )
+    case 'check':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none">
+          <path d="M4.5 10.5 8 14l7.5-8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )
+    case 'lock':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none">
+          <rect x="4" y="9" width="12" height="8.2" rx="1.6" stroke="currentColor" strokeWidth="1.6" />
+          <path d="M6.6 9V6.6a3.4 3.4 0 0 1 6.8 0V9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+        </svg>
+      )
     default:
       return null
   }
@@ -65,7 +120,7 @@ export function LightCard({ children, className = '' }: { children: ReactNode; c
 }
 
 export function SurfaceEyebrow({ children }: { children: ReactNode }) {
-  return <div className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#9a9a95]">{children}</div>
+  return <div className="text-[12px] font-medium uppercase tracking-[0.1em] text-[#9a9a95]">{children}</div>
 }
 
 type Rgba = {
@@ -149,4 +204,26 @@ export function usePromptAutoContrast(containerRef: RefObject<HTMLElement>) {
       : 'text-[#111111] placeholder:text-[#8a8a86] caret-[#111111]',
     captionToneClass: isDarkBackground ? 'text-white/42' : 'text-[#8a8a86]',
   }
+}
+
+/**
+ * Tiny pill that signals whether a card is showing real KPI data or canned
+ * fallback. Drop it under any hero/stat that conditionally falls back to
+ * static placeholders when `data_available: false`.
+ */
+export function LiveDataHint({ isLive, source }: { isLive: boolean; source?: string }) {
+  if (isLive) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+        Live{source ? ` · ${source}` : ''}
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />
+      Demo data · ingest a batch to see live values
+    </span>
+  )
 }

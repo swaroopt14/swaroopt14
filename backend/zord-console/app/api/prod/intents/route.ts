@@ -11,6 +11,16 @@ export async function GET(request: NextRequest) {
     const pageSize = parseInt(searchParams.get('page_size') || '50', 10)
     const status = searchParams.get('status') || undefined
     const tenantId = searchParams.get('tenant_id') || undefined
+    const batchId = searchParams.get('batch_id') || undefined
+    // Defensive gate: never proxy without tenant_id. Intent-engine already
+    // requires it; blocking here returns a faster error and prevents any
+    // accidental cross-tenant leak if the upstream contract loosens.
+    if (!tenantId) {
+      return NextResponse.json(
+        { items: [], pagination: { page: 1, page_size: 0, total: 0 }, error: 'tenant_id is required' },
+        { status: 400 },
+      )
+    }
 
     // Fetch from real backend (zord-intent-engine)
     const response = await fetchIntents({
@@ -18,6 +28,7 @@ export async function GET(request: NextRequest) {
       page_size: pageSize,
       status,
       tenant_id: tenantId,
+      batch_id: batchId,
     })
 
     // Transform backend response to match frontend types
@@ -33,6 +44,7 @@ export async function GET(request: NextRequest) {
       created_at: intent.created_at,
       envelope_id: intent.envelope_id,
       tenant_id: intent.tenant_id,
+      batch_id: intent.batch_id,
     }))
 
     return NextResponse.json({

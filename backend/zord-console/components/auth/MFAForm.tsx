@@ -14,11 +14,11 @@ interface FormErrors {
   general?: string
 }
 
-export function MFAForm({ 
-  onSubmit, 
+export function MFAForm({
+  onSubmit,
   onBack,
   environment,
-  mfaMethod = 'totp'
+  mfaMethod = 'totp',
 }: MFAFormProps) {
   const [code, setCode] = useState('')
   const [errors, setErrors] = useState<FormErrors>({})
@@ -33,7 +33,6 @@ export function MFAForm({
     if (!value.trim()) {
       return 'Verification code is required'
     }
-    // TOTP codes are typically 6 digits
     if (mfaMethod === 'totp' && !/^\d{6}$/.test(value.trim())) {
       return 'Code must be 6 digits'
     }
@@ -41,24 +40,21 @@ export function MFAForm({
   }
 
   const handleCodeChange = (value: string) => {
-    // Only allow digits for TOTP
     if (mfaMethod === 'totp') {
-      const digitsOnly = value.replace(/\D/g, '').slice(0, 6)
-      setCode(digitsOnly)
+      setCode(value.replace(/\D/g, '').slice(0, 6))
     } else {
       setCode(value)
     }
-    
+
     if (errors.code) {
-      setErrors(prev => ({ ...prev, code: undefined, general: undefined }))
+      setErrors((prev) => ({ ...prev, code: undefined, general: undefined }))
     }
   }
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
-    
+
     const codeError = validateCode(code)
-    
     if (codeError) {
       setErrors({ code: codeError })
       return
@@ -79,100 +75,165 @@ export function MFAForm({
     }
   }
 
-  const getMethodName = () => {
-    switch (mfaMethod) {
-      case 'totp':
-        return 'authenticator app'
-      case 'sms':
-        return 'SMS'
-      case 'hardware':
-        return 'hardware key'
-      default:
-        return 'authenticator app'
-    }
-  }
+  const methodName =
+    mfaMethod === 'sms' ? 'SMS' : mfaMethod === 'hardware' ? 'hardware key' : 'authenticator app'
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-      <div>
-        <h2 className="text-2xl font-bold text-white mb-2">Multi-factor authentication</h2>
-        <p className="text-gray-400 text-sm mb-6">
-          {environment === 'production' 
-            ? 'MFA is required for Production environment.'
-            : 'Enter the verification code from your authenticator app.'}
-        </p>
-      </div>
+    <>
+      <style jsx>{`
+        .mfa-stack {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
 
-      {errors.general && (
-        <div 
-          className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-start"
-          role="alert"
-          aria-live="polite"
-        >
-          <svg className="w-5 h-5 text-red-400 mt-0.5 mr-3 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-          </svg>
-          <p className="text-sm font-medium text-red-400">{errors.general}</p>
+        .mfa-copy {
+          border: 1px solid #e2e8f0;
+          border-radius: 18px;
+          background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+          padding: 18px 20px;
+        }
+
+        .mfa-copy p {
+          margin: 0;
+          color: #64748b;
+          font-size: 14px;
+          line-height: 1.7;
+        }
+
+        .mfa-alert {
+          border: 1px solid rgba(248, 113, 113, 0.24);
+          border-radius: 16px;
+          background: rgba(254, 242, 242, 0.82);
+          padding: 14px 16px;
+          color: #b91c1c;
+        }
+
+        .mfa-input-shell {
+          border: 1px solid #e2e8f0;
+          border-radius: 22px;
+          background: #ffffff;
+          padding: 18px;
+        }
+
+        .mfa-input {
+          width: 100%;
+          border: 0;
+          background: transparent;
+          color: #111827;
+          font-size: 34px;
+          font-weight: 600;
+          letter-spacing: 0.28em;
+          text-align: center;
+        }
+
+        .mfa-input::placeholder {
+          color: #cbd5e1;
+          letter-spacing: 0.16em;
+        }
+
+        .mfa-input:focus {
+          outline: none;
+        }
+
+        .mfa-error-text {
+          font-size: 12px;
+          color: #dc2626;
+        }
+
+        .mfa-actions {
+          display: grid;
+          gap: 12px;
+        }
+
+        .mfa-submit {
+          width: 100%;
+          background: linear-gradient(135deg, #64748b 0%, #334155 100%);
+          border-radius: 14px;
+          padding: 14px 18px;
+          color: #ffffff;
+          font-size: 16px;
+          font-weight: 600;
+          box-shadow: 0 14px 30px rgba(51, 65, 85, 0.18);
+          transition: filter 0.2s ease, transform 0.2s ease;
+        }
+
+        .mfa-submit:hover {
+          filter: brightness(1.02);
+          transform: translateY(-1px);
+        }
+
+        .mfa-submit:disabled {
+          cursor: not-allowed;
+          opacity: 0.62;
+          transform: none;
+          filter: none;
+        }
+
+        .mfa-back {
+          width: 100%;
+          border: 1px solid #e2e8f0;
+          border-radius: 14px;
+          background: #f8fafc;
+          padding: 13px 18px;
+          color: #475569;
+          font-size: 15px;
+          font-weight: 600;
+          transition: background 0.2s ease, color 0.2s ease;
+        }
+
+        .mfa-back:hover {
+          background: #f1f5f9;
+          color: #0f172a;
+        }
+      `}</style>
+
+      <form onSubmit={handleSubmit} className="mfa-stack" noValidate>
+        <div className="mfa-copy">
+          <p>
+            Enter the 6-digit code from your {methodName}. {environment === 'production' ? 'Production access is protected by MFA.' : 'Sandbox verification remains available when needed.'}
+          </p>
         </div>
-      )}
 
-      {/* Verification Code */}
-      <div>
-        <label htmlFor="mfaCode" className="block text-sm font-medium text-gray-300 mb-2">
-          Verification code from {getMethodName()}
-        </label>
-        <input
-          ref={codeInputRef}
-          id="mfaCode"
-          name="mfaCode"
-          type="text"
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          value={code}
-          onChange={(e) => handleCodeChange(e.target.value)}
-          className={`w-full px-4 py-3 bg-gray-800 border rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all text-center text-2xl tracking-widest ${
-            errors.code
-              ? 'border-red-500'
-              : 'border-gray-700'
-          }`}
-          placeholder={mfaMethod === 'totp' ? '000000' : 'Enter code'}
-          maxLength={mfaMethod === 'totp' ? 6 : undefined}
-          aria-invalid={errors.code ? 'true' : 'false'}
-          disabled={isLoading}
-        />
-        {errors.code && (
-          <p className="mt-2 text-sm text-red-400" role="alert">
-            {errors.code}
-          </p>
-        )}
-        {mfaMethod === 'totp' && (
-          <p className="mt-2 text-xs text-gray-500">
-            Open your authenticator app (Google Authenticator, Authy, etc.) and enter the 6-digit code.
-          </p>
-        )}
-      </div>
+        {errors.general ? (
+          <div className="mfa-alert" role="alert" aria-live="polite">
+            <p className="text-sm font-medium">{errors.general}</p>
+          </div>
+        ) : null}
 
-      {/* Submit Button */}
-      <button
-        type="submit"
-        disabled={isLoading || !code.trim()}
-        className="w-full py-3 px-4 bg-purple-600 text-white font-medium rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 focus:ring-offset-gray-900 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        aria-busy={isLoading}
-      >
-        {isLoading ? 'Verifying...' : 'Verify'}
-      </button>
+        <div className="mfa-input-shell">
+          <label htmlFor="mfaCode" className="sr-only">
+            Verification code
+          </label>
+          <input
+            ref={codeInputRef}
+            id="mfaCode"
+            name="mfaCode"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={(e) => handleCodeChange(e.target.value)}
+            className="mfa-input"
+            placeholder="000000"
+            aria-invalid={errors.code ? 'true' : 'false'}
+            disabled={isLoading}
+          />
+        </div>
 
-      {/* Back Button */}
-      {onBack && (
-        <button
-          type="button"
-          onClick={onBack}
-          disabled={isLoading}
-          className="w-full py-2 px-4 text-gray-400 hover:text-white transition-colors text-sm"
-        >
-          ← Back to sign in
-        </button>
-      )}
-    </form>
+        {errors.code ? <p className="mfa-error-text">{errors.code}</p> : null}
+
+        <div className="mfa-actions">
+          <button type="submit" className="mfa-submit" disabled={isLoading}>
+            {isLoading ? 'Verifying...' : 'Verify and continue'}
+          </button>
+          {onBack ? (
+            <button type="button" className="mfa-back" onClick={onBack} disabled={isLoading}>
+              Back to login
+            </button>
+          ) : null}
+        </div>
+      </form>
+    </>
   )
 }

@@ -9,6 +9,10 @@ function upstreamBaseUrl() {
   return process.env.PROMPT_LAYER_URL || 'http://zord-prompt-layer:8086'
 }
 
+function normalizePromptLayerBase(base: string) {
+  return base.replace(/\/+$/, '').replace(/\/query$/, '')
+}
+
 function upstreamCandidates() {
   if (process.env.PROMPT_LAYER_URL) return [process.env.PROMPT_LAYER_URL]
   // Prefer localhost for local frontend-only dev, then docker service host.
@@ -16,7 +20,7 @@ function upstreamCandidates() {
 }
 
 export async function POST(req: Request) {
-  const candidateUrls = upstreamCandidates().map((base) => `${base}/query`)
+  const candidateUrls = upstreamCandidates().map((base) => `${normalizePromptLayerBase(base)}/query`)
 
   let body: unknown
   try {
@@ -32,19 +36,13 @@ export async function POST(req: Request) {
   for (const url of candidateUrls) {
     lastUrl = url
     try {
-      const auth = req.headers.get('authorization') || ''
-      const tenant = req.headers.get('x-tenant-id') || ''
       res = await fetch(url, {
         method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          ...(auth ? { authorization: auth } : {}),
-          ...(tenant ? { 'x-tenant-id': tenant } : {}),
-        },
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
+        // Avoid any unintended caching semantics.
         cache: 'no-store',
       })
-
 
       if (res.ok || res.status < 500) {
         break

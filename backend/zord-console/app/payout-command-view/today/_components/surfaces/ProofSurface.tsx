@@ -4,6 +4,9 @@ import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { chartTooltipStyle } from '@/services/payout-command/model'
 import { ClientChart, LightCard, SurfaceEyebrow } from '../shared'
+import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
+import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 
 const failureReasonData = [
   { reason: 'PSP downtime', count: 44, atRisk: 9.8 },
@@ -56,34 +59,41 @@ export function ProofSurface() {
   const [activeQueueTab, setActiveQueueTab] = useState<QueueTab>('Needs client fix')
   const activeRows = useMemo(() => queueByOwner[activeQueueTab], [activeQueueTab])
 
+  // Live root-cause stats. KPI 10 (provider_ref_missing_rate) maps onto the
+  // canonical "Missing reference" reason group. Pair with ambiguity_rate +
+  // ambiguous_intent_count so the "Top failure reasons" card has live anchors.
+  const tenantId = useSessionTenantId()
+  const { ambiguity } = useIntelligenceKpis(tenantId)
+  const ambData = isDataAvailable(ambiguity) ? ambiguity : null
+
   return (
     <div className="mt-8 space-y-4">
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <LightCard className="border-[#E5E5E5] shadow-[0_8px_22px_rgba(0,0,0,0.04)]">
           <SurfaceEyebrow>Exception queue depth</SurfaceEyebrow>
-          <div className="mt-3 text-[2.35rem] font-light tracking-[-0.04em] text-[#111111]">184</div>
-          <div className="mt-1 text-[12px] text-[#6f716d]">Open exceptions in active queue</div>
-          <button type="button" className="mt-3 rounded-[0.8rem] border border-[#E5E5E5] bg-[#f7f7f4] px-3 py-2 text-[12px] text-[#111111]">
+          <div className="mt-3 text-[3.14rem] font-light tracking-[-0.04em] text-[#111111]">184</div>
+          <div className="mt-1 text-[16px] text-[#6f716d]">Open exceptions in active queue</div>
+          <button type="button" className="mt-3 rounded-[0.8rem] border border-[#E5E5E5] bg-[#f7f7f4] px-3 py-2 text-[16px] text-[#111111]">
             Open exception list
           </button>
         </LightCard>
 
         <LightCard className="border-[#E5E5E5] shadow-[0_8px_22px_rgba(0,0,0,0.04)]">
           <SurfaceEyebrow>Aging &gt; 24h</SurfaceEyebrow>
-          <div className="mt-3 text-[2.35rem] font-light tracking-[-0.04em] text-[#111111]">37</div>
-          <div className="mt-1 text-[12px] text-[#6f716d]">Needs priority owner routing today</div>
+          <div className="mt-3 text-[3.14rem] font-light tracking-[-0.04em] text-[#111111]">37</div>
+          <div className="mt-1 text-[16px] text-[#6f716d]">Needs priority owner routing today</div>
         </LightCard>
 
         <LightCard className="border-[#E5E5E5] shadow-[0_8px_22px_rgba(0,0,0,0.04)]">
           <SurfaceEyebrow>Median owner response</SurfaceEyebrow>
-          <div className="mt-3 text-[2.35rem] font-light tracking-[-0.04em] text-[#111111]">28m</div>
-          <div className="mt-1 text-[12px] text-[#6f716d]">From queue assignment to first action</div>
+          <div className="mt-3 text-[3.14rem] font-light tracking-[-0.04em] text-[#111111]">28m</div>
+          <div className="mt-1 text-[16px] text-[#6f716d]">From queue assignment to first action</div>
         </LightCard>
 
         <LightCard className="border-[#E5E5E5] shadow-[0_8px_22px_rgba(0,0,0,0.04)]">
           <SurfaceEyebrow>Auto-resolved today</SurfaceEyebrow>
-          <div className="mt-3 text-[2.35rem] font-light tracking-[-0.04em] text-[#111111]">61</div>
-          <div className="mt-1 text-[12px] text-[#6f716d]">Cleared without manual queue intervention</div>
+          <div className="mt-3 text-[3.14rem] font-light tracking-[-0.04em] text-[#111111]">61</div>
+          <div className="mt-1 text-[16px] text-[#6f716d]">Cleared without manual queue intervention</div>
         </LightCard>
       </div>
 
@@ -92,8 +102,35 @@ export function ProofSurface() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <SurfaceEyebrow>Top failure reasons today</SurfaceEyebrow>
-              <div className="mt-2 text-[14px] text-[#6f716d]">Actionable categories, not low-level codes</div>
+              <div className="mt-2 text-[18px] text-[#6f716d]">Actionable categories, not low-level codes</div>
             </div>
+          </div>
+
+          {/* Live root-cause anchors from /v1/intelligence/dashboard/ambiguity (KPIs 7,8,10). */}
+          <div className="mt-3 grid grid-cols-3 gap-2 text-left">
+            {[
+              {
+                label: 'Missing references',
+                value: ambData ? `${(ambData.provider_ref_missing_rate * 100).toFixed(1)}%` : '—',
+                sub: 'Provider ref absent',
+              },
+              {
+                label: 'Ambiguity rate',
+                value: ambData ? `${(ambData.ambiguity_rate * 100).toFixed(1)}%` : '—',
+                sub: 'Across all decisions',
+              },
+              {
+                label: 'Open signals',
+                value: ambData ? ambData.ambiguous_intent_count.toLocaleString('en-IN') : '—',
+                sub: 'Unresolved intents',
+              },
+            ].map((s) => (
+              <div key={s.label} className="rounded-[10px] border border-[#E5E5E5] bg-white px-3 py-2">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">{s.label}</div>
+                <div className="mt-1 text-[18px] font-semibold tabular-nums text-[#111111]">{s.value}</div>
+                <div className="mt-0.5 text-[11px] text-[#6f716d]">{s.sub}</div>
+              </div>
+            ))}
           </div>
 
           <ClientChart className="mt-5 h-[15rem]">
@@ -102,9 +139,10 @@ export function ProofSurface() {
                 <CartesianGrid vertical={false} stroke="#efefec" />
                 <XAxis dataKey="reason" axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 12 }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 12 }} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(value: number, name: string) => {
-                  if (name === 'atRisk') return [`₹${value.toFixed(1)}L`, 'Amount at risk']
-                  return [value, 'Exceptions']
+                <Tooltip contentStyle={chartTooltipStyle} formatter={(value, name) => {
+                  const n = typeof value === 'number' ? value : Number(value)
+                  if (name === 'atRisk') return [`₹${n.toFixed(1)}L`, 'Amount at risk']
+                  return [n, 'Exceptions']
                 }} />
                 <Bar dataKey="count" name="Exceptions" fill="#111111" barSize={30} radius={[8, 8, 0, 0]} />
                 <Bar dataKey="atRisk" name="atRisk" fill="#4ADE80" barSize={18} radius={[6, 6, 0, 0]} />
@@ -112,7 +150,7 @@ export function ProofSurface() {
             </ResponsiveContainer>
           </ClientChart>
 
-          <div className="mt-4 rounded-[1rem] border border-[#E5E5E5] bg-[#f8f8f6] p-3 text-[12px] leading-5 text-[#6f716d]">
+          <div className="mt-4 rounded-[1rem] border border-[#E5E5E5] bg-[#f8f8f6] p-3 text-[16px] leading-5 text-[#6f716d]">
             Friendly routing only: client data issue, PSP issue, bank-side issue, or policy block. Internal status enums and taxonomy internals stay hidden.
           </div>
         </LightCard>
@@ -121,7 +159,7 @@ export function ProofSurface() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <SurfaceEyebrow>Ops queues</SurfaceEyebrow>
-              <div className="mt-2 text-[14px] text-[#6f716d]">Route each issue to the right team quickly</div>
+              <div className="mt-2 text-[18px] text-[#6f716d]">Route each issue to the right team quickly</div>
             </div>
           </div>
 
@@ -131,7 +169,7 @@ export function ProofSurface() {
                 key={tab}
                 type="button"
                 onClick={() => setActiveQueueTab(tab)}
-                className={`rounded-full border px-3 py-1.5 text-[12px] transition ${
+                className={`rounded-full border px-3 py-1.5 text-[16px] transition ${
                   tab === activeQueueTab
                     ? 'border-[#111111] bg-[#111111] text-white'
                     : 'border-[#E5E5E5] bg-[#f7f7f4] text-[#6f716d] hover:text-[#111111]'
@@ -143,7 +181,7 @@ export function ProofSurface() {
           </div>
 
           <div className="mt-4 overflow-hidden rounded-[1rem] border border-[#E5E5E5]">
-            <div className="grid grid-cols-[0.9fr_1.1fr_0.8fr_0.55fr_0.6fr] bg-[#f8f8f6] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#8a8a86]">
+            <div className="grid grid-cols-[0.9fr_1.1fr_0.8fr_0.55fr_0.6fr] bg-[#f8f8f6] px-3 py-2 text-[14px] font-semibold uppercase tracking-[0.08em] text-[#8a8a86]">
               <span>Payment</span>
               <span>Category</span>
               <span>Status</span>
@@ -153,18 +191,18 @@ export function ProofSurface() {
             <div className="divide-y divide-[#ececea]">
               {activeRows.map((row) => (
                 <div key={row.paymentId} className="px-3 py-3">
-                  <div className="grid grid-cols-[0.9fr_1.1fr_0.8fr_0.55fr_0.6fr] items-center gap-2 text-[12px]">
+                  <div className="grid grid-cols-[0.9fr_1.1fr_0.8fr_0.55fr_0.6fr] items-center gap-2 text-[16px]">
                     <span className="font-medium text-[#111111]">{row.paymentId}</span>
                     <span className="text-[#6f716d]">{row.category}</span>
                     <span className="text-[#6f716d]">{row.status}</span>
                     <span className="text-right text-[#8a8a86]">{row.age}</span>
                     <span className="text-right">
-                      <button type="button" className="rounded-[0.6rem] border border-[#E5E5E5] bg-white px-2 py-1 text-[11px] text-[#111111]">
+                      <button type="button" className="rounded-[0.6rem] border border-[#E5E5E5] bg-white px-2 py-1 text-[15px] text-[#111111]">
                         Open
                       </button>
                     </span>
                   </div>
-                  <div className="mt-2 text-[11px] text-[#7c7d78]">Recommended owner: {row.owner}</div>
+                  <div className="mt-2 text-[15px] text-[#7c7d78]">Recommended owner: {row.owner}</div>
                 </div>
               ))}
             </div>
@@ -177,7 +215,7 @@ export function ProofSurface() {
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <SurfaceEyebrow>Exception queue depth trend</SurfaceEyebrow>
-              <div className="mt-2 text-[14px] text-[#6f716d]">Queue pressure over the working day</div>
+              <div className="mt-2 text-[18px] text-[#6f716d]">Queue pressure over the working day</div>
             </div>
           </div>
           <ClientChart className="mt-4 h-[10rem]">
@@ -185,7 +223,7 @@ export function ProofSurface() {
               <BarChart data={queueDepthSeries} margin={{ top: 2, right: 8, left: -8, bottom: 0 }}>
                 <XAxis dataKey="slot" axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 11 }} />
                 <YAxis axisLine={false} tickLine={false} tick={{ fill: '#8a8a86', fontSize: 11 }} />
-                <Tooltip contentStyle={chartTooltipStyle} formatter={(value: number) => [value, 'Open exceptions']} />
+                <Tooltip contentStyle={chartTooltipStyle} formatter={(value) => [typeof value === 'number' ? value : Number(value), 'Open exceptions']} />
                 <Bar dataKey="open" fill="#111111" barSize={20} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -194,10 +232,10 @@ export function ProofSurface() {
 
         <LightCard className="border-[#E5E5E5] shadow-[0_6px_20px_rgba(0,0,0,0.05)]">
           <SurfaceEyebrow>Failure intelligence note</SurfaceEyebrow>
-          <p className="mt-3 text-[13px] leading-7 text-[#6f716d]">
+          <p className="mt-3 text-[17px] leading-7 text-[#6f716d]">
             Zord classifies failures into business-actionable buckets and routes them to the right owner: client fix, PSP fix, or bank follow-up. This reduces blind spots and helps risk and compliance teams close incidents faster with clear accountability.
           </p>
-          <div className="mt-4 rounded-[1rem] border border-[#E5E5E5] bg-[#f7f7f4] p-3 text-[12px] leading-5 text-[#6f716d]">
+          <div className="mt-4 rounded-[1rem] border border-[#E5E5E5] bg-[#f7f7f4] p-3 text-[16px] leading-5 text-[#6f716d]">
             Ask Zord prompt responses stay in business language only, such as “PSP delayed webhook” or “bank statement pending”, without exposing internal storage fields or engine internals.
           </div>
         </LightCard>

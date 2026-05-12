@@ -1,0 +1,438 @@
+package normalizer
+
+import (
+    "encoding/json"
+    "fmt"
+    "math"
+    "regexp"
+    "strconv"
+    "strings"
+    "time"
+    "unicode"
+)
+
+// NormalizationResult is what the normalizer returns.
+// It carries the normalized JSON ready for json.Unmarshal into ParsedIncomingIntent,
+// plus provenance metadata that goes into the NIR.
+type NormalizationResult struct {
+    NormalizedJSON  []byte            // ready to Unmarshal into ParsedIncomingIntent
+    FieldProvenance []FieldProvenance // one entry per field, for NIR
+    UnmappedFields  map[string]any    // fields that had no mapping — never dropped
+    Warnings        []string
+    WasNormalized   bool              // false = payload was already in canonical form
+}
+
+// FieldProvenance records how each field was resolved — for NIR TransformApplied.
+type FieldProvenance struct {
+    CanonicalPath  string
+    SourceKey      string
+    MatchMethod    string  // "exact" | "lowercase_trim" | "synonym" | "fuzzy" | "inferred"
+    RawValue       string
+    NormalizedValue string
+    Confidence     float64
+    Transform      string  // "NONE" | "AMOUNT_DECIMAL" | "CURRENCY_ISO" | "TIMESTAMP_UTC" | etc.
+    Warning        string
+}
+
+// Normalize is the entry point. It takes raw decrypted JSON bytes and returns
+// a NormalizationResult. It is called from intent_service.go right after decrypt.
+//
+// If the JSON already has canonical keys (i.e. it came from a well-formed client),
+// it passes through with WasNormalized=false and zero overhead.
+func Normalize(rawJSON []byte, tenantSynonyms map[string]string) (*NormalizationResult, error) {
+    // Parse raw JSON into a flat map first
+    var raw map[string]any
+    if err := json.Unmarshal(rawJSON, &raw); err != nil {
+        return nil, fmt.Errorf("normalizer: invalid JSON: %w", err)
+    }
+
+    // If already canonical (all top-level keys are known Zord fields), skip normalization
+    if isAlreadyCanonical(raw) {
+        return &NormalizationResult{
+            NormalizedJSON: rawJSON,
+            WasNormalized:  false,
+        }, nil
+    }
+
+    // Build merged synonym map: global dict + tenant-specific overrides
+    merged := make(map[string]string, len(synonymDict)+len(tenantSynonyms))
+    for k, v := range synonymDict {
+        merged[k] = v
+    }
+    for k, v := range tenantSynonyms {
+        merged[strings.ToLower(strings.TrimSpace(k))] = v
+    }
+
+    canonical := make(map[string]any)   // will be serialized as normalized JSON
+    unmapped  := make(map[string]any)
+    var provenance []FieldProvenance
+    var warnings []string
+
+    for rawKey, rawVal := range raw {
+        prov, canonicalPath, normalizedVal, matched := resolveField(rawKey, rawVal, merged)
+
+        if !matched {
+            unmapped[rawKey] = rawVal
+            warnings = append(warnings, fmt.Sprintf("unmapped field %q — preserved in unmapped_json", rawKey))
+            continue
+        }
+
+        // Set into nested canonical map using dot-path
+        setNestedValue(canonical, canonicalPath, normalizedVal)
+        provenance = append(provenance, prov)
+    }
+
+    // 10.3 — Row-level normalization: ensure required defaults
+    ensureDefaults(canonical, &warnings)
+
+    normalizedBytes, err := json.Marshal(canonical)
+    if err != nil {
+        return nil, fmt.Errorf("normalizer: marshal failed: %w", err)
+    }
+
+    return &NormalizationResult{
+        NormalizedJSON:  normalizedBytes,
+        FieldProvenance: provenance,
+        UnmappedFields:  unmapped,
+        Warnings:        warnings,
+        WasNormalized:   true,
+    }, nil
+}
+
+// resolveField attempts to map a raw key to a canonical path using the 4-step chain.
+func resolveField(rawKey string, rawVal any, synonyms map[string]string) (FieldProvenance, string, any, bool) {
+    rawStr := fmt.Sprintf("%v", rawVal)
+
+    prov := FieldProvenance{
+        SourceKey: rawKey,
+        RawValue:  rawStr,
+    }
+
+    // Step 1 — Exact match against synonym dict
+    if canonical, ok := synonyms[rawKey]; ok {
+        prov.MatchMethod = "exact"
+        prov.CanonicalPath = canonical
+        prov.Confidence = 1.0
+        normalized, transform := applyTypeNormalization(canonical, rawStr)
+        prov.NormalizedValue = fmt.Sprintf("%v", normalized)
+        prov.Transform = transform
+        return prov, canonical, normalized, true
+    }
+
+    // Step 2 — Lowercase + trim
+    lowKey := strings.ToLower(strings.TrimSpace(rawKey))
+    if canonical, ok := synonyms[lowKey]; ok {
+        prov.MatchMethod = "lowercase_trim"
+        prov.CanonicalPath = canonical
+        prov.Confidence = 0.98
+        normalized, transform := applyTypeNormalization(canonical, rawStr)
+        prov.NormalizedValue = fmt.Sprintf("%v", normalized)
+        prov.Transform = transform
+        return prov, canonical, normalized, true
+    }
+
+    // Step 3 — Synonym dictionary (already covered by steps 1+2 since dict is lowercase)
+    // Remaining: try stripping underscores and spaces
+    stripped := strings.ReplaceAll(strings.ReplaceAll(lowKey, "_", ""), " ", "")
+    for dictKey, canonical := range synonyms {
+        dictStripped := strings.ReplaceAll(strings.ReplaceAll(dictKey, "_", ""), " ", "")
+        if stripped == dictStripped {
+            prov.MatchMethod = "synonym"
+            prov.CanonicalPath = canonical
+            prov.Confidence = 0.92
+            normalized, transform := applyTypeNormalization(canonical, rawStr)
+            prov.NormalizedValue = fmt.Sprintf("%v", normalized)
+            prov.Transform = transform
+            return prov, canonical, normalized, true
+        }
+    }
+
+    // Step 4 — Fuzzy similarity (Jaro-Winkler style, simplified)
+    bestMatch, bestScore := fuzzyMatch(lowKey, synonyms)
+    if bestScore >= 0.88 {
+        prov.MatchMethod = "fuzzy"
+        prov.CanonicalPath = bestMatch
+        prov.Confidence = bestScore * 0.85 // reduce confidence for fuzzy
+        prov.Warning = fmt.Sprintf("fuzzy match %q → %q score=%.2f", rawKey, bestMatch, bestScore)
+        normalized, transform := applyTypeNormalization(bestMatch, rawStr)
+        prov.NormalizedValue = fmt.Sprintf("%v", normalized)
+        prov.Transform = transform
+        return prov, bestMatch, normalized, true
+    }
+
+    return prov, "", rawVal, false
+}
+
+// applyTypeNormalization implements 10.2 — type normalization per canonical path.
+func applyTypeNormalization(canonicalPath, rawVal string) (any, string) {
+    switch canonicalPath {
+
+    case "amount.value":
+        normalized, err := normalizeAmount(rawVal)
+        if err != nil {
+            return rawVal, "AMOUNT_PARSE_FAILED"
+        }
+        return normalized, "AMOUNT_DECIMAL"
+
+    case "amount.currency":
+        return normalizeCurrency(rawVal), "CURRENCY_ISO"
+
+    case "intended_execution_at":
+        t, err := normalizeTimestamp(rawVal)
+        if err != nil {
+            return rawVal, "TIMESTAMP_PARSE_FAILED"
+        }
+        return t.UTC().Format(time.RFC3339), "TIMESTAMP_UTC"
+
+    case "beneficiary.instrument.kind":
+        return normalizeRail(rawVal), "RAIL_ENUM"
+
+    case "provider_hint":
+        return strings.ToLower(strings.TrimSpace(rawVal)), "LOWERCASE"
+
+    default:
+        return strings.TrimSpace(rawVal), "TRIM"
+    }
+}
+
+// normalizeAmount handles 10.3 amount variants:
+// "1,000.00" / "₹1,000" / "(1000)" / "1,00,000.00" / "1000"
+func normalizeAmount(raw string) (string, error) {
+    s := strings.TrimSpace(raw)
+
+    // Negative parentheses: (1000) → -1000
+    negative := false
+    if strings.HasPrefix(s, "(") && strings.HasSuffix(s, ")") {
+        s = s[1 : len(s)-1]
+        negative = true
+    }
+
+    // Strip currency symbols and whitespace
+    s = strings.Map(func(r rune) rune {
+        if unicode.IsDigit(r) || r == '.' || r == '-' || r == ',' {
+            return r
+        }
+        return -1
+    }, s)
+
+    // Remove Indian/standard comma grouping
+    s = strings.ReplaceAll(s, ",", "")
+
+    val, err := strconv.ParseFloat(s, 64)
+    if err != nil {
+        return "", fmt.Errorf("cannot parse amount %q", raw)
+    }
+
+    if negative {
+        val = -val
+    }
+
+    // Round to 2 decimal places
+    val = math.Round(val*100) / 100
+    return strconv.FormatFloat(val, 'f', 2, 64), nil
+}
+
+// normalizeCurrency maps common variants to ISO 4217.
+func normalizeCurrency(raw string) string {
+    m := map[string]string{
+        "inr": "INR", "rupee": "INR", "rupees": "INR", "rs": "INR", "rs.": "INR",
+        "usd": "USD", "dollar": "USD", "dollars": "USD",
+        "eur": "EUR", "euro": "EUR",
+        "gbp": "GBP", "pound": "GBP",
+        "aed": "AED", "sgd": "SGD",
+    }
+    key := strings.ToLower(strings.TrimSpace(raw))
+    if iso, ok := m[key]; ok {
+        return iso
+    }
+    return strings.ToUpper(strings.TrimSpace(raw))
+}
+
+// normalizeTimestamp handles mixed date formats from 10.3.
+var dateFormats = []string{
+    time.RFC3339,
+    "2006-01-02T15:04:05",
+    "2006-01-02 15:04:05",
+    "02/01/2006",             // Indian DD/MM/YYYY
+    "01/02/2006",             // US MM/DD/YYYY
+    "2006-01-02",
+    "02-01-2006",
+    "Jan 2, 2006",
+    "2 Jan 2006",
+    "02 Jan 2006",
+    "January 2, 2006",
+}
+
+func normalizeTimestamp(raw string) (time.Time, error) {
+    s := strings.TrimSpace(raw)
+    for _, layout := range dateFormats {
+        if t, err := time.Parse(layout, s); err == nil {
+            return t, nil
+        }
+    }
+    return time.Time{}, fmt.Errorf("cannot parse timestamp %q", raw)
+}
+
+// normalizeRail maps payment mode variants to Zord rail enum.
+func normalizeRail(raw string) string {
+    m := map[string]string{
+        "neft": "NEFT", "imps": "IMPS", "rtgs": "RTGS",
+        "upi": "UPI", "upi/imps": "UPI", "bank": "NEFT",
+        "wallet": "WALLET", "card": "CARD",
+    }
+    key := strings.ToLower(strings.TrimSpace(raw))
+    if v, ok := m[key]; ok {
+        return v
+    }
+    return strings.ToUpper(strings.TrimSpace(raw))
+}
+
+// fuzzyMatch returns the best canonical path and similarity score for a key.
+func fuzzyMatch(input string, synonyms map[string]string) (string, float64) {
+    best := ""
+    bestScore := 0.0
+    for dictKey, canonical := range synonyms {
+        score := jaroWinkler(input, dictKey)
+        if score > bestScore {
+            bestScore = score
+            best = canonical
+        }
+    }
+    return best, bestScore
+}
+
+// jaroWinkler computes a simplified Jaro-Winkler similarity.
+func jaroWinkler(s1, s2 string) float64 {
+    if s1 == s2 {
+        return 1.0
+    }
+    l1, l2 := len(s1), len(s2)
+    if l1 == 0 || l2 == 0 {
+        return 0.0
+    }
+    matchDist := max(l1, l2)/2 - 1
+    if matchDist < 0 {
+        matchDist = 0
+    }
+    s1m := make([]bool, l1)
+    s2m := make([]bool, l2)
+    matches := 0
+    transpositions := 0
+    for i := 0; i < l1; i++ {
+        start := max(0, i-matchDist)
+        end := min(l2-1, i+matchDist)
+        for j := start; j <= end; j++ {
+            if s2m[j] || s1[i] != s2[j] {
+                continue
+            }
+            s1m[i] = true
+            s2m[j] = true
+            matches++
+            break
+        }
+    }
+    if matches == 0 {
+        return 0.0
+    }
+    k := 0
+    for i := 0; i < l1; i++ {
+        if !s1m[i] {
+            continue
+        }
+        for !s2m[k] {
+            k++
+        }
+        if s1[i] != s2[k] {
+            transpositions++
+        }
+        k++
+    }
+    jaro := (float64(matches)/float64(l1) +
+        float64(matches)/float64(l2) +
+        float64(matches-transpositions/2)/float64(matches)) / 3.0
+    prefix := 0
+    for i := 0; i < min(4, min(l1, l2)); i++ {
+        if s1[i] == s2[i] {
+            prefix++
+        } else {
+            break
+        }
+    }
+    return jaro + float64(prefix)*0.1*(1-jaro)
+}
+
+// setNestedValue sets a value at a dot-separated path in a map.
+// "amount.value" → map["amount"]["value"] = val
+func setNestedValue(m map[string]any, path string, val any) {
+    parts := strings.SplitN(path, ".", 2)
+    if len(parts) == 1 {
+        m[path] = val
+        return
+    }
+    if _, ok := m[parts[0]]; !ok {
+        m[parts[0]] = make(map[string]any)
+    }
+    if sub, ok := m[parts[0]].(map[string]any); ok {
+        setNestedValue(sub, parts[1], val)
+    }
+}
+
+// isAlreadyCanonical returns true if the JSON already uses Zord canonical top-level keys.
+// This is a fast path — avoids normalization overhead for well-formed clients.
+var canonicalTopLevelKeys = map[string]bool{
+    "intent_type": true, "amount": true, "beneficiary": true,
+    "idempotency_key": true, "account_number": true,
+    "client_payout_ref": true, "client_batch_ref": true,
+    "provider_hint": true, "intended_execution_at": true,
+    "purpose_code": true, "remitter": true, "constraints": true,
+    "schema_version": true, "governance_hash": true,
+}
+
+func isAlreadyCanonical(raw map[string]any) bool {
+    for key := range raw {
+        if !canonicalTopLevelKeys[key] {
+            return false // has at least one non-canonical key — normalize
+        }
+    }
+    return true
+}
+
+// ensureDefaults applies 10.3 row-level defaults.
+func ensureDefaults(canonical map[string]any, warnings *[]string) {
+    // Default currency to INR if amount.value present but currency missing
+    if amtMap, ok := canonical["amount"].(map[string]any); ok {
+        if amtMap["currency"] == nil || amtMap["currency"] == "" {
+            amtMap["currency"] = "INR"
+            *warnings = append(*warnings, "currency defaulted to INR")
+        }
+    }
+    // Default instrument kind to NEFT if IFSC present but kind missing
+    if benMap, ok := canonical["beneficiary"].(map[string]any); ok {
+        if instMap, ok := benMap["instrument"].(map[string]any); ok {
+            if instMap["kind"] == nil || instMap["kind"] == "" {
+                if instMap["ifsc"] != nil {
+                    instMap["kind"] = "NEFT"
+                    *warnings = append(*warnings, "instrument.kind defaulted to NEFT (ifsc present)")
+                } else if instMap["vpa"] != nil {
+                    instMap["kind"] = "UPI"
+                    *warnings = append(*warnings, "instrument.kind defaulted to UPI (vpa present)")
+                }
+            }
+        }
+    }
+}
+
+var nonDigitOrDot = regexp.MustCompile(`[^\d.]`)
+
+func max(a, b int) int {
+    if a > b {
+        return a
+    }
+    return b
+}
+func min(a, b int) int {
+    if a < b {
+        return a
+    }
+    return b
+}

@@ -98,6 +98,7 @@ func main() {
 	runRepo := etl.NewRunRepository(db.DB)
 	airflowWorker := worker.NewAirflowWorker(outboxPullRepo, runRepo)
 	airflowHandler := handlers.NewAirflowHandler(airflowWorker)
+	normHandler := handlers.NewNormalizationHandler(db.DB)
 
 	mux := http.NewServeMux()
 
@@ -136,6 +137,7 @@ func main() {
 	mux.HandleFunc("/internal/outbox/ack", outboxHandler.Ack)
 	mux.HandleFunc("/internal/outbox/nack", outboxHandler.Nack)
 	mux.HandleFunc("/internal/airflow/transform", airflowHandler.Transform)
+	mux.HandleFunc("/internal/normalization/quality", normHandler.Quality)
 
 	handler := func(msg []byte) error {
 		var event models.Event

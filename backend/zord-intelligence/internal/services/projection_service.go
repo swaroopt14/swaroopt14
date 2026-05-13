@@ -1335,8 +1335,8 @@ func (s *ProjectionService) HandleGovernanceDecision(
 //   ≤ 0.3  → POOR    : insufficient carriers, orphan settlement risk
 
 const (
-	attachReadinessReadyThreshold   = 0.6
-	attachReadinessPartialThreshold = 0.3
+	attachReadinessReadyThreshold   = 0.75
+	attachReadinessPartialThreshold = 0.5
 )
 
 // classifyAttachmentReadiness maps a 0.0–1.0 score from Service 5B into one
@@ -1369,8 +1369,8 @@ func classifyAttachmentReadiness(score float64) string {
 //   ≤ 0.3  → POOR    : 0–1 carriers present, high ambiguity risk at attachment time
 
 const (
-	carrierRichnessRichThreshold    = 0.6
-	carrierRichnessPartialThreshold = 0.3
+	carrierRichnessRichThreshold    = 0.75
+	carrierRichnessPartialThreshold = 0.5
 )
 
 // classifyCarrierRichness maps a 0.0–1.0 score from Service 5B into a tier.

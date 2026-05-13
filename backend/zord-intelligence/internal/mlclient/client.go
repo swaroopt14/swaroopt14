@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,15 +43,19 @@ func New(brokers, requestTopic, resultTopic, groupIDPrefix string) *Client {
 	// Each process gets its own consumer group so it sees every result message.
 	// Results for other pending event IDs are discarded cheaply via the map check.
 	resultGroupID := groupIDPrefix + "-mlresult-" + uuid.NewString()[:8]
+	brokerList := strings.Split(brokers, ",")
+	for i := range brokerList {
+		brokerList[i] = strings.TrimSpace(brokerList[i])
+	}
 
 	writer := &kafka.Writer{
-		Addr:         kafka.TCP(brokers),
+		Addr:         kafka.TCP(brokerList...),
 		Balancer:     &kafka.LeastBytes{},
 		RequiredAcks: kafka.RequireAll,
 		Async:        false,
 	}
 	reader := kafka.NewReader(kafka.ReaderConfig{
-		Brokers:        []string{brokers},
+		Brokers:        brokerList,
 		GroupID:        resultGroupID,
 		Topic:          resultTopic,
 		CommitInterval: time.Second,

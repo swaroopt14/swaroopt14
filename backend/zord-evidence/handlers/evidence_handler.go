@@ -47,16 +47,31 @@ func (h *EvidenceHandler) GetEvidencePack(c *gin.Context) {
 	c.JSON(http.StatusOK, pack)
 }
 
-// GET /v1/evidence/packs — list packs by intent_id (spec §17)
-// Query params: tenant_id (required), intent_id (required)
+// GET /v1/evidence/packs — list packs by intent_id or batch_id (spec §17)
+// Query params: tenant_id (required), and either intent_id or batch_id
 func (h *EvidenceHandler) ListEvidencePacks(c *gin.Context) {
 	tenantID := strings.TrimSpace(c.Query("tenant_id"))
 	intentID := strings.TrimSpace(c.Query("intent_id"))
-	if tenantID == "" || intentID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "tenant_id and intent_id query params are required"})
+	batchID := strings.TrimSpace(c.Query("batch_id"))
+
+	if tenantID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tenant_id query param is required"})
 		return
 	}
-	resp, err := h.svc.ListPacksByIntentID(c.Request.Context(), tenantID, intentID)
+	if intentID == "" && batchID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "either intent_id or batch_id query param is required"})
+		return
+	}
+
+	var resp *models.ListPacksResponse
+	var err error
+
+	if intentID != "" {
+		resp, err = h.svc.ListPacksByIntentID(c.Request.Context(), tenantID, intentID)
+	} else {
+		resp, err = h.svc.ListPacksByBatchID(c.Request.Context(), tenantID, batchID)
+	}
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

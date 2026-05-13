@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -33,10 +34,14 @@ type Producer struct {
 //
 //	producer := kafka.NewProducer(cfg.KafkaBrokers)
 //	defer producer.Close()
-func NewProducer(broker string) *Producer {
+func NewProducer(brokers string) *Producer {
+	brokerList := strings.Split(brokers, ",")
+	for i := range brokerList {
+		brokerList[i] = strings.TrimSpace(brokerList[i])
+	}
 	writer := &kafka.Writer{
 		// Addr is the Kafka broker address
-		Addr: kafka.TCP(broker),
+		Addr: kafka.TCP(brokerList...),
 
 		// Balancer decides which partition a message goes to.
 		// LeastBytes sends to the partition with the fewest recent bytes.

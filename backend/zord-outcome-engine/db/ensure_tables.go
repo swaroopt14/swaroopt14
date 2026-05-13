@@ -431,6 +431,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			winning_score               NUMERIC(8,4) NOT NULL DEFAULT 0,
 			runner_up_score             NUMERIC(8,4),
 			score_margin                NUMERIC(8,4),
+			relative_score_margin       NUMERIC(8,4),
 			confidence_score            NUMERIC(5,4) NOT NULL DEFAULT 0,
 			ambiguity_score             NUMERIC(5,4) NOT NULL DEFAULT 0,
 			supporting_carriers_json    JSONB,

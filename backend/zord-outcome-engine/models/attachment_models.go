@@ -160,6 +160,7 @@ type AttachmentDecision struct {
 	WinningScore             float64         `json:"winning_score" db:"winning_score"`
 	RunnerUpScore            *float64        `json:"runner_up_score,omitempty" db:"runner_up_score"`
 	ScoreMargin              *float64        `json:"score_margin,omitempty" db:"score_margin"`
+	RelativeScoreMargin      *float64        `json:"relative_score_margin,omitempty" db:"relative_score_margin"`
 	ConfidenceScore          float64         `json:"confidence_score" db:"confidence_score"`
 	AmbiguityScore           float64         `json:"ambiguity_score" db:"ambiguity_score"`
 	SupportingCarriersJSON   json.RawMessage `json:"supporting_carriers_json" db:"supporting_carriers_json"`

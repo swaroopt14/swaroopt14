@@ -203,6 +203,7 @@ func (e *AttachmentEngine) runAttachment(
 			runnerUpScore  *float64
 			scoreMargin    *float64
 			confScore      float64
+			relMargin      *float64
 		)
 
 		if len(scored) > 0 {
@@ -223,6 +224,8 @@ func (e *AttachmentEngine) runAttachment(
 			runnerUpScore = &s
 			m := winningScore - s
 			scoreMargin = &m
+			rm := m / max(winningScore, 1.0)
+			relMargin = &rm
 		}
 
 		// Build supporting carriers summary.
@@ -257,6 +260,7 @@ func (e *AttachmentEngine) runAttachment(
 			WinningScore:             winningScore,
 			RunnerUpScore:            runnerUpScore,
 			ScoreMargin:              scoreMargin,
+			RelativeScoreMargin:      relMargin,
 			ConfidenceScore:          confScore,
 			AmbiguityScore:           ambiguityScore,
 			SupportingCarriersJSON:   carriersJSON,
@@ -723,12 +727,12 @@ func persistAttachmentOutputs(
 				settlement_observation_id, intent_id, attachment_job_id,
 				decision_type, decision_reason_code, decision_reason_detail_json,
 				matching_ruleset_version,
-				winning_score, runner_up_score, score_margin,
+				winning_score, runner_up_score, score_margin,relative_score_margin,
 				confidence_score, ambiguity_score,
 				supporting_carriers_json, candidate_set_hash,
 				created_at, updated_at
 			) VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
 			) ON CONFLICT (settlement_observation_id, attachment_job_id) DO UPDATE SET
 				decision_type              = EXCLUDED.decision_type,
 				decision_reason_code       = EXCLUDED.decision_reason_code,
@@ -736,6 +740,7 @@ func persistAttachmentOutputs(
 				winning_score              = EXCLUDED.winning_score,
 				runner_up_score            = EXCLUDED.runner_up_score,
 				score_margin               = EXCLUDED.score_margin,
+				relative_score_margin      = EXCLUDED.relative_score_margin,
 				confidence_score           = EXCLUDED.confidence_score,
 				ambiguity_score            = EXCLUDED.ambiguity_score,
 				supporting_carriers_json   = EXCLUDED.supporting_carriers_json,
@@ -746,7 +751,7 @@ func persistAttachmentOutputs(
 			d.SettlementObservationID, d.IntentID, d.AttachmentJobID,
 			d.DecisionType, d.DecisionReasonCode, d.DecisionReasonDetailJSON,
 			d.MatchingRulesetVersion,
-			d.WinningScore, d.RunnerUpScore, d.ScoreMargin,
+			d.WinningScore, d.RunnerUpScore, d.ScoreMargin, d.RelativeScoreMargin,
 			d.ConfidenceScore, d.AmbiguityScore,
 			d.SupportingCarriersJSON, d.CandidateSetHash,
 			d.CreatedAt, d.UpdatedAt,

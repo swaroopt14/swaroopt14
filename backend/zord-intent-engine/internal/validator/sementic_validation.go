@@ -116,7 +116,7 @@ func validateExecutionRules(intent models.ParsedIncomingIntent) error {
 
 func validateInstrumentParsed(intent models.ParsedIncomingIntent) error {
 	switch intent.Beneficiary.Instrument.Kind {
-	case "BANK":
+	case "BANK", "NEFT", "IMPS", "RTGS":
 		if strings.TrimSpace(intent.AccountNumber) == "" {
 			return semanticError("account_number required for BANK instrument")
 		}

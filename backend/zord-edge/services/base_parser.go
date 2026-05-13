@@ -45,13 +45,19 @@ func (p *baseParser) buildColIndex(headers []string) map[string]int {
 }
 
 // getFromCandidates tries multiple header names and returns the first non-empty value found.
+// If the last candidate is not present in colIndex, it is treated as a literal default value.
 func (p *baseParser) getFromCandidates(row []string, colIndex map[string]int, candidates ...string) string {
-	for _, c := range candidates {
-		if idx, ok := colIndex[strings.ToLower(strings.TrimSpace(c))]; ok && idx < len(row) {
+	for i, c := range candidates {
+		normalized := strings.ToLower(strings.TrimSpace(c))
+		if idx, ok := colIndex[normalized]; ok && idx < len(row) {
 			val := strings.TrimSpace(row[idx])
 			if val != "" {
 				return val
 			}
+		} else if i == len(candidates)-1 && len(candidates) > 1 {
+			// If it's the last candidate and NOT in headers, treat it as a literal default
+			// This matches calls like: get("intent_type", "PAYOUT")
+			return c
 		}
 	}
 	return ""

@@ -40,6 +40,8 @@ type ParsedIncomingIntent struct {
 	ClientPayoutRef     string         `json:"client_payout_ref,omitempty"`
 	ProviderHint        string         `json:"provider_hint,omitempty"`
 	IntendedExecutionAt string         `json:"intended_execution_at,omitempty"`
+	Source              string         `json:"source,omitempty"`
+	SourceSystem        string         `json:"source_system,omitempty"`
 	GovernanceHash      string         `json:"governance_hash,omitempty"`
 	IntentID            string         `json:"intent_id,omitempty"`
 }

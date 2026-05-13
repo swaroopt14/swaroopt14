@@ -420,24 +420,27 @@ func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req mode
 	// ----------------------------------------
 	// SEMANTIC POLICY (HARD)
 	// ----------------------------------------
+	kind := strings.ToUpper(req.Beneficiary.Instrument.Kind)
+	isBank := kind == "BANK" || kind == "NEFT" || kind == "IMPS" || kind == "RTGS"
+	isUPI := kind == "UPI"
 
 	// BANK requires IFSC
-	if req.Beneficiary.Instrument.Kind == "BANK" && req.Beneficiary.Instrument.IFSC == "" {
+	if isBank && req.Beneficiary.Instrument.IFSC == "" {
 		gov.SemanticValid = false
 		gov.SemanticErrors = append(gov.SemanticErrors, "BANK_REQUIRES_IFSC")
 	}
 	// UPI requires VPA
-	if req.Beneficiary.Instrument.Kind == "UPI" && req.Beneficiary.Instrument.VPA == "" {
+	if isUPI && req.Beneficiary.Instrument.VPA == "" {
 		gov.SemanticValid = false
 		gov.SemanticErrors = append(gov.SemanticErrors, "UPI_REQUIRES_VPA")
 	}
 	// BANK + VPA -> error
-	if req.Beneficiary.Instrument.Kind == "BANK" && req.Beneficiary.Instrument.VPA != "" {
+	if isBank && strings.TrimSpace(req.Beneficiary.Instrument.VPA) != "" {
 		gov.SemanticValid = false
 		gov.SemanticErrors = append(gov.SemanticErrors, "BANK_WITH_VPA_INVALID")
 	}
 	// UPI + IFSC -> error
-	if req.Beneficiary.Instrument.Kind == "UPI" && req.Beneficiary.Instrument.IFSC != "" {
+	if isUPI && strings.TrimSpace(req.Beneficiary.Instrument.IFSC) != "" {
 		gov.SemanticValid = false
 		gov.SemanticErrors = append(gov.SemanticErrors, "UPI_WITH_IFSC_INVALID")
 	}

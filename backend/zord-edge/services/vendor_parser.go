@@ -59,34 +59,48 @@ func (p *VendorParser) parseRow(rowNum int, row []string, colIndex map[string]in
 	shape.SchemaVersion = get("schema_version", "1.0.0")
 	shape.IntentType = get("intent_type", "PAYOUT")
 
-	shape.AccountNumber = get("beneficiary_account_no", "account number", "account no")
-	shape.Beneficiary.Name = get("beneficiary_name", "vendor name", "name")
+	shape.AccountNumber = get("account_number", "beneficiary_account_no", "account number", "account no")
+	shape.Beneficiary.Name = get("beneficiary.name", "beneficiary_name", "vendor name", "name")
 	shape.Beneficiary.Instrument.Kind = get("beneficiary.instrument.kind", "instrument_kind", "BANK_ACCOUNT")
-	shape.Beneficiary.Instrument.IFSC = get("beneficiary_ifsc", "ifsc code", "ifsc")
+	shape.Beneficiary.Instrument.IFSC = get("beneficiary.instrument.ifsc", "beneficiary_ifsc", "ifsc code", "ifsc")
 	shape.Beneficiary.Country = get("beneficiary.country", "country", "IN")
+	
+	shape.Remitter.Phone = get("remitter.phone", "phone")
+	shape.Remitter.Email = get("remitter.email", "email")
+	shape.Remitter.CustomerID = get("remitter.customer_id", "customer_id")
 
 	shape.ClientPayoutRef = get("client_payout_ref", "reference no")
 	
-	amtStr := get("amount", "net payable")
+	shape.Source = get("source")
+	shape.SourceSystem = get("source_system")
+
+	shape.Constraints = make(map[string]any)
+	if window := get("constraints.execution_window"); window != "" {
+		shape.Constraints["execution_window"] = window
+	}
+
+	amtStr := get("amount.value", "amount_paid", "amount", "net payable")
 	amt, err := p.parseAmount(amtStr)
 	if err != nil {
 		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "amount", Message: err.Error()})
 	} else {
 		shape.Amount.Value = fmt.Sprintf("%.2f", amt)
-		shape.Amount.Currency = get("currency", "INR")
+		shape.Amount.Currency = get("amount.currency", "currency", "INR")
 	}
 
 	// ── Gateway routing ───────────────────────────────────────────────────
 	shape.GatewayName = get("gateway_name", "gateway")
 	shape.FundAccountID = get("fund_account_id", "fund account id")
 	shape.ContactID = get("contact_id", "contact id")
+	shape.ProviderHint = get("provider_hint")
+	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "schedule_at")
 
 	// ── Invoice / PO context ──────────────────────────────────────────────
 	shape.InvoiceNumber = get("invoice_number", "invoice no")
 	shape.PONumber = get("po_number", "po number")
 	shape.ProductID = get("product_id", "item code")
 	shape.ProductDesc = get("product_description", "description")
-	shape.PayoutPurpose = get("payout_purpose", "purpose")
+	shape.PayoutPurpose = get("payout_purpose", "purpose", "purpose_code")
 	shape.HSNSACCode = get("hsn_sac_code", "hsn/sac")
 
 	rawInvDate := get("invoice_date", "invoice date")

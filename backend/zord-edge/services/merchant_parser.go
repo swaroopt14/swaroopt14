@@ -44,36 +44,46 @@ func (p *MerchantParser) parseRow(rowNum int, row []string, colIndex map[string]
 
 	// ── Base fields ──────────────────────────────────────────────────────────
 	shape.SchemaVersion = get("schema_version", "1.0.0")
-	shape.IntentType = get("intent_type", "PAYOUT")
+	shape.IntentType = get("intent_type", "payout_type", "PAYOUT")
 
-	shape.AccountNumber = get("beneficiary_account_no", "account no", "account number")
-	shape.Beneficiary.Name = get("beneficiary_name", "merchant name", "name")
+	shape.AccountNumber = get("account_number", "beneficiary_account_no", "account no", "account number")
+	shape.Beneficiary.Name = get("beneficiary.name", "beneficiary_name", "merchant name", "name")
 	shape.Beneficiary.Instrument.Kind = get("beneficiary.instrument.kind", "instrument_kind", "BANK_ACCOUNT")
-	shape.Beneficiary.Instrument.IFSC = get("beneficiary_ifsc", "ifsc", "ifsc code")
+	shape.Beneficiary.Instrument.IFSC = get("beneficiary.instrument.ifsc", "beneficiary_ifsc", "ifsc", "ifsc code")
 	shape.Beneficiary.Country = get("beneficiary.country", "country", "IN")
 
 	shape.ClientPayoutRef = get("client_payout_ref", "order id", "transaction id")
 	
-	amtStr := get("amount", "settlement amount", "value")
+	shape.Source = get("source")
+	shape.SourceSystem = get("source_system")
+
+	shape.Constraints = make(map[string]any)
+	if window := get("constraints.execution_window"); window != "" {
+		shape.Constraints["execution_window"] = window
+	}
+
+	amtStr := get("amount.value", "amount_paid", "amount", "settlement amount", "value")
 	amt, err := p.parseAmount(amtStr)
 	if err != nil {
 		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "amount", Message: err.Error()})
 	} else {
 		shape.Amount.Value = fmt.Sprintf("%.2f", amt)
-		shape.Amount.Currency = get("currency", "INR")
+		shape.Amount.Currency = get("amount.currency", "currency", "INR")
 	}
 
 	// ── Gateway fields ────────────────────────────────────────────────────
 	shape.GatewayName = get("gateway_name", "gateway")
 	shape.FundAccountID = get("fund_account_id", "fund account id")
 	shape.ContactID = get("contact_id", "contact id")
+	shape.ProviderHint = get("provider_hint")
+	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "schedule_at")
 
 	// ── Product / Payout context ──────────────────────────────────────────
 	shape.ProductID = get("product_id", "product id")
 	shape.ProductDesc = get("product_description", "description")
 	shape.PONumber = get("po_number", "po number")
 	shape.MCCCode = get("mcc_code", "mcc")
-	shape.PayoutPurpose = strings.ToLower(get("payout_purpose", "purpose"))
+	shape.PayoutPurpose = strings.ToLower(get("payout_purpose", "purpose", "purpose_code"))
 
 	if shape.PayoutPurpose != "" && !allowedPayoutPurposes[shape.PayoutPurpose] {
 		errs = append(errs, ParseRowError{

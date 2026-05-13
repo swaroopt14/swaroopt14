@@ -67,7 +67,10 @@ spec:
             - name: AWS_EC2_METADATA_DISABLED
               value: "true"
             - name: S3_BUCKET
-              value: replace-me-edge-bucket
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: EDGE_S3_BUCKET
             - name: SIGNING_KEY_PATH
               value: /run/secrets/ed25519_private.pem
             - name: VAULT_KEY_ID

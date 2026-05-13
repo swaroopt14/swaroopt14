@@ -5,13 +5,13 @@ metadata:
   annotations:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
-    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
-    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-1:123456789012:certificate/replace-me
+    alb.ingress.kubernetes.io/listen-ports: "[{\"HTTP\":80},{\"HTTPS\":443}]"
+    alb.ingress.kubernetes.io/certificate-arn: _domainconnect.domains.squarespace.com
     alb.ingress.kubernetes.io/ssl-redirect: "443"
 spec:
   ingressClassName: alb
   rules:
-    - host: console.example.com
+    - host: zordnet.com
       http:
         paths:
           - path: /
@@ -21,7 +21,7 @@ spec:
                 name: zord-console
                 port:
                   number: 3000
-    - host: api.example.com
+    - host: api.zordnet.com
       http:
         paths:
           - path: /

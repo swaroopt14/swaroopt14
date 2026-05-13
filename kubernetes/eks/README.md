@@ -10,8 +10,9 @@ kubernetes/eks/
 ├── namespace.yaml
 ├── shared/
 │   ├── serviceaccount.yaml
-│   ├── app-secrets.yaml
-│   ├── edge-signing-key.yaml
+│   ├── secret-store.yaml
+│   ├── external-secret-app-secrets.yaml
+│   ├── external-secret-edge-signing-key.yaml
 │   ├── relay-config.yaml
 │   └── postgres-bootstrap-config.yaml
 ├── infrastructure/
@@ -101,11 +102,51 @@ Without `metrics-server`, the HPA objects will exist but will not scale correctl
 Before applying, replace placeholders in:
 
 - `services/*/deployment.yaml`: replace all ECR image placeholders
-- `shared/app-secrets.yaml`: replace passwords, DSNs, API keys, vault keys
-- `shared/edge-signing-key.yaml`: replace the private key
+- AWS Secrets Manager secret `zord/app-secrets`: set passwords, DSNs, API keys, vault keys, and S3 bucket names
+- AWS Secrets Manager secret `zord/edge-signing-key`: set the private key
 - `shared/relay-config.yaml`: replace PSP URL and relay auth tokens if needed
 - `ingress/public-alb.yaml`: replace ACM certificate ARN and hostnames
 - `shared/serviceaccount.yaml`: replace the IRSA IAM role ARN
+
+## AWS Access For S3
+
+The services that use S3 run with this Kubernetes service account:
+
+```yaml
+serviceAccountName: zord-aws-access
+```
+
+File:
+
+```text
+shared/serviceaccount.yaml
+```
+
+Create an IAM role for this service account, give it least-privilege access to the Zord S3 buckets, then add the role ARN as an IRSA annotation:
+
+```yaml
+metadata:
+  name: zord-aws-access
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/<zord-app-s3-role>
+```
+
+The S3 bucket names themselves stay in AWS Secrets Manager under `zord/app-secrets`.
+
+## S3 Bucket Names
+
+S3 bucket names are not hardcoded in deployment manifests.
+
+The services still receive the environment variable `S3_BUCKET`, but Kubernetes now loads it from the `zord-app-secrets` Secret:
+
+| Service | AWS Secrets Manager key inside `zord/app-secrets` |
+| --- | --- |
+| `zord-edge` | `EDGE_S3_BUCKET` |
+| `zord-intent-engine` | `INTENT_S3_BUCKET` |
+| `zord-outcome-engine` | `OUTCOME_S3_BUCKET` |
+| `zord-evidence` | `EVIDENCE_S3_BUCKET` |
+
+Add these four keys to `zord/app-secrets` before deploying.
 
 ## Apply
 

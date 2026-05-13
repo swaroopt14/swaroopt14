@@ -75,7 +75,10 @@ spec:
             - name: AWS_EC2_METADATA_DISABLED
               value: "true"
             - name: S3_BUCKET
-              value: replace-me-evidence-bucket
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: EVIDENCE_S3_BUCKET
             - name: EVIDENCE_ARCHIVE_PREFIX
               value: evidence-packs
             - name: REPLAY_COMPARE_STRICT

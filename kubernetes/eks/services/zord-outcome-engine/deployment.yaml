@@ -73,7 +73,10 @@ spec:
             - name: AWS_EC2_METADATA_DISABLED
               value: "true"
             - name: S3_BUCKET
-              value: replace-me-outcome-bucket
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: OUTCOME_S3_BUCKET
             - name: ZORD_VAULT_KEY
               valueFrom:
                 secretKeyRef:

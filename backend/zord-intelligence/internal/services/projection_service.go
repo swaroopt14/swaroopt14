@@ -2,8 +2,10 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/shopspring/decimal"
@@ -588,8 +590,8 @@ func (s *ProjectionService) HandleEvidencePackReady(
 	if processed {
 		return nil
 	}
-
-	window := todayWindow(e.CreatedAt)
+	log.Printf("HandleEvidencePackReady tenant=%s event_id=%s evidence_pack_id=%s intent_id=%s contract_id=%s merkle_root=%s occurred_at=%s", e.TenantID, e.EventID, e.EvidencePackID, e.IntentID, e.ContractID, e.MerkleRoot, e.OccurredAt)
+	window := todayWindow(e.OccurredAt)
 
 	// Update legacy evidence_readiness projection (existing behaviour)
 	if err := s.projRepo.AtomicIncrementEvidence(
@@ -781,6 +783,12 @@ func (s *ProjectionService) HandleSettlementCreated(
 	if processed {
 		return nil
 	}
+	log.Printf("HandleSettlementCreated: tenant=%s event_id=%s trace_id=%s occurred_at=%s settlement_id=%s batch_id=%s source_type=%s source_strength=%s source_system=%s parse_conf=%.2f amount=%s currency=%s date=%s utr=%s rrn=%s bank_ref=%s provider_ref=%s client_ref=%s richness=%.2f readiness=%.2f status=%s ingest_run_id=%s",
+		e.TenantID, e.EventID, e.TraceID, e.OccurredAt,
+		e.SettlementID, e.BatchID, e.SourceType, e.SourceStrength, e.SourceSystemID, e.ParseConfidence,
+		e.SettledAmountMinor, e.Currency, e.SettlementDate,
+		e.UTR, e.RRN, e.BankRef, e.ProviderRef, e.ClientRef,
+		e.CarrierRichness, e.AttachmentReadiness, e.StatusObservation, e.IngestRunID)
 
 	window := todayWindow(e.OccurredAt)
 
@@ -865,17 +873,21 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		return fmt.Errorf("HandleAttachmentDecision IsProcessed event_id=%s:%w", e.EventID, err)
 	}
 
+	eventJSON, _ := json.Marshal(e)
+	log.Printf("[attachment.decision.created] RECEIVED FULL_EVENT: %s", string(eventJSON))
+
 	if processed {
 		return nil
 	}
 
 	window := todayWindow(e.OccurredAt)
+	supportingCarriers := supportingCarrierNames(e.SupportingCarriers)
 
 	// ── Step 1: Update LEAKAGE projection for MATCH_UNRESOLVED ───────────
 	// A MATCH_UNRESOLVED decision means a settlement observation exists but
 	// Service 5C could not find any matching intent for it — or an intent
 	// exists with no matching settlement. The full intended amount is at risk.
-	if e.DecisionType == "MATCH_UNRESOLVED" {
+	if strings.EqualFold(e.DecisionType, "MATCH_UNRESOLVED") {
 		if err := s.projRepo.AtomicRecordLeakage(
 			ctx,
 			e.TenantID,
@@ -898,7 +910,7 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		e.DecisionType,
 		e.ConfidenceScore,
 		e.IntendedAmountMinor,
-		e.SupportingCarriers,
+		supportingCarriers,
 		window.start, window.end,
 	); err != nil {
 		return fmt.Errorf("HandleAttachmentDecision AtomicRecordAttachmentDecision decision=%s: %w",
@@ -952,6 +964,31 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	return nil
 }
 
+func supportingCarrierNames(raw json.RawMessage) []string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+
+	var carrierMap map[string]interface{}
+	if err := json.Unmarshal(raw, &carrierMap); err == nil {
+		names := make([]string, 0, len(carrierMap))
+		for name, value := range carrierMap {
+			if value == nil {
+				continue
+			}
+			names = append(names, name)
+		}
+		return names
+	}
+
+	var carrierList []string
+	if err := json.Unmarshal(raw, &carrierList); err == nil {
+		return carrierList
+	}
+
+	return nil
+}
+
 // HandleVarianceRecord processes a financial variance record from Service 5C.
 //
 // PHASE 4 LOGIC:
@@ -994,6 +1031,10 @@ func (s *ProjectionService) HandleVarianceRecord(
 	if err != nil {
 		return fmt.Errorf("HandleVarianceRecord IsProcessed event_id=%s: %w", e.EventID, err)
 	}
+
+	eventJSON, _ := json.Marshal(e)
+	log.Printf("[variance.record.created] RECEIVED FULL_EVENT: %s", string(eventJSON))
+
 	if processed {
 		return nil
 	}
@@ -1044,8 +1085,8 @@ func (s *ProjectionService) HandleVarianceRecord(
 			e.VarianceID, err)
 	}
 
-	log.Printf("HandleVarianceRecord: variance_id=%s type=%s amount=%s whitelisted=%v cross_period=%v tenant=%s",
-		e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.IsWhitelisted, e.CrossPeriodFlag, e.TenantID)
+	log.Printf("HandleVarianceRecord: variance_id=%s type=%s amount=%s corridor=%s batch=%s intended=%s settled=%s reason=%s whitelisted=%v cross_period=%v tenant=%s",
+		e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.CorridorID, e.BatchID, e.IntendedAmountMinor, e.SettledAmountMinor, e.DeductionReason, e.IsWhitelisted, e.CrossPeriodFlag, e.TenantID)
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleVarianceRecord MarkProcessed event_id=%s: %w", e.EventID, err)
@@ -1076,7 +1117,27 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 	if processed {
 		return nil
 	}
-
+	log.Printf(
+		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f batch_finality_status=%s",
+		e.TenantID,
+		e.EventID,
+		e.BatchID,
+		e.OccurredAt,
+		e.TraceID,
+		e.SourceReference,
+		e.CorridorID,
+		e.TotalCount,
+		e.SuccessCount,
+		e.FailedCount,
+		e.PendingCount,
+		e.ReversedCount,
+		e.PartialReconCount,
+		e.TotalIntendedAmountMinor.String(),
+		e.TotalConfirmedAmountMinor.String(),
+		e.TotalVarianceMinor.String(),
+		e.AmbiguityScore,
+		e.BatchFinalityStatus,
+	)
 	window := todayWindow(e.OccurredAt)
 
 	// Step 1: Update batch.health projection (full snapshot replacement)

@@ -37,6 +37,7 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			intent_id      TEXT,       -- NULL initially for edge events
 			envelope_id    TEXT,       -- Used to correlate edge events
 			contract_id    TEXT,       -- Buffering contract_id
+			batch_id       TEXT,       -- Buffering batch_id
 			leaf_type      TEXT        NOT NULL,
 			item_ref       TEXT,       -- The reference for the item (e.g. variance_record_id)
 			hash           TEXT        NOT NULL,
@@ -47,6 +48,7 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 		);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS plc_intent_type_idx ON pending_leaf_candidates(tenant_id, intent_id, leaf_type) WHERE intent_id IS NOT NULL;`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS plc_envelope_type_idx ON pending_leaf_candidates(tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL;`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS plc_batch_type_idx ON pending_leaf_candidates(tenant_id, batch_id, leaf_type) WHERE batch_id IS NOT NULL;`,
 
 		// §14.1 — main metadata table
 		`CREATE TABLE IF NOT EXISTS evidence_packs (
@@ -54,6 +56,7 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			tenant_id             TEXT NOT NULL,
 			intent_id             TEXT,
 			contract_id           TEXT,
+			batch_id              TEXT,
 			mode                  TEXT NOT NULL,
 			pack_status           TEXT NOT NULL DEFAULT 'ACTIVE',
 			merkle_root           TEXT NOT NULL,
@@ -70,6 +73,7 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_contract_idx ON evidence_packs(tenant_id, contract_id)`,
 		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_intent_idx   ON evidence_packs(tenant_id, intent_id)`,
+		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_batch_idx    ON evidence_packs(tenant_id, batch_id)`,
 
 		// §14.2 — leaf composition table
 		`CREATE TABLE IF NOT EXISTS evidence_items (
@@ -139,12 +143,12 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 		// outbox for relay polling
 		`CREATE TABLE IF NOT EXISTS evidence_outbox_events (
     event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    trace_id UUID,
-    envelope_id UUID,
-    tenant_id UUID NOT NULL,
+    trace_id TEXT,
+    envelope_id TEXT,
+    tenant_id TEXT NOT NULL,
     contract_id TEXT,
     aggregate_type TEXT NOT NULL DEFAULT 'evidence_pack',
-    aggregate_id UUID NOT NULL, -- evidence_pack_id (uuid part)
+    aggregate_id TEXT NOT NULL,
     event_type TEXT NOT NULL,   -- evidence.pack.created
     schema_version TEXT DEFAULT 'v1',
     payload JSONB NOT NULL,

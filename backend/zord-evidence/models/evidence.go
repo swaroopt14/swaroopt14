@@ -15,6 +15,11 @@ const (
 	LeafTypeGovernanceDecision             = "GOVERNANCE_DECISION_AT_CANONICAL"
 	LeafTypeRawSettlementFile              = "RAW_SETTLEMENT_FILE"
 	LeafTypeFinalEvidenceView              = "FINAL_EVIDENCE_VIEW"
+
+	LeafTypeBatchAttachmentSummary         = "BATCH_ATTACHMENT_SUMMARY"
+	LeafTypeBatchVarianceSummary           = "BATCH_VARIANCE_SUMMARY"
+	LeafTypeCanonicalBatch                 = "CANONICAL_BATCH"
+	LeafTypeFileContentHash                = "FILE_CONTENT_HASH"
 )
 
 // RequiredLeafTypes are the 8 externally-supplied leaves that must be present
@@ -30,9 +35,17 @@ var RequiredLeafTypes = []string{
 	LeafTypeRawSettlementFile,
 }
 
+var RequiredBatchLeafTypes = []string{
+	LeafTypeRawSettlementFile,
+	LeafTypeCanonicalBatch,
+	LeafTypeBatchAttachmentSummary,
+	LeafTypeBatchVarianceSummary,
+	LeafTypeFileContentHash,
+}
+
 // ZeroVarianceHash is used when no financial variance exists for a transaction.
 // It is computed as SHA256("ZERO_VARIANCE_V1")
-const ZeroVarianceHash = "sha256:399c0a6a570f78a707a3363575916057a66710682f6e91963286395e8067f920"
+const ZeroVarianceHash = "399c0a6a570f78a707a3363575916057a66710682f6e91963286395e8067f920"
 
 // PendingLeafCandidate represents a buffered leaf waiting for the full set.
 type PendingLeafCandidate struct {
@@ -41,6 +54,7 @@ type PendingLeafCandidate struct {
 	IntentID      *string   `json:"intent_id" db:"intent_id"`     // null for edge events
 	EnvelopeID    *string   `json:"envelope_id" db:"envelope_id"` // used to correlate edge
 	ContractID    *string   `json:"contract_id" db:"contract_id"` // buffered contract_id
+	BatchID       *string   `json:"batch_id" db:"batch_id"`
 	LeafType      string    `json:"leaf_type" db:"leaf_type"`
 	ItemRef       string    `json:"item_ref" db:"item_ref"`
 	Hash          string    `json:"hash" db:"hash"`
@@ -66,6 +80,9 @@ type RelayEvent struct {
 	CanonicalHash   string          `json:"canonical_hash,omitempty"`
 	GovernanceState string          `json:"governance_state,omitempty"`
 	GovernanceHash  string          `json:"governance_hash,omitempty"`
+	PayloadHash     string          `json:"payload_hash,omitempty"`
+	FileContentHash string          `json:"file_content_hash,omitempty"`
+	BatchID         string          `json:"batchid,omitempty"`
 }
 
 // EvidenceItem is one proof artifact that becomes a typed leaf in the Merkle tree.
@@ -92,6 +109,7 @@ type EvidencePack struct {
 	TenantID         string            `json:"tenant_id"`
 	IntentID         string            `json:"intent_id"`
 	ContractID       string            `json:"contract_id"`
+	BatchID          string            `json:"batch_id"`
 	Mode             string            `json:"mode"`
 	PackStatus       string            `json:"pack_status"`
 	Items            []EvidenceItem    `json:"items"`
@@ -108,7 +126,8 @@ type EvidencePack struct {
 // All other IDs (intent_id, contract_id, item refs) come from upstream.
 type GenerateEvidenceRequest struct {
 	TenantID         string            `json:"tenant_id" binding:"required"`
-	IntentID         string            `json:"intent_id" binding:"required"`
+	IntentID         string            `json:"intent_id"` // required for intent mode
+	BatchID          string            `json:"batch_id"`  // required for batch mode
 	EnvelopeID       string            `json:"envelope_id"`
 	TraceID          string            `json:"trace_id"`
 	ContractID       string            `json:"contract_id"`
@@ -151,6 +170,7 @@ type EvidenceViewResponse struct {
 	TenantID       string         `json:"tenant_id"`
 	IntentID       string         `json:"intent_id"`
 	ContractID     string         `json:"contract_id"`
+	BatchID        string         `json:"batch_id,omitempty"`
 	Mode           string         `json:"mode"`
 	MerkleRoot     string         `json:"merkle_root"`
 	RulesetVersion string         `json:"ruleset_version"`
@@ -169,6 +189,7 @@ type EvidencePackSummary struct {
 	TenantID         string    `json:"tenant_id"`
 	IntentID         string    `json:"intent_id"`
 	ContractID       string    `json:"contract_id"`
+	BatchID          string    `json:"batch_id,omitempty"`
 	Mode             string    `json:"mode"`
 	PackStatus       string    `json:"pack_status"`
 	MerkleRoot       string    `json:"merkle_root"`

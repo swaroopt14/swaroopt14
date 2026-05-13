@@ -105,6 +105,9 @@ func main() {
 			outcomeTopics = append(outcomeTopics, cfg.IntentKafkaTopic)
 		}
 
+		// ALSO listen to batch.summary.updated, because zord-relay maps attachment.batch.updated there!
+		outcomeTopics = append(outcomeTopics, "batch.summary.updated")
+
 		log.Printf("evidence.main.outcome_consumer_bootstrap group=%s topics=%v brokers=%v",
 			cfg.OutcomeKafkaGroup, outcomeTopics, cfg.KafkaBrokers)
 		if err := kafka.StartOutcomeConsumer(

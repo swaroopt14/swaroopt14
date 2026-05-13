@@ -53,6 +53,8 @@ type OutboxEvent struct {
 	// --- Status ---
 	Status  string  `json:"status"`
 	BatchID *string `json:"batchid,omitempty"`
+
+	FileContentHash *string `json:"file_content_hash,omitempty"`
 }
 
 // LeaseResponse is what the upstream /lease endpoint returns.

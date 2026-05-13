@@ -199,7 +199,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		if intentID != nil {
 			intentIDStr = intentID.String()
 		}
-		
+
 		contractIDStr := ""
 		if cID != uuid.Nil {
 			contractIDStr = cID.String()
@@ -371,18 +371,18 @@ func (s *AttachmentOutboxService) EmitForJob(
 		}
 
 		vPayload := map[string]interface{}{
-			"event_id":                  uuid.New().String(),
-			"tenant_id":                 v.TenantID.String(),
-			"trace_id":                  vTraceID.String(),
-			"occurred_at":               time.Now().UTC().Format(time.RFC3339),
-			"variance_id":               v.VarianceRecordID,
-			"decision_id":               v.AttachmentDecisionID,
-			"intent_id":                 v.IntentID,
-			"settlement_id":             v.SettlementObservationID,
-			"corridor_id":               corridorID,
-			"batch_id":                  batchID,
-			"variance_type":             vType,
-			"intended_amount_minor":     intendedAmount.String(),
+			"event_id":              uuid.New().String(),
+			"tenant_id":             v.TenantID.String(),
+			"trace_id":              vTraceID.String(),
+			"occurred_at":           time.Now().UTC().Format(time.RFC3339),
+			"variance_id":           v.VarianceRecordID,
+			"decision_id":           v.AttachmentDecisionID,
+			"intent_id":             v.IntentID,
+			"settlement_id":         v.SettlementObservationID,
+			"corridor_id":           corridorID,
+			"batch_id":              batchID,
+			"variance_type":         vType,
+			"intended_amount_minor": intendedAmount.String(),
 			"settled_amount_minor":  settledAmount.String(),
 			"variance_amount_minor": v.AmountVariance.String(),
 			"currency":              currency,
@@ -443,18 +443,39 @@ func (s *AttachmentOutboxService) EmitForJob(
 		}
 	}
 
-	// 3. Fetch batch estimate counts from canonical_settlement_batches
+	// 3. Fetch batch estimate counts and file_sha256 from canonical_settlement_batches and settlement_ingest_runs
+	var fileSHA string
 	if job.JobScopeType == models.JobScopeSettlementBatch {
 		row = db.DB.QueryRowContext(ctx, `
 			SELECT 
-				row_count, success_count_estimate, failed_count_estimate, 
-				pending_count_estimate, reversal_count_estimate
-			FROM canonical_settlement_batches 
-			WHERE client_batch_id = $1 AND tenant_id = $2
+				b.row_count, b.success_count_estimate, b.failed_count_estimate, 
+				b.pending_count_estimate, b.reversal_count_estimate,
+				r.file_sha256
+			FROM canonical_settlement_batches b
+			JOIN settlement_ingest_runs r ON r.ingest_run_id = b.ingest_run_id
+			WHERE r.ingest_run_id = $1 AND b.tenant_id = $2
+			ORDER BY b.created_at DESC
 			LIMIT 1`,
 			job.ScopeRef, job.TenantID,
 		)
-		_ = row.Scan(&totalCount, &successCount, &failedCount, &pendingCount, &reversedCount)
+		if err := row.Scan(&totalCount, &successCount, &failedCount, &pendingCount, &reversedCount, &fileSHA); err != nil {
+			// ScopeRef may be ingest_run_id or client_batch_id depending on caller; try client_batch_id fallback
+			log.Printf("attachment.outbox.batch_metadata_lookup_by_run_id_failed scope_ref=%s err=%v — trying client_batch_id", job.ScopeRef, err)
+			row = db.DB.QueryRowContext(ctx, `
+				SELECT 
+					b.row_count, b.success_count_estimate, b.failed_count_estimate, 
+					b.pending_count_estimate, b.reversal_count_estimate,
+					r.file_sha256
+				FROM canonical_settlement_batches b
+				JOIN settlement_ingest_runs r ON r.ingest_run_id = b.ingest_run_id
+				WHERE b.client_batch_id = $1 AND b.tenant_id = $2
+				ORDER BY b.created_at DESC
+				LIMIT 1`,
+				job.ScopeRef, job.TenantID,
+			)
+			_ = row.Scan(&totalCount, &successCount, &failedCount, &pendingCount, &reversedCount, &fileSHA)
+		}
+		log.Printf("attachment.outbox.file_sha256 scope_ref=%s file_sha256=%q", job.ScopeRef, fileSHA)
 	}
 
 	batchPayload := map[string]interface{}{
@@ -465,6 +486,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"batch_id":                     batchID,
 		"source_reference":             summarySourceRef,
 		"corridor_id":                  corridorID,
+		"file_sha256":                  fileSHA,
 		"total_count":                  totalCount,
 		"success_count":                successCount,
 		"failed_count":                 failedCount,
@@ -476,6 +498,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"total_variance_minor":         totalVariance.String(),
 		"ambiguity_score":              aggregateAmbiguity,
 		"batch_finality_status":        finalityStatus,
+		"job_status":                  job.Status,
 	}
 	if err := s.insertEvent(ctx, job.TenantID, job.AttachmentJobID,
 		"", batchID,
@@ -717,7 +740,7 @@ func computeAttachmentDecisionLeafHash(d models.AttachmentDecision) string {
 		d.MatchingRulesetVersion,
 	)
 	sum := sha256.Sum256([]byte(raw))
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:])
 }
 
 // computeVarianceLeafHash returns a deterministic SHA-256 hex hash of the
@@ -733,5 +756,5 @@ func computeVarianceLeafHash(vr *models.VarianceRecord) string {
 		string(vr.VarianceReasonCodesJSON),
 	)
 	sum := sha256.Sum256([]byte(raw))
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:])
 }

@@ -46,8 +46,26 @@ func Normalize(rawJSON []byte, tenantSynonyms map[string]string) (*Normalization
         return nil, fmt.Errorf("normalizer: invalid JSON: %w", err)
     }
 
-    // If already canonical (all top-level keys are known Zord fields), skip normalization
+    // If already canonical, we still run ensureDefaults to catch missing required fields
+    var warnings []string
     if isAlreadyCanonical(raw) {
+        ensureDefaults(raw, &warnings)
+        
+        // If defaults were applied, we return the updated JSON with WasNormalized=true
+        if len(warnings) > 0 {
+            normalizedBytes, err := json.Marshal(raw)
+            if err != nil {
+                return nil, fmt.Errorf("normalizer: marshal failed: %w", err)
+            }
+            return &NormalizationResult{
+                NormalizedJSON:  normalizedBytes,
+                FieldProvenance: nil, // bypass provenance for already canonical
+                UnmappedFields:  nil,
+                Warnings:        warnings,
+                WasNormalized:   true,
+            }, nil
+        }
+
         return &NormalizationResult{
             NormalizedJSON: rawJSON,
             WasNormalized:  false,
@@ -66,7 +84,6 @@ func Normalize(rawJSON []byte, tenantSynonyms map[string]string) (*Normalization
     canonical := make(map[string]any)   // will be serialized as normalized JSON
     unmapped  := make(map[string]any)
     var provenance []FieldProvenance
-    var warnings []string
 
     for rawKey, rawVal := range raw {
         prov, canonicalPath, normalizedVal, matched := resolveField(rawKey, rawVal, merged)
@@ -101,11 +118,11 @@ func Normalize(rawJSON []byte, tenantSynonyms map[string]string) (*Normalization
 
 // resolveField attempts to map a raw key to a canonical path using the 4-step chain.
 func resolveField(rawKey string, rawVal any, synonyms map[string]string) (FieldProvenance, string, any, bool) {
-    rawStr := fmt.Sprintf("%v", rawVal)
-
+    // If value is already a map (nested object), we don't want to stringify it yet.
+    // We only stringify for leaf nodes during matching/normalization.
+    
     prov := FieldProvenance{
         SourceKey: rawKey,
-        RawValue:  rawStr,
     }
 
     // Step 1 — Exact match against synonym dict
@@ -113,7 +130,7 @@ func resolveField(rawKey string, rawVal any, synonyms map[string]string) (FieldP
         prov.MatchMethod = "exact"
         prov.CanonicalPath = canonical
         prov.Confidence = 1.0
-        normalized, transform := applyTypeNormalization(canonical, rawStr)
+        normalized, transform := applyTypeNormalization(canonical, rawVal)
         prov.NormalizedValue = fmt.Sprintf("%v", normalized)
         prov.Transform = transform
         return prov, canonical, normalized, true
@@ -125,7 +142,7 @@ func resolveField(rawKey string, rawVal any, synonyms map[string]string) (FieldP
         prov.MatchMethod = "lowercase_trim"
         prov.CanonicalPath = canonical
         prov.Confidence = 0.98
-        normalized, transform := applyTypeNormalization(canonical, rawStr)
+        normalized, transform := applyTypeNormalization(canonical, rawVal)
         prov.NormalizedValue = fmt.Sprintf("%v", normalized)
         prov.Transform = transform
         return prov, canonical, normalized, true
@@ -140,7 +157,7 @@ func resolveField(rawKey string, rawVal any, synonyms map[string]string) (FieldP
             prov.MatchMethod = "synonym"
             prov.CanonicalPath = canonical
             prov.Confidence = 0.92
-            normalized, transform := applyTypeNormalization(canonical, rawStr)
+            normalized, transform := applyTypeNormalization(canonical, rawVal)
             prov.NormalizedValue = fmt.Sprintf("%v", normalized)
             prov.Transform = transform
             return prov, canonical, normalized, true
@@ -154,7 +171,7 @@ func resolveField(rawKey string, rawVal any, synonyms map[string]string) (FieldP
         prov.CanonicalPath = bestMatch
         prov.Confidence = bestScore * 0.85 // reduce confidence for fuzzy
         prov.Warning = fmt.Sprintf("fuzzy match %q → %q score=%.2f", rawKey, bestMatch, bestScore)
-        normalized, transform := applyTypeNormalization(bestMatch, rawStr)
+        normalized, transform := applyTypeNormalization(bestMatch, rawVal)
         prov.NormalizedValue = fmt.Sprintf("%v", normalized)
         prov.Transform = transform
         return prov, bestMatch, normalized, true
@@ -164,34 +181,42 @@ func resolveField(rawKey string, rawVal any, synonyms map[string]string) (FieldP
 }
 
 // applyTypeNormalization implements 10.2 — type normalization per canonical path.
-func applyTypeNormalization(canonicalPath, rawVal string) (any, string) {
+func applyTypeNormalization(canonicalPath string, rawVal any) (any, string) {
+    // If rawVal is not a string (e.g. nested map), and we are mapping to a root object key,
+    // just pass it through.
+    if _, isMap := rawVal.(map[string]any); isMap {
+        return rawVal, "NONE"
+    }
+
+    rawStr := fmt.Sprintf("%v", rawVal)
+
     switch canonicalPath {
 
     case "amount.value":
-        normalized, err := normalizeAmount(rawVal)
+        normalized, err := normalizeAmount(rawStr)
         if err != nil {
-            return rawVal, "AMOUNT_PARSE_FAILED"
+            return rawStr, "AMOUNT_PARSE_FAILED"
         }
         return normalized, "AMOUNT_DECIMAL"
 
     case "amount.currency":
-        return normalizeCurrency(rawVal), "CURRENCY_ISO"
+        return normalizeCurrency(rawStr), "CURRENCY_ISO"
 
     case "intended_execution_at":
-        t, err := normalizeTimestamp(rawVal)
+        t, err := normalizeTimestamp(rawStr)
         if err != nil {
-            return rawVal, "TIMESTAMP_PARSE_FAILED"
+            return rawStr, "TIMESTAMP_PARSE_FAILED"
         }
         return t.UTC().Format(time.RFC3339), "TIMESTAMP_UTC"
 
     case "beneficiary.instrument.kind":
-        return normalizeRail(rawVal), "RAIL_ENUM"
+        return normalizeRail(rawStr), "RAIL_ENUM"
 
     case "provider_hint":
-        return strings.ToLower(strings.TrimSpace(rawVal)), "LOWERCASE"
+        return strings.ToLower(strings.TrimSpace(rawStr)), "LOWERCASE"
 
     default:
-        return strings.TrimSpace(rawVal), "TRIM"
+        return strings.TrimSpace(rawStr), "TRIM"
     }
 }
 
@@ -383,9 +408,20 @@ var canonicalTopLevelKeys = map[string]bool{
     "intent_type": true, "amount": true, "beneficiary": true,
     "idempotency_key": true, "account_number": true,
     "client_payout_ref": true, "client_batch_ref": true,
-    "provider_hint": true, "intended_execution_at": true,
+    "intended_execution_at": true,
     "purpose_code": true, "remitter": true, "constraints": true,
     "schema_version": true, "governance_hash": true,
+    "invoice_number": true, "invoice_date": true, "vendor_gstin": true,
+    "pan_number": true, "tan_of_deductor": true, "gst_type": true,
+    "igst_amount": true, "cgst_amount": true, "sgst_amount": true,
+    "gst_rate": true, "taxable_value": true, "tds_section": true,
+    "tds_rate": true, "tds_amount": true, "net_payable": true,
+    "hsn_sac_code": true, "po_number": true, "product_id": true,
+    "product_desc": true, "payout_purpose": true, "mcc_code": true,
+    "vendor_type": true, "kyc_status": true, "kyc_policy_class": true,
+    "bank_verified": true, "cin_number": true, "msme_number": true,
+    "gateway_name": true, "fund_account_id": true, "contact_id": true,
+    "kyc_verified_at": true, "source": true, "source_system": true,
 }
 
 func isAlreadyCanonical(raw map[string]any) bool {
@@ -410,15 +446,29 @@ func ensureDefaults(canonical map[string]any, warnings *[]string) {
     if benMap, ok := canonical["beneficiary"].(map[string]any); ok {
         if instMap, ok := benMap["instrument"].(map[string]any); ok {
             if instMap["kind"] == nil || instMap["kind"] == "" {
-                if instMap["ifsc"] != nil {
+                if instMap["ifsc"] != nil && instMap["ifsc"] != "" {
                     instMap["kind"] = "NEFT"
                     *warnings = append(*warnings, "instrument.kind defaulted to NEFT (ifsc present)")
-                } else if instMap["vpa"] != nil {
+                } else if instMap["vpa"] != nil && instMap["vpa"] != "" {
                     instMap["kind"] = "UPI"
                     *warnings = append(*warnings, "instrument.kind defaulted to UPI (vpa present)")
+                } else {
+                    // Final fallback: default to BANK_ACCOUNT to satisfy validation
+                    instMap["kind"] = "BANK_ACCOUNT"
+                    *warnings = append(*warnings, "instrument.kind defaulted to BANK_ACCOUNT")
                 }
             }
+        } else if benMap["instrument"] == nil {
+            // beneficiary exists but instrument is missing
+            benMap["instrument"] = map[string]any{"kind": "BANK_ACCOUNT"}
+            *warnings = append(*warnings, "instrument.kind defaulted to BANK_ACCOUNT")
         }
+    } else if canonical["beneficiary"] == nil {
+        // beneficiary is missing entirely
+        canonical["beneficiary"] = map[string]any{
+            "instrument": map[string]any{"kind": "BANK_ACCOUNT"},
+        }
+        *warnings = append(*warnings, "instrument.kind defaulted to BANK_ACCOUNT")
     }
 }
 

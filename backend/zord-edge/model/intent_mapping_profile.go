@@ -43,6 +43,9 @@ type UniversalIntentShape struct {
 	ProviderHint    string    `json:"provider_hint,omitempty"`
 	IntendedExecutionAt string `json:"intended_execution_at,omitempty"`
 
+	Source          string `json:"source,omitempty"`
+	SourceSystem    string `json:"source_system,omitempty"`
+
 	// Internal Audit Metadata (Excluded from the JSON payload sent downstream)
 	SourceRowRef    string  `json:"-"`
 	ParseConfidence float64 `json:"-"`

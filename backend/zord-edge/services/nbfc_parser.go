@@ -50,13 +50,24 @@ func (p *NBFCParser) parseRow(rowNum int, row []string, colIndex map[string]int)
 
 	shape.Remitter.Phone = get("remitter.phone", "phone")
 	shape.Remitter.Email = get("remitter.email", "email")
+	shape.Remitter.CustomerID = get("remitter.customer_id", "customer_id", "client_customer_id")
 
 	shape.ClientPayoutRef = get("loan_id", "client_payout_ref", "transaction_id")
 	shape.ClientBatchRef = get("client_batch_ref", "batch_id")
+	shape.PurposeCode = get("purpose_code", "purpose", "narration")
+	shape.ProviderHint = get("provider_hint")
 	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "schedule_at")
 
+	shape.Source = get("source")
+	shape.SourceSystem = get("source_system")
+
+	shape.Constraints = make(map[string]any)
+	if window := get("constraints.execution_window"); window != "" {
+		shape.Constraints["execution_window"] = window
+	}
+
 	shape.Amount.Currency = get("amount.currency", "currency", "INR")
-	amtStr := get("disbursal_amount", "amount.value", "amount")
+	amtStr := get("amount_paid", "disbursal_amount", "amount.value", "amount")
 	amt, err := p.parseAmount(amtStr)
 	if err != nil {
 		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "amount", Message: err.Error()})

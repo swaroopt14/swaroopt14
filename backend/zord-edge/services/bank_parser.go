@@ -57,8 +57,17 @@ func (p *BankParser) parseRow(rowNum int, row []string, colIndex map[string]int)
 	shape.PurposeCode = get("purpose_code", "remarks", "narration")
 	shape.ProviderHint = get("provider_hint")
 	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "schedule_at")
+
+	shape.Source = get("source")
+	shape.SourceSystem = get("source_system")
+
+	shape.Constraints = make(map[string]any)
+	if window := get("constraints.execution_window"); window != "" {
+		shape.Constraints["execution_window"] = window
+	}
+
 	shape.Amount.Currency = get("amount.currency", "currency", "INR")
-	amtStr := get("amount.value", "amount", "value")
+	amtStr := get("amount.value", "amount_paid", "amount", "value")
 	amt, err := p.parseAmount(amtStr)
 	if err != nil {
 		errs = append(errs, ParseRowError{RowIndex: rowNum, Field: "amount", Message: err.Error()})

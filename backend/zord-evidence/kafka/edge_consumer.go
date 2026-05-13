@@ -32,22 +32,32 @@ func buildEdgeHandler(pg PackGenerator) MessageHandler {
 			return nil
 		}
 
-		// Convert []byte hash to hex string for Merkle leaf
-		hashHex := relayEvt.EnvelopeHash
-
 		pendingLeaves := []models.PendingLeafCandidate{
 			{
 				TenantID:      relayEvt.TenantID,
 				EnvelopeID:    &relayEvt.EnvelopeID,
 				LeafType:      models.LeafTypeEnvelopeHash,
 				ItemRef:       relayEvt.EnvelopeID,
-				Hash:          hashHex,
+				Hash:          relayEvt.EnvelopeHash,
 				SchemaVersion: "v1",
 				SourceTopic:   "payments.ledger.events.v1",
 			},
 		}
 
-		// Buffering by envelope_id (intent_id and contract_id are unknown at this point, but pass relayEvt.ContractID if relay has it)
+		if relayEvt.FileContentHash != "" {
+			pendingLeaves = append(pendingLeaves, models.PendingLeafCandidate{
+				TenantID:      relayEvt.TenantID,
+				EnvelopeID:    &relayEvt.EnvelopeID,
+				BatchID:       &relayEvt.BatchID,
+				LeafType:      models.LeafTypeFileContentHash,
+				ItemRef:       relayEvt.BatchID, // Use envelopeID as ref for the file hash link
+				Hash:          relayEvt.FileContentHash,
+				SchemaVersion: "v1",
+				SourceTopic:   "payments.ledger.events.v1",
+			})
+		}
+
+		// Buffering by envelope_id
 		return pg.HandleLeafUpdate(ctx, relayEvt.TenantID, relayEvt.EnvelopeID, "", relayEvt.ContractID, relayEvt.TraceID, pendingLeaves)
 	}
 }

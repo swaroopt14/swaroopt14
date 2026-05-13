@@ -4,10 +4,120 @@ This guide explains how to deploy the Arealis Zord services from this repo to an
 
 There are two separate pieces:
 
-- EKS infrastructure repo: `C:\Users\Yaswanth Reddy\OneDrive - vitap.ac.in\Desktop\Kubernetes\01.EKS-terraform`
+- AWS infrastructure repo: `C:\Users\Yaswanth Reddy\OneDrive - vitap.ac.in\Desktop\Zord-Infrastructure-aws`
 - Zord app manifests in this repo: `kubernetes/eks`
 
-The Terraform repo creates the EKS cluster, node group, EBS CSI driver, Cluster Autoscaler IAM/Pod Identity, and related AWS infrastructure. This repo deploys the Zord application stack into that cluster.
+The infrastructure repo creates AWS Secrets Manager secrets and the EKS cluster. This repo deploys the Zord application stack into that cluster.
+
+## Full Deployment Order
+
+Follow this order from a clean AWS account or fresh deployment.
+
+1. In `Zord-Infrastructure-aws/secret-manager`, create the AWS Secrets Manager containers and write secret values.
+2. In `Zord-Infrastructure-aws/EKS-terraform`, create or update the EKS cluster and platform add-ons.
+3. In this app repo, build and push all service images to ECR.
+4. In this app repo, update Kubernetes manifest values such as image tags, ALB certificate ARN, region, service account IAM role ARN, and relay config.
+5. Apply the app manifests:
+
+```powershell
+kubectl apply -k kubernetes/eks
+```
+
+6. Test the deployment using:
+
+```text
+kubernetes/eks_deployment_end-to-end_testing/Readme.md
+```
+
+Short version:
+
+```text
+Secret Manager -> EKS Terraform -> ECR images -> Kubernetes manifests -> End-to-end testing
+```
+
+## Infrastructure Repo Order
+
+### 1. Secret Manager
+
+Folder:
+
+```text
+C:\Users\Yaswanth Reddy\OneDrive - vitap.ac.in\Desktop\Zord-Infrastructure-aws\secret-manager
+```
+
+GitHub Actions workflow:
+
+```text
+Secret Manager Terraform
+```
+
+Run:
+
+```text
+action = apply
+```
+
+This creates and fills:
+
+- `zord/app-secrets`
+- `zord/edge-signing-key`
+
+Before running it, make sure GitHub Actions secrets exist:
+
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
+- `TF_STATE_BUCKET`
+- `ZORD_APP_SECRETS_JSON`
+- `ZORD_EDGE_SIGNING_KEY_JSON`
+
+`ZORD_APP_SECRETS_JSON` must include DB passwords, DSNs, API keys, vault keys, and S3 bucket names.
+
+Important S3 keys:
+
+- `EDGE_S3_BUCKET`
+- `INTENT_S3_BUCKET`
+- `OUTCOME_S3_BUCKET`
+- `EVIDENCE_S3_BUCKET`
+
+### 2. EKS Terraform
+
+Folder:
+
+```text
+C:\Users\Yaswanth Reddy\OneDrive - vitap.ac.in\Desktop\Zord-Infrastructure-aws\EKS-terraform
+```
+
+GitHub Actions workflow:
+
+```text
+EKS Terraform
+```
+
+Run:
+
+```text
+action = apply
+```
+
+This creates or configures:
+
+- EKS cluster
+- node group
+- VPC/subnets/security groups
+- EBS CSI support
+- Cluster Autoscaler
+- External Secrets Operator IAM access
+- other platform IAM roles/outputs
+
+After this step, connect your terminal to EKS:
+
+```powershell
+aws eks update-kubeconfig --region <region> --name <cluster-name>
+kubectl config current-context
+kubectl get nodes
+```
+
+Do not continue until nodes show `Ready`.
 
 ## Current Manifest Status
 
@@ -43,7 +153,7 @@ It deploys:
 - Kafka topic creation Job
 - all Zord services
 - PDBs and HPAs for app services
-- public ALB Ingress
+- public ALB Ingress for the frontend only
 
 Services:
 
@@ -70,7 +180,7 @@ Your Terraform repo already includes EBS CSI and Cluster Autoscaler setup. It do
 
 ## Important Terraform Repo Notes
 
-In `01.EKS-terraform`, the cluster is currently documented as:
+In `Zord-Infrastructure-aws/EKS-terraform`, the cluster is currently documented as:
 
 - cluster name: `eksprod`
 - region: `us-east-1`
@@ -162,6 +272,227 @@ Minimum S3 permissions shape:
 ```
 
 Important: `EDGE_S3_BUCKET`, `INTENT_S3_BUCKET`, `OUTCOME_S3_BUCKET`, and `EVIDENCE_S3_BUCKET` are only bucket names for the app. The service account annotation is what gives the pods AWS permission to use those buckets.
+
+### Create the S3 IAM role in AWS Console
+
+Use this when you want to create the role manually in AWS Console.
+
+#### 1. Copy the EKS OIDC provider
+
+Open AWS Console:
+
+```text
+EKS -> Clusters -> your cluster -> Overview
+```
+
+Find:
+
+```text
+OpenID Connect provider URL
+```
+
+Copy it. It looks like:
+
+```text
+https://oidc.eks.ap-south-1.amazonaws.com/id/ABC123
+```
+
+For IAM trust policy, remove `https://`.
+
+Use this shape:
+
+```text
+oidc.eks.ap-south-1.amazonaws.com/id/ABC123
+```
+
+#### 2. Create the S3 policy
+
+Go to:
+
+```text
+IAM -> Policies -> Create policy -> JSON
+```
+
+Paste this policy and replace the bucket names:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
+      "Resource": [
+        "arn:aws:s3:::YOUR_EDGE_BUCKET/*",
+        "arn:aws:s3:::YOUR_INTENT_BUCKET/*",
+        "arn:aws:s3:::YOUR_OUTCOME_BUCKET/*",
+        "arn:aws:s3:::YOUR_EVIDENCE_BUCKET/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::YOUR_EDGE_BUCKET",
+        "arn:aws:s3:::YOUR_INTENT_BUCKET",
+        "arn:aws:s3:::YOUR_OUTCOME_BUCKET",
+        "arn:aws:s3:::YOUR_EVIDENCE_BUCKET"
+      ]
+    }
+  ]
+}
+```
+
+Click `Next`.
+
+Use this policy name:
+
+```text
+ZordAppS3AccessPolicy
+```
+
+Click `Create policy`.
+
+#### 3. Create the IAM role
+
+Go to:
+
+```text
+IAM -> Roles -> Create role
+```
+
+For trusted entity type, choose:
+
+```text
+Custom trust policy
+```
+
+Paste this trust policy and replace:
+
+- `<ACCOUNT_ID>`
+- `<OIDC_WITHOUT_HTTPS>`
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT_ID>:oidc-provider/<OIDC_WITHOUT_HTTPS>"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "<OIDC_WITHOUT_HTTPS>:aud": "sts.amazonaws.com",
+          "<OIDC_WITHOUT_HTTPS>:sub": "system:serviceaccount:zord:zord-aws-access"
+        }
+      }
+    }
+  ]
+}
+```
+
+Example:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::522189039032:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/ABC123"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "oidc.eks.ap-south-1.amazonaws.com/id/ABC123:aud": "sts.amazonaws.com",
+          "oidc.eks.ap-south-1.amazonaws.com/id/ABC123:sub": "system:serviceaccount:zord:zord-aws-access"
+        }
+      }
+    }
+  ]
+}
+```
+
+Click `Next`.
+
+#### 4. Attach the S3 policy
+
+Search for:
+
+```text
+ZordAppS3AccessPolicy
+```
+
+Select it, then click `Next`.
+
+Use this role name:
+
+```text
+ZordAppS3AccessRole
+```
+
+Click `Create role`.
+
+#### 5. Copy the role ARN
+
+Open:
+
+```text
+IAM -> Roles -> ZordAppS3AccessRole
+```
+
+Copy the ARN. It looks like:
+
+```text
+arn:aws:iam::522189039032:role/ZordAppS3AccessRole
+```
+
+#### 6. Add the role ARN to the Kubernetes service account
+
+Open:
+
+```text
+kubernetes/eks/shared/serviceaccount.yaml
+```
+
+Use:
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zord-aws-access
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::522189039032:role/ZordAppS3AccessRole
+```
+
+Replace the ARN with your real role ARN.
+
+#### 7. Apply and restart the S3 services
+
+Apply:
+
+```powershell
+kubectl apply -k kubernetes/eks
+```
+
+Restart the services that use S3:
+
+```powershell
+kubectl rollout restart deploy/zord-edge -n zord
+kubectl rollout restart deploy/zord-intent-engine -n zord
+kubectl rollout restart deploy/zord-outcome-engine -n zord
+kubectl rollout restart deploy/zord-evidence -n zord
+```
 
 ### External Secrets
 
@@ -291,18 +622,32 @@ File:
 kubernetes/eks/ingress/public-alb.yaml
 ```
 
-Current hosts:
+Current public host:
 
 - `zordnet.com`
-- `api.zordnet.com`
 
-Important: the certificate annotation must be a real ACM certificate ARN. This value is wrong and must be replaced:
+Production access pattern:
 
-```yaml
-alb.ingress.kubernetes.io/certificate-arn: _domainconnect.domains.squarespace.com
+```text
+Public internet -> zordnet.com -> zord-console
+zord-console server-side API routes -> private Kubernetes services
 ```
 
-Correct shape:
+The backend services are not exposed through the public ingress. The browser should call same-origin frontend API routes such as `/api/prod/...` and `/api/prompt-layer/...`; then the Next.js server calls internal cluster DNS names like `http://zord-edge:8080` and `http://zord-intent-engine:8083`.
+
+If you later need public API access for outside partners, create a separate reviewed ingress host such as `api.zordnet.com` and expose only the gateway service `zord-edge`, not every backend service.
+
+Important: the certificate annotation must be a real ACM certificate ARN.
+
+Current file uses this shape:
+
+```yaml
+alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-1:522189039032:certificate/6dc91f57-59fd-4e76-b6ae-8cc53ffc6564
+```
+
+If you change AWS account, region, certificate, or domain, replace it with the new ACM ARN.
+
+Required shape:
 
 ```yaml
 alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:<region>:<account-id>:certificate/<certificate-id>
@@ -406,8 +751,11 @@ aws secretsmanager update-secret --secret-id zord/edge-signing-key --secret-stri
 
 ## Deployment Order
 
-1. Create or update the EKS cluster from the Terraform repo.
-2. Connect kubectl to EKS:
+Use this checklist when you are ready to deploy the app manifests from this repo.
+
+1. Confirm Secret Manager workflow already succeeded.
+2. Confirm EKS Terraform workflow already succeeded.
+3. Confirm `kubectl` is connected to EKS:
 
 ```powershell
 aws eks update-kubeconfig --region <region> --name <cluster-name>
@@ -415,25 +763,45 @@ kubectl config current-context
 kubectl get nodes
 ```
 
-3. Install AWS Load Balancer Controller.
-4. Install External Secrets Operator.
-5. Install metrics-server.
-6. Push all service images to ECR.
-7. Update image names, regions, relay config, service account IAM annotation, and ingress certificate ARN.
-8. Create or update AWS Secrets Manager secrets. For S3 bucket names, update `ZORD_APP_SECRETS_JSON` in GitHub or update `zord/app-secrets` directly in AWS Secrets Manager.
-9. Build manifests locally:
+4. Confirm required add-ons exist:
+
+```powershell
+kubectl get pods -n external-secrets
+kubectl get pods -n kube-system | Select-String metrics-server
+kubectl get deployment -A | Select-String aws-load-balancer-controller
+kubectl get csidriver
+```
+
+5. Push all service images to ECR.
+6. Update image names, regions, relay config, service account IAM annotation, and ingress certificate ARN.
+7. Create or update AWS Secrets Manager secrets. For S3 bucket names, update `ZORD_APP_SECRETS_JSON` in GitHub or update `zord/app-secrets` directly in AWS Secrets Manager.
+8. Build manifests locally:
 
 ```powershell
 kubectl kustomize kubernetes/eks
 ```
 
-10. Apply:
+9. Apply:
 
 ```powershell
 kubectl apply -k kubernetes/eks
 ```
 
+10. Watch pods:
+
+```powershell
+kubectl get pods -n zord -w
+```
+
+11. Run full end-to-end testing:
+
+```text
+kubernetes/eks_deployment_end-to-end_testing/Readme.md
+```
+
 ## Verify Deployment
+
+Quick verification:
 
 ```powershell
 kubectl get ns
@@ -445,6 +813,18 @@ kubectl get pdb -n zord
 kubectl get externalsecret -n zord
 kubectl get secret zord-app-secrets -n zord
 kubectl get secret zord-edge-signing-key -n zord
+```
+
+Frontend verification:
+
+```powershell
+curl https://zordnet.com/api/health
+```
+
+Browser verification:
+
+```text
+https://zordnet.com
 ```
 
 Check important logs:

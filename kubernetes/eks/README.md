@@ -63,7 +63,7 @@ This style is much closer to how teams normally maintain manifests:
 - `shared/`: common config, service accounts, secrets, config maps
 - `infrastructure/`: stateful dependencies like Postgres, Kafka, Redis, etc.
 - `services/<service-name>/`: every microservice has its own `Deployment` and `Service`
-- `ingress/`: public entrypoints and ALB or NGINX ingress objects
+- `ingress/`: public frontend entrypoint through ALB
 - `kustomization.yaml`: the single assembly point for the environment
 
 ## High Availability
@@ -153,6 +153,25 @@ Add these four keys to `zord/app-secrets` before deploying.
 ```bash
 kubectl apply -k kubernetes/eks
 ```
+
+## Public Access Model
+
+The public ALB ingress exposes only:
+
+```text
+zordnet.com -> zord-console
+```
+
+The backend services stay private inside the cluster. Browser code should call same-origin Next.js API routes, and the `zord-console` server talks to private service DNS names such as:
+
+- `http://zord-edge:8080`
+- `http://zord-intent-engine:8083`
+- `http://zord-relay:8082`
+- `http://zord-outcome-engine:8081`
+- `http://zord-intelligence:8089`
+- `http://zord-prompt-layer:8086`
+
+Do not expose every backend service publicly. If a public API is required later, expose only `zord-edge` behind a separate reviewed host.
 
 ## Verify
 

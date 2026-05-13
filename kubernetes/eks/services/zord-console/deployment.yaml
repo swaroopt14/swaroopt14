@@ -66,6 +66,10 @@ spec:
               value: http://zord-relay:8082
             - name: ZORD_PII_ENCLAVE_URL
               value: http://zord-token-enclave:8087
+            - name: ZORD_INTELLIGENCE_URL
+              value: http://zord-intelligence:8089
+            - name: ZORD_SETTLEMENT_URL
+              value: http://zord-outcome-engine:8081
             - name: PROMPT_LAYER_URL
               value: http://zord-prompt-layer:8086
           readinessProbe:

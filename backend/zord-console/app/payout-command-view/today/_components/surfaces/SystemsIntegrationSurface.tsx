@@ -91,10 +91,7 @@ export function SystemsIntegrationSurface() {
             <Glyph name="refresh" className="h-2.5 w-2.5" />
             CTO · Engineering · Onboarding
           </span>
-          <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[#111111]">
-            Integration & System Setup
-          </h1>
-          <p className="mt-1 max-w-2xl text-[17px] leading-relaxed text-[#6f716d]">
+          <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-[#6f716d]">
             Connect Zord to your systems, configure governance policies, and manage your multi-tenant structure.
           </p>
         </header>

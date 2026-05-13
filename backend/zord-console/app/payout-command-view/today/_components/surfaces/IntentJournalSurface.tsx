@@ -85,7 +85,7 @@ const DATE_RANGE_OPTIONS: { value: DateRangePreset; label: string }[] = [
   { value: 'ytd', label: 'Year to date' },
 ]
 
-/** Quick presets on the overview donut — same `dateRange` state as the table filters. */
+/** Quick presets (sandbox / layout); live table does not yet filter by these ranges. */
 const OVERVIEW_QUICK_RANGES: { label: string; value: DateRangePreset }[] = [
   { label: '1W', value: '7d' },
   { label: '1M', value: '30d' },
@@ -197,6 +197,16 @@ function batchStatus(score: number): BatchStatus {
   if (score >= 80) return 'Stable'
   if (score >= 60) return 'Risk'
   return 'Critical'
+}
+
+/** Map intelligence `finality_status` to sidebar health pill (live batches). */
+function batchStatusFromFinality(fs: string | undefined): BatchStatus {
+  const u = (fs ?? '').toUpperCase()
+  if (u === 'SETTLED') return 'Strong'
+  if (u === 'PARTIALLY_SETTLED') return 'Risk'
+  if (u === 'PENDING') return 'Risk'
+  if (u === 'FAILED' || u === 'CANCELLED' || u === 'REQUIRES_REVIEW') return 'Critical'
+  return 'Stable'
 }
 
 function statusTone(status: BatchStatus) {
@@ -539,7 +549,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const [liveFeedLoaded, setLiveFeedLoaded] = useState(false)
   const [liveSyncAt, setLiveSyncAt] = useState<Date | null>(null)
 
-  const fetchLiveBackendFeed = useCallback(async () => {
+  const fetchLiveBackendFeed = useCallback(async (): Promise<string> => {
     const dq = `tenant_id=${encodeURIComponent(liveTenantId)}`
     const [dlqRes, batchesRes] = await Promise.all([
       getProdDlqPage(dq),
@@ -564,14 +574,26 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       },
     }))
     setLiveBatchList(batchRows)
+    let nextSelected = ''
     setSelectedBatchId((prev) => {
-      if (batchRows.length === 0) return ''
-      if (initialBatchId && batchRows.some((b) => b.batchId === initialBatchId)) return initialBatchId
-      if (prev && batchRows.some((b) => b.batchId === prev)) return prev
-      return batchRows[0]!.batchId
+      if (batchRows.length === 0) {
+        nextSelected = ''
+        return ''
+      }
+      if (initialBatchId && batchRows.some((b) => b.batchId === initialBatchId)) {
+        nextSelected = initialBatchId
+        return initialBatchId
+      }
+      if (prev && batchRows.some((b) => b.batchId === prev)) {
+        nextSelected = prev
+        return prev
+      }
+      nextSelected = batchRows[0]!.batchId
+      return nextSelected
     })
     setLiveFeedLoaded(true)
     setLiveSyncAt(new Date())
+    return nextSelected
   }, [liveTenantId, initialBatchId])
 
   useEffect(() => {
@@ -665,9 +687,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const selectedBatchIdRef = useRef(selectedBatchId)
   selectedBatchIdRef.current = selectedBatchId
 
-  const loadLiveIntents = useCallback(async () => {
-    const bid = selectedBatchIdRef.current
-    if (!liveTenantId.trim() || !bid.trim() || bid === EMPTY_SANDBOX_BATCH_ID) {
+  const loadLiveIntents = useCallback(async (batchOverride?: string) => {
+    const bid = (batchOverride ?? selectedBatchIdRef.current ?? '').trim()
+    if (!liveTenantId.trim() || !bid || bid === EMPTY_SANDBOX_BATCH_ID) {
       setLiveIntentRows([])
       return
     }
@@ -675,7 +697,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     try {
       const res = await getProdIntentsPage(q)
       let items = res?.items ?? []
-      if (items.some((it) => Boolean(it.batch_id))) {
+      const hasBatchIds = items.some((it) => Boolean(it.batch_id))
+      if (hasBatchIds) {
         items = items.filter((it) => !it.batch_id || it.batch_id === bid)
       }
       setLiveIntentRows(items.map((it) => mapApiIntentToIntentRow(it, it.batch_id ?? bid)))
@@ -699,8 +722,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     const tick = async () => {
       if (cancelled) return
       try {
-        await fetchLiveBackendFeed()
-        await loadLiveIntentsRef.current()
+        const nextBatch = await fetchLiveBackendFeed()
+        await loadLiveIntentsRef.current(nextBatch)
       } catch {
         if (!cancelled) setLiveFeedLoaded(true)
       }
@@ -766,11 +789,14 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     batchId: mode === 'live' && selectedBatchId.trim() ? selectedBatchId : undefined,
   })
   const batchAnomalyRaw = isDataAvailable(intelligenceKpis.patterns) ? intelligenceKpis.patterns : null
+  // Only trust KPI 14 counts when the payload is explicitly for this batch. Tenant-wide
+  // patterns responses often omit `batch_id`; using them here made every batch show the
+  // same donut / dispatch % (felt like mock data).
   const batchAnomaly =
     mode === 'live' &&
     selectedBatchId.trim() &&
     batchAnomalyRaw &&
-    (!batchAnomalyRaw.batch_id || batchAnomalyRaw.batch_id === selectedBatchId)
+    batchAnomalyRaw.batch_id === selectedBatchId
       ? batchAnomalyRaw
       : null
 
@@ -920,7 +946,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       // Scope failures to the currently-selected batch so the Failures tab
       // surfaces the unresolved rows for that batch (with their reason codes).
       // The free-text filter input still narrows further.
+      // Live DLQ rows are keyed by tenant_id, not intelligence batch_id — show tenant-wide DLQ.
       const bySelectedBatch =
+        mode === 'live' ||
         selectedBatch.batchId === EMPTY_SANDBOX_BATCH_ID ||
         row.batchId === selectedBatch.batchId
       const byBatch =
@@ -935,7 +963,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
         (amountRangeFilter === 'Over $2,000' && row.amount > 2000)
       return bySearch && bySelectedBatch && byBatch && byConnector && byDispatch && byStage && byAmount
     })
-  }, [failures, tableSearch, selectedBatch.batchId, filterBatchId, connectorFilter, dispatchModeFilter, failureStageFilter, amountRangeFilter])
+  }, [mode, failures, tableSearch, selectedBatch.batchId, filterBatchId, connectorFilter, dispatchModeFilter, failureStageFilter, amountRangeFilter])
 
   useEffect(() => {
     setPage(1)
@@ -976,8 +1004,12 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const healthTotals = liveBatchDetail?.batch_health
   const listCounts = selectedBatch.intelligenceCounts
 
+  /** In live mode, batch detail (when loaded) is the canonical count row; sidebar list can lag. */
+  const overviewIntentTotal =
+    mode === 'live' ? (healthBatch?.total_count ?? selectedBatch.transactions) : selectedBatch.transactions
+
   const selectedBatchTotal = Math.max(
-    anomalyCounts?.total ?? healthBatch?.total_count ?? selectedBatch.transactions,
+    anomalyCounts?.total ?? healthBatch?.total_count ?? overviewIntentTotal,
     1,
   )
   const rawConfirmed =
@@ -1171,8 +1203,27 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               </p>
             ) : null}
             {sidebarBatches.map((batch) => {
+              const selected = batch.batchId === selectedBatch.batchId
               const score = batchQualityScore(batch)
-              const status = batchStatus(score)
+              const detailRow =
+                mode === 'live' && selected && liveBatchDetail?.batch?.batch_id === batch.batchId
+                  ? liveBatchDetail.batch
+                  : null
+              const liveSuccess =
+                mode === 'live'
+                  ? (detailRow?.success_count ?? batch.intelligenceCounts?.success_count ?? batch.confirmedCount ?? 0)
+                  : null
+              const liveTotalRaw = mode === 'live' ? (detailRow?.total_count ?? batch.transactions ?? 0) : batch.transactions
+              const liveTotal = Math.max(liveTotalRaw, 1)
+              const liveFinality = detailRow?.finality_status ?? batch.intelligenceCounts?.finality_status
+              const status =
+                mode === 'live' ? batchStatusFromFinality(liveFinality) : batchStatus(score)
+              const sidebarScoreDisplay =
+                mode === 'live' && liveSuccess !== null ? liveSuccess.toLocaleString('en-US') : String(score)
+              const progressWidthPct =
+                mode === 'live' && liveSuccess !== null
+                  ? Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
+                  : score
               const tone = statusTone(status)
               const dotColor =
                 status === 'Strong' || status === 'Stable'
@@ -1180,7 +1231,14 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   : status === 'Risk'
                     ? 'bg-amber-500'
                     : 'bg-rose-500'
-              const selected = batch.batchId === selectedBatch.batchId
+
+              const liveMoneyLine =
+                mode === 'live' &&
+                selected &&
+                liveBatchDetail?.batch_health &&
+                liveBatchDetail.batch?.batch_id === batch.batchId
+                  ? formatInrRupees(Number(liveBatchDetail.batch_health.total_confirmed_amount_minor) / 100)
+                  : null
 
               return (
                 <button
@@ -1193,25 +1251,38 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       : 'border-transparent hover:border-[#E5E5E5] hover:bg-[#fafafa]'
                   }`}
                 >
-                  {/* Line 1: status dot + batch ID + score */}
+                  {/* Line 1: status dot + batch ID + success count (live) or quality score (sandbox) */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className={`h-2 w-2 shrink-0 rounded-full ${dotColor}`} aria-hidden />
                       <span className="truncate text-[14px] font-medium text-[#0f172a]">{batch.batchId}</span>
                     </div>
-                    <span className={`shrink-0 text-[13px] font-semibold tabular-nums ${tone.text}`}>{score}</span>
+                    <span
+                      className={`shrink-0 text-[13px] font-semibold tabular-nums ${tone.text}`}
+                      title={mode === 'live' ? 'success_count from intelligence batch (detail when selected)' : 'Batch quality score'}
+                    >
+                      {sidebarScoreDisplay}
+                    </span>
                   </div>
 
-                  {/* Line 2: type · value · intent count */}
-                  <div className="mt-0.5 flex items-center gap-1 pl-4 text-[12px] text-[#64748b]">
+                  {/* Line 2: type · value · intent count (live: INR when batch_health loaded for selection) */}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1 pl-4 text-[12px] text-[#64748b]">
                     <span>{batch.type}</span>
                     <span aria-hidden>·</span>
                     <span className="tabular-nums">
-                      {batch.totalValue > 0 ? usdCompact(batch.totalValue) : mode === 'live' ? '—' : usdCompact(0)}
+                      {liveMoneyLine ??
+                        (batch.totalValue > 0 ? usdCompact(batch.totalValue) : mode === 'live' ? '—' : usdCompact(0))}
                     </span>
                     <span aria-hidden>·</span>
-                    <span className="tabular-nums">{batch.transactions.toLocaleString('en-US')} intents</span>
+                    <span className="tabular-nums">
+                      {(mode === 'live' ? liveTotalRaw : batch.transactions).toLocaleString('en-US')} intents
+                    </span>
                   </div>
+                  {mode === 'live' && liveFinality ? (
+                    <p className="mt-0.5 pl-4 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      {String(liveFinality).replace(/_/g, ' ')}
+                    </p>
+                  ) : null}
 
                   {/* Selected = expanded score-bar + status pill */}
                   {selected ? (
@@ -1225,7 +1296,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                                 ? 'bg-amber-500'
                                 : 'bg-rose-500'
                           }`}
-                          style={{ width: `${score}%` }}
+                          style={{ width: `${progressWidthPct}%` }}
                         />
                       </div>
                       <div className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${tone.text} ${
@@ -1402,7 +1473,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   <div className="mt-2 grid gap-1 text-[13px] text-[#64748b] sm:grid-cols-2">
                     <p><span className="font-semibold text-[#0f172a]">Type:</span> {selectedBatch.type}</p>
                     <p className="sm:text-right"><span className="font-semibold text-[#0f172a]">Source:</span> {selectedBatch.source}</p>
-                    <p><span className="font-semibold text-[#0f172a]">Total Intents:</span> {selectedBatch.transactions.toLocaleString('en-US')}</p>
+                    <p><span className="font-semibold text-[#0f172a]">Total Intents:</span> {overviewIntentTotal.toLocaleString('en-US')}</p>
                     <p className="sm:text-right">
                       <span className="font-semibold text-emerald-700">Dispatch confidence:</span>{' '}
                       {dispatchConfidencePct.toFixed(1)}% ({batchStatus(selectedBatchScore)})
@@ -1439,7 +1510,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     {
                       variant: 'total' as const,
                       label: 'Total intents',
-                      value: selectedBatch.transactions.toLocaleString('en-US'),
+                      value: overviewIntentTotal.toLocaleString('en-US'),
                       trend: 'in batch',
                       trendTone: 'text-slate-600',
                       iconWrap: 'bg-slate-50 text-slate-600 ring-1 ring-slate-100',
@@ -1488,7 +1559,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     <div className="mt-2">
                       <p className="mt-1 text-[27px] font-semibold leading-none tracking-tight text-[#0f172a] tabular-nums">{kpi.value}</p>
                     </div>
-                    <p className={`mt-2 text-[13px] font-medium ${kpi.trendTone}`}>↑ {kpi.trend}</p>
+                    <p className={`mt-2 text-[13px] font-medium ${kpi.trendTone}`}>{mode === 'live' ? kpi.trend : `↑ ${kpi.trend}`}</p>
                     <div className="mt-1.5 flex items-end justify-between gap-3">
                       <span className="text-[11px] font-medium uppercase tracking-wider text-[#cbd5e1]"> </span>
                       <KpiSpark tone={kpi.spark} />
@@ -1501,20 +1572,28 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     <div>
                       <p className="text-[14px] font-semibold text-[#111827]">Intent Activity</p>
                       <p className="text-[12px] text-[#64748b]">Distribution by state</p>
+                      {mode === 'live' ? (
+                        <p className="mt-1 max-w-[14rem] text-[11px] leading-snug text-slate-500">
+                          From intelligence batch detail or batch list — not time-filtered. KPI 14 donut only when patterns include this{' '}
+                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[10px]">batch_id</code>.
+                        </p>
+                      ) : null}
                     </div>
                     <div className="flex items-center gap-1 text-[12px]">
-                      {OVERVIEW_QUICK_RANGES.map(({ label, value }) => (
-                        <button
-                          key={label}
-                          type="button"
-                          onClick={() => setDateRange(value)}
-                          className={`rounded-[7px] border px-2.5 py-1 ${
-                            dateRange === value ? 'border-[#111827] bg-[#111827] text-white' : 'border-[#e5e7eb] bg-white text-[#6b7280]'
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
+                      {mode === 'sandbox'
+                        ? OVERVIEW_QUICK_RANGES.map(({ label, value }) => (
+                            <button
+                              key={label}
+                              type="button"
+                              onClick={() => setDateRange(value)}
+                              className={`rounded-[7px] border px-2.5 py-1 ${
+                                dateRange === value ? 'border-[#111827] bg-[#111827] text-white' : 'border-[#e5e7eb] bg-white text-[#6b7280]'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))
+                        : null}
                     </div>
                   </div>
 

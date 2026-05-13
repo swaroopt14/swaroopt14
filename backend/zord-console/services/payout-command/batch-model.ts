@@ -177,19 +177,108 @@ export function buildSeedSummary(): BatchSummary {
   }
 }
 
-export function deriveTimeline(summary: BatchSummary, fileUploaded: boolean): BatchTimelineStep[] {
-  const processing = Math.max(0, summary.totalRows - summary.processed)
-  const hasPendingConfirmation = summary.pending > 0
-  const batchComplete = processing === 0 && summary.pending === 0
+export type ZordPipelineIntake = {
+  intakeStep: 'idle' | 'intent_uploading' | 'intent_ready' | 'settlement_uploading' | 'closed'
+  intentFileName: string | null
+  intentIngestOk: boolean
+  settlementFileName: string | null
+  uploadedFileName: string | null
+  uploadState: 'idle' | 'uploading' | 'ready'
+}
 
-  return [
-    { label: 'Batch received', state: fileUploaded ? 'done' : 'active' },
-    { label: 'File processed', state: fileUploaded ? 'done' : 'upcoming' },
-    { label: 'Disbursement processing', state: processing > 0 ? 'active' : 'done' },
-    { label: 'Payment partner', state: processing > 0 ? 'active' : 'done' },
-    { label: 'Bank confirmation pending', state: hasPendingConfirmation ? 'warning' : 'done' },
-    { label: 'Batch closed', state: batchComplete ? 'done' : 'upcoming' },
-  ]
+const ZORD_PIPELINE_LABELS = [
+  'Batch received',
+  'File processed',
+  'Disbursement processing',
+  'Payment partner',
+  'Bank confirmation pending',
+  'Batch closed',
+] as const
+
+/**
+ * Batch Command Center pipeline — driven by bulk ingest / settlement intake and grid summary.
+ * `active` is used as the loader step; bank backlog uses `warning` on “Bank confirmation pending”.
+ */
+export function deriveZordPipelineTimeline(
+  summary: BatchSummary,
+  intake: ZordPipelineIntake,
+): BatchTimelineStep[] {
+  const processing = Math.max(0, summary.totalRows - summary.processed)
+  const hasBatch = summary.totalRows > 0
+
+  const batchReceived =
+    Boolean(intake.intentFileName) ||
+    Boolean(intake.uploadedFileName) ||
+    intake.intentIngestOk ||
+    intake.intakeStep !== 'idle' ||
+    Boolean(intake.settlementFileName)
+
+  const fileProcessed =
+    intake.intentIngestOk ||
+    intake.intakeStep === 'intent_ready' ||
+    intake.intakeStep === 'settlement_uploading' ||
+    intake.intakeStep === 'closed' ||
+    (intake.uploadState === 'ready' && Boolean(intake.uploadedFileName))
+
+  const fileProcessingInFlight =
+    intake.intakeStep === 'intent_uploading' ||
+    (intake.uploadState === 'uploading' && Boolean(intake.uploadedFileName))
+
+  const intakePathReady =
+    intake.intentIngestOk ||
+    intake.intakeStep === 'intent_ready' ||
+    intake.intakeStep === 'settlement_uploading' ||
+    intake.intakeStep === 'closed'
+
+  const intentStillUploading = intake.intakeStep === 'intent_uploading'
+
+  const disbursementDone = hasBatch && intakePathReady && !intentStillUploading && processing === 0
+  const disbursementActive = hasBatch && intakePathReady && !intentStillUploading && processing > 0
+
+  const batchClosedSim =
+    intake.intakeStep === 'closed' ||
+    (disbursementDone && summary.pending === 0 && hasBatch && summary.success >= summary.totalRows)
+
+  const steps: BatchTimelineStep[] = ZORD_PIPELINE_LABELS.map((label) => ({ label, state: 'upcoming' as BatchStepState }))
+  const set = (i: number, state: BatchStepState) => {
+    steps[i].state = state
+  }
+
+  set(0, batchReceived ? 'done' : 'upcoming')
+
+  if (fileProcessed) set(1, 'done')
+  else if (fileProcessingInFlight) set(1, 'active')
+  else set(1, batchReceived ? 'upcoming' : 'upcoming')
+
+  if (!intakePathReady || intentStillUploading) set(2, 'upcoming')
+  else if (disbursementActive) set(2, 'active')
+  else if (disbursementDone) set(2, 'done')
+  else set(2, 'upcoming')
+
+  if (!disbursementDone) set(3, 'upcoming')
+  else set(3, 'done')
+
+  if (!disbursementDone) set(4, 'upcoming')
+  else if (intake.intakeStep === 'settlement_uploading') set(4, 'active')
+  else if (summary.pending > 0) set(4, 'warning')
+  else set(4, 'done')
+
+  if (batchClosedSim) set(5, 'done')
+  else set(5, 'upcoming')
+
+  return steps
+}
+
+/** @deprecated Use deriveZordPipelineTimeline for intake-aware pipeline. */
+export function deriveTimeline(summary: BatchSummary, fileUploaded: boolean): BatchTimelineStep[] {
+  return deriveZordPipelineTimeline(summary, {
+    intakeStep: fileUploaded ? 'intent_ready' : 'idle',
+    intentFileName: fileUploaded ? 'legacy' : null,
+    intentIngestOk: fileUploaded,
+    settlementFileName: null,
+    uploadedFileName: null,
+    uploadState: fileUploaded ? 'ready' : 'idle',
+  })
 }
 
 export function computeFailureCounts(rows: BatchRow[]) {

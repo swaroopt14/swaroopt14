@@ -58,24 +58,25 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
   }, [])
 
   return (
-    <header className="sticky top-0 z-40 border-b border-black/5 bg-white">
-      <div className="mx-auto flex max-w-[1800px] flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-3">
-        {/* Left: brand + mode + dock rail */}
-        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-4">
-          <div className="flex flex-wrap items-center gap-3 sm:gap-3.5">
-            <Link
-              href="/final-landing"
-              className="flex h-14 shrink-0 items-center justify-start rounded-md pl-1 pr-2 transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black/30"
-              aria-label="Arealis Zord home"
-            >
-              <ZordLogo fitToHeight variant="light" />
-            </Link>
-            <span className="hidden h-8 w-px shrink-0 bg-black/10 sm:block" aria-hidden />
-            <ModeTogglePill onActivateClick={onActivateClick} />
-          </div>
+    <header className="payout-command-nav sticky top-0 z-40">
+      <div className="mx-auto grid w-full max-w-[1920px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 px-3 py-2.5 sm:gap-x-3 sm:px-5 sm:py-3 lg:gap-x-4 lg:px-8">
+        {/* Column 1 — brand + mode (never shrinks) */}
+        <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-2.5">
+          <Link
+            href="/final-landing"
+            className="flex h-10 shrink-0 items-center gap-2 rounded-lg pr-0.5 transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 sm:h-11 sm:gap-2.5"
+            aria-label="Arealis Zord home"
+          >
+            <ZordLogo size="sm" variant="light" className="!w-auto max-w-[6rem] [&_img]:max-h-9 sm:max-w-[7rem] sm:[&_img]:max-h-10" />
+            <span className="hidden text-[15px] font-semibold tracking-tight text-neutral-900 md:inline">Zord</span>
+          </Link>
+          <ModeTogglePill onActivateClick={onActivateClick} compact />
+        </div>
 
+        {/* Column 2 — dock scrolls horizontally; never overlaps column 3 */}
+        <div className="relative min-w-0 overflow-x-auto overflow-y-visible [-webkit-overflow-scrolling:touch] py-0.5 [scrollbar-width:thin]">
           <nav
-            className="flex w-fit max-w-full items-center gap-0.5 rounded-lg bg-[#f5f5f5] p-1 ring-1 ring-black/5"
+            className="pc-nav-scroll mx-auto flex w-max max-w-none flex-nowrap items-center gap-1 rounded-2xl bg-gradient-to-b from-neutral-100 to-neutral-50/95 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] ring-1 ring-neutral-200/80 sm:gap-1.5 sm:p-2"
             aria-label="Primary navigation"
           >
             {visibleDockItems.map((item) => {
@@ -85,28 +86,36 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
                   key={item.id}
                   type="button"
                   onClick={() => onDockChange(item.id)}
-                  className={`group flex min-w-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition ${
-                    active
-                      ? 'bg-white text-[#0f172a] shadow-[0_4px_12px_-2px_rgba(15,23,42,0.12),inset_0_1px_0_rgba(255,255,255,1)] ring-1 ring-slate-300/90'
-                      : 'text-slate-600 shadow-none hover:bg-white/85 hover:text-[#0f172a]'
-                  }`}
-                  aria-label={item.label}
+                  title={`${item.navLabel} — ${item.title}`}
+                  aria-label={`${item.navLabel}. ${item.title}`}
                   aria-current={active ? 'page' : undefined}
-                  title={item.title}
+                  className={`group relative flex h-9 shrink-0 items-center overflow-hidden rounded-xl border text-left outline-none transition-[max-width] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-neutral-900/35 focus-visible:ring-offset-1 sm:h-10 ${
+                    active
+                      ? 'max-w-[9rem] border-neutral-900 bg-neutral-900 text-white shadow-md ring-1 ring-black/20 sm:max-w-[10rem]'
+                      : 'max-w-[9rem] border-neutral-200/90 bg-white text-neutral-800 shadow-sm md:max-w-[2.5rem] md:hover:max-w-[9rem] md:focus-visible:max-w-[9rem] md:hover:border-neutral-300 md:hover:bg-neutral-50'
+                  }`}
                 >
+                  {active ? (
+                    <span
+                      className="pointer-events-none absolute inset-x-1 top-0.5 h-px rounded-full bg-white/20 sm:inset-x-1.5"
+                      aria-hidden
+                    />
+                  ) : null}
                   <span
-                    className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${
-                      active
-                        ? 'bg-[#111111] text-white shadow-[0_2px_4px_rgba(0,0,0,0.22)]'
-                        : 'bg-white text-[#334155] ring-1 ring-slate-300/80'
+                    className={`relative z-[1] mx-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg sm:mx-0.5 sm:h-8 sm:w-8 ${
+                      active ? 'bg-white/15 text-white' : 'bg-neutral-100 text-neutral-600'
                     }`}
                   >
-                    <Glyph name={item.icon} className="h-4 w-4" />
+                    <Glyph name={item.icon} className="h-4 w-4 sm:h-[17px] sm:w-[17px]" />
                   </span>
-                  <span className="hidden min-w-0 pr-1 lg:block">
-                    <span className="block truncate text-[13px] font-semibold leading-tight tracking-[-0.01em] text-[#0f172a]">
-                      {item.label}
-                    </span>
+                  <span
+                    className={`overflow-hidden whitespace-nowrap text-[10px] font-bold uppercase tracking-[0.14em] transition-[max-width,opacity,padding] duration-200 ease-out sm:text-[11px] ${
+                      active
+                        ? 'max-w-[7rem] pr-1.5 text-white opacity-100 sm:max-w-[7.5rem] sm:pr-2'
+                        : 'max-w-[7rem] pr-1.5 text-neutral-900 opacity-100 md:max-w-0 md:pr-0 md:opacity-0 md:group-hover:max-w-[7rem] md:group-hover:pr-1.5 md:group-hover:opacity-100 md:group-focus-visible:max-w-[7rem] md:group-focus-visible:pr-1.5 md:group-focus-visible:opacity-100'
+                    }`}
+                  >
+                    {item.label}
                   </span>
                 </button>
               )
@@ -114,21 +123,21 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
           </nav>
         </div>
 
-        {/* Right: alerts, command search, desk */}
-        <div className="flex w-full flex-col gap-2.5 sm:ml-auto sm:w-auto sm:max-w-none sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
-          <div className="relative shrink-0">
+        {/* Column 3 — utilities (solid background so dock never paints under) */}
+        <div className="relative z-20 flex shrink-0 items-center justify-end gap-1.5 bg-white/95 pl-1.5 backdrop-blur-sm sm:gap-2 sm:pl-2 lg:gap-2.5 lg:pl-3">
+          <div className="relative">
             <button
               type="button"
               onClick={() => setAlertsOpen((o) => !o)}
-              className={`relative flex h-9 w-9 items-center justify-center rounded-lg border bg-white text-[#111111] transition hover:bg-[#f5f5f5] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black/30 ${
-                alertsOpen ? 'border-black/20 bg-[#f5f5f5]' : 'border-black/10'
+              className={`relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-neutral-700 shadow-sm ring-1 ring-neutral-200/80 transition hover:bg-neutral-50 hover:ring-neutral-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 sm:h-11 sm:w-11 ${
+                alertsOpen ? 'bg-neutral-100 ring-neutral-300' : 'bg-white'
               }`}
-              aria-label={`Alerts, ${alertCount} in inbox`}
+              aria-label={`Notifications and alerts, ${alertCount} in inbox`}
               aria-expanded={alertsOpen}
             >
-              <Glyph name="bell" className="h-5 w-5" />
+              <Glyph name="bell" className="h-5 w-5 sm:h-[22px] sm:w-[22px]" />
               {alertCount > 0 ? (
-                <span className="absolute -right-0.5 -top-0.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-[#dc2626] px-1 text-[12px] font-bold leading-none text-white shadow-[0_2px_6px_rgba(220,38,38,0.45)] ring-2 ring-white">
+                <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[1.125rem] items-center justify-center rounded-full bg-red-600 px-1 text-[11px] font-bold leading-none text-white shadow-sm ring-2 ring-white">
                   {alertCount > 9 ? '9+' : alertCount}
                 </span>
               ) : null}
@@ -172,8 +181,8 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
             ) : null}
           </div>
 
-          <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-black/10 bg-white px-3 transition focus-within:border-black/30 sm:min-w-[15rem] sm:max-w-[22rem]">
-            <Glyph name="search" className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
+          <div className="hidden h-10 w-[11rem] shrink-0 items-center gap-2 rounded-full border border-neutral-200/80 bg-neutral-100/90 px-3 shadow-inner transition focus-within:border-neutral-300 focus-within:bg-white focus-within:shadow-md sm:flex sm:h-11 sm:w-[13rem] lg:w-[16rem] xl:w-[18rem]">
+            <Glyph name="search" className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden />
             <label htmlFor="dock-nav-search" className="sr-only">
               Search client or payout ID
             </label>
@@ -183,13 +192,13 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
               type="search"
               name="dock-nav-search"
               autoComplete="off"
-              placeholder="Search clients, batches, intent IDs…"
+              placeholder="Search…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-medium leading-normal text-[#0f172a] outline-none placeholder:text-slate-400 placeholder:font-normal"
+              className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-medium leading-normal text-neutral-900 outline-none placeholder:text-neutral-400 placeholder:font-normal sm:text-[15px]"
             />
             <kbd
-              className="hidden shrink-0 rounded border border-black/10 bg-[#fafafa] px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-500 sm:inline-block"
+              className="hidden shrink-0 rounded-md border border-neutral-200/90 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-400 shadow-sm xl:inline-block"
               title="Focus search"
             >
               ⌘K
@@ -203,7 +212,7 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
             id="dock-nav-desk"
             value={desk}
             onChange={(e) => setDesk(e.target.value as (typeof DESK_ROLES)[number])}
-            className="h-9 w-full cursor-pointer rounded-lg border border-black/10 bg-white px-3 text-[14px] font-semibold text-[#0f172a] outline-none transition hover:bg-[#fafafa] focus-visible:border-black/30 sm:w-auto sm:min-w-[10rem]"
+            className="hidden h-10 max-w-[9.5rem] shrink-0 cursor-pointer truncate rounded-xl border border-neutral-200/90 bg-white px-2 text-[13px] font-semibold text-neutral-900 shadow-sm outline-none transition hover:bg-neutral-50 hover:shadow focus-visible:ring-2 focus-visible:ring-neutral-300 sm:inline-block sm:h-11 sm:max-w-[11rem] sm:px-2.5 sm:text-[14px]"
           >
             {DESK_ROLES.map((r) => (
               <option key={r} value={r}>
@@ -211,6 +220,16 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
               </option>
             ))}
           </select>
+
+          <div className="hidden shrink-0 flex-col items-end justify-center leading-tight lg:flex">
+            <span className="text-[12px] font-semibold text-neutral-900">Workspace</span>
+            <span className="mt-0.5 max-w-[7rem] truncate text-[11px] font-medium text-neutral-500">{desk}</span>
+          </div>
+          <div
+            className="hidden h-10 w-10 shrink-0 rounded-full bg-gradient-to-br from-violet-200 via-sky-100 to-amber-100 shadow-sm ring-2 ring-white sm:block sm:h-11 sm:w-11"
+            aria-hidden
+            title="Profile"
+          />
         </div>
       </div>
     </header>

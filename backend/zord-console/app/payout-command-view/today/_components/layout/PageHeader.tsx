@@ -15,9 +15,9 @@ const TEAM_AVATARS = [
 ] as const
 
 type PageHeaderProps = {
-  /** Dock label (e.g. Today, Journal) — shown as small eyebrow above the title */
+  /** Dock label (e.g. Today, Ask) — small eyebrow above the title; omit when same as title */
   pageEyebrow?: string
-  /** Full surface name (e.g. Command center, Intent Journal) */
+  /** Full surface name (e.g. Command center, Ask Zord workspace) */
   pageTitle?: string
   /** Optional second line under title (e.g. Ask workspace tab) */
   pageSubtitle?: string
@@ -46,10 +46,11 @@ export function PageHeader({
   homeCommandFilters,
   homeSystemKnowledgeFlow,
 }: PageHeaderProps) {
-  const showPageHeading = Boolean(pageEyebrow && pageTitle)
+  const showPageHeading = Boolean(pageTitle)
+  const showEyebrow = Boolean(pageEyebrow && pageEyebrow !== pageTitle)
 
   return (
-    <div className="flex flex-col gap-0">
+    <div className="mb-6 flex flex-col gap-0">
     <div
       className={`flex flex-col gap-2 xl:flex-row xl:items-center ${
         showPageHeading || homeSystemKnowledgeFlow ? 'xl:justify-between' : 'xl:justify-end'
@@ -58,12 +59,18 @@ export function PageHeader({
       <div className="min-w-0 space-y-3">
         {showPageHeading ? (
           <div>
-            <p className="text-[12px] font-bold uppercase tracking-[0.12em] text-[#64748b]">{pageEyebrow}</p>
-            <h1 className="mt-0.5 text-[1.52rem] font-bold tracking-[-0.02em] text-[#0a0a0a] sm:text-[1.7rem]">
+            {showEyebrow ? (
+              <p className="pc-section-label">{pageEyebrow}</p>
+            ) : null}
+            <h1
+              className={`font-bold tracking-[-0.03em] text-neutral-950 sm:text-[1.85rem] ${
+                showEyebrow ? 'mt-1 text-[1.6rem]' : 'text-[1.65rem]'
+              }`}
+            >
               {pageTitle}
             </h1>
             {pageSubtitle ? (
-              <p className="mt-1 text-[15px] font-semibold text-[#475569]">{pageSubtitle}</p>
+              <p className="mt-1.5 text-[14px] font-medium text-neutral-600">{pageSubtitle}</p>
             ) : null}
           </div>
         ) : null}

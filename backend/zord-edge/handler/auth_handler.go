@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"zord-edge/auth/workspacecode"
 	"zord-edge/db"
 	"zord-edge/middleware"
 	"zord-edge/services"
@@ -89,20 +90,23 @@ type authEnvelope struct {
 
 func toEnvelope(bundle *services.AuthBundle) authEnvelope {
 	accessExp := bundle.AccessExpiresAt.UTC().Format(time.RFC3339)
+	ws := workspacecode.FromKeyPrefix(bundle.Tenant.KeyPrefix)
 	return authEnvelope{
 		User: userResponse{
-			ID:         bundle.User.UserID.String(),
-			Email:      bundle.User.Email,
-			Role:       bundle.User.Role,
-			Name:       bundle.User.Name,
-			TenantID:   bundle.User.TenantID.String(),
-			TenantName: bundle.Tenant.TenantName,
-			Status:     bundle.User.Status,
-			MFAEnabled: false,
+			ID:              bundle.User.UserID.String(),
+			Email:           bundle.User.Email,
+			Role:            bundle.User.Role,
+			Name:            bundle.User.Name,
+			TenantID:        bundle.User.TenantID.String(),
+			TenantName:      bundle.Tenant.TenantName,
+			WorkspaceCode:   ws,
+			Status:          bundle.User.Status,
+			MFAEnabled:      false,
 		},
 		Session: sessionResponse{
 			SessionID:       uuid.NewString(),
 			TenantID:        bundle.Tenant.TenantID.String(),
+			WorkspaceCode:   ws,
 			Role:            bundle.User.Role,
 			AccessExpiresAt: accessExp,
 		},
@@ -216,21 +220,24 @@ func Me(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"code": "USER_NOT_FOUND", "message": "User not found"})
 		return
 	}
+	ws := workspacecode.FromKeyPrefix(tenant.KeyPrefix)
 	c.JSON(http.StatusOK, gin.H{
 		"user": userResponse{
-			ID:         user.UserID.String(),
-			Email:      user.Email,
-			Role:       user.Role,
-			Name:       user.Name,
-			TenantID:   user.TenantID.String(),
-			TenantName: tenant.TenantName,
-			Status:     user.Status,
-			MFAEnabled: false,
+			ID:            user.UserID.String(),
+			Email:         user.Email,
+			Role:          user.Role,
+			Name:          user.Name,
+			TenantID:      user.TenantID.String(),
+			TenantName:    tenant.TenantName,
+			WorkspaceCode: ws,
+			Status:        user.Status,
+			MFAEnabled:    false,
 		},
 		"session": sessionResponse{
-			SessionID: uuid.NewString(),
-			TenantID:  tenant.TenantID.String(),
-			Role:      user.Role,
+			SessionID:     uuid.NewString(),
+			TenantID:      tenant.TenantID.String(),
+			WorkspaceCode: ws,
+			Role:          user.Role,
 		},
 	})
 }

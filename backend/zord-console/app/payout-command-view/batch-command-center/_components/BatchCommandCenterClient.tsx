@@ -1,15 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { DASHBOARD_FONT_STACK, type GlyphName } from '@/services/payout-command/model'
+import { DASHBOARD_FONT_STACK } from '@/services/payout-command/model'
 import { ClientChart, Glyph } from '../../today/_components/shared'
 import {
   buildDefaultBatchRows,
   buildSeedSummary,
   computeFailureCounts,
-  deriveTimeline,
+  deriveZordPipelineTimeline,
+  type ZordPipelineIntake,
   formatInr,
   formatPercent,
   parseUploadedSheet,
@@ -23,10 +24,18 @@ import {
 import { postIntentBulkIngest } from '@/services/payout-command/batch-intake/postIntentBulkIngest'
 import { postSettlementFileUpload } from '@/services/payout-command/batch-intake/postSettlementFileUpload'
 import { getProdIntentsPage } from '@/services/payout-command/prod-api/getProdIntentsPage'
+import { getIntelligenceBatchDetail } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import type { ApiIntentRow } from '@/services/payout-command/prod-api/prodApiTypes'
+import type { BatchDetailResponse } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { CreatePaymentRequestForm } from '../../../customer/intents/create/page'
 import { buildSeededBatchFromBulkUpload } from '@/services/payout-command/buildSeededBatchFromBulkUpload'
 import { persistSeededBatchPrepend } from '@/services/payout-command/seeded-batches-store'
+import {
+  postLoanSystemBatchPull,
+  postMandateNachPull,
+  postSettlementFeedPull,
+} from '@/services/payout-command/external-batch-sync/client'
+import type { ExternalBatchSyncResponse } from '@/services/payout-command/external-batch-sync/types'
 
 // Map an intent-engine row → BatchCommandCenter's row shape so the table can render
 // real tenant data on initial load (before any CSV upload). Missing fields are
@@ -54,6 +63,13 @@ function mapIntentRowToBatchRow(intent: ApiIntentRow): BatchRow {
   }
 }
 
+function formatInrFromMinor(minorStr: string | null | undefined): string {
+  if (minorStr == null || String(minorStr).trim() === '') return '—'
+  const minor = Number(minorStr)
+  if (!Number.isFinite(minor)) return '—'
+  return formatInr(minor / 100)
+}
+
 type StatusFilter = 'All' | BatchRowStatus
 type SortMode = 'Latest' | 'Oldest'
 
@@ -61,6 +77,8 @@ const PIE_COLORS = ['#22c55e', '#ef4444', '#f59e0b', '#3b82f6']
 const AUTO_REFRESH_MS = 8000
 /** After intent bulk-ingest succeeds, poll intent-engine list so ops see live connectivity (not row-level sync). */
 const INTENT_ENGINE_POLL_MS = 20_000
+/** Poll Intelligence batch detail for the operational snapshot card. */
+const BATCH_INTEL_POLL_MS = 15_000
 const PAGE_SIZE = 10
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: 'All', label: 'All' },
@@ -68,14 +86,6 @@ const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: 'Pending', label: 'Pending' },
   { value: 'Failed', label: 'Requires review' },
   { value: 'Processing', label: 'Processing' },
-]
-const SHELL_NAV: Array<{ icon: GlyphName; label: string; href: string }> = [
-  { icon: 'home', label: 'Home overview', href: '/payout-command-view/today' },
-  { icon: 'folder', label: 'Disbursement workspace', href: '/payout-command-view/today' },
-  { icon: 'zap', label: 'Confirmation & settlement', href: '/payout-command-view/today' },
-  { icon: 'grid', label: 'Trace & evidence', href: '/payout-command-view/today' },
-  { icon: 'refresh', label: 'Operations intelligence', href: '/payout-command-view/today' },
-  { icon: 'document', label: 'Exceptions', href: '/payout-command-view/today' },
 ]
 
 function statusBadgeClass(status: BatchRowStatus) {
@@ -108,8 +118,9 @@ function mandateStatusFromRow(row: BatchRow) {
 
 function timelineStateClass(state: BatchTimelineStep['state']) {
   if (state === 'done') return 'bg-[#f0fdf4] border-[#86efac] text-[#15803d]'
-  if (state === 'active') return 'bg-[#eff6ff] border-[#93c5fd] text-[#1d4ed8]'
-  if (state === 'warning') return 'bg-[#fffbeb] border-[#fcd34d] text-[#b45309]'
+  if (state === 'active')
+    return 'bg-[#eff6ff] border-[#6366f1] text-[#1d4ed8] shadow-[0_0_0_1px_rgba(99,102,241,0.18)] motion-safe:animate-pulse'
+  if (state === 'warning') return 'bg-[#fffbeb] border-[#f59e0b] text-[#b45309]'
   return 'bg-[#fafaf8] border-[#e5e5e2] text-[#8a8a86]'
 }
 
@@ -284,14 +295,65 @@ export default function BatchCommandCenterClient() {
   const [tenantId, setTenantId] = useState(() => process.env.NEXT_PUBLIC_ZORD_TENANT_ID ?? '')
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [intentIngestOk, setIntentIngestOk] = useState(false)
-  /** Batch id used for settlement (response body, or optional Step 1 field). */
+  /** Batch id used for settlement (response body, optional Step 1 field, or LOCAL-* fallback). */
   const [settlementBatchId, setSettlementBatchId] = useState<string | null>(null)
+  const settlementFileInputRef = useRef<HTMLInputElement>(null)
+  const toolbarNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [toolbarNotice, setToolbarNotice] = useState<string | null>(null)
+  const [shareBusy, setShareBusy] = useState(false)
+  const [externalSyncBusy, setExternalSyncBusy] = useState<'loan' | 'settlement' | 'mandate' | null>(null)
+  const [externalSyncLast, setExternalSyncLast] = useState<{
+    operation: string
+    message: string
+    hint?: string
+    at: Date
+    requestId?: string
+    httpOk: boolean
+  } | null>(null)
+
+  const showToolbarNotice = useCallback((message: string) => {
+    setToolbarNotice(message)
+    if (toolbarNoticeTimerRef.current) clearTimeout(toolbarNoticeTimerRef.current)
+    toolbarNoticeTimerRef.current = window.setTimeout(() => {
+      setToolbarNotice(null)
+      toolbarNoticeTimerRef.current = null
+    }, 4500)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (toolbarNoticeTimerRef.current) clearTimeout(toolbarNoticeTimerRef.current)
+    }
+  }, [])
+
   const [intentEnginePoll, setIntentEnginePoll] = useState<{
     ok: boolean
     intentTotal: number | null
     at: Date
     err?: string
   } | null>(null)
+
+  const [intelBatchDetail, setIntelBatchDetail] = useState<BatchDetailResponse | null>(null)
+  const [intelBatchDetailLoading, setIntelBatchDetailLoading] = useState(false)
+  const [intelBatchDetailError, setIntelBatchDetailError] = useState<string | null>(null)
+  const [intelBatchDetailAt, setIntelBatchDetailAt] = useState<Date | null>(null)
+
+  const settlementBatchIdResolved = useMemo(
+    () => (settlementBatchId ?? batchIdInput.trim()).trim(),
+    [batchIdInput, settlementBatchId],
+  )
+  const settlementCredentialsReady = useMemo(
+    () => tenantId.trim().length > 0 && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
+    [psp, settlementBatchIdResolved, tenantId],
+  )
+  const settlementPickerEnabled = settlementCredentialsReady && intakeStep !== 'settlement_uploading'
+  const intelligenceBatchPollEligible = useMemo(
+    () =>
+      tenantId.trim().length > 0 &&
+      settlementBatchIdResolved.length > 0 &&
+      !settlementBatchIdResolved.startsWith('LOCAL-'),
+    [settlementBatchIdResolved, tenantId],
+  )
 
   const refreshSimulation = useCallback(() => {
     setRows((c) => c.map(evolveRow))
@@ -312,6 +374,55 @@ export default function BatchCommandCenterClient() {
     })
     setLastRefreshedAt(new Date())
   }, [])
+
+  const loadIntelBatchDetail = useCallback(async () => {
+    if (!intelligenceBatchPollEligible) {
+      setIntelBatchDetail(null)
+      setIntelBatchDetailError(null)
+      setIntelBatchDetailAt(null)
+      setIntelBatchDetailLoading(false)
+      return
+    }
+    setIntelBatchDetailLoading(true)
+    setIntelBatchDetailError(null)
+    try {
+      const res = await getIntelligenceBatchDetail(tenantId.trim(), settlementBatchIdResolved)
+      setIntelBatchDetail(res)
+      setIntelBatchDetailAt(new Date())
+      if (!res) {
+        setIntelBatchDetailError('Intelligence has no record for this batch id yet (or the request was denied).')
+      }
+    } catch (e) {
+      setIntelBatchDetail(null)
+      setIntelBatchDetailError(e instanceof Error ? e.message : 'Intelligence request failed')
+      setIntelBatchDetailAt(new Date())
+    } finally {
+      setIntelBatchDetailLoading(false)
+    }
+  }, [intelligenceBatchPollEligible, settlementBatchIdResolved, tenantId])
+
+  useEffect(() => {
+    if (!intelligenceBatchPollEligible) {
+      setIntelBatchDetail(null)
+      setIntelBatchDetailError(null)
+      setIntelBatchDetailAt(null)
+      return
+    }
+    void loadIntelBatchDetail()
+    const id = window.setInterval(() => void loadIntelBatchDetail(), BATCH_INTEL_POLL_MS)
+    return () => window.clearInterval(id)
+  }, [intelligenceBatchPollEligible, loadIntelBatchDetail])
+
+  /** Header refresh — same tick as auto-refresh but surfaces confirmation for ops. */
+  const manualRefreshSnapshot = useCallback(() => {
+    refreshSimulation()
+    if (intelligenceBatchPollEligible) void loadIntelBatchDetail()
+    showToolbarNotice(
+      intelligenceBatchPollEligible
+        ? 'Progress simulation stepped and intelligence batch snapshot refreshed.'
+        : 'Progress simulation stepped — queued disbursements moved toward bank confirmation.',
+    )
+  }, [intelligenceBatchPollEligible, loadIntelBatchDetail, refreshSimulation, showToolbarNotice])
 
   useEffect(() => {
     const id = window.setInterval(() => refreshSimulation(), AUTO_REFRESH_MS)
@@ -439,13 +550,15 @@ export default function BatchCommandCenterClient() {
         }
         const effectiveBatch = result.batchIdFromBody || bid || null
         const journalBatchId = effectiveBatch ?? `LOCAL-${Date.now()}`
-        setSettlementBatchId(effectiveBatch)
+        // Always keep step 2 enabled after a successful ingest: server may omit batch id in the
+        // response body while the journal still uses a stable LOCAL-* id for sandbox preview.
+        setSettlementBatchId(journalBatchId)
         setIntentIngestOk(true)
         setUploadRelayState('synced')
         setUploadRelayMessage(
           effectiveBatch
             ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal lists this batch under Sandbox seeded.`
-            : `Intent batch accepted; using local id ${journalBatchId} for the journal until a Batch-Id is returned. Enter Batch-Id above and re-upload if needed.`,
+            : `Intent batch accepted. Settlement step uses id ${journalBatchId} (enter Batch-Id above and re-run Step 1 if the settlement service requires a server-issued id).`,
         )
         setRows(parsed)
         setSummary(recomputeSummary(parsed, parsed.length))
@@ -479,16 +592,14 @@ export default function BatchCommandCenterClient() {
   const onSettlementUpload = useCallback(
     async (file: File | null) => {
       if (!file) return
-      if (!intentIngestOk || !settlementBatchId) {
-        setUploadRelayState('failed')
-        setUploadRelayMessage('Complete Step 1 successfully and ensure a Batch-Id is available before uploading settlement.')
-        return
-      }
       const tid = tenantId.trim()
       const pspVal = psp.trim()
-      if (!tid || !pspVal) {
+      const bid = (settlementBatchId ?? batchIdInput.trim()).trim()
+      if (!tid || !pspVal || !bid) {
         setUploadRelayState('failed')
-        setUploadRelayMessage('Tenant ID and PSP are required for settlement upload.')
+        setUploadRelayMessage(
+          'Settlement upload needs tenant_id, psp, and Batch-Id (complete Step 1 or enter Batch-Id in the field above).',
+        )
         return
       }
       setSettlementFileName(file.name)
@@ -501,7 +612,7 @@ export default function BatchCommandCenterClient() {
           apiKeyRaw: apiKey.trim() || undefined,
           tenantId: tid,
           psp: pspVal,
-          batchId: settlementBatchId,
+          batchId: bid,
         })
         if (!result.ok) {
           throw new Error(result.errorMessage ?? `HTTP ${result.httpStatus}`)
@@ -513,22 +624,63 @@ export default function BatchCommandCenterClient() {
         setUploadRelayState('failed')
         setUploadRelayMessage(`Settlement upload failed (${error instanceof Error ? error.message : 'unknown error'}).`)
         setIntakeStep('intent_ready')
+      } finally {
+        const el = settlementFileInputRef.current
+        if (el) el.value = ''
       }
     },
-    [apiKey, intentIngestOk, psp, settlementBatchId, tenantId],
+    [apiKey, batchIdInput, psp, settlementBatchId, tenantId],
   )
 
   const retryFailedRows = useCallback(() => {
-    setRows((c) => c.map((row) =>
-      row.status === 'Failed' ? { ...row, status: 'Processing', stage: 'Disbursement processing', reason: '-', actionLabel: 'Track progress' } : row,
-    ))
-    setSummary((c) => ({ ...c, failed: 0, processed: Math.max(0, c.processed - c.failed) }))
+    setRows((prev) => {
+      const next = prev.map((row) =>
+        row.status === 'Failed'
+          ? {
+              ...row,
+              status: 'Processing' as const,
+              stage: 'Queued for retry',
+              reason: '—',
+              actionLabel: 'Track progress',
+            }
+          : row,
+      )
+      setSummary(recomputeSummary(next, next.length))
+      return next
+    })
+    setSelectedFailureReason(null)
+    setStatusFilter('All')
+    setPage(1)
     setLastRefreshedAt(new Date())
-  }, [])
+    showToolbarNotice(
+      'Retry failed: every “Requires review” row was re-queued as processing so you can simulate a partner replay or manual fix before settlement.',
+    )
+  }, [showToolbarNotice])
 
   const failureCounts = useMemo(() => computeFailureCounts(rows), [rows])
   const progress = useMemo(() => progressFromSummary(summary), [summary])
-  const timeline = useMemo(() => deriveTimeline(summary, uploadState !== 'idle'), [summary, uploadState])
+  const pipelineIntake = useMemo<ZordPipelineIntake>(
+    () => ({
+      intakeStep,
+      intentFileName,
+      intentIngestOk,
+      settlementFileName,
+      uploadedFileName,
+      uploadState,
+    }),
+    [intakeStep, intentFileName, intentIngestOk, settlementFileName, uploadedFileName, uploadState],
+  )
+
+  const timeline = useMemo(() => deriveZordPipelineTimeline(summary, pipelineIntake), [pipelineIntake, summary])
+
+  const pipelineBusy = useMemo(() => timeline.some((s) => s.state === 'active'), [timeline])
+
+  const timelineProgressPct = useMemo(() => {
+    const n = timeline.length
+    const done = timeline.filter((s) => s.state === 'done').length
+    const bump = timeline.some((s) => s.state === 'active') ? 0.45 : timeline.some((s) => s.state === 'warning') ? 0.25 : 0
+    return Math.min(100, ((done + bump) / Math.max(n, 1)) * 100)
+  }, [timeline])
   const processingCount = Math.max(0, summary.totalRows - summary.processed)
   const failureRate = summary.totalRows ? (summary.failed / summary.totalRows) * 100 : 0
 
@@ -670,7 +822,8 @@ export default function BatchCommandCenterClient() {
   }, [rows])
 
   const downloadReport = useCallback(() => {
-    const csv = toCsv(filteredRows.length ? filteredRows : rows)
+    const exportRows = filteredRows.length ? filteredRows : rows
+    const csv = toCsv(exportRows)
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const anchor = document.createElement('a')
@@ -678,61 +831,292 @@ export default function BatchCommandCenterClient() {
     anchor.download = `batch-report-${new Date().toISOString().slice(0, 19)}.csv`
     anchor.click()
     URL.revokeObjectURL(url)
-  }, [filteredRows, rows])
+    showToolbarNotice(`Downloaded CSV with ${exportRows.length} row${exportRows.length === 1 ? '' : 's'} (current table filters applied).`)
+  }, [filteredRows, rows, showToolbarNotice])
+
+  const shareBatchSummary = useCallback(async () => {
+    const url = typeof window !== 'undefined' ? window.location.href : ''
+    const batchLabel = (settlementBatchId ?? batchIdInput.trim()) || '—'
+    const tid = tenantId.trim() || '—'
+    const stillProcessing = Math.max(0, summary.totalRows - summary.processed)
+    const text = [
+      'Zord — Batch Command Center snapshot',
+      '',
+      `Tenant: ${tid}`,
+      `Batch / correlation id: ${batchLabel}`,
+      `Total rows: ${summary.totalRows}`,
+      `Confirmed: ${summary.success} · Pending: ${summary.pending} · Failed (needs review): ${summary.failed} · Still processing: ${stillProcessing}`,
+      '',
+      `Open in console: ${url}`,
+    ].join('\n')
+    const subject = `Batch status · ${batchLabel}`
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({ title: subject, text, url })
+        showToolbarNotice('Shared via your device (native share).')
+        return
+      } catch (e) {
+        if ((e as { name?: string })?.name === 'AbortError') return
+      }
+    }
+    window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`
+    showToolbarNotice('Opened your email client with a pre-filled batch summary — add recipients and send.')
+  }, [batchIdInput, settlementBatchId, showToolbarNotice, summary, tenantId])
+
+  const batchContextSnapshot = useMemo(() => {
+    const b = intelBatchDetail?.batch
+    const h = intelBatchDetail?.batch_health
+    const batchId = settlementBatchIdResolved || '—'
+    const ingestLabel = intentFileName ? `${sourceType} upload` : '—'
+    const finalityRaw = h?.finality_status ?? b?.finality_status
+    const finality =
+      finalityRaw && String(finalityRaw).trim() ? String(finalityRaw).replace(/_/g, ' ') : '—'
+    // Totals must match the batch currently shown in the grid (parsed upload / ingested sheet),
+    // not Intelligence aggregates (which can be tenant-wide or a different scope).
+    const totalCount = summary.totalRows
+    const sheetValueTotal = rows.reduce((s, r) => s + (Number.isFinite(r.amount) ? r.amount : Number(r.amount) || 0), 0)
+    const totalValue = formatInr(sheetValueTotal)
+    const intelligenceMode =
+      intelBatchDetail?.intelligence_mode && intelBatchDetail.intelligence_mode.trim()
+        ? intelBatchDetail.intelligence_mode.replace(/_/g, ' ')
+        : null
+    return {
+      batchId,
+      ingestLabel,
+      finality,
+      intelligenceMode,
+      totalCountLabel: totalCount.toLocaleString('en-IN'),
+      totalValue,
+    }
+  }, [intelBatchDetail, intentFileName, rows, settlementBatchIdResolved, sourceType, summary.totalRows])
+
+  const batchContextBadge = useMemo(() => {
+    if (intelBatchDetailLoading && intelligenceBatchPollEligible && !intelBatchDetail) {
+      return {
+        wrap: 'border-slate-200/90 bg-slate-50/90 text-[#475569]',
+        dot: 'bg-slate-400 animate-pulse',
+        label: 'Loading Intelligence…',
+      }
+    }
+    if (intelBatchDetail) {
+      return {
+        wrap: 'border-emerald-200/90 bg-emerald-50/90 text-[#15803d]',
+        dot: 'bg-[#16a34a]',
+        label: 'Intelligence linked',
+      }
+    }
+    if (intelligenceBatchPollEligible && intelBatchDetailError) {
+      return {
+        wrap: 'border-amber-200/90 bg-amber-50/90 text-[#b45309]',
+        dot: 'bg-amber-500',
+        label: 'Intelligence unavailable',
+      }
+    }
+    if (settlementBatchIdResolved.startsWith('LOCAL-')) {
+      return {
+        wrap: 'border-slate-200/90 bg-slate-50/90 text-[#64748b]',
+        dot: 'bg-slate-400',
+        label: 'Local preview',
+      }
+    }
+    if (!settlementBatchIdResolved) {
+      return {
+        wrap: 'border-slate-200/90 bg-slate-50/90 text-[#64748b]',
+        dot: 'bg-slate-400',
+        label: 'Awaiting Batch-Id',
+      }
+    }
+    return {
+      wrap: 'border-slate-200/90 bg-slate-50/90 text-[#64748b]',
+      dot: 'bg-slate-400',
+      label: 'Grid simulation',
+    }
+  }, [
+    intelBatchDetail,
+    intelBatchDetailError,
+    intelBatchDetailLoading,
+    intelligenceBatchPollEligible,
+    settlementBatchIdResolved,
+  ])
+
+  const refreshLoanSystemStrip = useCallback(() => {
+    void (async () => {
+      const tid = tenantId.trim()
+      if (!tid) {
+        showToolbarNotice('Enter tenant id before calling customer-system sync.')
+        return
+      }
+      const bid = settlementBatchIdResolved || null
+      setExternalSyncBusy('loan')
+      try {
+        const data: ExternalBatchSyncResponse = await postLoanSystemBatchPull({
+          tenant_id: tid,
+          batch_id: bid ?? '',
+          psp: psp.trim() || undefined,
+        })
+        setExternalSyncLast({
+          operation: data.operation ?? 'loan_system_pull',
+          message: data.message ?? 'No response message',
+          hint: data.hint,
+          at: new Date(),
+          requestId: data.request_id,
+          httpOk: true,
+        })
+        const banner = [data.message, data.hint].filter(Boolean).join(' ')
+        showToolbarNotice(banner.length > 320 ? `${banner.slice(0, 317)}…` : banner)
+        refreshSimulation()
+        if (intelligenceBatchPollEligible) void loadIntelBatchDetail()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Request failed'
+        setExternalSyncLast({
+          operation: 'loan_system_pull',
+          message: msg,
+          at: new Date(),
+          httpOk: false,
+        })
+        showToolbarNotice(`Loan system sync failed: ${msg}`)
+      } finally {
+        setExternalSyncBusy(null)
+      }
+    })()
+  }, [
+    intelligenceBatchPollEligible,
+    loadIntelBatchDetail,
+    psp,
+    refreshSimulation,
+    settlementBatchIdResolved,
+    showToolbarNotice,
+    tenantId,
+  ])
+
+  const refreshSettlementIntelStrip = useCallback(() => {
+    void (async () => {
+      const tid = tenantId.trim()
+      if (!tid) {
+        showToolbarNotice('Enter tenant id before calling customer-system sync.')
+        return
+      }
+      const bid = settlementBatchIdResolved || null
+      setExternalSyncBusy('settlement')
+      try {
+        const data: ExternalBatchSyncResponse = await postSettlementFeedPull({
+          tenant_id: tid,
+          batch_id: bid ?? '',
+          psp: psp.trim() || undefined,
+        })
+        setExternalSyncLast({
+          operation: data.operation ?? 'settlement_feed_pull',
+          message: data.message ?? 'No response message',
+          hint: data.hint,
+          at: new Date(),
+          requestId: data.request_id,
+          httpOk: true,
+        })
+        const banner = [data.message, data.hint].filter(Boolean).join(' ')
+        showToolbarNotice(banner.length > 320 ? `${banner.slice(0, 317)}…` : banner)
+        if (intelligenceBatchPollEligible) void loadIntelBatchDetail()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Request failed'
+        setExternalSyncLast({
+          operation: 'settlement_feed_pull',
+          message: msg,
+          at: new Date(),
+          httpOk: false,
+        })
+        showToolbarNotice(`Settlement sync failed: ${msg}`)
+      } finally {
+        setExternalSyncBusy(null)
+      }
+    })()
+  }, [intelligenceBatchPollEligible, loadIntelBatchDetail, psp, settlementBatchIdResolved, showToolbarNotice, tenantId])
+
+  const refreshMandateStripSimOnly = useCallback(() => {
+    void (async () => {
+      const tid = tenantId.trim()
+      if (!tid) {
+        showToolbarNotice('Enter tenant id before calling customer-system sync.')
+        return
+      }
+      const bid = settlementBatchIdResolved || null
+      setExternalSyncBusy('mandate')
+      try {
+        const data: ExternalBatchSyncResponse = await postMandateNachPull({
+          tenant_id: tid,
+          batch_id: bid ?? '',
+          psp: psp.trim() || undefined,
+        })
+        setExternalSyncLast({
+          operation: data.operation ?? 'mandate_nach_pull',
+          message: data.message ?? 'No response message',
+          hint: data.hint,
+          at: new Date(),
+          requestId: data.request_id,
+          httpOk: true,
+        })
+        const banner = [data.message, data.hint].filter(Boolean).join(' ')
+        showToolbarNotice(banner.length > 320 ? `${banner.slice(0, 317)}…` : banner)
+        refreshSimulation()
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Request failed'
+        setExternalSyncLast({
+          operation: 'mandate_nach_pull',
+          message: msg,
+          at: new Date(),
+          httpOk: false,
+        })
+        showToolbarNotice(`Mandate / NACH sync failed: ${msg}`)
+      } finally {
+        setExternalSyncBusy(null)
+      }
+    })()
+  }, [psp, refreshSimulation, settlementBatchIdResolved, showToolbarNotice, tenantId])
 
   const scrollToExceptions = useCallback(() => {
     document.getElementById('exceptions-top')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
   return (
-    <main className="min-h-screen bg-[#f2f1ed] text-[15px] leading-[1.55] antialiased" style={{ fontFamily: DASHBOARD_FONT_STACK }}>
-      {/* ─── Topnav ─────────────────────────────────────────────────────── */}
-      <div className="sticky top-0 z-30 border-b border-[#e8e8e5] bg-white/96 backdrop-blur-sm">
-        <div className="flex min-h-[56px] items-center justify-between px-6">
-          <div className="flex items-center gap-5">
-            <div className="flex items-center gap-2.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#111111] text-[13px] font-bold text-white">Z</span>
-              <span className="text-[15px] font-semibold text-[#111111]">Zord</span>
-            </div>
-            <div className="h-5 w-px bg-[#e8e8e5]" />
-            <nav className="flex items-center gap-1">
-              {SHELL_NAV.map((item, i) => {
-                const active = i === 1
-                return (
-                  <Link
-                    key={item.label}
-                    href={item.href}
-                    title={item.label}
-                    aria-label={item.label}
-                    className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
-                      active
-                        ? 'border-[#111111] bg-[#111111] text-white'
-                        : 'border-transparent text-[#9a9a96] hover:border-[#e8e8e5] hover:bg-[#fafaf8] hover:text-[#111111]'
-                    }`}
-                  >
-                    <Glyph name={item.icon} className="h-[15px] w-[15px]" />
-                  </Link>
-                )
-              })}
-            </nav>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex h-9 w-[240px] items-center gap-2 rounded-xl border border-[#e8e8e5] bg-[#fafaf8] px-3 text-[14px] text-[#aaaaaa]">
-              <Glyph name="search" className="h-3.5 w-3.5 shrink-0" />
-              <span>Search Request ID or borrower…</span>
-            </div>
-            <div className="flex items-center gap-2.5 rounded-xl border border-[#e8e8e5] bg-white px-3 py-1.5">
-              <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#111111] text-[12px] font-semibold text-white">OS</div>
-              <div>
-                <div className="text-[14px] font-medium leading-tight text-[#111111]">Operations lead</div>
-                <div className="text-[12px] leading-tight text-[#9a9a96]">Disbursement operations</div>
-              </div>
+    <main
+      className="payout-command-console min-h-screen bg-[#f2f1ed] text-[15px] leading-[1.55] antialiased"
+      style={{ fontFamily: DASHBOARD_FONT_STACK }}
+    >
+      <div className="mx-auto max-w-[1440px] space-y-5 p-6">
+        {/* In-page toolbar — global chrome is `BatchTopNav` only (no duplicate sticky rails). */}
+        <div className="flex flex-col gap-3 rounded-2xl border border-[#e8e8e5] bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <label className="relative flex min-h-10 w-full min-w-0 flex-1 items-center sm:max-w-xl">
+            <span className="pointer-events-none absolute left-3 flex text-[#9a9a96]">
+              <Glyph name="search" className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            </span>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setPage(1)
+              }}
+              placeholder="Search Request ID or borrower…"
+              autoComplete="off"
+              className="h-10 w-full rounded-xl border border-[#e8e8e5] bg-[#fafaf8] py-2 pl-9 pr-3 text-[14px] text-[#111111] outline-none transition placeholder:text-[#9a9a96] focus:border-[#111111]/25 focus:bg-white focus:ring-2 focus:ring-black/5"
+            />
+          </label>
+          <div className="flex shrink-0 items-center gap-2.5 rounded-xl border border-[#e8e8e5] bg-[#fafaf8] px-3 py-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#111111] text-[12px] font-semibold text-white">OS</div>
+            <div className="min-w-0">
+              <div className="text-[14px] font-medium leading-tight text-[#111111]">Operations lead</div>
+              <div className="text-[12px] leading-tight text-[#9a9a96]">Disbursement operations</div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="mx-auto max-w-[1440px] space-y-5 p-6">
+        {toolbarNotice ? (
+          <div
+            role="status"
+            className="rounded-xl border border-emerald-200/90 bg-emerald-50 px-4 py-2.5 text-[13px] font-medium text-emerald-950 shadow-sm"
+          >
+            {toolbarNotice}
+          </div>
+        ) : null}
+
         {/* ─── Page header ──────────────────────────────────────────────── */}
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
@@ -753,19 +1137,33 @@ export default function BatchCommandCenterClient() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
-              onClick={refreshSimulation}
-              aria-label="Refresh"
+              onClick={manualRefreshSnapshot}
+              title="Advance the sandbox simulation one tick (same logic as auto-refresh)"
+              aria-label="Refresh batch snapshot"
               className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e8e8e5] bg-white text-[#6f6f6b] transition hover:bg-[#fafaf8]"
             >
               <Glyph name="refresh" className="h-[15px] w-[15px]" />
             </button>
-            {[
-              { label: 'Download report', action: downloadReport },
-              { label: 'Retry failed', action: retryFailedRows, disabled: summary.failed === 0 },
-            ].map(({ label, action, disabled }) => (
+            {(
+              [
+                {
+                  label: 'Download report',
+                  title: 'Download CSV of the current table view (search and status filters apply).',
+                  action: downloadReport,
+                },
+                {
+                  label: 'Retry failed',
+                  title:
+                    'Sandbox only: moves every “Requires review” row back to “processing” so you can simulate a replay after fixing data or partner issues.',
+                  action: retryFailedRows,
+                  disabled: summary.failed === 0,
+                },
+              ] as const
+            ).map(({ label, title, action, disabled }) => (
               <button
                 key={label}
                 type="button"
+                title={title}
                 onClick={action}
                 disabled={disabled}
                 className="h-9 rounded-xl border border-[#e8e8e5] bg-white px-3.5 text-[14px] font-medium text-[#111111] transition hover:bg-[#fafaf8] disabled:cursor-not-allowed disabled:opacity-40"
@@ -774,14 +1172,27 @@ export default function BatchCommandCenterClient() {
               </button>
             ))}
             <Link
-              href="/payout-command-view/today"
+              href="/payout-command-view/today?dock=grid"
+              title="Open payout command view on Intent Journal"
               className="flex h-9 items-center rounded-xl border border-[#e8e8e5] bg-white px-3.5 text-[14px] font-medium text-[#111111] transition hover:bg-[#fafaf8]"
             >
               Command view
             </Link>
             <button
               type="button"
-              className="flex h-9 items-center gap-2.5 rounded-xl bg-[#111111] px-4 text-[14px] font-medium text-white transition hover:bg-[#2a2a2a]"
+              title="Share this snapshot via your device, or open an email draft with batch counts (mailto)"
+              disabled={shareBusy}
+              onClick={() => {
+                void (async () => {
+                  setShareBusy(true)
+                  try {
+                    await shareBatchSummary()
+                  } finally {
+                    setShareBusy(false)
+                  }
+                })()
+              }}
+              className="flex h-9 items-center gap-2.5 rounded-xl bg-[#111111] px-4 text-[14px] font-medium text-white transition hover:bg-[#2a2a2a] disabled:cursor-wait disabled:opacity-70"
             >
               <div className="flex -space-x-1.5">
                 {(['#d8e6ff', '#dbf7dd', '#edd8f4'] as const).map((bg, i) => (
@@ -790,7 +1201,7 @@ export default function BatchCommandCenterClient() {
                   </span>
                 ))}
               </div>
-              Share
+              {shareBusy ? 'Opening…' : 'Share'}
             </button>
           </div>
         </div>
@@ -890,10 +1301,10 @@ export default function BatchCommandCenterClient() {
               />
             </label>
           </div>
-          {settlementBatchId && intentIngestOk ? (
+          {settlementBatchIdResolved ? (
             <p className="mt-2 text-[12px] text-[#475569]">
               <span className="font-semibold text-[#334155]">Active Batch-Id: </span>
-              <span className="font-mono text-[#0f172a]">{settlementBatchId}</span>
+              <span className="font-mono text-[#0f172a]">{settlementBatchIdResolved}</span>
             </p>
           ) : null}
 
@@ -945,20 +1356,34 @@ export default function BatchCommandCenterClient() {
               />
             </label>
 
-            {/* Step 2 — Settlement */}
-            <label
-              className={`group relative flex flex-col rounded-[14px] border bg-white p-4 transition ${
-                !intentIngestOk || !settlementBatchId
+            {/* Step 2 — Settlement (programmatic file click: reliable when input is disabled/enabled and avoids label+hidden quirks). */}
+            <div
+              role="button"
+              tabIndex={settlementPickerEnabled ? 0 : -1}
+              aria-disabled={!settlementPickerEnabled}
+              className={`group relative flex flex-col rounded-[14px] border bg-white p-4 transition outline-none focus-visible:ring-2 focus-visible:ring-[#6366f1]/40 ${
+                !settlementCredentialsReady
                   ? 'cursor-not-allowed border-dashed border-[#E5E5E5] opacity-50'
                   : settlementFileName
                     ? 'cursor-pointer border-emerald-200 bg-emerald-50/30'
                     : 'cursor-pointer border-[#E5E5E5] hover:border-[#111111]/30'
               }`}
+              onKeyDown={(e) => {
+                if (!settlementPickerEnabled) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  settlementFileInputRef.current?.click()
+                }
+              }}
+              onClick={() => {
+                if (!settlementPickerEnabled) return
+                settlementFileInputRef.current?.click()
+              }}
             >
               <div className="flex items-center gap-2">
                 <span
                   className={`flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-bold text-white ${
-                    intentIngestOk && settlementBatchId ? 'bg-[#111111]' : 'bg-[#94a3b8]'
+                    settlementCredentialsReady ? 'bg-[#111111]' : 'bg-[#94a3b8]'
                   }`}
                 >
                   2
@@ -982,9 +1407,9 @@ export default function BatchCommandCenterClient() {
                 </p>
               ) : (
                 <p className="mt-2 text-[12px] italic text-[#94a3b8]">
-                  {intentIngestOk && settlementBatchId
-                    ? 'Awaiting settlement file…'
-                    : 'Locked until intent bulk ingest succeeds and a Batch-Id is available'}
+                  {settlementCredentialsReady
+                    ? 'Click this card or Choose file to pick a settlement CSV / XLSX — POST /api/settlement/upload.'
+                    : 'Enter Tenant, PSP, and Batch-Id (or complete Step 1) to enable settlement upload.'}
                 </p>
               )}
               <span
@@ -1001,13 +1426,15 @@ export default function BatchCommandCenterClient() {
                 {intakeStep === 'settlement_uploading' ? 'Uploading…' : settlementFileName ? 'Replace file' : 'Choose file'}
               </span>
               <input
+                ref={settlementFileInputRef}
                 type="file"
                 accept=".csv,.xls,.xlsx"
                 className="hidden"
-                disabled={!intentIngestOk || !settlementBatchId}
+                disabled={!settlementPickerEnabled}
+                aria-label="Settlement file upload"
                 onChange={(e) => void onSettlementUpload(e.target.files?.[0] ?? null)}
               />
-            </label>
+            </div>
           </div>
         </Card>
         ) : null}
@@ -1020,22 +1447,26 @@ export default function BatchCommandCenterClient() {
                 <SectionLabel>Operational snapshot</SectionLabel>
                 <h2 className="mt-1.5 text-xl font-semibold tracking-tight text-[#111827] md:text-[1.45rem]">Batch context</h2>
                 <p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-[#64748b]">
-                  Source system, product scope, and aggregate disbursement exposure for this batch.
+                  Intelligence batch health when a server batch id is present; the disbursement grid below stays a local
+                  simulation unless rows are loaded from the intent engine.
                 </p>
               </div>
-              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-200/90 bg-emerald-50/90 px-2.5 py-1 text-[12px] font-semibold text-[#15803d]">
-                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#16a34a]" aria-hidden />
-                Live simulation
+              <span
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${batchContextBadge.wrap}`}
+              >
+                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${batchContextBadge.dot}`} aria-hidden />
+                {batchContextBadge.label}
               </span>
             </div>
 
-            <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {[
-                ['Batch ID', (settlementBatchId ?? batchIdInput.trim()) || '—'],
-                ['Source system', 'Loan Management System'],
-                ['Loan type', 'Personal Loans'],
-                ['Total disbursements', summary.totalRows.toLocaleString('en-IN')],
-                ['Total value', formatInr(amountSummary.totalAmount)],
+                ['Batch ID', batchContextSnapshot.batchId],
+                ['Bulk ingest', batchContextSnapshot.ingestLabel],
+                ['Intelligence mode', batchContextSnapshot.intelligenceMode ?? '—'],
+                ['Finality', batchContextSnapshot.finality],
+                ['Total disbursements', batchContextSnapshot.totalCountLabel],
+                ['Total value (upload)', batchContextSnapshot.totalValue],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-xl border border-black/10 bg-[#fafaf9] px-3 py-2.5">
                   <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">{label}</dt>
@@ -1050,20 +1481,70 @@ export default function BatchCommandCenterClient() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[13px] font-semibold text-[#111827]">Data sync</span>
                     <span className="rounded-md border border-slate-200/90 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">
-                      Multi-source
+                      {psp.trim() || 'PSP'}
+                    </span>
+                    <span className="rounded-md border border-slate-200/90 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">
+                      Intelligence + grid
                     </span>
                   </div>
                   <div className="mt-2 text-[13px] leading-relaxed text-[#64748b]">
-                    <span className="text-[#475569]">Last updated</span>{' '}
+                    <span className="text-[#475569]">Intelligence snapshot</span>{' '}
+                    {intelBatchDetailAt ? (
+                      <time dateTime={intelBatchDetailAt.toISOString()}>
+                        {intelBatchDetailAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </time>
+                    ) : (
+                      <span>—</span>
+                    )}
+                    <span className="text-[#cbd5e1]"> · </span>
+                    <span className="text-[#475569]">Grid simulation</span>{' '}
                     <time dateTime={lastRefreshedAt.toISOString()}>
                       {lastRefreshedAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
                     </time>
                     <span className="text-[#cbd5e1]"> · </span>
-                    Loan system · Payment partner · Bank confirmation
+                    Polls every {Math.round(BATCH_INTEL_POLL_MS / 1000)}s when batch id is server-backed
                   </div>
+                  {intelBatchDetail?.batch_health?.total_confirmed_amount_minor &&
+                  String(intelBatchDetail.batch_health.total_confirmed_amount_minor).trim() !== '' ? (
+                    <p className="mt-2 text-[12px] text-[#475569]">
+                      <span className="font-semibold text-[#334155]">Confirmed (Intelligence health)</span>{' '}
+                      {formatInrFromMinor(intelBatchDetail.batch_health.total_confirmed_amount_minor)}
+                    </p>
+                  ) : null}
                   <p className="mt-2 border-l-2 border-amber-200/90 pl-3 text-[12px] leading-relaxed text-[#78716c]">
                     Data from different sources may update at different times.
                   </p>
+                  {intelBatchDetailError && intelligenceBatchPollEligible ? (
+                    <p className="mt-2 text-[12px] font-medium text-[#b45309]">{intelBatchDetailError}</p>
+                  ) : null}
+                  {externalSyncLast ? (
+                    <div
+                      className={`mt-3 rounded-lg border px-3 py-2.5 text-[12px] leading-relaxed ${
+                        externalSyncLast.httpOk
+                          ? 'border-sky-200/90 bg-sky-50/90 text-[#0c4a6e]'
+                          : 'border-red-200/90 bg-red-50/90 text-[#991b1b]'
+                      }`}
+                      role="status"
+                    >
+                      <div className="font-semibold text-[13px]">
+                        Customer systems · {externalSyncLast.operation}
+                        {externalSyncLast.requestId ? (
+                          <span className="ml-2 font-mono text-[11px] font-normal text-[#64748b]">
+                            req {externalSyncLast.requestId.slice(0, 8)}…
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1">{externalSyncLast.message}</p>
+                      {externalSyncLast.hint ? (
+                        <p className="mt-1.5 text-[11px] leading-snug text-[#0369a1]">{externalSyncLast.hint}</p>
+                      ) : null}
+                      <p className="mt-1.5 text-[11px] text-[#64748b]">
+                        <time dateTime={externalSyncLast.at.toISOString()}>
+                          {externalSyncLast.at.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' })}
+                        </time>
+                      </p>
+                    </div>
+                  ) : null}
                   {uploadedFileName ? (
                     <div className="mt-2 text-[13px] text-[#475569]">
                       <span className="text-[#94a3b8]">Source file</span>{' '}
@@ -1124,29 +1605,79 @@ export default function BatchCommandCenterClient() {
                   ) : null}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-                  {['Refresh from loan system', 'Fetch settlement updates', 'Check mandate status (NACH)'].map((label) => (
-                    <button
-                      key={label}
-                      type="button"
-                      onClick={refreshSimulation}
-                      className="h-9 rounded-lg border border-black/10 bg-white px-3.5 text-[13px] font-medium text-[#475569] shadow-sm transition hover:border-[#6366f1]/35 hover:bg-[#f8fafc] hover:text-[#111827] focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#6366f1]/20"
-                    >
-                      {label}
-                    </button>
-                  ))}
+                  <button
+                    type="button"
+                    disabled={externalSyncBusy !== null}
+                    onClick={refreshLoanSystemStrip}
+                    className="h-9 rounded-lg border border-black/10 bg-white px-3.5 text-[13px] font-medium text-[#475569] shadow-sm transition hover:border-[#6366f1]/35 hover:bg-[#f8fafc] hover:text-[#111827] focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#6366f1]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {externalSyncBusy === 'loan' ? 'Calling loan system…' : 'Refresh from loan system'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={externalSyncBusy !== null}
+                    onClick={refreshSettlementIntelStrip}
+                    className="h-9 rounded-lg border border-black/10 bg-white px-3.5 text-[13px] font-medium text-[#475569] shadow-sm transition hover:border-[#6366f1]/35 hover:bg-[#f8fafc] hover:text-[#111827] focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#6366f1]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {externalSyncBusy === 'settlement' ? 'Calling settlement feed…' : 'Fetch settlement updates'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={externalSyncBusy !== null}
+                    onClick={refreshMandateStripSimOnly}
+                    className="h-9 rounded-lg border border-black/10 bg-white px-3.5 text-[13px] font-medium text-[#475569] shadow-sm transition hover:border-[#6366f1]/35 hover:bg-[#f8fafc] hover:text-[#111827] focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#6366f1]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {externalSyncBusy === 'mandate' ? 'Calling mandate / NACH…' : 'Check mandate status (NACH)'}
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         </Card>
 
-        {/* ─── Pipeline timeline ────────────────────────────────────────── */}
-        <div className="rounded-2xl border border-[#e8e8e5] bg-white/80 px-5 py-3.5">
-          <div className="flex flex-wrap items-center gap-2">
+        {/* ─── Pipeline timeline (Zord intake + grid simulation) ───────── */}
+        <div className="rounded-2xl border border-[#e8e8e5] bg-white/80 px-5 py-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebebea] pb-3">
+            <div className="min-w-0">
+              <SectionLabel>Zord pipeline</SectionLabel>
+              <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-[#64748b]">
+                Batch received → file processed → disbursement queue → payment partner → bank confirmation → batch
+                closed. Upload intent or settlement to advance stages; the grid timer continues disbursement simulation.
+              </p>
+            </div>
+            {pipelineBusy ? (
+              <span className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-800 motion-safe:animate-pulse">
+                In progress
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[#e8e8e5]">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-[#6366f1] via-[#3b82f6] to-[#22c55e] transition-[width] duration-700 ease-out"
+              style={{ width: `${timelineProgressPct}%` }}
+              aria-valuenow={Math.round(timelineProgressPct)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              role="progressbar"
+            />
+          </div>
+          <div className="mt-3.5 flex flex-wrap items-center gap-2">
             {timeline.map((step, i) => (
               <div key={step.label} className="flex items-center gap-2">
-                <div className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium ${timelineStateClass(step.state)}`}>
-                  <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: timelineDotColor(step.state) }} />
+                <div
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium ${timelineStateClass(step.state)}`}
+                >
+                  {step.state === 'active' ? (
+                    <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
+                      <span
+                        className="absolute inline-flex h-full w-full rounded-full bg-[#3b82f6] opacity-40 motion-safe:animate-ping"
+                        aria-hidden
+                      />
+                      <span className="relative h-1.5 w-1.5 rounded-full bg-[#2563eb]" aria-hidden />
+                    </span>
+                  ) : (
+                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: timelineDotColor(step.state) }} />
+                  )}
                   {step.label}
                 </div>
                 {i < timeline.length - 1 && <span className="select-none text-[#d8d8d4]">──</span>}
@@ -1426,12 +1957,6 @@ export default function BatchCommandCenterClient() {
         <Card className="p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-1 flex-wrap items-center gap-2">
-              <input
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-                placeholder="Search by Request ID or borrower"
-                className="h-9 min-w-[180px] rounded-xl border border-[#e8e8e5] bg-[#fafaf8] px-3 text-[14px] outline-none focus:border-[#b0b0ac] focus:bg-white"
-              />
               <div className="inline-flex rounded-xl border border-[#e8e8e5] bg-[#fafaf8] p-1">
                 {STATUS_FILTER_OPTIONS.map((opt) => (
                   <button

@@ -159,12 +159,16 @@ export type HomeCommandResponse = {
 
 export type HomeCommandStatus = 'idle' | 'loading' | 'typing' | 'complete'
 
-export const DASHBOARD_FONT_STACK = '"DM Sans", "Geist", "Plus Jakarta Sans", "Inter", system-ui, sans-serif'
+/** Inter-first stack — matches `globals.css` body; clean fintech / Ledger-style rhythm */
+export const DASHBOARD_FONT_STACK =
+  '"Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'
 
 export const dockItems = [
   {
     id: 'sandbox',
     label: 'Sandbox',
+    /** Short name in the top nav for customers (icon + label). */
+    navLabel: 'Sandbox',
     title: 'Sandbox',
     breadcrumbLabel: 'Sandbox',
     summary: 'Test the full Intent Journal flow without touching real funds. Use canned scenarios or upload your own files.',
@@ -173,6 +177,7 @@ export const dockItems = [
   {
     id: 'home',
     label: 'Today',
+    navLabel: 'Command center',
     title: 'Command center',
     breadcrumbLabel: 'Command center',
     summary: 'Unified view of disbursements, confirmations, and risk across all systems.',
@@ -181,6 +186,7 @@ export const dockItems = [
   {
     id: 'workspace',
     label: 'Ask',
+    navLabel: 'Ask Zord',
     title: 'Ask Zord workspace',
     breadcrumbLabel: 'Ask Zord',
     summary: 'Ask Zord about routed value, live recovery, and finance-ready evidence — get grounded answers with citations.',
@@ -189,6 +195,7 @@ export const dockItems = [
   {
     id: 'leakage',
     label: 'Leakage',
+    navLabel: 'Leakage',
     title: 'Leakage',
     breadcrumbLabel: 'Leakage',
     summary: 'Where money is leaking — unmatched intents, under-settlement, reversals — quantified in rupees for CFO action.',
@@ -197,14 +204,16 @@ export const dockItems = [
   {
     id: 'ambiguity',
     label: 'Ambiguity',
+    navLabel: 'Open signals',
     title: 'Ambiguity',
     breadcrumbLabel: 'Ambiguity',
     summary: 'Open signals, unresolved intents, attachment confidence — operational queue for the ops manager.',
-    icon: 'zap',
+    icon: 'chart',
   },
   {
     id: 'grid',
     label: 'Journal',
+    navLabel: 'Intent journal',
     title: 'Intent Journal',
     breadcrumbLabel: 'Intent Journal',
     summary: 'One screen to explain exactly what happened to a payout end-to-end, from request to final outcome.',
@@ -213,6 +222,7 @@ export const dockItems = [
   {
     id: 'connectors',
     label: 'Connectors',
+    navLabel: 'Connectors',
     title: 'Connector Intelligence',
     breadcrumbLabel: 'Connectors',
     summary: 'Per-connector ambiguity, latency, and defensibility exposure — walk into a QBR with the exact ₹ exposure each connector creates per month.',
@@ -221,6 +231,7 @@ export const dockItems = [
   {
     id: 'sync',
     label: 'Systems',
+    navLabel: 'Connections',
     title: 'Connected Systems',
     breadcrumbLabel: 'Systems',
     summary: 'Real-time view of loan system, payment partner, bank, and mandate connections in one place.',
@@ -229,14 +240,16 @@ export const dockItems = [
   {
     id: 'proof',
     label: 'Evidence',
+    navLabel: 'Evidence',
     title: 'Defensibility & Evidence',
     breadcrumbLabel: 'Evidence',
     summary: 'Cryptographic proof packs per intent · audit-ready exports · active dispute tracker. Win disputes by downloading evidence, not by chasing PSP logs.',
-    icon: 'shield',
+    icon: 'document',
   },
   {
     id: 'billing',
     label: 'Billing',
+    navLabel: 'Billing',
     title: 'Billing',
     breadcrumbLabel: 'Billing',
     summary: 'Plan, payment method, and invoice history. Sandbox uses test billing — no real charges.',
@@ -265,7 +278,7 @@ export type PayoutConsoleDockPage = {
 
 function dockPageRow(id: DockId): PayoutConsoleDockPage {
   const d = dockItems.find((x) => x.id === id)!
-  return { dockId: id, dockLabel: d.label, pageName: d.title }
+  return { dockId: id, dockLabel: d.navLabel, pageName: d.title }
 }
 
 /** Sandbox mode — dock order matches `SANDBOX_DOCK_IDS`. */
@@ -277,7 +290,7 @@ export const SANDBOX_CONSOLE_DOCK_PAGES: readonly PayoutConsoleDockPage[] = SAND
  */
 export const LIVE_CONSOLE_DOCK_PAGES: readonly PayoutConsoleDockPage[] = dockItems
   .filter((d) => d.id !== 'sandbox' && d.id !== 'billing')
-  .map((d) => ({ dockId: d.id, dockLabel: d.label, pageName: d.title }))
+  .map((d) => ({ dockId: d.id, dockLabel: d.navLabel, pageName: d.title }))
 
 /** Routes outside the main console shell (header links, deep links). */
 export const PAYOUT_STANDALONE_PAGE_NAMES = [

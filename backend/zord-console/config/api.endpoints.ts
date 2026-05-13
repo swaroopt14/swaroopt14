@@ -86,6 +86,15 @@ export const BACKEND_SERVICES = {
       BATCH_BY_ID: (id: string) => `/v1/intelligence/batches/${id}`,
     },
   },
+
+  // zord-evidence: evidence packs + Merkle (Port 8088)
+  EVIDENCE: {
+    BASE_URL: process.env.ZORD_EVIDENCE_URL || 'http://localhost:8088',
+    ENDPOINTS: {
+      PACKS: '/v1/evidence/packs',
+      PACK_BY_ID: (packId: string) => `/v1/evidence/packs/${encodeURIComponent(packId)}`,
+    },
+  },
 } as const
 
 // Helper function to build full URL

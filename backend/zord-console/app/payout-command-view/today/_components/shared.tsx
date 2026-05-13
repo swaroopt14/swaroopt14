@@ -120,7 +120,7 @@ export function LightCard({ children, className = '' }: { children: ReactNode; c
 }
 
 export function SurfaceEyebrow({ children }: { children: ReactNode }) {
-  return <div className="text-[12px] font-medium uppercase tracking-[0.1em] text-[#9a9a95]">{children}</div>
+  return <div className="pc-section-label">{children}</div>
 }
 
 type Rgba = {
@@ -207,23 +207,35 @@ export function usePromptAutoContrast(containerRef: RefObject<HTMLElement>) {
 }
 
 /**
- * Tiny pill that signals whether a card is showing real KPI data or canned
- * fallback. Drop it under any hero/stat that conditionally falls back to
- * static placeholders when `data_available: false`.
+ * Optional pill when a surface is backed by live APIs (`isLive`).
+ * When not live, renders nothing (no placeholder / demo copy).
+ *
+ * `variant="command"` uses the same green “Live” styling as command-center surfaces.
  */
-export function LiveDataHint({ isLive, source }: { isLive: boolean; source?: string }) {
-  if (isLive) {
+export function LiveDataHint({
+  isLive,
+  source,
+  variant = 'default',
+}: {
+  isLive: boolean
+  source?: string
+  variant?: 'default' | 'command'
+}) {
+  if (!isLive) return null
+
+  if (variant === 'command') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-[#4ADE80]/45 bg-[#f0fdf4] px-2.5 py-1 text-[12px] font-semibold text-[#166534]">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" aria-hidden />
         Live{source ? ` · ${source}` : ''}
       </span>
     )
   }
+
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200/70 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700">
-      <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />
-      Demo data · ingest a batch to see live values
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+      Live{source ? ` · ${source}` : ''}
     </span>
   )
 }

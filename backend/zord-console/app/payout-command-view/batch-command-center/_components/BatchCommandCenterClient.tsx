@@ -1076,7 +1076,10 @@ export default function BatchCommandCenterClient() {
   }, [])
 
   return (
-    <main className="min-h-screen bg-[#f2f1ed] text-[15px] leading-[1.55] antialiased" style={{ fontFamily: DASHBOARD_FONT_STACK }}>
+    <main
+      className="payout-command-console min-h-screen bg-[#f2f1ed] text-[15px] leading-[1.55] antialiased"
+      style={{ fontFamily: DASHBOARD_FONT_STACK }}
+    >
       <div className="mx-auto max-w-[1440px] space-y-5 p-6">
         {/* In-page toolbar — global chrome is `BatchTopNav` only (no duplicate sticky rails). */}
         <div className="flex flex-col gap-3 rounded-2xl border border-[#e8e8e5] bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">

@@ -55,6 +55,17 @@ export default function PayoutCommandViewClient({ forceMode }: PayoutCommandView
   const activeSurface = dockItems.find((item) => item.id === activeDock) ?? dockItems[0]
   const activePrompt = useMemo(() => workspacePromptCopy[activeTab], [activeTab])
 
+  const pageHeaderMeta = useMemo(() => {
+    const label = activeSurface.label
+    const title = activeSurface.title
+    const same = label.trim() === title.trim()
+    return {
+      pageEyebrow: same ? undefined : label,
+      pageTitle: title,
+      pageSubtitle: activeDock === 'workspace' ? `Workspace · ${activeTab}` : undefined,
+    }
+  }, [activeSurface, activeDock, activeTab])
+
   // ── Feature hooks ──────────────────────────────────────────────────────────
   const home = useHomeState(activeDock === 'home')
   const workspace = useWorkspaceState(activeTab, setSelectedSuggestion)
@@ -160,7 +171,10 @@ export default function PayoutCommandViewClient({ forceMode }: PayoutCommandView
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <EnvironmentProvider routeMode={forceMode}>
-      <main className="min-h-screen bg-[#ebebeb]" style={{ fontFamily: DASHBOARD_FONT_STACK }}>
+      <main
+        className="payout-command-console min-h-screen bg-[#f5f5f5]"
+        style={{ fontFamily: DASHBOARD_FONT_STACK }}
+      >
         <div className="w-full overflow-hidden border border-black/10 bg-white shadow-[0_24px_64px_rgba(0,0,0,0.12)]">
           <DockNav
             activeDock={activeDock}
@@ -170,7 +184,9 @@ export default function PayoutCommandViewClient({ forceMode }: PayoutCommandView
 
           <section className="relative p-4 sm:p-5 lg:p-6">
             <PageHeader
-              activeSurface={activeSurface}
+              pageEyebrow={pageHeaderMeta.pageEyebrow}
+              pageTitle={pageHeaderMeta.pageTitle}
+              pageSubtitle={pageHeaderMeta.pageSubtitle}
               onAskZordToggle={askZord.toggle}
             />
 

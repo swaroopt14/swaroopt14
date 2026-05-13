@@ -120,7 +120,7 @@ export function LightCard({ children, className = '' }: { children: ReactNode; c
 }
 
 export function SurfaceEyebrow({ children }: { children: ReactNode }) {
-  return <div className="text-[12px] font-medium uppercase tracking-[0.1em] text-[#9a9a95]">{children}</div>
+  return <div className="pc-section-label">{children}</div>
 }
 
 type Rgba = {
@@ -210,8 +210,39 @@ export function usePromptAutoContrast(containerRef: RefObject<HTMLElement>) {
  * Tiny pill that signals whether a card is showing real KPI data or canned
  * fallback. Drop it under any hero/stat that conditionally falls back to
  * static placeholders when `data_available: false`.
+ *
+ * `variant="command"` matches Ask Zord / payout command neutrals (#f8f8f6 demo, #4ADE80 live).
  */
-export function LiveDataHint({ isLive, source }: { isLive: boolean; source?: string }) {
+export function LiveDataHint({
+  isLive,
+  source,
+  variant = 'default',
+}: {
+  isLive: boolean
+  source?: string
+  variant?: 'default' | 'command'
+}) {
+  if (variant === 'command') {
+    if (isLive) {
+      return (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#4ADE80]/45 bg-[#f0fdf4] px-2.5 py-1 text-[12px] font-semibold text-[#166534]">
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" aria-hidden />
+          Live{source ? ` · ${source}` : ''}
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-[#f8f8f6] px-2.5 py-1 text-[12px] font-medium leading-snug text-[#6f716d]">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#8a8a86]" aria-hidden />
+        <span>
+          <span className="font-semibold text-[#111111]">Sample KPIs</span>
+          <span className="text-[#8a8a86]"> · </span>
+          ingest a batch to see live values
+        </span>
+      </span>
+    )
+  }
+
   if (isLive) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">

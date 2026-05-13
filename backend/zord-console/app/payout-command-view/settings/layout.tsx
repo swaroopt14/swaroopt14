@@ -18,7 +18,10 @@ const SECTIONS = [
 
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   return (
-    <main className="min-h-screen bg-[#ebebeb] text-[15px] leading-[1.55] antialiased" style={{ fontFamily: DASHBOARD_FONT_STACK }}>
+    <main
+      className="payout-command-console min-h-screen bg-[#ebebeb] text-[15px] leading-[1.55] antialiased"
+      style={{ fontFamily: DASHBOARD_FONT_STACK }}
+    >
       <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8 lg:flex-row lg:px-8">
         {/* Left sidebar */}
         <aside className="shrink-0 lg:w-[220px]">

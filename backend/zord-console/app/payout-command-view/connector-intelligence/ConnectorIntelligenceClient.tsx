@@ -322,7 +322,7 @@ export default function ConnectorIntelligenceClient() {
   }
 
   return (
-    <div className="-mx-3 -my-4 mt-2 rounded-[20px] bg-gradient-to-b from-[#fafaf9] via-white to-[#fafaf9] px-3 py-4 text-[15px] leading-[1.55] text-neutral-950 sm:-mx-4 sm:px-4 lg:-mx-5 lg:px-5">
+    <div className="payout-command-console -mx-3 -my-4 mt-2 rounded-[20px] bg-gradient-to-b from-[#fafaf9] via-white to-[#fafaf9] px-3 py-4 text-[15px] leading-[1.55] text-neutral-950 sm:-mx-4 sm:px-4 lg:-mx-5 lg:px-5">
       {/* 24h delta strip — monochrome */}
       <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Last 24h · ambiguity delta</span>

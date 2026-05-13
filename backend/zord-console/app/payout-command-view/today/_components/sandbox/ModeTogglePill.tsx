@@ -13,7 +13,14 @@ import { Glyph } from '../shared'
  * Sandbox + live live at separate URLs (`/sandbox` and `/payout-command-view/today`).
  * Switching mode = navigating between routes, not flipping local state.
  */
-export function ModeTogglePill({ onActivateClick }: { onActivateClick: () => void }) {
+export function ModeTogglePill({
+  onActivateClick,
+  compact,
+}: {
+  onActivateClick: () => void
+  /** Slim control for thin top nav (Ledger-style). */
+  compact?: boolean
+}) {
   const { mode, canSwitchToLive, liveActivationStatus } = useEnvironment()
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -43,19 +50,31 @@ export function ModeTogglePill({ onActivateClick }: { onActivateClick: () => voi
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className={`flex h-11 items-center gap-2 rounded-xl border px-3.5 shadow-[0_3px_10px_-2px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.85)] transition ${
-          isSandbox
-            ? 'border-amber-400/70 bg-gradient-to-b from-[#fff7ed] to-[#ffedd5] text-[#9A3412]'
-            : 'border-violet-400/75 bg-gradient-to-b from-[#f5f3ff] to-[#ede9fe] text-[#5b21b6] shadow-[0_3px_12px_-2px_rgba(91,33,182,0.12),inset_0_1px_0_rgba(255,255,255,0.9)] hover:border-violet-500/85'
-        }`}
+        className={
+          compact
+            ? `flex h-11 items-center gap-1.5 rounded-xl border px-3.5 text-left shadow-sm transition ${
+                isSandbox
+                  ? 'border-amber-300/80 bg-gradient-to-b from-[#fff7ed] to-[#ffedd5] text-[#9A3412]'
+                  : 'border-neutral-200/90 bg-white text-neutral-900 hover:border-neutral-300 hover:shadow'
+              }`
+            : `flex h-11 items-center gap-2 rounded-xl border px-3.5 shadow-[0_3px_10px_-2px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.85)] transition ${
+                isSandbox
+                  ? 'border-amber-400/70 bg-gradient-to-b from-[#fff7ed] to-[#ffedd5] text-[#9A3412]'
+                  : 'border-violet-400/75 bg-gradient-to-b from-[#f5f3ff] to-[#ede9fe] text-[#5b21b6] shadow-[0_3px_12px_-2px_rgba(91,33,182,0.12),inset_0_1px_0_rgba(255,255,255,0.9)] hover:border-violet-500/85'
+              }`
+        }
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span className="flex flex-col items-start leading-none">
-          <span className="text-[12px] font-semibold uppercase tracking-[0.08em] opacity-70">Mode</span>
-          <span className="mt-0.5 text-[15px] font-bold tracking-[-0.02em]">{isSandbox ? 'Sandbox' : 'Live'}</span>
-        </span>
-        <svg className="h-3.5 w-3.5 opacity-60" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+        {compact ? (
+          <span className="text-[13px] font-bold tracking-tight">{isSandbox ? 'Sandbox' : 'Live'}</span>
+        ) : (
+          <span className="flex flex-col items-start leading-none">
+            <span className="text-[12px] font-semibold uppercase tracking-[0.08em] opacity-70">Mode</span>
+            <span className="mt-0.5 text-[15px] font-bold tracking-[-0.02em]">{isSandbox ? 'Sandbox' : 'Live'}</span>
+          </span>
+        )}
+        <svg className="h-3.5 w-3.5 shrink-0 opacity-60" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
           <path d="m3 4.5 3 3 3-3" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </button>

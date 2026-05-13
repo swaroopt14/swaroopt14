@@ -1,9 +1,37 @@
 'use client'
 
 import Link from 'next/link'
-import { forwardRef, useCallback, useMemo, useRef, useState } from 'react'
-import type { GlyphName } from '@/services/payout-command/model'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Glyph } from '../shared'
+import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
+import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
+import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
+import { buildEvidencePackGraphFromApi } from './evidencePackGraphFromApi'
+import type {
+  BatchMeta,
+  EvidenceItemType,
+  EvidencePackGraph,
+  EvidencePackMode,
+  IntermediateNode,
+  LeafNode,
+  LeafStatus,
+  RootNode,
+} from './evidenceGraphTypes'
+
+export type {
+  BatchMeta,
+  EvidenceItemType,
+  EvidencePackGraph,
+  EvidencePackMode,
+  IntermediateNode,
+  LeafNode,
+  LeafStatus,
+  RootNode,
+} from './evidenceGraphTypes'
 
 /**
  * MerkleGraphSurface — Evidence Pack Graph.
@@ -19,93 +47,6 @@ import { Glyph } from '../shared'
  *
  * Color is meaningful here (verification state). Page chrome stays minimal.
  */
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-type LeafStatus = 'valid' | 'missing' | 'invalid'
-
-// Service 6 evidence item types (see ZORD SERVICE 6 §9.4 / §12).
-type EvidenceItemType =
-  | 'RAW_INGRESS_ENVELOPE'
-  | 'CANONICAL_INTENT'
-  | 'GOVERNANCE_DECISION_AT_CANONICAL'
-  | 'RAW_SETTLEMENT_ENVELOPE'
-  | 'CANONICAL_SETTLEMENT_OBSERVATION'
-  | 'ATTACHMENT_DECISION'
-  | 'VARIANCE_DECISION'
-  | 'DISPATCH_ATTEMPT'
-  | 'PROVIDER_ACK'
-  | 'OUTCOME_SIGNAL'
-  | 'FUSED_OUTCOME'
-  | 'FINALITY_CERT'
-  | 'FINAL_CONTRACT'
-  | 'FINAL_EVIDENCE_VIEW'
-  | 'PREPARED_PAYOUT_CONTRACT'
-  | 'ZORD_SIGNATURE_CARRIER'
-
-// Service 6 mode (§3.2 / §10.1).
-type EvidencePackMode = 'INTELLIGENCE_ATTACH' | 'SECONDARY_DISPATCH' | 'FULL_CONTROL'
-
-type LeafNode = {
-  id: string
-  name: string
-  artifact: string
-  itemType: EvidenceItemType
-  stableRef: string // §9.5 — envelope_id, intent_id, dispatch_id, event_id, contract_id, governance_decision_id
-  version: string // §9.7 — schema/ruleset version pinned into leaf hash
-  sourceService: string // §14.2 — which Zord service produced the artifact
-  hashFull: string
-  hashShort: string
-  leafHash: string // §9.8 — SHA256(type || stable_ref || item_hash || version)
-  source: string
-  receivedAt: string
-  status: LeafStatus
-  impact: string
-  iconName: GlyphName
-}
-
-type IntermediateNode = {
-  id: string
-  hashFull: string
-  hashShort: string
-  derivedFrom: string[] // leaf ids
-}
-
-type RootNode = {
-  id: 'root'
-  hashFull: string
-  hashShort: string
-  status: 'verified' | 'partial' | 'invalid'
-  tamper: 'no-changes' | 'changes-detected'
-}
-
-export type EvidencePackGraph = {
-  packId: string
-  intentId: string
-  contractId: string
-  // batchId is the upstream batch (e.g. BATCH-001) the intent belongs to. One batch
-  // groups many intents; each intent has exactly one evidence pack — Service 6 §4
-  // ("one evidence pack = one lifecycle commitment").
-  batchId: string
-  tenantId: string
-  mode: EvidencePackMode
-  rulesetVersion: string
-  schemaVersions: { intent: string; outcome: string; contract: string; attachment?: string }
-  createdAt: string
-  defensibilityScore: number
-  leaves: LeafNode[]
-  intermediates: IntermediateNode[]
-  root: RootNode
-}
-
-// Upstream batch metadata. A batch contains many intents (1000s) totalling N transactions
-// across the lifecycle. Each intent has its own evidence pack — there is no batch-level pack.
-export type BatchMeta = {
-  batchId: string
-  totalIntents: number
-  totalTransactions: number
-  receivedAt: string
-}
 
 // ─── Sample data ──────────────────────────────────────────────────────────────
 
@@ -253,14 +194,140 @@ type SelectedNode =
   | { kind: 'root'; node: RootNode }
   | null
 
-type ViewMode = 'intent' | 'batch'
+export type MerkleGraphSurfaceProps = {
+  /** Deep-link from `/payout-command-view/evidence-pack/[packId]`. */
+  initialPackId?: string
+  /** Demo / fallback graph when no session tenant (local UI only). */
+  pack?: EvidencePackGraph
+}
 
-export function MerkleGraphSurface({ pack: initialPack = SAMPLE_PACK }: { pack?: EvidencePackGraph } = {}) {
-  const [viewMode, setViewMode] = useState<ViewMode>('intent')
-  const [activePackId, setActivePackId] = useState(initialPack.packId)
+export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_PACK }: MerkleGraphSurfaceProps = {}) {
+  const tenantId = useSessionTenantId().trim()
+  const useLive = Boolean(tenantId)
+
+  const [activePackId, setActivePackId] = useState(() => initialPackId?.trim() || initialPack.packId)
   const [activeBatchId, setActiveBatchId] = useState(initialPack.batchId)
-  const pack = SAMPLE_PACKS[activePackId] ?? initialPack
-  const batchPacks = useMemo(() => packsForBatch(activeBatchId), [activeBatchId])
+  const [intelBatches, setIntelBatches] = useState<IntelligenceBatchRow[]>([])
+  const [packSummaries, setPackSummaries] = useState<EvidencePackSummaryRow[]>([])
+  const [liveGraphs, setLiveGraphs] = useState<Record<string, EvidencePackGraph>>({})
+  const [liveListError, setLiveListError] = useState<string | null>(null)
+
+  const { defensibility } = useIntelligenceKpis(tenantId, { batchId: activeBatchId })
+  const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
+  const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
+
+  useEffect(() => {
+    if (!useLive) return
+    let cancelled = false
+    void getIntelligenceBatches(tenantId, { limit: 80 }).then((res) => {
+      if (cancelled || !res?.batches?.length) return
+      setIntelBatches(res.batches)
+      setActiveBatchId((prev) => {
+        if (res.batches.some((b) => b.batch_id === prev)) return prev
+        return res.batches[0].batch_id
+      })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantId, useLive])
+
+  useEffect(() => {
+    if (!useLive || !activeBatchId) {
+      setPackSummaries([])
+      setLiveListError(null)
+      return
+    }
+    let cancelled = false
+    setLiveListError(null)
+    void listEvidencePacks(tenantId, { batchId: activeBatchId }).then((list) => {
+      if (cancelled) return
+      if (!list) {
+        setLiveListError('Evidence list unavailable. Confirm zord-evidence is up and list filters match your deployment.')
+        setPackSummaries([])
+        return
+      }
+      setPackSummaries(list.packs ?? [])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantId, useLive, activeBatchId])
+
+  useEffect(() => {
+    if (!useLive || packSummaries.length === 0) return
+    let cancelled = false
+    const ids = packSummaries.map((s) => s.evidence_pack_id).slice(0, 24)
+    void Promise.all(
+      ids.map(async (id) => {
+        const full = await getEvidencePackFull(tenantId, id)
+        if (!full) return
+        const g = buildEvidencePackGraphFromApi(full, {
+          batchId: activeBatchId,
+          defensibilityScore,
+        })
+        return [id, g] as const
+      }),
+    ).then((pairs) => {
+      if (cancelled) return
+      const next: Record<string, EvidencePackGraph> = {}
+      for (const row of pairs) {
+        if (row) next[row[0]] = row[1]
+      }
+      setLiveGraphs((prev) => ({ ...prev, ...next }))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantId, useLive, packSummaries, activeBatchId, defensibilityScore])
+
+  useEffect(() => {
+    if (!useLive || !initialPackId?.trim()) return
+    let cancelled = false
+    void getEvidencePackFull(tenantId, initialPackId.trim()).then((full) => {
+      if (cancelled || !full) return
+      const g = buildEvidencePackGraphFromApi(full, {
+        batchId: activeBatchId || 'batch',
+        defensibilityScore,
+      })
+      setLiveGraphs((prev) => ({ ...prev, [g.packId]: g }))
+      setActivePackId(g.packId)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantId, useLive, initialPackId, activeBatchId, defensibilityScore])
+
+  const demoPack = SAMPLE_PACKS[activePackId] ?? initialPack
+  const demoBatchPacks = useMemo(() => packsForBatch(activeBatchId), [activeBatchId])
+
+  const liveBatchPacks = useMemo(() => {
+    const graphs: EvidencePackGraph[] = []
+    for (const s of packSummaries) {
+      const g = liveGraphs[s.evidence_pack_id]
+      if (g) graphs.push(g)
+    }
+    return graphs
+  }, [packSummaries, liveGraphs])
+
+  const pack = useLive
+    ? liveGraphs[activePackId] ?? liveBatchPacks[0] ?? Object.values(liveGraphs)[0] ?? demoPack
+    : demoPack
+  const batchPacks = useLive ? liveBatchPacks : demoBatchPacks
+
+  useEffect(() => {
+    if (!useLive) return
+    if (batchPacks.length === 0) return
+    if (!batchPacks.some((p) => p.packId === activePackId)) {
+      setActivePackId(batchPacks[0].packId)
+    }
+  }, [useLive, batchPacks, activePackId])
+
+  useEffect(() => {
+    if (useLive) return
+    const inBatch = batchPacks.some((p) => p.packId === activePackId)
+    if (!inBatch && batchPacks[0]) setActivePackId(batchPacks[0].packId)
+  }, [useLive, activeBatchId, batchPacks, activePackId])
 
   const [zoom, setZoom] = useState(100)
   const [collapsed, setCollapsed] = useState(false)
@@ -300,17 +367,7 @@ export function MerkleGraphSurface({ pack: initialPack = SAMPLE_PACK }: { pack?:
     [search],
   )
 
-  const counts = useMemo(() => {
-    const valid = pack.leaves.filter((l) => l.status === 'valid').length
-    const missing = pack.leaves.filter((l) => l.status === 'missing').length
-    const invalid = pack.leaves.filter((l) => l.status === 'invalid').length
-    return { valid, missing, invalid, total: pack.leaves.length }
-  }, [pack.leaves])
-
-  const rootStatusLabel = pack.root.status === 'verified' ? 'Verified' : pack.root.status === 'partial' ? 'Partial' : 'Invalid'
-  const rootDot = pack.root.status === 'verified' ? 'bg-[#4ADE80]' : pack.root.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
-
-  // Aggregated values for batch view: average defensibility + summed leaf-status counts.
+  // Aggregated values across sampled packs in the batch (header + chips).
   const batchAggregate = useMemo(() => {
     if (batchPacks.length === 0) {
       return { defensibility: 0, valid: 0, missing: 0, invalid: 0, total: 0, status: 'verified' as const }
@@ -333,11 +390,13 @@ export function MerkleGraphSurface({ pack: initialPack = SAMPLE_PACK }: { pack?:
     return { defensibility, valid, missing, invalid, total, status }
   }, [batchPacks])
 
-  const displayDefensibility = viewMode === 'batch' ? batchAggregate.defensibility : pack.defensibilityScore
-  const displayCounts = viewMode === 'batch'
-    ? { valid: batchAggregate.valid, missing: batchAggregate.missing, invalid: batchAggregate.invalid, total: batchAggregate.total }
-    : counts
-  const displayStatus = viewMode === 'batch' ? batchAggregate.status : pack.root.status
+  const displayDefensibility = batchAggregate.defensibility
+  const displayCounts = {
+    valid: batchAggregate.valid,
+    missing: batchAggregate.missing,
+    invalid: batchAggregate.invalid,
+  }
+  const displayStatus = batchAggregate.status
   const displayStatusLabel = displayStatus === 'verified' ? 'Verified' : displayStatus === 'partial' ? 'Partial' : 'Invalid'
   const displayStatusDot = displayStatus === 'verified' ? 'bg-[#4ADE80]' : displayStatus === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
 
@@ -353,6 +412,28 @@ export function MerkleGraphSurface({ pack: initialPack = SAMPLE_PACK }: { pack?:
     rootBtnRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
     setSelected({ kind: 'root', node: pack.root })
   }, [pack.root])
+
+  const batchMetaResolved = useMemo((): BatchMeta | undefined => {
+    if (!useLive) return SAMPLE_BATCHES[activeBatchId]
+    const row = intelBatches.find((b) => b.batch_id === activeBatchId)
+    if (row) {
+      return {
+        batchId: row.batch_id,
+        totalIntents: row.total_count,
+        totalTransactions: row.total_count,
+        receivedAt: new Date().toISOString(),
+      }
+    }
+    if (activeBatchId) {
+      return {
+        batchId: activeBatchId,
+        totalIntents: 0,
+        totalTransactions: 0,
+        receivedAt: new Date().toISOString(),
+      }
+    }
+    return undefined
+  }, [useLive, activeBatchId, intelBatches])
 
   return (
     <div className="space-y-5">
@@ -372,75 +453,79 @@ export function MerkleGraphSurface({ pack: initialPack = SAMPLE_PACK }: { pack?:
         </div>
         <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[#111111]">Evidence Pack Graph</h1>
         <p className="mt-1 max-w-2xl text-[17px] leading-relaxed text-[#6f716d]">
-          Visual proof of how this evidence pack is constructed and verified.
+          Visual proof of how this evidence pack is constructed and verified. Choose a batch, then an intent — the graph
+          is for that pack; defensibility and leaf counts in the bar roll up across every sampled pack in the batch.
         </p>
       </header>
 
-      {/* ── View mode toggle ────────────────────────────────────────── */}
-      <section className="flex items-center gap-2">
-        <div className="inline-flex rounded-[10px] border border-[#E5E5E5] bg-white p-0.5">
-          <ViewModeButton active={viewMode === 'intent'} onClick={() => { setViewMode('intent'); setSelected(null) }} label="Per Intent" />
-          <ViewModeButton active={viewMode === 'batch'} onClick={() => { setViewMode('batch'); setSelected(null) }} label="Per Batch" />
+      {liveListError ? (
+        <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-[15px] text-amber-950">
+          {liveListError}
         </div>
-        <span className="text-[13px] text-[#94a3b8]">
-          {viewMode === 'intent' ? 'Single evidence pack — one intent.' : 'All evidence packs sharing a batch (contract).'}
-        </span>
-      </section>
+      ) : null}
 
       {/* ── Top context bar ─────────────────────────────────────────── */}
       <section className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[16px] border border-[#E5E5E5] bg-white px-5 py-3">
-        {viewMode === 'intent' ? (
-          <>
-            <div>
-              <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Evidence Pack</p>
-              <select
-                value={pack.packId}
-                onChange={(e) => {
-                  setActivePackId(e.target.value)
-                  setSelected(null)
-                }}
-                className="mt-0.5 cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[17px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa]"
-              >
-                {Object.values(SAMPLE_PACKS).map((p) => (
-                  <option key={p.packId} value={p.packId}>
-                    {p.packId}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <ContextField label="Intent" value={pack.intentId} mono />
-            <ContextField label="Batch" value={pack.batchId} mono />
-            <ContextField label="Contract" value={pack.contractId} mono />
-            <ContextField label="Mode" value={pack.mode} />
-          </>
-        ) : (
-          <>
-            <div>
-              <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Batch</p>
-              <select
-                value={activeBatchId}
-                onChange={(e) => {
-                  setActiveBatchId(e.target.value)
-                  setSelected(null)
-                }}
-                className="mt-0.5 cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[17px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa]"
-              >
-                {ALL_BATCH_IDS.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <ContextField label="Intents" value={String(SAMPLE_BATCHES[activeBatchId]?.totalIntents ?? batchPacks.length)} />
-            <ContextField label="Transactions" value={String(SAMPLE_BATCHES[activeBatchId]?.totalTransactions ?? 0)} />
-            <ContextField label="Loaded packs" value={`${batchPacks.length} sampled`} />
-          </>
-        )}
         <div>
-          <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">
-            {viewMode === 'batch' ? 'Avg defensibility' : 'Defensibility'}
-          </p>
+            <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Batch</p>
+            <select
+              value={activeBatchId}
+              onChange={(e) => {
+                setActiveBatchId(e.target.value)
+                setSelected(null)
+              }}
+              className="mt-0.5 cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[17px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa]"
+            >
+              {useLive
+                ? (
+                    intelBatches.length
+                      ? intelBatches
+                      : activeBatchId
+                        ? ([{ batch_id: activeBatchId }] as Pick<IntelligenceBatchRow, 'batch_id'>[])
+                        : []
+                  ).map((b) => (
+                    <option key={b.batch_id} value={b.batch_id}>
+                      {b.batch_id}
+                    </option>
+                  ))
+                : ALL_BATCH_IDS.map((b) => (
+                    <option key={b} value={b}>
+                      {b}
+                    </option>
+                  ))}
+            </select>
+          </div>
+          <div>
+            <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Intent · pack</p>
+            <select
+              value={activePackId}
+              onChange={(e) => {
+                setActivePackId(e.target.value)
+                setSelected(null)
+              }}
+              disabled={batchPacks.length === 0}
+              className="mt-0.5 min-w-[12rem] max-w-[20rem] cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[15px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {batchPacks.map((p) => (
+                <option key={p.packId} value={p.packId}>
+                  {p.intentId} · {p.packId}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 max-w-[18rem] text-[12px] leading-snug text-[#94a3b8]">
+              Graph below is for this intent; metrics in the bar stay batch-aggregated.
+            </p>
+          </div>
+          <ContextField label="Intents" value={String(batchMetaResolved?.totalIntents ?? batchPacks.length)} />
+          <ContextField label="Transactions" value={String(batchMetaResolved?.totalTransactions ?? 0)} />
+          <ContextField
+            label="Loaded packs"
+            value={useLive ? `${batchPacks.length} from API` : `${batchPacks.length} sampled`}
+          />
+          <ContextField label="Contract" value={pack.contractId} mono />
+          <ContextField label="Mode" value={pack.mode} />
+        <div>
+          <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Avg defensibility</p>
           <div className="mt-0.5 flex items-baseline gap-1">
             <span className="text-[24px] font-semibold leading-none tabular-nums text-[#111111]">{displayDefensibility}</span>
             <span className="text-[15px] text-[#94a3b8]">/ 100</span>
@@ -538,39 +623,36 @@ export function MerkleGraphSurface({ pack: initialPack = SAMPLE_PACK }: { pack?:
       </section>
 
       {/* ── Graph canvas + side panel ───────────────────────────────── */}
-      {viewMode === 'intent' ? (
-        <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <GraphCanvas
-            pack={pack}
-            zoom={zoom}
-            collapsed={collapsed}
-            highlightMissing={highlightMissing}
-            matchesSearch={matchesSearch}
-            selected={selected}
-            lineage={lineage}
-            onSelect={setSelected}
-            rootBtnRef={rootBtnRef}
-          />
-          <SidePanel
-            selected={selected}
-            intermediateForLeaf={intermediateForLeaf}
-            pack={pack}
-            onSelect={setSelected}
-            onCopy={handleCopy}
-            copiedKey={copiedKey}
-          />
-        </section>
-      ) : (
-        <BatchSummary
-          batchMeta={SAMPLE_BATCHES[activeBatchId]}
-          packs={batchPacks}
-          onOpenPack={(packId) => {
-            setActivePackId(packId)
-            setViewMode('intent')
-            setSelected(null)
-          }}
+      <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
+        <GraphCanvas
+          pack={pack}
+          zoom={zoom}
+          collapsed={collapsed}
+          highlightMissing={highlightMissing}
+          matchesSearch={matchesSearch}
+          selected={selected}
+          lineage={lineage}
+          onSelect={setSelected}
+          rootBtnRef={rootBtnRef}
         />
-      )}
+        <SidePanel
+          selected={selected}
+          intermediateForLeaf={intermediateForLeaf}
+          pack={pack}
+          onSelect={setSelected}
+          onCopy={handleCopy}
+          copiedKey={copiedKey}
+        />
+      </section>
+
+      <BatchSummary
+        batchMeta={batchMetaResolved}
+        packs={batchPacks}
+        onOpenPack={(packId) => {
+          setActivePackId(packId)
+          setSelected(null)
+        }}
+      />
     </div>
   )
 }
@@ -1298,22 +1380,6 @@ function CopyableField({
   )
 }
 
-// ─── View-mode toggle ─────────────────────────────────────────────────────────
-
-function ViewModeButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-[8px] px-3 py-1.5 text-[14px] font-semibold transition ${
-        active ? 'bg-[#111111] text-white' : 'text-[#475569] hover:bg-[#fafafa]'
-      }`}
-    >
-      {label}
-    </button>
-  )
-}
-
 // ─── Batch summary view ───────────────────────────────────────────────────────
 
 function BatchSummary({
@@ -1389,7 +1455,7 @@ function BatchSummary({
                   {missing > 0 ? <SummaryChip dot="bg-[#F59E0B]" label="Missing" count={missing} /> : null}
                   {invalid > 0 ? <SummaryChip dot="bg-[#EF4444]" label="Invalid" count={invalid} /> : null}
                 </span>
-                <span className="text-[14px] font-medium text-[#475569]">Open →</span>
+                <span className="text-[14px] font-medium text-[#475569]">Show graph →</span>
               </button>
             </li>
           )

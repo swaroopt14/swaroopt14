@@ -16,6 +16,14 @@ import {
 
 export const dynamic = 'force-dynamic'
 
+/** Never cache session identity; shared caches must not reuse responses across users. */
+function jsonNoStore<T>(body: T, init?: ResponseInit): NextResponse {
+  const res = NextResponse.json(body, init)
+  res.headers.set('Cache-Control', 'private, no-store, max-age=0, must-revalidate')
+  res.headers.set('Vary', 'Cookie')
+  return res
+}
+
 interface BackendMeEnvelope {
   user: BackendAuthUser
   session: {
@@ -32,7 +40,7 @@ export async function GET(request: NextRequest) {
   const refreshToken = request.cookies.get(REFRESH_COOKIE_NAME)?.value
 
   if (!accessToken && !refreshToken) {
-    const response = NextResponse.json({ code: 'INVALID_SESSION', message: 'Session expired' }, { status: 401 })
+    const response = jsonNoStore({ code: 'INVALID_SESSION', message: 'Session expired' }, { status: 401 })
     clearAuthCookies(response)
     return response
   }
@@ -46,7 +54,7 @@ export async function GET(request: NextRequest) {
         cache: 'no-store',
       })
     } catch {
-      return NextResponse.json(
+      return jsonNoStore(
         { code: 'AUTH_SERVICE_UNAVAILABLE', message: 'Authentication service is unavailable right now.' },
         { status: 503 },
       )
@@ -55,7 +63,7 @@ export async function GET(request: NextRequest) {
     if (meResponse.ok) {
       const payload = await parseJSONSafe<BackendMeEnvelope>(meResponse)
       if (payload) {
-        const response = NextResponse.json(payload)
+        const response = jsonNoStore(payload)
         applySessionMarkerCookies(response, payload.user.role)
         return response
       }
@@ -63,7 +71,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!refreshToken) {
-    const response = NextResponse.json({ code: 'INVALID_SESSION', message: 'Session expired' }, { status: 401 })
+    const response = jsonNoStore({ code: 'INVALID_SESSION', message: 'Session expired' }, { status: 401 })
     clearAuthCookies(response)
     return response
   }
@@ -77,7 +85,7 @@ export async function GET(request: NextRequest) {
       body: JSON.stringify({ refresh_token: refreshToken }),
     })
   } catch {
-    return NextResponse.json(
+    return jsonNoStore(
       { code: 'AUTH_SERVICE_UNAVAILABLE', message: 'Authentication service is unavailable right now.' },
       { status: 503 },
     )
@@ -85,7 +93,7 @@ export async function GET(request: NextRequest) {
 
   if (!refreshResponse.ok) {
     const errorBody = await parseJSONSafe<BackendErrorEnvelope>(refreshResponse)
-    const response = NextResponse.json(
+    const response = jsonNoStore(
       {
         code: errorBody?.code ?? 'INVALID_SESSION',
         message: errorBody?.message ?? 'Session expired',
@@ -98,7 +106,7 @@ export async function GET(request: NextRequest) {
 
   const payload = await parseJSONSafe<BackendAuthEnvelope>(refreshResponse)
   if (!payload?.access_token || !payload.refresh_token) {
-    const response = NextResponse.json(
+    const response = jsonNoStore(
       { code: 'AUTH_RESPONSE_INVALID', message: 'Refresh response was incomplete.' },
       { status: 502 },
     )
@@ -106,7 +114,7 @@ export async function GET(request: NextRequest) {
     return response
   }
 
-  const response = NextResponse.json({
+  const response = jsonNoStore({
     user: payload.user,
     session: payload.session,
   })

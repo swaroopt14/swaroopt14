@@ -44,8 +44,7 @@ export function SandboxConnectorsSurface() {
               <span className="h-1.5 w-1.5 rounded-full bg-[#F59E0B]" aria-hidden />
               Sandbox · Connectors
             </span>
-            <h1 className="mt-3 text-[32px] font-semibold tracking-[-0.02em] text-[#0f172a]">Connectors</h1>
-            <p className="mt-1 max-w-2xl text-[18px] leading-relaxed text-[#64748b]">
+            <p className="mt-3 max-w-2xl text-[18px] leading-relaxed text-[#64748b]">
               Connect a payment provider or bank to start dispatching test intents. Sandbox uses test
               credentials only — no real funds move. You can connect multiple providers and switch between rails.
             </p>

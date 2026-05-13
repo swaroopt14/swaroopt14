@@ -36,17 +36,19 @@ const WORKSPACE_LIVE_ANSWER_TITLE = 'Latest answer'
 type PayoutCommandViewClientProps = {
   /** When set, pins sandbox vs live for this route (`/sandbox` vs `/today`). */
   forceMode?: EnvMode
+  /**
+   * Initial dock from the URL — must be resolved on the server (e.g. `searchParams.dock`)
+   * so the first client render matches SSR and avoids hydration errors. Do not read
+   * `window` / `location` only on the client for this value.
+   */
+  initialDock?: DockId
 }
 
-export default function PayoutCommandViewClient({ forceMode }: PayoutCommandViewClientProps) {
+export default function PayoutCommandViewClient({
+  forceMode,
+  initialDock = 'home',
+}: PayoutCommandViewClientProps) {
   // ── Navigation state ───────────────────────────────────────────────────────
-  // Allow other pages (e.g. /batch-command-center) to deep-link a surface via
-  // ?dock=<id>. Read once on mount; subsequent dock changes stay local.
-  const initialDock: DockId = (() => {
-    if (typeof window === 'undefined') return 'home'
-    const fromQuery = new URLSearchParams(window.location.search).get('dock') as DockId | null
-    return fromQuery && dockItems.some((d) => d.id === fromQuery) ? fromQuery : 'home'
-  })()
   const [activeDock, setActiveDock] = useState<DockId>(initialDock)
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('Today')
   const [selectedSuggestion, setSelectedSuggestion] = useState<string | null>(null)

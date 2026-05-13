@@ -144,21 +144,18 @@ export function LeakageSurface() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-[#fafafa] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6f716d]">
-          <Glyph name="zap" className="h-2.5 w-2.5" />
+      <div className="space-y-3">
+        <p className="inline-flex w-max items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-[#fafafa] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6f716d]">
+          <Glyph name="zap" className="h-2.5 w-2.5 shrink-0" aria-hidden />
           CFO · Finance · leakage
-        </span>
-        <h1 className="mt-2 text-[26px] font-semibold tracking-[-0.02em] text-[#111111]">Leakage</h1>
-        <p className="mt-1 max-w-3xl text-[15px] leading-relaxed text-[#475569]">
+        </p>
+        <p className="max-w-3xl text-[15px] leading-relaxed text-[#475569]">
           How much of your payment volume is bleeding — and exactly where. KPI 6{' '}
           <span className="font-mono text-[13px]">leakage_percentage</span> is the headline risk number; everything below
           decomposes it in rupees.
         </p>
-        <div className="mt-3">
-          <LiveDataHint isLive={Boolean(leak)} source="intelligence" />
-        </div>
-      </header>
+        <LiveDataHint isLive={Boolean(leak)} source="intelligence" />
+      </div>
 
       {/* Top — three headline numbers */}
       <section className="grid gap-4 lg:grid-cols-3">

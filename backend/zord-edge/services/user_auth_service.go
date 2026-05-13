@@ -89,6 +89,7 @@ type AuthUser struct {
 type AuthTenant struct {
 	TenantID   uuid.UUID `json:"tenant_id"`
 	TenantName string    `json:"tenant_name"`
+	KeyPrefix  string    `json:"-"`                 // tenants.key_prefix → workspace_code in JSON
 	APIKey     string    `json:"api_key,omitempty"` // returned only on signup
 }
 
@@ -208,6 +209,7 @@ func SignupNewTenant(ctx context.Context, db *sql.DB, tenantName, name, email, p
 		Tenant: AuthTenant{
 			TenantID:   tenantID,
 			TenantName: tenantName,
+			KeyPrefix:  prefix,
 			APIKey:     fullAPIKey,
 		},
 		AccessToken:      tokens.AccessToken,
@@ -237,14 +239,15 @@ func LoginUser(ctx context.Context, db *sql.DB, email, password, ip, userAgent s
 		lockedUntil    sql.NullTime
 		name           string
 		tenantName     string
+		keyPrefix      string
 	)
 	err := db.QueryRowContext(ctx,
-		`SELECT u.user_id, u.tenant_id, u.password_hash, u.role, u.status, u.failed_login_attempts, u.locked_until, u.name, t.tenant_name
+		`SELECT u.user_id, u.tenant_id, u.password_hash, u.role, u.status, u.failed_login_attempts, u.locked_until, u.name, t.tenant_name, t.key_prefix
 		 FROM auth_users u
 		 JOIN tenants t ON t.tenant_id = u.tenant_id
 		 WHERE u.email = $1`,
 		email,
-	).Scan(&userID, &tenantID, &passwordHash, &role, &status, &failedAttempts, &lockedUntil, &name, &tenantName)
+	).Scan(&userID, &tenantID, &passwordHash, &role, &status, &failedAttempts, &lockedUntil, &name, &tenantName, &keyPrefix)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrInvalidCredentials
@@ -310,6 +313,7 @@ func LoginUser(ctx context.Context, db *sql.DB, email, password, ip, userAgent s
 		Tenant: AuthTenant{
 			TenantID:   tenantID,
 			TenantName: tenantName,
+			KeyPrefix:  keyPrefix,
 		},
 		AccessToken:      tokens.AccessToken,
 		AccessExpiresAt:  tokens.AccessExpiresAt,
@@ -350,13 +354,14 @@ func RefreshSession(ctx context.Context, db *sql.DB, refreshTokenStr, ip, userAg
 		status     string
 		name       string
 		tenantName string
+		keyPrefix  string
 	)
 	err = db.QueryRowContext(ctx,
-		`SELECT u.email, u.role, u.status, u.name, t.tenant_name
+		`SELECT u.email, u.role, u.status, u.name, t.tenant_name, t.key_prefix
 		 FROM auth_users u JOIN tenants t ON t.tenant_id = u.tenant_id
 		 WHERE u.user_id = $1`,
 		claims.UserID,
-	).Scan(&email, &role, &status, &name, &tenantName)
+	).Scan(&email, &role, &status, &name, &tenantName, &keyPrefix)
 	if err != nil {
 		return nil, ErrInvalidCredentials
 	}
@@ -401,6 +406,7 @@ func RefreshSession(ctx context.Context, db *sql.DB, refreshTokenStr, ip, userAg
 		Tenant: AuthTenant{
 			TenantID:   claims.TenantID,
 			TenantName: tenantName,
+			KeyPrefix:  keyPrefix,
 		},
 		AccessToken:      tokens.AccessToken,
 		AccessExpiresAt:  tokens.AccessExpiresAt,
@@ -439,13 +445,14 @@ func GetUserByID(ctx context.Context, db *sql.DB, userID uuid.UUID) (*AuthUser, 
 		status     string
 		createdAt  time.Time
 		tenantName string
+		keyPrefix  string
 	)
 	err := db.QueryRowContext(ctx,
-		`SELECT u.tenant_id, u.email, u.name, u.role, u.status, u.created_at, t.tenant_name
+		`SELECT u.tenant_id, u.email, u.name, u.role, u.status, u.created_at, t.tenant_name, t.key_prefix
 		 FROM auth_users u JOIN tenants t ON t.tenant_id = u.tenant_id
 		 WHERE u.user_id = $1`,
 		userID,
-	).Scan(&tenantID, &email, &name, &role, &status, &createdAt, &tenantName)
+	).Scan(&tenantID, &email, &name, &role, &status, &createdAt, &tenantName, &keyPrefix)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -460,6 +467,7 @@ func GetUserByID(ctx context.Context, db *sql.DB, userID uuid.UUID) (*AuthUser, 
 		}, &AuthTenant{
 			TenantID:   tenantID,
 			TenantName: tenantName,
+			KeyPrefix:  keyPrefix,
 		}, nil
 }
 

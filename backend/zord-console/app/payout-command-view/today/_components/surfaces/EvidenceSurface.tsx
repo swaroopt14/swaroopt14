@@ -259,10 +259,7 @@ export function EvidenceSurface() {
             <Glyph name="shield" className="h-2.5 w-2.5 text-[#111111]" />
             Compliance · Legal
           </span>
-          <h1 className="mt-3 text-[28px] font-semibold tracking-[-0.02em] text-[#111111]">
-            Defensibility & Evidence
-          </h1>
-          <p className="mt-2 max-w-2xl text-[17px] leading-relaxed text-[#6f716d]">
+          <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-[#6f716d]">
             Every intent that is cryptographically proven, and every one that isn&apos;t. Pull, download, and submit
             evidence in seconds — no screenshots, no chasing PSP logs.
           </p>

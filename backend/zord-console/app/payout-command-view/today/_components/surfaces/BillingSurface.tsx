@@ -50,8 +50,7 @@ export function BillingSurface({ onActivateClick }: { onActivateClick: () => voi
       <div className="min-w-0 space-y-6">
         {/* Header */}
         <header>
-          <h1 className="text-[32px] font-semibold tracking-[-0.02em] text-[#0f172a]">Billing</h1>
-          <p className="mt-1 text-[18px] text-[#64748b]">
+          <p className="text-[18px] text-[#64748b]">
             {isSandbox
               ? 'Sandbox accounts are free. Activate live to choose a plan and add a payment method.'
               : 'Manage your plan, payment method, and invoice history.'}

@@ -21,8 +21,8 @@ import (
 	"zord-intent-engine/db"
 	"zord-intent-engine/internal/handlers"
 
-	"zord-intent-engine/internal/persistence"
 	"zord-intent-engine/internal/etl"
+	"zord-intent-engine/internal/persistence"
 	"zord-intent-engine/internal/worker"
 
 	//"zord-intent-engine/internal/pii"
@@ -135,6 +135,7 @@ func main() {
 	mux.HandleFunc("/v1/intents", intentHandler.List)
 	mux.HandleFunc("/internal/outbox/lease", outboxHandler.Lease)
 	mux.HandleFunc("/internal/outbox/ack", outboxHandler.Ack)
+	mux.HandleFunc("/api/prod/intents/batches", intentHandler.ListBatchesSidebar)
 	mux.HandleFunc("/internal/outbox/nack", outboxHandler.Nack)
 	mux.HandleFunc("/internal/airflow/transform", airflowHandler.Transform)
 	mux.HandleFunc("/internal/normalization/quality", normHandler.Quality)
@@ -161,6 +162,9 @@ func main() {
 				}
 				if dlq.EnvelopeID == "" {
 					dlq.EnvelopeID = event.EnvelopeID.String()
+				}
+				if dlq.ClientBatchRef == "" && event.BatchID != nil {
+					dlq.ClientBatchRef = *event.BatchID
 				}
 				_, err := dlqRepo.Save(ctx, *dlq)
 				if err != nil {

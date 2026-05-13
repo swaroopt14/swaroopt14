@@ -67,7 +67,7 @@ export function BatchTopNav() {
         <div className="flex shrink-0 items-center gap-2">
           <Link
             href="/payout-command-view/today"
-            className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-black/10 bg-white px-3 text-[13px] font-semibold text-[#0f172a] transition hover:bg-[#f5f5f5]"
+            className="inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border border-black/10 bg-white px-3 text-[13px] font-semibold text-[#0f172a] transition hover:bg-[#f5f5f5]"
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
               <path d="M10 12 6 8l4-4" strokeLinecap="round" strokeLinejoin="round" />

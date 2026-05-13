@@ -145,6 +145,9 @@ type ScoreBreakdown struct {
 	SourceStrengthModifier float64 `json:"source_strength_modifier"`
 	ConflictingRefPenalty  float64 `json:"conflicting_ref_penalty"`
 	TotalScore             float64 `json:"total_score"`
+	ExactCarrierScore      float64 `json:"exact_carrier_score"`
+	BusinessReferenceScore float64 `json:"business_reference_score"`
+	QualityModifiers       float64 `json:"quality_modifiers"`
 }
 
 // CandidateScore is the intermediate result returned by ScoreCandidate.
@@ -172,8 +175,6 @@ type CandidateScore struct {
 	ParseConfPenalised bool
 }
 
-// ScoreCandidate evaluates one (settlement observation, intent) pair and returns
-// a fully populated CandidateScore. The function is pure — no DB calls.
 func ScoreCandidate(
 	obs models.CanonicalSettlementObservation,
 	intent models.CanonicalIntent,
@@ -185,112 +186,151 @@ func ScoreCandidate(
 
 	// ── LAYER 1: Exact carrier matches ────────────────────────────────────
 
-	// Zord prepare-and-sign signature (strongest possible carrier)
-	// if intent.ZordSignatureCarrier != nil && obs.ClientReferenceCandidate != nil &&
-	// 	*intent.ZordSignatureCarrier == *obs.ClientReferenceCandidate {
-	// 	bd.ZordSignatureScore = policy.CarrierPriority.ZordSignature
+	// Zord signature / prepared carrier exact match: +120
+	// if intent.ZordSignatureCarrier != nil && obs.ZordSignatureCarrier != nil &&
+	// 	*intent.ZordSignatureCarrier == *obs.ZordSignatureCarrier && *intent.ZordSignatureCarrier != "" {
+	// 	bd.ExactCarrierScore += 120
 	// 	cs.ZordSignatureMatch = true
 	// 	cs.ExactRefMatch = true
 	// }
 
-	// Client payout reference
+	// Client payout reference exact match: +100
 	if intent.ClientPayoutRef != nil && obs.ClientReferenceCandidate != nil &&
-		*intent.ClientPayoutRef == *obs.ClientReferenceCandidate {
-		bd.ClientRefScore = policy.CarrierPriority.ClientRef
+		*intent.ClientPayoutRef == *obs.ClientReferenceCandidate && *intent.ClientPayoutRef != "" {
+		bd.BusinessReferenceScore += 100
 		cs.ClientRefMatch = true
 		cs.ExactRefMatch = true
 	}
 
-	// Provider reference
-	if intent.ProviderHint != nil && obs.ProviderReference != nil &&
-		*intent.ProviderHint == *obs.ProviderReference {
-		bd.ProviderRefScore = policy.CarrierPriority.ProviderRef
-		cs.ProviderRefMatch = true
+	// business_idempotency_key match: +95
+	if intent.BusinessIdempotencyKey != nil && obs.ClientReferenceCandidate != nil &&
+		*intent.BusinessIdempotencyKey == *obs.ClientReferenceCandidate && *intent.BusinessIdempotencyKey != "" {
+		bd.BusinessReferenceScore += 95
 		cs.ExactRefMatch = true
-	} else if obs.ProviderReference != nil && intent.ProviderHint != nil &&
-		*obs.ProviderReference != *intent.ProviderHint {
-		// Conflicting provider refs are a strong negative signal.
-		bd.ConflictingRefPenalty += policy.CarrierPriority.ConflictPenalty / 2
 	}
 
-	// Bank reference (UTR/RRN) — strongest finality carrier after Zord sig
-	// We can only match bank ref if the intent carried one (e.g. via prepare-and-sign).
-	// Most intents won't have this until Stage 2 of the trust ladder; absence is neutral.
-
-	// Batch reference
+	// batch_id + source_row_ref exact match: +90
+	// We use ClientBatchRef as batch_id and SourceRowRef as row identifier.
 	if intent.ClientBatchRef != nil && obs.BatchReference != nil &&
-		*intent.ClientBatchRef == *obs.BatchReference {
-		bd.BatchMatchScore = policy.CarrierPriority.BatchMatch
+		*intent.ClientBatchRef == *obs.BatchReference && *intent.ClientBatchRef != "" {
+		// If we also had source_row_ref in intent, we'd check it here.
+		// For now, batch match is a strong signal.
+		bd.BatchMatchScore += 90
 		cs.BatchMatch = true
 	}
 
+	// provider reference match: +85
+	if intent.ProviderHint != nil && obs.ProviderReference != nil &&
+		*intent.ProviderHint == *obs.ProviderReference && *intent.ProviderHint != "" {
+		bd.ProviderRefScore += 85
+		cs.ProviderRefMatch = true
+		cs.ExactRefMatch = true
+	} else if obs.ProviderReference != nil && intent.ProviderHint != nil &&
+		*obs.ProviderReference != *intent.ProviderHint && *obs.ProviderReference != "" {
+		// Conflict penalty: provider/bank reference conflict: -70
+		bd.ConflictingRefPenalty -= 70
+	}
+
+	// bank reference deterministic link: +85
+	if obs.BankReference != nil && intent.ProviderHint != nil &&
+		*obs.BankReference == *intent.ProviderHint && *obs.BankReference != "" {
+		bd.BankRefScore += 85
+		cs.BankRefMatch = true
+		cs.ExactRefMatch = true
+	}
+
+	// beneficiary_fingerprint match: +35
+	// if intent.BeneficiaryFingerprint != nil && obs.BeneficiaryFingerprint != nil &&
+	// 	*intent.BeneficiaryFingerprint == *obs.BeneficiaryFingerprint && *intent.BeneficiaryFingerprint != "" {
+	// 	bd.QualityModifiers += 35
+	// }
+
 	// ── LAYER 2: Composite / soft matching ───────────────────────────────
 
-	// Amount (exact match — no tolerance by default unless profile says otherwise)
+	// Amount match within tolerance: +30
 	obsAmount := obs.Amount
-	amountTolerance := decimal.NewFromInt(policy.AmountTolerance.ToleranceMinor) // Note: assume tolerance is specified in minor units and Amount is as well, or scale as needed.
-	// Since we don't know scale for sure, let's keep it simple. Usually ToleranceMinor needs scaling, but let's just use it directly if that's what's expected.
-
+	amountTolerance := decimal.NewFromInt(policy.AmountTolerance.ToleranceMinor)
 	primaryDiff := obsAmount.Sub(intent.Amount).Abs()
-	settledDiffMatch := false
-	if obs.SettledAmount != nil {
-		settledDiff := obs.SettledAmount.Sub(intent.Amount).Abs()
-		settledDiffMatch = settledDiff.LessThanOrEqual(amountTolerance)
-	}
-	if primaryDiff.LessThanOrEqual(amountTolerance) || settledDiffMatch {
-		bd.AmountMatchScore = policy.CarrierPriority.AmountMatch
+	if primaryDiff.LessThanOrEqual(amountTolerance) {
+		bd.AmountMatchScore += 30
 		cs.AmountMatch = true
+	} else {
+		// Conflict: amount mismatch beyond tolerance: -50
+		bd.ConflictingRefPenalty -= 50
 	}
 
-	// Currency
+	// Currency match: +10
 	if obs.CurrencyCode == intent.CurrencyCode && obs.CurrencyCode != "" {
-		bd.CurrencyMatchScore = policy.CarrierPriority.CurrencyMatch
+		bd.AmountMatchScore += 10
 		cs.CurrencyMatch = true
+	} else {
+		// Conflict: currency mismatch: -100
+		bd.ConflictingRefPenalty -= 100
 	}
 
-	// Time window
+	// Time window match: +20
 	if intent.IntendedExecutionAt != nil {
 		windowHours := policy.TimeWindow.MaxHoursDifference
 		diff := obs.ObservationTimestamp.Sub(*intent.IntendedExecutionAt)
 		if math.Abs(diff.Hours()) <= windowHours {
-			bd.TimeWindowScore = policy.CarrierPriority.TimeWindow
+			bd.TimeWindowScore += 20
 			cs.TimeWindowMatch = true
 		}
 	}
 
-	// Source system hint
-	if intent.ProviderHint != nil && *intent.ProviderHint == obs.SourceSystem {
-		bd.SourceSystemScore = policy.CarrierPriority.SourceSystem
-		cs.SourceSystemMatch = true
+	// Batch family match: +15
+	if intent.ClientBatchRef != nil && obs.BatchReference != nil &&
+		*intent.ClientBatchRef == *obs.BatchReference && *intent.ClientBatchRef != "" {
+		bd.BatchMatchScore += 15
 	}
 
-	// ── MODIFIERS ─────────────────────────────────────────────────────────
+	// Source system/corridor match: +10
+	if intent.ProviderHint != nil && *intent.ProviderHint == obs.SourceSystem {
+		bd.SourceSystemScore += 10
+		cs.SourceSystemMatch = true
+	}
+	if intent.Corridor != nil && obs.CorridorID != "" && *intent.Corridor == obs.CorridorID {
+		bd.SourceSystemScore += 10
+	}
 
-	// Low parse confidence is a trust penalty.
-	// Also flag the candidate so classifyConfidence can gate the HIGH bucket.
-	if obs.ParseConfidence < 0.6 {
-		bd.ParseConfModifier = policy.CarrierPriority.ParseConfidenceModifier
+	// ── QUALITY MODIFIERS ─────────────────────────────────────────────────
+
+	// parse_confidence < 70: -20
+	if obs.ParseConfidence < 0.7 {
+		bd.QualityModifiers -= 20
 		cs.ParseConfPenalised = true
 	}
 
-	// Internal exports carry less finality weight.
+	// mapping_confidence < 70: -15
+	if obs.MappingConfidence < 0.7 {
+		bd.QualityModifiers -= 15
+	}
+
+	// attachment_readiness_score < 60: -15
+	if obs.AttachmentReadinessScore < 0.6 {
+		bd.QualityModifiers -= 15
+	}
+
+	// source_strength_class = INTERNAL_EXPORT: -10
 	if obs.SourceStrengthClass == "INTERNAL_EXPORT" {
-		bd.SourceStrengthModifier = policy.CarrierPriority.SourceStrengthModifier
+		bd.QualityModifiers -= 10
+	}
+
+	// source_strength_class = MANUAL_UPLOAD: -20
+	if obs.SourceStrengthClass == "MANUAL_UPLOAD" {
+		bd.QualityModifiers -= 20
 	}
 
 	// ── TOTAL SCORE ───────────────────────────────────────────────────────
 
-	total := bd.ZordSignatureScore +
-		bd.ClientRefScore +
-		bd.ProviderRefScore +
+	total := bd.ExactCarrierScore +
+		bd.BusinessReferenceScore +
 		bd.BankRefScore +
 		bd.AmountMatchScore +
-		bd.CurrencyMatchScore +
-		bd.TimeWindowScore +
 		bd.BatchMatchScore +
+		bd.TimeWindowScore +
 		bd.SourceSystemScore +
-		bd.ParseConfModifier +
-		bd.SourceStrengthModifier +
+		bd.QualityModifiers +
 		bd.ConflictingRefPenalty
 
 	if total < 0 {
@@ -311,11 +351,11 @@ func ScoreCandidate(
 
 func classifyConfidence(cs CandidateScore, thresholds ManualReviewThresholds) string {
 	switch {
-	case cs.ExactRefMatch && cs.AmountMatch && cs.CurrencyMatch:
+	case cs.ExactRefMatch && cs.AmountMatch && cs.CurrencyMatch && !cs.ParseConfPenalised:
 		return models.ConfidenceExact
-	case cs.Total >= thresholds.HighConfidenceScore && !cs.ParseConfPenalised:
+	case cs.Total >= 150.0 && !cs.ParseConfPenalised: // Bank-grade high threshold
 		return models.ConfidenceHigh
-	case cs.Total >= thresholds.MinScoreForAutoAttach:
+	case cs.Total >= 90.0:
 		return models.ConfidenceMedium
 	default:
 		return models.ConfidenceLow

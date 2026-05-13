@@ -84,6 +84,7 @@ type CanonicalIntent struct {
 	CanonicalHash          string          `json:"canonical_hash" db:"canonical_hash"`
 	GovernanceState        string          `json:"governance_state" db:"governance_state"`
 	// ZordSignatureCarrier   *string         `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
+	// BeneficiaryFingerprint *string         `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
 	CreatedAt              time.Time       `json:"created_at" db:"created_at"`
 }
 

@@ -251,6 +251,7 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state, 
+		--	beneficiary_fingerprint, zord_signature_carrier,
 			created_at
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
@@ -260,12 +261,15 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 			amount                  = EXCLUDED.amount,
 			currency_code           = EXCLUDED.currency_code,
 			governance_state        = EXCLUDED.governance_state`,
+		/*	beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
+			zord_signature_carrier  = EXCLUDED.zord_signature_carrier */
 		intent.IntentID, intent.TenantID,
 		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
 		intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
 		intent.ProofReadinessScore, intent.MatchabilityScore,
-		intent.CanonicalHash, intent.GovernanceState, 
+		intent.CanonicalHash, intent.GovernanceState,
+		// intent.BeneficiaryFingerprint, intent.ZordSignatureCarrier,
 		intent.CreatedAt,
 	)
 	if err != nil {

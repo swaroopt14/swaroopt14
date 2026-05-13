@@ -48,6 +48,8 @@ func EnsureTables(ctx context.Context) error {
 			matchability_score       NUMERIC(5,4) NOT NULL DEFAULT 0,
 			canonical_hash           TEXT NOT NULL,
 			governance_state         TEXT NOT NULL,
+		/*	beneficiary_fingerprint  TEXT,
+			zord_signature_carrier   TEXT, */
 			created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
 		`CREATE INDEX IF NOT EXISTS canonical_intents_tenant_idx
@@ -274,6 +276,8 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	source_type TEXT,
 	source_system_id TEXT,
 	corridor_id TEXT,
+	/* beneficiary_fingerprint TEXT,
+	zord_signature_carrier TEXT, */
 	warnings_json JSONB,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -625,24 +629,24 @@ func SeedDefaultAttachmentRuleProfile(ctx context.Context, tenantID interface{})
   },
 
   "carrier_priority_json": {
-    "exact_ref": 100,
-    "client_ref": 90,
+    "exact_ref": 120,
+    "client_ref": 100,
     "provider_ref": 85,
     "bank_ref": 85,
-    "zord_signature": 100,
-    "beneficiary_match": 50,
-    "amount_match": 50,
-    "currency_match": 40,
-    "batch_match": 30,
+    "zord_signature": 120,
+    "beneficiary_match": 35,
+    "amount_match": 30,
+    "currency_match": 10,
+    "batch_match": 90,
     "time_window": 20,
     "source_system": 10,
     "parse_confidence_modifier": -20,
     "source_strength_modifier": -15,
-    "conflict_penalty": -40
+    "conflict_penalty": -70
   },
 
   "time_window_policy_json": {
-    "max_hours_difference": 48,
+    "max_hours_difference": 72,
     "strict_same_day": false,
     "allow_cross_period": true
   },
@@ -660,10 +664,10 @@ func SeedDefaultAttachmentRuleProfile(ctx context.Context, tenantID interface{})
   },
 
   "manual_review_thresholds_json": {
-    "high_confidence_score": 80,
-    "exact_match_score": 95,
-    "ambiguity_margin_threshold": 10,
-    "min_score_for_auto_attach": 70,
+    "high_confidence_score": 150,
+    "exact_match_score": 200,
+    "ambiguity_margin_threshold": 15,
+    "min_score_for_auto_attach": 90,
     "max_candidates_for_auto_attach": 1
   },
 

@@ -394,6 +394,7 @@ func findCandidateIntents(
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state,
+		--	beneficiary_fingerprint, zord_signature_carrier,
 			created_at
 		FROM canonical_intents
 		WHERE tenant_id = $1
@@ -447,6 +448,7 @@ func findCandidateIntents(
 			&intent.IntendedExecutionAt, &intent.PayoutType, &intent.ProviderHint, &intent.Corridor,
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
 			&intent.CanonicalHash, &intent.GovernanceState,
+			// &intent.BeneficiaryFingerprint, &intent.ZordSignatureCarrier,
 			&intent.CreatedAt,
 		)
 		if err != nil {
@@ -540,6 +542,12 @@ func buildSupportingCarriers(obs models.CanonicalSettlementObservation) map[stri
 	if obs.BatchReference != nil {
 		carriers["batch_reference"] = *obs.BatchReference
 	}
+	// if obs.BeneficiaryFingerprint != nil {
+	// 	carriers["beneficiary_fingerprint"] = *obs.BeneficiaryFingerprint
+	// }
+	// if obs.ZordSignatureCarrier != nil {
+	// 	carriers["zord_signature_carrier"] = *obs.ZordSignatureCarrier
+	// }
 	return carriers
 }
 
@@ -864,6 +872,7 @@ func loadObservationsByBatch(ctx context.Context, tenantID uuid.UUID, batchRef s
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
 			canonical_hash, client_batch_id, corridor_id,
+		--	beneficiary_fingerprint, zord_signature_carrier,
 			created_at, updated_at
 		FROM canonical_settlement_observations
 		WHERE tenant_id = $1 AND batch_reference = $2
@@ -895,6 +904,7 @@ func loadObservationsByJobID(ctx context.Context, tenantID uuid.UUID, jobID stri
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
 			canonical_hash, client_batch_id, corridor_id,
+		--	beneficiary_fingerprint, zord_signature_carrier,
 			created_at, updated_at
 		FROM canonical_settlement_observations
 		WHERE tenant_id = $1 AND ingest_run_id = $2
@@ -926,6 +936,7 @@ func loadObservationByID(ctx context.Context, tenantID uuid.UUID, obsID uuid.UUI
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
 			canonical_hash, client_batch_id, corridor_id,
+		--	beneficiary_fingerprint, zord_signature_carrier,
 			created_at, updated_at
 		FROM canonical_settlement_observations
 		WHERE tenant_id = $1 AND settlement_observation_id = $2`,
@@ -965,6 +976,7 @@ func scanObservations(rows *sql.Rows) ([]models.CanonicalSettlementObservation, 
 			&o.ParseConfidence, &o.MappingConfidence,
 			&o.CarrierRichnessScore, &o.AttachmentReadinessScore,
 			&o.CanonicalHash, &o.ClientBatchID, &o.CorridorID,
+			// &o.BeneficiaryFingerprint, &o.ZordSignatureCarrier,
 			&o.CreatedAt, &o.UpdatedAt,
 		)
 		if err != nil {

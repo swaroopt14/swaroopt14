@@ -23,4 +23,5 @@ type OutboxEvent struct {
 	LeaseID       string     `json:"lease_id,omitempty" db:"lease_id"`
 	LeasedBy      string     `json:"leased_by,omitempty" db:"leased_by"`
 	LeaseUntil    *time.Time `json:"lease_until,omitempty" db:"lease_until"`
+	FileContentHash *string `json:"file_content_hash,omitempty" db:"file_content_hash"`
 }

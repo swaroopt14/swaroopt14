@@ -173,6 +173,75 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 	return s.pendingLeafRepo.DeleteForIntent(ctx, tenantID, intentID)
 }
 
+// HandleBatchLeafUpdate orchestrates buffered leaf ingestion and pack generation for batches.
+func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, batchID string, newLeaves []models.PendingLeafCandidate, isFinal bool) error {
+	// 1. Upsert new leaves
+	for i := range newLeaves {
+		if err := s.pendingLeafRepo.UpsertLeaf(ctx, &newLeaves[i]); err != nil {
+			return err
+		}
+	}
+
+	if !isFinal {
+		log.Printf("evidence.service.handle_batch_update batch=%s is_final=false — buffering only", batchID)
+		return nil
+	}
+
+	// 2. Check readiness
+	leaves, err := s.pendingLeafRepo.GetLeavesForBatch(ctx, tenantID, batchID)
+	if err != nil {
+		return err
+	}
+
+	leafMap := make(map[string]models.PendingLeafCandidate)
+	for _, l := range leaves {
+		leafMap[l.LeafType] = l
+	}
+
+	allPresent := true
+	var items []models.EvidenceItem
+	var missing []string
+	for _, requiredType := range models.RequiredBatchLeafTypes {
+		if l, ok := leafMap[requiredType]; ok {
+			items = append(items, models.EvidenceItem{
+				Type:          l.LeafType,
+				Ref:           l.ItemRef,
+				Hash:          l.Hash,
+				SchemaVersion: l.SchemaVersion,
+			})
+		} else {
+			allPresent = false
+			missing = append(missing, requiredType)
+		}
+	}
+
+	if !allPresent {
+		log.Printf("evidence.service.batch_readiness_check batch=%s missing_leaves=%v present_count=%d", batchID, missing, len(items))
+		return nil // Not ready yet
+	}
+
+	log.Printf("evidence.service.batch_readiness_check batch=%s ALL_LEAVES_PRESENT — triggering generation", batchID)
+
+	// Generate the pack!
+	req := models.GenerateEvidenceRequest{
+		TenantID:       tenantID,
+		BatchID:        batchID,
+		TraceID:        "00000000-0000-0000-0000-000000000000", // or fetch from context/leaf if available
+		Mode:           "BATCH_ATTACH",
+		RulesetVersion: "v1",
+		SchemaVersions: map[string]string{"v1": "v1"},
+		Items:          items,
+	}
+
+	_, err = s.GenerateBatchPack(ctx, req)
+	if err != nil {
+		return fmt.Errorf("generate pack from buffered batch leaves: %w", err)
+	}
+
+	// Cleanup
+	return s.pendingLeafRepo.DeleteForBatch(ctx, tenantID, batchID)
+}
+
 // GeneratePack is the core of Service 6 (spec §13 steps 1–11).
 // evidence_pack_id is generated only here. All other IDs come from upstream.
 func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateEvidenceRequest) (*models.EvidencePack, error) {
@@ -210,18 +279,18 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 	// Hash = SHA256(evidence_pack_id | interim_merkle_root)
 	leafAutoInput := packID + "|" + interimMerkleRoot
 	leafAutoHash := utils.SHA256Hex(leafAutoInput)
-	
+
 	leafAuto := models.EvidenceItem{
 		Type:          models.LeafTypeFinalEvidenceView,
 		Ref:           packID,
 		Hash:          leafAutoHash,
 		SchemaVersion: "v1",
 	}
-	
+
 	// Final leaf hash for auto-added leaf
 	leafAutoFinalInput := strings.Join([]string{leafAuto.Type, leafAuto.Ref, leafAuto.Hash, leafAuto.SchemaVersion}, "||")
 	leafAuto.LeafHash = utils.SHA256Hex(leafAutoFinalInput)
-	
+
 	items = append(items, leafAuto)
 	leaves = append(leaves, utils.MerkleLeaf{Index: len(items) - 1, LeafHash: leafAuto.LeafHash})
 
@@ -358,6 +427,150 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 	return pack, nil
 }
 
+// GenerateBatchPack generates an evidence pack bound to a batch.
+func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.GenerateEvidenceRequest) (*models.EvidencePack, error) {
+	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.BatchID) == "" {
+		return nil, fmt.Errorf("tenant_id and batch_id are required")
+	}
+	if len(req.Items) == 0 {
+		return nil, fmt.Errorf("at least one evidence item is required")
+	}
+
+	now := time.Now().UTC()
+	packID := "bep_" + uuid.NewString()
+
+	items := req.Items
+	leaves := make([]utils.MerkleLeaf, 0, len(items)+1)
+	for i := range items {
+		stableHash := strings.TrimSpace(items[i].Hash)
+		leafInput := strings.Join([]string{items[i].Type, items[i].Ref, stableHash, items[i].SchemaVersion}, "||")
+		items[i].LeafHash = utils.SHA256Hex(leafInput)
+		leaves = append(leaves, utils.MerkleLeaf{Index: i, LeafHash: items[i].LeafHash})
+	}
+
+	interimMerkleRoot := utils.BuildMerkleRoot(leaves)
+
+	leafAutoInput := packID + "|" + interimMerkleRoot
+	leafAutoHash := utils.SHA256Hex(leafAutoInput)
+
+	leafAuto := models.EvidenceItem{
+		Type:          models.LeafTypeFinalEvidenceView,
+		Ref:           packID,
+		Hash:          leafAutoHash,
+		SchemaVersion: "v1",
+	}
+
+	leafAutoFinalInput := strings.Join([]string{leafAuto.Type, leafAuto.Ref, leafAuto.Hash, leafAuto.SchemaVersion}, "||")
+	leafAuto.LeafHash = utils.SHA256Hex(leafAutoFinalInput)
+
+	items = append(items, leafAuto)
+	leaves = append(leaves, utils.MerkleLeaf{Index: len(items) - 1, LeafHash: leafAuto.LeafHash})
+
+	merkleRoot := utils.BuildMerkleRoot(leaves)
+
+	signPayload := strings.Join([]string{
+		packID, merkleRoot, req.BatchID, now.Format(time.RFC3339Nano), req.RulesetVersion,
+	}, "|")
+	sig := s.signer.Sign(signPayload)
+
+	pack := &models.EvidencePack{
+		EvidencePackID: packID,
+		TenantID:       req.TenantID,
+		BatchID:        req.BatchID,
+		Mode:           req.Mode,
+		PackStatus:     "ACTIVE",
+		Items:          items,
+		MerkleRoot:     merkleRoot,
+		RulesetVersion: req.RulesetVersion,
+		SchemaVersions: req.SchemaVersions,
+		Signatures: []models.Signature{{
+			Signer:   "zord_evidence",
+			Alg:      "ed25519",
+			Sig:      sig,
+			SignedAt: now,
+		}},
+		CreatedAt: now,
+	}
+
+	archive, err := json.Marshal(pack)
+	if err != nil {
+		return nil, fmt.Errorf("marshal evidence pack: %w", err)
+	}
+	encryptedArchive, err := s.archiveCrypto.Encrypt(archive)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt evidence archive: %w", err)
+	}
+
+	objectKey := fmt.Sprintf("%s/%s/batch/%s/%s.json.enc", s.archivePrefix, req.TenantID, req.BatchID, packID)
+	objectRef, err := s.s3.PutObject(ctx, objectKey, encryptedArchive)
+	if err != nil {
+		return nil, fmt.Errorf("store archive: %w", err)
+	}
+
+	log.Printf("evidence.service.generate_batch_pack saving metadata and outbox event pack=%s batch=%s", packID, req.BatchID)
+
+	archiveHash := sha256Hex(encryptedArchive)
+	archiveRecord := &models.EvidenceArchive{
+		ArchiveID:      "arc_" + uuid.NewString(),
+		EvidencePackID: packID,
+		TenantID:       req.TenantID,
+		ObjectRef:      objectRef,
+		ArchiveHash:    archiveHash,
+		ArchiveVersion: "v1",
+		CreatedAt:      now,
+	}
+	if err := s.repo.SaveArchive(ctx, archiveRecord); err != nil {
+		fmt.Printf("warn: save archive record failed: %v\n", err)
+	}
+
+	proofPaths := utils.BuildInclusionProofs(leaves)
+	inclusionProofs := make([]models.InclusionProof, 0, len(leaves))
+	for _, leaf := range leaves {
+		inclusionProofs = append(inclusionProofs, models.InclusionProof{
+			EvidencePackID: packID,
+			LeafHash:       leaf.LeafHash,
+			ProofPath:      proofPaths[leaf.LeafHash],
+			CreatedAt:      now,
+		})
+	}
+	if err := s.repo.SaveInclusionProofs(ctx, packID, inclusionProofs); err != nil {
+		fmt.Printf("warn: save inclusion proofs failed: %v\n", err)
+	}
+
+	packEvent := kafka.PackEvent{
+		EventType:      kafka.EventPackCreated,
+		EvidencePackID: packID,
+		TenantID:       req.TenantID,
+		Mode:           req.Mode,
+		MerkleRoot:     merkleRoot,
+		RulesetVersion: req.RulesetVersion,
+		OccurredAt:     now,
+		Extra: map[string]any{
+			"batch_id": req.BatchID,
+		},
+	}
+	payloadBytes, _ := json.Marshal(packEvent)
+
+	outboxEvt := &models.OutboxEvent{
+		TraceID:       req.TraceID,
+		TenantID:      req.TenantID,
+		AggregateType: "evidence_pack",
+		AggregateID:   req.BatchID, // using batchID as the aggregate_id since it's a batch pack
+		EventType:     "evidence.batch.pack.created",
+		Payload:       payloadBytes,
+		Status:        "PENDING",
+		CreatedAt:     now,
+	}
+
+	if err := s.repo.SavePack(ctx, pack, objectRef, outboxEvt); err != nil {
+		log.Printf("evidence.service.generate_batch_pack save_failed pack=%s err=%v", packID, err)
+		return nil, fmt.Errorf("save batch pack metadata: %w", err)
+	}
+	log.Printf("evidence.service.generate_batch_pack save_ok pack=%s", packID)
+
+	return pack, nil
+}
+
 // GetPack fetches an evidence pack by ID.
 func (s *EvidenceService) GetPack(ctx context.Context, packID string) (*models.EvidencePack, error) {
 	pack, _, err := s.repo.GetPackByID(ctx, packID)
@@ -370,6 +583,15 @@ func (s *EvidenceService) GetPack(ctx context.Context, packID string) (*models.E
 // ListPacksByIntentID returns all packs for a given intent (spec §17).
 func (s *EvidenceService) ListPacksByIntentID(ctx context.Context, tenantID, intentID string) (*models.ListPacksResponse, error) {
 	packs, err := s.repo.ListByIntentID(ctx, tenantID, intentID)
+	if err != nil {
+		return nil, err
+	}
+	return &models.ListPacksResponse{Packs: packs, Total: len(packs)}, nil
+}
+
+// ListPacksByBatchID returns all packs for a given batch.
+func (s *EvidenceService) ListPacksByBatchID(ctx context.Context, tenantID, batchID string) (*models.ListPacksResponse, error) {
+	packs, err := s.repo.ListByBatchID(ctx, tenantID, batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -458,9 +680,9 @@ func (s *EvidenceService) ReplayPack(ctx context.Context, req models.ReplayReque
 		RulesetVersion: req.RulesetVersion,
 		OccurredAt:     time.Now().UTC(),
 		Extra: map[string]any{
-			"replay_job_id":     jobID,
+			"replay_job_id":      jobID,
 			"equivalence_result": equivalenceResult,
-			"original_pack_id":  req.OriginalPackID,
+			"original_pack_id":   req.OriginalPackID,
 		},
 	})
 
@@ -499,12 +721,12 @@ func (s *EvidenceService) GetPackView(ctx context.Context, packID, viewType stri
 	}
 
 	highlights := map[string]any{
-		"leaf_count":     len(pack.Items),
-		"leaf_types":     typeCount,
-		"signature_alg":  pack.Signatures[0].Alg,
-		"mode":           pack.Mode,
-		"pack_status":    pack.PackStatus,
-		"item_refs":      itemRefs,
+		"leaf_count":    len(pack.Items),
+		"leaf_types":    typeCount,
+		"signature_alg": pack.Signatures[0].Alg,
+		"mode":          pack.Mode,
+		"pack_status":   pack.PackStatus,
+		"item_refs":     itemRefs,
 	}
 
 	// §18 view-specific focus
@@ -544,5 +766,5 @@ func (s *EvidenceService) GetPackView(ctx context.Context, packID, viewType stri
 // sha256Hex is a local helper for non-text bytes (archive body hash).
 func sha256Hex(data []byte) string {
 	sum := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:])
 }

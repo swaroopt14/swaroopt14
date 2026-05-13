@@ -40,14 +40,15 @@ func (r *EvidenceRepository) SavePack(ctx context.Context, pack *models.Evidence
 
 	_, err = tx.ExecContext(ctx, `
 INSERT INTO evidence_packs(
-	evidence_pack_id, tenant_id, intent_id, contract_id, mode, pack_status, merkle_root,
+	evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status, merkle_root,
 	ruleset_version, schema_versions_json, signature_alg, signature_value, object_ref,
 	supersedes_pack_id, created_at, updated_at
-) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
 		pack.EvidencePackID,
 		pack.TenantID,
 		nullStr(pack.IntentID),
 		nullStr(pack.ContractID),
+		nullStr(pack.BatchID),
 		pack.Mode,
 		"ACTIVE",
 		pack.MerkleRoot,
@@ -132,15 +133,15 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 	var createdAt time.Time
 	var signature string
 	var sigAlg string
-	var intentID, contractID, supersedesPackID sql.NullString
+	var intentID, contractID, batchID, supersedesPackID sql.NullString
 	var schemaVersionsJSON []byte
 
-	q := `SELECT tenant_id, intent_id, contract_id, mode, pack_status, merkle_root,
+	q := `SELECT tenant_id, intent_id, contract_id, batch_id, mode, pack_status, merkle_root,
 	             ruleset_version, schema_versions_json, signature_alg, signature_value,
 	             object_ref, supersedes_pack_id, created_at
 	      FROM evidence_packs WHERE evidence_pack_id=$1`
 	err := r.db.QueryRowContext(ctx, q, packID).Scan(
-		&pack.TenantID, &intentID, &contractID, &pack.Mode, &pack.PackStatus,
+		&pack.TenantID, &intentID, &contractID, &batchID, &pack.Mode, &pack.PackStatus,
 		&pack.MerkleRoot, &pack.RulesetVersion, &schemaVersionsJSON,
 		&sigAlg, &signature, &objectRef, &supersedesPackID, &createdAt,
 	)
@@ -152,6 +153,9 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 	}
 	if contractID.Valid {
 		pack.ContractID = contractID.String
+	}
+	if batchID.Valid {
+		pack.BatchID = batchID.String
 	}
 	if supersedesPackID.Valid {
 		pack.SupersedesPackID = supersedesPackID.String
@@ -184,7 +188,7 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 // ListByIntentID returns pack summaries for a given tenant + intent_id (spec §17).
 func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, intentID string) ([]models.EvidencePackSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, mode, pack_status,
+		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
 		       merkle_root, ruleset_version, supersedes_pack_id, created_at
 		FROM evidence_packs
 		WHERE tenant_id=$1 AND intent_id=$2
@@ -194,11 +198,11 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 	}
 	defer rows.Close()
 
-	var result []models.EvidencePackSummary
+	result := make([]models.EvidencePackSummary, 0)
 	for rows.Next() {
 		var s models.EvidencePackSummary
-		var iid, cid, spid sql.NullString
-		if err := rows.Scan(&s.EvidencePackID, &s.TenantID, &iid, &cid,
+		var iid, cid, bid, spid sql.NullString
+		if err := rows.Scan(&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
 			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid, &s.CreatedAt); err != nil {
 			return nil, err
 		}
@@ -207,6 +211,47 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 		}
 		if cid.Valid {
 			s.ContractID = cid.String
+		}
+		if bid.Valid {
+			s.BatchID = bid.String
+		}
+		if spid.Valid {
+			s.SupersedesPackID = spid.String
+		}
+		result = append(result, s)
+	}
+	return result, nil
+}
+
+// ListByBatchID returns pack summaries for a given tenant + batch_id.
+func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchID string) ([]models.EvidencePackSummary, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
+		       merkle_root, ruleset_version, supersedes_pack_id, created_at
+		FROM evidence_packs
+		WHERE tenant_id=$1 AND batch_id=$2
+		ORDER BY created_at DESC`, tenantID, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]models.EvidencePackSummary, 0)
+	for rows.Next() {
+		var s models.EvidencePackSummary
+		var iid, cid, bid, spid sql.NullString
+		if err := rows.Scan(&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
+			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid, &s.CreatedAt); err != nil {
+			return nil, err
+		}
+		if iid.Valid {
+			s.IntentID = iid.String
+		}
+		if cid.Valid {
+			s.ContractID = cid.String
+		}
+		if bid.Valid {
+			s.BatchID = bid.String
 		}
 		if spid.Valid {
 			s.SupersedesPackID = spid.String

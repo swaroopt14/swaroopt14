@@ -693,14 +693,15 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     partial_recon_count         INT          NOT NULL DEFAULT 0,
     -- Attached to a settlement but with variance (under/over payment).
 
-    total_intended_amount_minor BIGINT       NOT NULL DEFAULT 0,
-    -- All money amounts stored as integers in MINOR units (paise, cents).
-    -- FINTECH RULE: Never use FLOAT for money. Always use integers.
+    total_intended_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0,
+    -- Exact decimal monetary amount in MINOR units (paise, cents).
+    -- NUMERIC(20,2): up to 18 integer digits + 2 decimal places.
+    -- FINTECH RULE: Never use FLOAT for money. Use NUMERIC for exact decimals.
 
-    total_confirmed_amount_minor BIGINT      NOT NULL DEFAULT 0,
+    total_confirmed_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0,
     -- Amount confirmed settled so far.
 
-    total_variance_minor        BIGINT       NOT NULL DEFAULT 0,
+    total_variance_minor        NUMERIC(20,2) NOT NULL DEFAULT 0,
     -- intended - confirmed. Positive = leakage. Negative = overpayment.
 
     batch_finality_status       TEXT         NOT NULL DEFAULT 'PROCESSING',

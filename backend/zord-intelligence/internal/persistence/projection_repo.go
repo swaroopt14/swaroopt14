@@ -1433,16 +1433,16 @@ func (r *ProjectionRepo) AtomicIncrementLeakageIntendedTotal(
 			 projection_family, entity_scope_type)
 		VALUES ($1, $2, $3, $4,
 			jsonb_build_object(
-				'total_amount_minor',             0::bigint,
-				'unmatched_amount_minor',         0::bigint,
-				'under_settlement_amount_minor',  0::bigint,
-				'orphan_amount_minor',            0::bigint,
-				'reversal_exposure_minor',        0::bigint,
+				'total_amount_minor',             0::numeric,
+				'unmatched_amount_minor',         0::numeric,
+				'under_settlement_amount_minor',  0::numeric,
+				'orphan_amount_minor',            0::numeric,
+				'reversal_exposure_minor',        0::numeric,
 				'unmatched_intent_count',         0,
 				'under_settlement_count',         0,
 				'orphan_settlement_count',        0,
 				'reversal_count',                 0,
-				'total_intended_amount_minor',    $5::bigint,
+				'total_intended_amount_minor',    $5::numeric,
 				'leakage_percentage',             0.0,
 				'breakdown_by_type',              '{}'::jsonb
 			),
@@ -1452,11 +1452,11 @@ func (r *ProjectionRepo) AtomicIncrementLeakageIntendedTotal(
 			value_json = jsonb_set(
 				projection_state.value_json,
 				'{total_intended_amount_minor}',
-				to_jsonb(COALESCE((projection_state.value_json->>'total_intended_amount_minor')::bigint, 0) + $5::bigint)
+				to_jsonb(COALESCE((projection_state.value_json->>'total_intended_amount_minor')::numeric, 0) + $5::numeric)
 			),
 			computed_at = now()
 	`
-	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, intendedMinor.IntPart()); err != nil {
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, intendedMinor.String()); err != nil {
 		return fmt.Errorf("projection_repo.AtomicIncrementLeakageIntendedTotal tenant=%s: %w", tenantID, err)
 	}
 
@@ -1505,18 +1505,18 @@ func (r *ProjectionRepo) AtomicRecordLeakage(
 				 projection_family, entity_scope_type)
 			VALUES ($1, $2, $3, $4,
 				jsonb_build_object(
-					'total_amount_minor',             $5::bigint,
-					'unmatched_amount_minor',         $5::bigint,
-					'under_settlement_amount_minor',  0::bigint,
-					'orphan_amount_minor',            0::bigint,
-					'reversal_exposure_minor',        0::bigint,
+					'total_amount_minor',             $5::numeric,
+					'unmatched_amount_minor',         $5::numeric,
+					'under_settlement_amount_minor',  0::numeric,
+					'orphan_amount_minor',            0::numeric,
+					'reversal_exposure_minor',        0::numeric,
 					'unmatched_intent_count',         1,
 					'under_settlement_count',         0,
 					'orphan_settlement_count',        0,
 					'reversal_count',                 0,
-					'total_intended_amount_minor',    0::bigint,
+					'total_intended_amount_minor',    0::numeric,
 					'leakage_percentage',             1.0,
-					'breakdown_by_type',              jsonb_build_object('UNMATCHED_INTENT', $5::bigint)
+					'breakdown_by_type',              jsonb_build_object('UNMATCHED_INTENT', $5::numeric)
 				),
 				now(), 1, 'LEAKAGE', 'TENANT')
 			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
@@ -1525,14 +1525,14 @@ func (r *ProjectionRepo) AtomicRecordLeakage(
 					jsonb_set(
 						projection_state.value_json,
 						'{unmatched_amount_minor}',
-						to_jsonb(COALESCE((projection_state.value_json->>'unmatched_amount_minor')::bigint, 0) + $5::bigint)
+						to_jsonb(COALESCE((projection_state.value_json->>'unmatched_amount_minor')::numeric, 0) + $5::numeric)
 					),
 					'{unmatched_intent_count}',
 					to_jsonb(COALESCE((projection_state.value_json->>'unmatched_intent_count')::int, 0) + 1)
 				),
 				computed_at = now()
 		`
-		args = []any{tenantID, key, windowStart, windowEnd, intendedMinor.IntPart()}
+		args = []any{tenantID, key, windowStart, windowEnd, intendedMinor.String()}
 
 	case "ORPHAN_SETTLEMENT":
 		upsertSQL = `
@@ -1542,18 +1542,18 @@ func (r *ProjectionRepo) AtomicRecordLeakage(
 				 projection_family, entity_scope_type)
 			VALUES ($1, $2, $3, $4,
 				jsonb_build_object(
-					'total_amount_minor',             $5::bigint,
-					'unmatched_amount_minor',         0::bigint,
-					'under_settlement_amount_minor',  0::bigint,
-					'orphan_amount_minor',            $5::bigint,
-					'reversal_exposure_minor',        0::bigint,
+					'total_amount_minor',             $5::numeric,
+					'unmatched_amount_minor',         0::numeric,
+					'under_settlement_amount_minor',  0::numeric,
+					'orphan_amount_minor',            $5::numeric,
+					'reversal_exposure_minor',        0::numeric,
 					'unmatched_intent_count',         0,
 					'under_settlement_count',         0,
 					'orphan_settlement_count',        1,
 					'reversal_count',                 0,
-					'total_intended_amount_minor',    0::bigint,
+					'total_intended_amount_minor',    0::numeric,
 					'leakage_percentage',             0.0,
-					'breakdown_by_type',              jsonb_build_object('ORPHAN_SETTLEMENT', $5::bigint)
+					'breakdown_by_type',              jsonb_build_object('ORPHAN_SETTLEMENT', $5::numeric)
 				),
 				now(), 1, 'LEAKAGE', 'TENANT')
 			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
@@ -1562,14 +1562,14 @@ func (r *ProjectionRepo) AtomicRecordLeakage(
 					jsonb_set(
 						projection_state.value_json,
 						'{orphan_amount_minor}',
-						to_jsonb(COALESCE((projection_state.value_json->>'orphan_amount_minor')::bigint, 0) + $5::bigint)
+						to_jsonb(COALESCE((projection_state.value_json->>'orphan_amount_minor')::numeric, 0) + $5::numeric)
 					),
 					'{orphan_settlement_count}',
 					to_jsonb(COALESCE((projection_state.value_json->>'orphan_settlement_count')::int, 0) + 1)
 				),
 				computed_at = now()
 		`
-		args = []any{tenantID, key, windowStart, windowEnd, orphanMinor.IntPart()}
+		args = []any{tenantID, key, windowStart, windowEnd, orphanMinor.String()}
 
 	default:
 		return fmt.Errorf("projection_repo.AtomicRecordLeakage: unknown leakage_type=%s", leakageType)
@@ -1621,16 +1621,16 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 				 projection_family, entity_scope_type)
 			VALUES ($1, $2, $3, $4,
 				jsonb_build_object(
-					'total_amount_minor',             0::bigint,
-					'unmatched_amount_minor',         0::bigint,
-					'under_settlement_amount_minor',  0::bigint,
-					'orphan_amount_minor',            0::bigint,
-					'reversal_exposure_minor',        0::bigint,
+					'total_amount_minor',             0::numeric,
+					'unmatched_amount_minor',         0::numeric,
+					'under_settlement_amount_minor',  0::numeric,
+					'orphan_amount_minor',            0::numeric,
+					'reversal_exposure_minor',        0::numeric,
 					'unmatched_intent_count',         0,
 					'under_settlement_count',         0,
 					'orphan_settlement_count',        0,
 					'reversal_count',                 0,
-					'total_intended_amount_minor',    0::bigint,
+					'total_intended_amount_minor',    0::numeric,
 					'leakage_percentage',             0.0,
 					'breakdown_by_type',              '{}'::jsonb
 				),
@@ -1657,18 +1657,18 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 				 projection_family, entity_scope_type)
 			VALUES ($1, $2, $3, $4,
 				jsonb_build_object(
-					'total_amount_minor',             $5::bigint,
-					'unmatched_amount_minor',         0::bigint,
-					'under_settlement_amount_minor',  0::bigint,
-					'orphan_amount_minor',            0::bigint,
-					'reversal_exposure_minor',        $5::bigint,
+					'total_amount_minor',             $5::numeric,
+					'unmatched_amount_minor',         0::numeric,
+					'under_settlement_amount_minor',  0::numeric,
+					'orphan_amount_minor',            0::numeric,
+					'reversal_exposure_minor',        $5::numeric,
 					'unmatched_intent_count',         0,
 					'under_settlement_count',         0,
 					'orphan_settlement_count',        0,
 					'reversal_count',                 1,
-					'total_intended_amount_minor',    0::bigint,
+					'total_intended_amount_minor',    0::numeric,
 					'leakage_percentage',             0.0,
-					'breakdown_by_type',              jsonb_build_object($6::text, $5::bigint)
+					'breakdown_by_type',              jsonb_build_object($6::text, $5::numeric)
 				),
 				now(), 1, 'LEAKAGE', 'TENANT')
 			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
@@ -1677,7 +1677,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 					jsonb_set(
 						projection_state.value_json,
 						'{reversal_exposure_minor}',
-						to_jsonb(COALESCE((projection_state.value_json->>'reversal_exposure_minor')::bigint, 0) + $5::bigint)
+						to_jsonb(COALESCE((projection_state.value_json->>'reversal_exposure_minor')::numeric, 0) + $5::numeric)
 					),
 					'{reversal_count}',
 					to_jsonb(COALESCE((projection_state.value_json->>'reversal_count')::int, 0) + 1)
@@ -1692,18 +1692,18 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 				 projection_family, entity_scope_type)
 			VALUES ($1, $2, $3, $4,
 				jsonb_build_object(
-					'total_amount_minor',             $5::bigint,
-					'unmatched_amount_minor',         0::bigint,
-					'under_settlement_amount_minor',  $5::bigint,
-					'orphan_amount_minor',            0::bigint,
-					'reversal_exposure_minor',        0::bigint,
+					'total_amount_minor',             $5::numeric,
+					'unmatched_amount_minor',         0::numeric,
+					'under_settlement_amount_minor',  $5::numeric,
+					'orphan_amount_minor',            0::numeric,
+					'reversal_exposure_minor',        0::numeric,
 					'unmatched_intent_count',         0,
 					'under_settlement_count',         1,
 					'orphan_settlement_count',        0,
 					'reversal_count',                 0,
-					'total_intended_amount_minor',    0::bigint,
+					'total_intended_amount_minor',    0::numeric,
 					'leakage_percentage',             0.0,
-					'breakdown_by_type',              jsonb_build_object($6::text, $5::bigint)
+					'breakdown_by_type',              jsonb_build_object($6::text, $5::numeric)
 				),
 				now(), 1, 'LEAKAGE', 'TENANT')
 			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
@@ -1712,7 +1712,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 					jsonb_set(
 						projection_state.value_json,
 						'{under_settlement_amount_minor}',
-						to_jsonb(COALESCE((projection_state.value_json->>'under_settlement_amount_minor')::bigint, 0) + $5::bigint)
+						to_jsonb(COALESCE((projection_state.value_json->>'under_settlement_amount_minor')::numeric, 0) + $5::numeric)
 					),
 					'{under_settlement_count}',
 					to_jsonb(COALESCE((projection_state.value_json->>'under_settlement_count')::int, 0) + 1)
@@ -1723,7 +1723,7 @@ func (r *ProjectionRepo) AtomicRecordVariance(
 
 	if _, err := r.pool.Exec(ctx, upsertSQL,
 		tenantID, key, windowStart, windowEnd,
-		varianceMinor.IntPart(), varianceType,
+		varianceMinor.String(), varianceType,
 	); err != nil {
 		return fmt.Errorf("projection_repo.AtomicRecordVariance type=%s tenant=%s: %w",
 			varianceType, tenantID, err)
@@ -1755,10 +1755,10 @@ func (r *ProjectionRepo) recomputeLeakageTotals(
 				value_json,
 				'{total_amount_minor}',
 				to_jsonb(
-					COALESCE((value_json->>'unmatched_amount_minor')::bigint, 0) +
-					COALESCE((value_json->>'under_settlement_amount_minor')::bigint, 0) +
-					COALESCE((value_json->>'orphan_amount_minor')::bigint, 0) +
-					COALESCE((value_json->>'reversal_exposure_minor')::bigint, 0)
+					COALESCE((value_json->>'unmatched_amount_minor')::numeric, 0) +
+					COALESCE((value_json->>'under_settlement_amount_minor')::numeric, 0) +
+					COALESCE((value_json->>'orphan_amount_minor')::numeric, 0) +
+					COALESCE((value_json->>'reversal_exposure_minor')::numeric, 0)
 				)
 			),
 			'{leakage_percentage}',
@@ -1860,9 +1860,9 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 		VALUES ($1, $2, $3, $4,
 			jsonb_build_object(
 				'ambiguous_intent_count',       $5::int,
-				'ambiguous_amount_minor',       $6::bigint,
+				'ambiguous_amount_minor',       $6::numeric,
 				'unresolved_settlement_count',  $7::int,
-				'value_at_risk_minor',          $8::bigint,
+				'value_at_risk_minor',          $8::numeric,
 				'avg_attachment_confidence',    $9::float8,
 				'confidence_sum',               $9::float8,
 				'confidence_count',             1,
@@ -1887,13 +1887,13 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 											to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_intent_count')::int, 0) + $5::int)
 										),
 										'{ambiguous_amount_minor}',
-										to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_amount_minor')::bigint, 0) + $6::bigint)
+										to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_amount_minor')::numeric, 0) + $6::numeric)
 									),
 									'{unresolved_settlement_count}',
 									to_jsonb(COALESCE((projection_state.value_json->>'unresolved_settlement_count')::int, 0) + $7::int)
 								),
 								'{value_at_risk_minor}',
-								to_jsonb(COALESCE((projection_state.value_json->>'value_at_risk_minor')::bigint, 0) + $8::bigint)
+								to_jsonb(COALESCE((projection_state.value_json->>'value_at_risk_minor')::numeric, 0) + $8::numeric)
 							),
 							'{confidence_sum}',
 							to_jsonb(COALESCE((projection_state.value_json->>'confidence_sum')::float8, 0.0) + $9::float8)
@@ -1911,10 +1911,10 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	`
 	if _, err := r.pool.Exec(ctx, upsertSQL,
 		tenantID, key, windowStart, windowEnd,
-		ambiguousIncr,             // $5
-		ambiguousAmount.IntPart(), // $6
-		unresolvedIncr,            // $7
-		atRiskAmount.IntPart(),    // $8
+		ambiguousIncr,            // $5
+		ambiguousAmount.String(), // $6
+		unresolvedIncr,           // $7
+		atRiskAmount.String(),    // $8
 		confidenceScore,           // $9
 		missingCarrierIncr,        // $10
 	); err != nil {
@@ -2375,9 +2375,9 @@ func (r *ProjectionRepo) AtomicUpdateBatchHealth(
 				'pending_count',                  $8::int,
 				'reversed_count',                 $9::int,
 				'partial_recon_count',            $10::int,
-				'total_intended_amount_minor',    $11::bigint,
-				'total_confirmed_amount_minor',   $12::bigint,
-				'total_variance_minor',           $13::bigint,
+				'total_intended_amount_minor',    $11::numeric,
+				'total_confirmed_amount_minor',   $12::numeric,
+				'total_variance_minor',           $13::numeric,
 				'ambiguity_score',                $14::float8,
 				'finality_status',                $15::text,
 				'updated_at',                     now()
@@ -2392,9 +2392,9 @@ func (r *ProjectionRepo) AtomicUpdateBatchHealth(
 				'pending_count',                  $8::int,
 				'reversed_count',                 $9::int,
 				'partial_recon_count',            $10::int,
-				'total_intended_amount_minor',    $11::bigint,
-				'total_confirmed_amount_minor',   $12::bigint,
-				'total_variance_minor',           $13::bigint,
+				'total_intended_amount_minor',    $11::numeric,
+				'total_confirmed_amount_minor',   $12::numeric,
+				'total_variance_minor',           $13::numeric,
 				'ambiguity_score',                $14::float8,
 				'finality_status',                $15::text,
 				'updated_at',                     now()
@@ -2404,15 +2404,15 @@ func (r *ProjectionRepo) AtomicUpdateBatchHealth(
 	`
 	if _, err := r.pool.Exec(ctx, upsertSQL,
 		tenantID, key, windowStart, windowEnd,
-		totalCount,               // $5
-		successCount,             // $6
-		failedCount,              // $7
-		pendingCount,             // $8
-		reversedCount,            // $9
-		partialReconCount,        // $10
-		intendedMinor.IntPart(),  // $11
-		confirmedMinor.IntPart(), // $12
-		varianceMinor.IntPart(),  // $13
+		totalCount,              // $5
+		successCount,            // $6
+		failedCount,             // $7
+		pendingCount,            // $8
+		reversedCount,           // $9
+		partialReconCount,       // $10
+		intendedMinor.String(),  // $11
+		confirmedMinor.String(), // $12
+		varianceMinor.String(),  // $13
 		ambiguityScore,           // $14
 		finalityStatus,           // $15
 		batchID,                  // $16 — entity_scope_ref

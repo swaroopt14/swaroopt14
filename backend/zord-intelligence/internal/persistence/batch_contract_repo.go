@@ -111,9 +111,9 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 		bc.PendingCount,
 		bc.ReversedCount,
 		bc.PartialReconCount,
-		bc.TotalIntendedAmountMinor.IntPart(),
-		bc.TotalConfirmedAmountMinor.IntPart(),
-		bc.TotalVarianceMinor.IntPart(),
+		bc.TotalIntendedAmountMinor.String(),
+		bc.TotalConfirmedAmountMinor.String(),
+		bc.TotalVarianceMinor.String(),
 		bc.BatchFinalityStatus,
 		bc.AmbiguityScore, // nullable
 	); err != nil {
@@ -163,7 +163,7 @@ func (r *BatchContractRepo) GetByID(
 		SELECT batch_id, tenant_id, source_reference,
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
-		       total_intended_amount_minor, total_confirmed_amount_minor, total_variance_minor,
+		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
 		       last_updated_at, created_at
 		FROM   batch_contracts
@@ -195,7 +195,7 @@ func (r *BatchContractRepo) ListByTenant(
 		SELECT batch_id, tenant_id, source_reference,
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
-		       total_intended_amount_minor, total_confirmed_amount_minor, total_variance_minor,
+		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
 		       last_updated_at, created_at
 		FROM   batch_contracts
@@ -235,7 +235,7 @@ func (r *BatchContractRepo) ListRequiringReview(
 		SELECT batch_id, tenant_id, source_reference,
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
-		       total_intended_amount_minor, total_confirmed_amount_minor, total_variance_minor,
+		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
 		       last_updated_at, created_at
 		FROM   batch_contracts
@@ -280,7 +280,7 @@ func (r *BatchContractRepo) ListByFinalityStatus(
 		SELECT batch_id, tenant_id, source_reference,
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
-		       total_intended_amount_minor, total_confirmed_amount_minor, total_variance_minor,
+		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
 		       last_updated_at, created_at
 		FROM   batch_contracts
@@ -309,7 +309,7 @@ func (r *BatchContractRepo) ListByFinalityStatus(
 // scanBatchContract scans one row from a QueryRow call.
 func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	var bc BatchContract
-	var intended, confirmed, variance int64
+	var intended, confirmed, variance string
 	err := row.Scan(
 		&bc.BatchID,
 		&bc.TenantID,
@@ -332,16 +332,26 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	if err != nil {
 		return nil, err
 	}
-	bc.TotalIntendedAmountMinor = decimal.NewFromInt(intended)
-	bc.TotalConfirmedAmountMinor = decimal.NewFromInt(confirmed)
-	bc.TotalVarianceMinor = decimal.NewFromInt(variance)
+	var parseErr error
+	bc.TotalIntendedAmountMinor, parseErr = decimal.NewFromString(intended)
+	if parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid total_intended_amount_minor %q: %w", intended, parseErr)
+	}
+	bc.TotalConfirmedAmountMinor, parseErr = decimal.NewFromString(confirmed)
+	if parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid total_confirmed_amount_minor %q: %w", confirmed, parseErr)
+	}
+	bc.TotalVarianceMinor, parseErr = decimal.NewFromString(variance)
+	if parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid total_variance_minor %q: %w", variance, parseErr)
+	}
 	return &bc, nil
 }
 
 // scanBatchContractFromRows scans one row from a Query (rows) call.
 func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	var bc BatchContract
-	var intended, confirmed, variance int64
+	var intended, confirmed, variance string
 	err := rows.Scan(
 		&bc.BatchID,
 		&bc.TenantID,
@@ -364,8 +374,18 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	if err != nil {
 		return nil, err
 	}
-	bc.TotalIntendedAmountMinor = decimal.NewFromInt(intended)
-	bc.TotalConfirmedAmountMinor = decimal.NewFromInt(confirmed)
-	bc.TotalVarianceMinor = decimal.NewFromInt(variance)
+	var parseErr error
+	bc.TotalIntendedAmountMinor, parseErr = decimal.NewFromString(intended)
+	if parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid total_intended_amount_minor %q: %w", intended, parseErr)
+	}
+	bc.TotalConfirmedAmountMinor, parseErr = decimal.NewFromString(confirmed)
+	if parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid total_confirmed_amount_minor %q: %w", confirmed, parseErr)
+	}
+	bc.TotalVarianceMinor, parseErr = decimal.NewFromString(variance)
+	if parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid total_variance_minor %q: %w", variance, parseErr)
+	}
 	return &bc, nil
 }

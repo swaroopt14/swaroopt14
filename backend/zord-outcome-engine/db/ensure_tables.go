@@ -58,6 +58,9 @@ func EnsureTables(ctx context.Context) error {
 			ON canonical_intents(client_payout_ref) WHERE client_payout_ref IS NOT NULL;`,
 		`CREATE INDEX IF NOT EXISTS canonical_intents_amount_currency_idx
 			ON canonical_intents(tenant_id, amount, currency_code);`,
+		// Index to support the reverse scan master intent list query.
+		`CREATE INDEX IF NOT EXISTS canonical_intents_client_batch_ref_idx
+			ON canonical_intents(tenant_id, client_batch_ref) WHERE client_batch_ref IS NOT NULL;`,
 		`CREATE TABLE IF NOT EXISTS dispatch_index(
 	dispatch_id UUID PRIMARY KEY,
 	contract_id UUID NOT NULL,
@@ -455,6 +458,17 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		// ── variance_records ─────────────────────────────────────────────────
 		// Intent-vs-observation difference record. Created for every attached pair.
 		// Value-date mismatch and cross-period are first-class per the spec.
+		//
+		// Changes from PDF review (sections 8 & 9):
+		//   • variance_type      — classifies the nature of the variance
+		//                          (NO_VARIANCE | UNDER_SETTLEMENT | OVER_SETTLEMENT |
+		//                           FEE_DEDUCTION | TAX_TDS_DEDUCTION | ROUNDING |
+		//                           STATUS_MISMATCH | VALUE_DATE_MISMATCH | CROSS_PERIOD)
+		//   • is_whitelisted     — TRUE when variance is expected/approved (e.g. PSP fees,
+		//                          TDS, commissions). Service 7 must not count whitelisted
+		//                          variance as leakage.
+		//   • whitelist_policy_id / whitelist_policy_version — the policy that approved it.
+		//   • whitelist_reason_code / whitelist_explanation   — human-readable audit trail.
 		`CREATE TABLE IF NOT EXISTS variance_records (
 			variance_record_id          UUID PRIMARY KEY,
 			tenant_id                   UUID NOT NULL,
@@ -479,9 +493,22 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			bank_ref_missing_flag       BOOLEAN NOT NULL DEFAULT FALSE,
 			evidence_gap_flag           BOOLEAN NOT NULL DEFAULT FALSE,
 
+			-- variance classification (PDF review section 9)
+			variance_type               TEXT NOT NULL DEFAULT 'NO_VARIANCE',
+
 			-- severity
 			variance_severity           TEXT NOT NULL,
 			variance_reason_codes_json  JSONB,
+
+			-- whitelist fields (PDF review sections 8 & 9)
+			-- A separate whitelist policy service populates these in a subsequent pass.
+			-- Default: not whitelisted.
+			is_whitelisted              BOOLEAN NOT NULL DEFAULT FALSE,
+			whitelist_policy_id         TEXT,
+			whitelist_policy_version    TEXT,
+			whitelist_reason_code       TEXT,
+			whitelist_explanation       TEXT,
+
 			created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
 		`CREATE INDEX IF NOT EXISTS variance_records_decision_idx
@@ -490,6 +517,9 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ON variance_records(intent_id);`,
 		`CREATE INDEX IF NOT EXISTS variance_records_severity_idx
 			ON variance_records(variance_severity);`,
+		// Allows Service 7 to quickly query all non-whitelisted variances.
+		`CREATE INDEX IF NOT EXISTS variance_records_whitelisted_idx
+			ON variance_records(is_whitelisted);`,
 
 		// ── batch_attachment_summaries ───────────────────────────────────────
 		// Derived batch-level view: one row per batch per attachment job.
@@ -603,6 +633,47 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ON outcome_outbox(status, next_attempt_at);`,
 		`CREATE INDEX IF NOT EXISTS outcome_outbox_tenant_idx
 			ON outcome_outbox(tenant_id);`,
+
+		// ── unresolved_intent_records ─────────────────────────────────────────
+		// Reverse scan output (PDF review section 10).
+		//
+		// Records every canonical intent for which no acceptable settlement
+		// observation was found within the expected attachment window after a
+		// SETTLEMENT_BATCH attachment job completes.
+		//
+		// This table is the only mechanism by which Zord can prove that every
+		// dollar intended to be paid was accounted for (or explicitly flagged
+		// as missing).  It powers:
+		//   • leakage intelligence in Service 7
+		//   • pending-beyond-SLA alerts
+		//   • unmatched intent RCA
+		//   • replay / backfill action triggers
+		//
+		// reason_code values:
+		//   NO_SETTLEMENT_OBSERVATION_FOUND   — intent never appeared as a candidate
+		//   ONLY_AMBIGUOUS_CANDIDATES_FOUND   — intent appeared but only in ambiguous decisions
+		//   ONLY_CONFLICTED_CANDIDATES_FOUND  — intent appeared but only in conflicted decisions
+		//   SOURCE_FILE_NOT_RECEIVED          — reserved for future use by scheduler
+		`CREATE TABLE IF NOT EXISTS unresolved_intent_records (
+			unresolved_id        UUID PRIMARY KEY,
+			tenant_id            UUID NOT NULL,
+			attachment_job_id    UUID NOT NULL REFERENCES attachment_jobs(attachment_job_id),
+			intent_id            UUID NOT NULL,
+			batch_id             TEXT,
+			expected_window_end  TIMESTAMPTZ,
+			reason_code          TEXT NOT NULL,
+			amount               NUMERIC(20,2) NOT NULL,
+			currency_code        TEXT NOT NULL,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS unresolved_intent_records_tenant_idx
+			ON unresolved_intent_records(tenant_id);`,
+		`CREATE INDEX IF NOT EXISTS unresolved_intent_records_job_idx
+			ON unresolved_intent_records(attachment_job_id);`,
+		`CREATE INDEX IF NOT EXISTS unresolved_intent_records_intent_idx
+			ON unresolved_intent_records(intent_id);`,
+		`CREATE INDEX IF NOT EXISTS unresolved_intent_records_batch_idx
+			ON unresolved_intent_records(batch_id) WHERE batch_id IS NOT NULL;`,
 	}
 
 	for _, s := range stmts {

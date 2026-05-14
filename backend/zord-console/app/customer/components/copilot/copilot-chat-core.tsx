@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useAuth } from '@/hooks'
+import { useAuth } from '@/app/hooks'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 
 type TenantReviewKpiTone = 'good' | 'warn' | 'neutral'

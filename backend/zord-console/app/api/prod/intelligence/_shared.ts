@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BACKEND_SERVICES } from '@/config/api.endpoints'
+import {
+  applyRefreshedSessionCookies,
+  requireSessionTenantForProdProxy,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 const JSON_NO_STORE = { 'cache-control': 'no-store' } as const
 
@@ -30,19 +34,16 @@ function emptyBatchesResponse(tenantId: string, request: NextRequest) {
 
 /**
  * Shared forwarder for `/api/prod/intelligence/*` Next routes → zord-intelligence (:8089).
- * Every intelligence endpoint requires `tenant_id`; we validate once here and pass through
- * the rest of the query string (e.g. `batch_id`, `status`, `limit`) unchanged.
- *
- * When zord-intelligence is down or returns 404 for dashboard KPIs, respond with
- * `data_available: false` (200) so the console does not spam 502/404 and surfaces
- * show empty states instead of broken fetches.
+ * Tenant is taken from the signed-in session; client-supplied tenant_id is ignored.
  */
 export async function forwardIntelligence(request: NextRequest, path: string): Promise<NextResponse> {
-  const params = request.nextUrl.searchParams
-  const tenantId = params.get('tenant_id')?.trim() || ''
-  if (!tenantId) {
-    return NextResponse.json({ error: 'tenant_id is required' }, { status: 400 })
-  }
+  const gate = await requireSessionTenantForProdProxy(request)
+  if (!gate.ok) return gate.response
+  const tenantId = gate.tenantId
+
+  const params = new URLSearchParams(request.nextUrl.searchParams)
+  params.delete('tenant_id')
+  params.set('tenant_id', tenantId)
 
   const url = `${BACKEND_SERVICES.INTELLIGENCE.BASE_URL}${path}?${params.toString()}`
 
@@ -63,35 +64,47 @@ export async function forwardIntelligence(request: NextRequest, path: string): P
           upstream.status === 404
             ? 'Intelligence KPIs not available (service or route missing).'
             : `Intelligence upstream returned HTTP ${upstream.status}.`
-        return emptyKpiResponse(reason)
+        const res = emptyKpiResponse(reason)
+        applyRefreshedSessionCookies(res, gate.refreshedPayload)
+        return res
       }
       if (isBatchesListPath(path)) {
-        return emptyBatchesResponse(tenantId, request)
+        const res = emptyBatchesResponse(tenantId, request)
+        applyRefreshedSessionCookies(res, gate.refreshedPayload)
+        return res
       }
     }
 
-    return new NextResponse(text, {
+    const res = new NextResponse(text, {
       status: upstream.status,
       headers: {
         'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
         'cache-control': 'no-store',
       },
     })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   } catch (error) {
     if (isKpiDashboardPath(path)) {
-      return emptyKpiResponse(
+      const res = emptyKpiResponse(
         `Intelligence service unreachable (${error instanceof Error ? error.message : 'unknown'}).`,
       )
+      applyRefreshedSessionCookies(res, gate.refreshedPayload)
+      return res
     }
     if (isBatchesListPath(path)) {
-      return emptyBatchesResponse(tenantId, request)
+      const res = emptyBatchesResponse(tenantId, request)
+      applyRefreshedSessionCookies(res, gate.refreshedPayload)
+      return res
     }
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         error: 'intelligence service unreachable',
         details: error instanceof Error ? error.message : 'unknown',
       },
       { status: 502 },
     )
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 }

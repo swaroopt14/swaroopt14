@@ -17,5 +17,5 @@ export type ApiBatchListResponse = {
 
 export async function getProdBatches(tenantId: string): Promise<ApiBatchListResponse | null> {
   if (!tenantId.trim()) return null
-  return fetchProdJsonGet<ApiBatchListResponse>(`/api/prod/intents/batches?tenant_id=${encodeURIComponent(tenantId.trim())}`)
+  return fetchProdJsonGet<ApiBatchListResponse>('/api/prod/intents/batches')
 }

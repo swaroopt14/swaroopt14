@@ -23,7 +23,7 @@ export type PostIntentBulkIngestParams = {
    * Otherwise raw pasted key or full `Bearer …` / `ApiKey …` / `API-Key …` (normalized to `Bearer …` for zord-edge).
    */
   apiKeyRaw?: string
-  /** e.g. CSV, XLSX — forwarded as X-Zord-Source-Type */
+  /** e.g. CSV, FILE_UPLOAD — must match zord-edge TransportValidation allowlist */
   sourceType: string
   /** BANK / NBFC / MERCHANT / VENDOR / GATEWAY — forwarded as X-Zord-Tenant-Type (required upstream) */
   tenantType: string

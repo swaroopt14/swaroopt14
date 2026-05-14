@@ -1,28 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchIntents } from '@/services/backend/intents'
+import {
+  applyRefreshedSessionCookies,
+  requireSessionTenantForProdProxy,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 // Force dynamic rendering for API routes
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+  const gate = await requireSessionTenantForProdProxy(request)
+  if (!gate.ok) return gate.response
+  const tenantId = gate.tenantId
+
   try {
     const searchParams = request.nextUrl.searchParams
     const page = parseInt(searchParams.get('page') || '1', 10)
     const pageSize = parseInt(searchParams.get('page_size') || '50', 10)
     const status = searchParams.get('status') || undefined
-    const tenantId = searchParams.get('tenant_id') || undefined
     const batchId = searchParams.get('batch_id') || undefined
-    // Defensive gate: never proxy without tenant_id. Intent-engine already
-    // requires it; blocking here returns a faster error and prevents any
-    // accidental cross-tenant leak if the upstream contract loosens.
-    if (!tenantId) {
-      return NextResponse.json(
-        { items: [], pagination: { page: 1, page_size: 0, total: 0 }, error: 'tenant_id is required' },
-        { status: 400 },
-      )
-    }
 
-    // Fetch from real backend (zord-intent-engine)
     const response = await fetchIntents({
       page,
       page_size: pageSize,
@@ -31,11 +28,10 @@ export async function GET(request: NextRequest) {
       batch_id: batchId,
     })
 
-    // Transform backend response to match frontend types (defensive: never assume `items` is non-null)
     const items = (response.items ?? []).map((intent) => ({
       intent_id: intent.intent_id,
       intent_type: intent.intent_type,
-      source: intent.intent_type || 'API', // Map intent_type or default
+      source: intent.intent_type || 'API',
       amount: intent.amount,
       currency: intent.currency,
       instrument: intent.beneficiary_type || 'BANK',
@@ -47,13 +43,14 @@ export async function GET(request: NextRequest) {
       batch_id: intent.batch_id,
     }))
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       items,
       pagination: response.pagination,
     })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   } catch (error) {
-    // Return empty response on error (no mock data)
-    return NextResponse.json({
+    const res = NextResponse.json({
       items: [],
       pagination: {
         page: 1,
@@ -62,5 +59,7 @@ export async function GET(request: NextRequest) {
       },
       error: error instanceof Error ? error.message : 'Failed to fetch intents',
     })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 }

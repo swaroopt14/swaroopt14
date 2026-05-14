@@ -12,27 +12,29 @@ import type {
 
 const INTEL_BASE = '/api/prod/intelligence'
 
-function withTenant(path: string, tenantId: string, extraQuery: Record<string, string> = {}) {
-  const params = new URLSearchParams({ tenant_id: tenantId.trim() })
+/** BFF injects tenant from session; client must not send tenant_id. */
+function intelQueryPath(path: string, extraQuery: Record<string, string> = {}) {
+  const params = new URLSearchParams()
   for (const [k, v] of Object.entries(extraQuery)) {
     if (v) params.set(k, v)
   }
-  return `${path}?${params.toString()}`
+  const qs = params.toString()
+  return qs ? `${path}?${qs}` : path
 }
 
 export async function getLeakageKpis(tenantId: string): Promise<LeakageKpiResponse | null> {
   if (!tenantId.trim()) return null
-  return fetchProdJsonGet<LeakageKpiResponse>(withTenant(`${INTEL_BASE}/leakage`, tenantId))
+  return fetchProdJsonGet<LeakageKpiResponse>(intelQueryPath(`${INTEL_BASE}/leakage`))
 }
 
 export async function getAmbiguityKpis(tenantId: string): Promise<AmbiguityKpiResponse | null> {
   if (!tenantId.trim()) return null
-  return fetchProdJsonGet<AmbiguityKpiResponse>(withTenant(`${INTEL_BASE}/ambiguity`, tenantId))
+  return fetchProdJsonGet<AmbiguityKpiResponse>(intelQueryPath(`${INTEL_BASE}/ambiguity`))
 }
 
 export async function getDefensibilityKpis(tenantId: string): Promise<DefensibilityKpiResponse | null> {
   if (!tenantId.trim()) return null
-  return fetchProdJsonGet<DefensibilityKpiResponse>(withTenant(`${INTEL_BASE}/defensibility`, tenantId))
+  return fetchProdJsonGet<DefensibilityKpiResponse>(intelQueryPath(`${INTEL_BASE}/defensibility`))
 }
 
 export async function getPatternsKpis(
@@ -41,8 +43,8 @@ export async function getPatternsKpis(
 ): Promise<PatternsKpiResponse | null> {
   if (!tenantId.trim()) return null
   const path = batchId
-    ? withTenant(`${INTEL_BASE}/patterns`, tenantId, { batch_id: batchId })
-    : withTenant(`${INTEL_BASE}/patterns`, tenantId)
+    ? intelQueryPath(`${INTEL_BASE}/patterns`, { batch_id: batchId })
+    : intelQueryPath(`${INTEL_BASE}/patterns`)
   return fetchProdJsonGet<PatternsKpiResponse>(path)
 }
 
@@ -50,9 +52,7 @@ export async function getRecommendationsKpis(
   tenantId: string,
 ): Promise<RecommendationsKpiResponse | null> {
   if (!tenantId.trim()) return null
-  return fetchProdJsonGet<RecommendationsKpiResponse>(
-    withTenant(`${INTEL_BASE}/recommendations`, tenantId),
-  )
+  return fetchProdJsonGet<RecommendationsKpiResponse>(intelQueryPath(`${INTEL_BASE}/recommendations`))
 }
 
 export type BatchesListOptions = {
@@ -68,7 +68,7 @@ export async function getIntelligenceBatches(
   const extra: Record<string, string> = {}
   if (opts.status) extra.status = opts.status
   if (opts.limit) extra.limit = String(opts.limit)
-  return fetchProdJsonGet<BatchesListResponse>(withTenant(`${INTEL_BASE}/batches`, tenantId, extra))
+  return fetchProdJsonGet<BatchesListResponse>(intelQueryPath(`${INTEL_BASE}/batches`, extra))
 }
 
 export async function getIntelligenceBatchDetail(
@@ -77,6 +77,6 @@ export async function getIntelligenceBatchDetail(
 ): Promise<BatchDetailResponse | null> {
   if (!tenantId.trim() || !batchId.trim()) return null
   return fetchProdJsonGet<BatchDetailResponse>(
-    withTenant(`${INTEL_BASE}/batches/${encodeURIComponent(batchId.trim())}`, tenantId),
+    intelQueryPath(`${INTEL_BASE}/batches/${encodeURIComponent(batchId.trim())}`),
   )
 }

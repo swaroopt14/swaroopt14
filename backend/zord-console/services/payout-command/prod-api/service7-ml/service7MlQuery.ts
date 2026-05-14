@@ -7,7 +7,6 @@ export function buildService7KpiQuery(query: Service7KpiQuery = {}): string {
   if (query.from) p.set('from', query.from)
   if (query.to) p.set('to', query.to)
   if (query.batchId) p.set('batch_id', query.batchId)
-  if (query.tenantId) p.set('tenant_id', query.tenantId)
   return p.toString()
 }
 

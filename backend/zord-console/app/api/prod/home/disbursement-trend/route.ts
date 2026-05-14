@@ -5,6 +5,10 @@ import type {
   DisbursementTrendRange,
   DisbursementTrendResponse,
 } from '@/services/payout-command/prod-api/disbursementTrendTypes'
+import {
+  applyRefreshedSessionCookies,
+  requireSessionTenantForProdProxy,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,17 +16,16 @@ const RANGES: DisbursementTrendRange[] = ['week', 'month', 'quarter', 'year']
 
 /**
  * Temporary aggregation for the home trend chart: pulls paginated intents from
- * **zord-intent-engine** and buckets by `created_at`. Replace with a dedicated
- * analytics endpoint when the backend team ships it (see product note in response).
+ * **zord-intent-engine** and buckets by `created_at`. Tenant is session-scoped.
  */
 export async function GET(request: NextRequest) {
-  const tenantId = request.nextUrl.searchParams.get('tenant_id')?.trim() ?? ''
+  const gate = await requireSessionTenantForProdProxy(request)
+  if (!gate.ok) return gate.response
+  const tenantId = gate.tenantId
+
   const rangeRaw = (request.nextUrl.searchParams.get('range') || 'month').toLowerCase()
   const range = rangeRaw as DisbursementTrendRange
 
-  if (!tenantId) {
-    return NextResponse.json({ error: 'tenant_id is required' }, { status: 400 })
-  }
   if (!RANGES.includes(range)) {
     return NextResponse.json(
       { error: 'range must be one of: week, month, quarter, year' },
@@ -50,5 +53,7 @@ export async function GET(request: NextRequest) {
     note: `Aggregated client-side from up to ${maxPages * pageSize} intents. Dedicated time-series API recommended for production.`,
   }
 
-  return NextResponse.json(body)
+  const res = NextResponse.json(body)
+  applyRefreshedSessionCookies(res, gate.refreshedPayload)
+  return res
 }

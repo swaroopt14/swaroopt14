@@ -225,7 +225,7 @@ export function LiveDataHint({
 
   if (variant === 'command') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-[#4ADE80]/45 bg-[#f0fdf4] px-2.5 py-1 text-[12px] font-semibold text-[#166534]">
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-[#4ADE80]/45 bg-[#f0fdf4] px-2.5 py-1 text-[14px] font-semibold text-[#166534]">
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" aria-hidden />
         Live{source ? ` · ${source}` : ''}
       </span>
@@ -233,7 +233,7 @@ export function LiveDataHint({
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2 py-0.5 text-[13px] font-medium text-emerald-700">
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
       Live{source ? ` · ${source}` : ''}
     </span>

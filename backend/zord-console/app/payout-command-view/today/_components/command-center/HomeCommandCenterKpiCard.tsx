@@ -60,20 +60,20 @@ export function HomeCommandCenterKpiCard({
       <div className="relative mb-2.5 h-1 w-10 rounded-full bg-gradient-to-r from-white via-white/70 to-white/30 sm:w-11" />
 
       <div className="relative z-[1] flex min-h-0 flex-1 flex-col text-left">
-        <h3 className="text-[12px] font-bold uppercase tracking-[0.1em] text-neutral-400">{title}</h3>
-        <p className="mt-1.5 text-[26px] font-bold leading-none tracking-[-0.04em] text-white sm:text-[28px]">{value}</p>
-        {detail ? <p className="mt-1.5 text-[12px] leading-snug text-neutral-400">{detail}</p> : null}
+        <h3 className="text-[14px] font-bold uppercase tracking-[0.1em] text-neutral-400">{title}</h3>
+        <p className="mt-1.5 text-[28px] font-bold leading-none tracking-[-0.04em] text-white sm:text-[30px]">{value}</p>
+        {detail ? <p className="mt-1.5 text-[19px] leading-snug text-neutral-400">{detail}</p> : null}
 
         <div className="mt-auto pt-3">
           <Link
             href={dockHref}
-            className="flex w-full items-center justify-between gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2.5 text-left text-[13px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:border-white/25 hover:bg-white/10"
+            className="flex w-full items-center justify-between gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-3 text-left text-[17px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:border-white/25 hover:bg-white/10"
           >
             <span className="min-w-0 leading-snug">
-              <span className="block text-[10px] font-bold uppercase tracking-[0.12em] text-neutral-500">
+              <span className="block text-[14px] font-bold uppercase tracking-[0.12em] text-neutral-500">
                 {dockEyebrow}
               </span>
-              <span className="mt-0.5 block text-[12px] font-medium text-neutral-300">{dockLine}</span>
+              <span className="mt-0.5 block text-[16px] font-medium text-neutral-200">{dockLine}</span>
             </span>
             <ChevronRight />
           </Link>

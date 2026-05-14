@@ -4,9 +4,9 @@ import { FormEvent, Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { persistEnvMode } from '@/services/auth/persistEnvMode'
-import { SignInShell } from './_components/SignInShell'
+import { SignInShell } from '../_components/SignInShell'
 
-function SignInFormFallback() {
+function TenantSignInFormFallback() {
   return (
     <SignInShell>
       <div className="w-full max-w-md animate-pulse space-y-4">
@@ -21,18 +21,16 @@ function SignInFormFallback() {
   )
 }
 
-function SignInForm() {
+function TenantSignInForm() {
   const router = useRouter()
   const params = useSearchParams()
   const next = params.get('next') || '/payout-command-view'
-  const sandboxDefault = params.get('sandbox') !== '0'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [openInSandbox, setOpenInSandbox] = useState(sandboxDefault)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -55,13 +53,8 @@ function SignInForm() {
         setLoading(false)
         return
       }
-      if (openInSandbox) {
-        persistEnvMode('sandbox')
-        router.push('/sandbox')
-      } else {
-        persistEnvMode('live')
-        router.push(next)
-      }
+      persistEnvMode('live')
+      router.push(next)
       router.refresh()
     } catch {
       setError('Network error. Try again.')
@@ -77,8 +70,12 @@ function SignInForm() {
           <span className="text-[15px] font-semibold tracking-tight text-[#0f172a]">Zord Console</span>
         </div>
 
-        <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#0f172a]">Welcome back</h1>
-        <p className="mt-1.5 text-[14px] leading-relaxed text-[#64748b]">Sign in to access your tenant dashboard.</p>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#64748b]">Tenant sign-in</p>
+        <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[#0f172a]">Live workspace</h1>
+        <p className="mt-1.5 text-[14px] leading-relaxed text-[#64748b]">
+          Sign in to your production tenant. After sign-in you are taken to the live payout command view (or the page
+          you opened from).
+        </p>
 
         <form onSubmit={handleSubmit} className="mt-7 space-y-4">
           <label className="block">
@@ -128,19 +125,6 @@ function SignInForm() {
             </div>
           </label>
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-[12px] border border-slate-200 bg-slate-50/80 px-3.5 py-3">
-            <input
-              type="checkbox"
-              checked={openInSandbox}
-              onChange={(e) => setOpenInSandbox(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#0f172a] focus:ring-[#0f172a]"
-            />
-            <span className="text-[13px] leading-snug text-[#475569]">
-              <span className="font-semibold text-[#0f172a]">Open in sandbox</span> — safe test workspace first. Turn off
-              to go straight to the live payout command view after sign-in.
-            </span>
-          </label>
-
           {error ? (
             <div className="flex items-start gap-2 rounded-[12px] border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[13px] leading-relaxed text-rose-700">
               <svg className="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
@@ -159,9 +143,17 @@ function SignInForm() {
             disabled={loading}
             className="group relative w-full overflow-hidden rounded-[12px] bg-[#0f172a] py-2.5 text-[14px] font-semibold text-white shadow-[0_6px_16px_rgba(15,23,42,0.18)] transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#94a3b8] disabled:shadow-none"
           >
-            <span className="relative">{loading ? 'Signing in…' : 'Sign in'}</span>
+            <span className="relative">{loading ? 'Signing in…' : 'Sign in to live'}</span>
           </button>
         </form>
+
+        <p className="mt-5 text-[13px] leading-relaxed text-[#64748b]">
+          Prefer the sandbox first?{' '}
+          <Link href="/signin" className="font-semibold text-[#0f172a] underline-offset-2 hover:underline">
+            Use standard sign-in
+          </Link>
+          .
+        </p>
 
         <div className="my-6 flex items-center gap-3 text-[12px] text-[#94a3b8]">
           <span className="h-px flex-1 bg-slate-200" />
@@ -175,13 +167,6 @@ function SignInForm() {
         >
           Create a new workspace
         </Link>
-
-        <p className="mt-5 text-center text-[13px] text-[#64748b]">
-          Production tenant?{' '}
-          <Link href="/signin/tenant" className="font-semibold text-[#0f172a] underline-offset-2 hover:underline">
-            Sign in to live
-          </Link>
-        </p>
 
         <p className="mt-8 text-center text-[12px] text-[#94a3b8]">
           By signing in you agree to our{' '}
@@ -199,10 +184,10 @@ function SignInForm() {
   )
 }
 
-export default function SignInPage() {
+export default function TenantSignInPage() {
   return (
-    <Suspense fallback={<SignInFormFallback />}>
-      <SignInForm />
+    <Suspense fallback={<TenantSignInFormFallback />}>
+      <TenantSignInForm />
     </Suspense>
   )
 }

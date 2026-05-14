@@ -5,6 +5,7 @@ function getLoginPath(pathname: string) {
   // funnels through the canonical /signin flow.
   if (pathname.startsWith('/admin')) return '/admin/login'
   if (pathname.startsWith('/ops')) return '/ops/login'
+  if (pathname.startsWith('/payout-command-view')) return '/signin/tenant'
   return '/signin'
 }
 
@@ -13,10 +14,7 @@ function loginRedirectUrl(request: NextRequest, pathname: string) {
   const url = new URL(path, request.url)
   // For the canonical /signin flow, preserve the original destination so we can
   // return the user there after a successful login.
-  if (path === '/signin') {
-    const next = `${pathname}${request.nextUrl.search || ''}`
-    url.searchParams.set('next', next)
-  } else if (pathname.startsWith('/payout-command-view')) {
+  if (path === '/signin' || path === '/signin/tenant') {
     const next = `${pathname}${request.nextUrl.search || ''}`
     url.searchParams.set('next', next)
   }
@@ -30,7 +28,8 @@ function roleMatchesPath(pathname: string, role: string) {
     pathname.startsWith('/customer') ||
     pathname.startsWith('/console') ||
     pathname.startsWith('/app-final') ||
-    pathname.startsWith('/payout-command-view')
+    pathname.startsWith('/payout-command-view') ||
+    pathname.startsWith('/sandbox')
   ) {
     return role === 'CUSTOMER_USER' || role === 'CUSTOMER_ADMIN'
   }
@@ -42,6 +41,7 @@ export function middleware(request: NextRequest) {
 
   if (
     pathname === '/signin' ||
+    pathname === '/signin/tenant' ||
     pathname === '/signup' ||
     pathname === '/console/login' ||
     pathname === '/customer/login' ||
@@ -75,5 +75,7 @@ export const config = {
     '/app-final/:path*',
     '/payout-command-view',
     '/payout-command-view/:path*',
+    '/sandbox',
+    '/sandbox/:path*',
   ],
 }

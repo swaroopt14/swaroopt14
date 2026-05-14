@@ -11,6 +11,7 @@ type LogoConfig = {
 
 const PSP_LOGO_MAP: Record<string, LogoConfig> = {
   Razorpay: { src: '/sources/razorpay-clean.png', frame: 'landscape', scale: 1.34 },
+  RazorpayX: { src: '/sources/razorpay-clean.png', frame: 'landscape', scale: 1.34 },
   Cashfree: { src: '/sources/cashfree-clean.png', frame: 'landscape', scale: 1.32 },
   PayU: { src: '/sources/Payu.png', frame: 'landscape', scale: 1.28 },
   Stripe: { src: '/sources/stripe-clean.png', frame: 'landscape', scale: 1.26 },

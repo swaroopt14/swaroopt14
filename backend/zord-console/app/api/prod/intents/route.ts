@@ -52,8 +52,6 @@ export async function GET(request: NextRequest) {
       pagination: response.pagination,
     })
   } catch (error) {
-    console.error('Error fetching intents from backend:', error)
-
     // Return empty response on error (no mock data)
     return NextResponse.json({
       items: [],

@@ -81,6 +81,8 @@ export type ApiEnvelopeDetail = {
 export type ApiDlqRow = {
   dlq_id: string
   envelope_id?: string
+  /** Same ingest batch key as intents / intelligence `batch_id` when present. */
+  client_batch_ref?: string
   tenant_id?: string
   stage?: string
   reason_code?: string

@@ -40,11 +40,7 @@ func (h *DLQHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Nil slice encodes as JSON null; clients expect a JSON array for list endpoints.
-	if items == nil {
-		items = []models.DLQEntry{}
-	}
-
+	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
 }

@@ -3,10 +3,9 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  buildSimulatedHomeOverviewSnapshot,
+  buildStaticHomeOverviewSnapshot,
   defaultHomeCommandFilters,
   HOME_QUARTERS,
-  HOME_SIMULATION_INTERVAL_MS,
   homeCommandFilterMultiplier,
   homeSimulationScenarios,
   resolveHomeQuarterFromPrompt,
@@ -43,13 +42,12 @@ export type HomeState = {
   setCommandFilters: Dispatch<SetStateAction<HomeCommandFilters>>
 }
 
-export function useHomeState(isActive: boolean): HomeState {
+export function useHomeState(_isActive: boolean): HomeState {
   const [scenario, setScenario] = useState<HomeSimulation>(homeSimulationScenarios[0])
   const [timeframe, setTimeframeRaw] = useState<HomeTimeframe>('Month')
   const [year, setYearRaw] = useState<2026 | 2027 | 2028>(2026)
   const [quarterIndex, setQuarterIndexRaw] = useState(0)
-  const [tick, setTick] = useState(0)
-  const [activeChartPoint, setActiveChartPoint] = useState(42)
+  const [activeChartPoint, setActiveChartPoint] = useState(0)
   const [commandStatus, setCommandStatus] = useState<HomeCommandStatus>('idle')
   const [pendingResponse, setPendingResponse] = useState<HomeCommandResponse | null>(null)
   const [commandResponse, setCommandResponse] = useState<HomeCommandResponse | null>(null)
@@ -59,32 +57,21 @@ export function useHomeState(isActive: boolean): HomeState {
   const filterMultiplier = useMemo(() => homeCommandFilterMultiplier(commandFilters), [commandFilters])
 
   const snapshot = useMemo(
-    () => buildSimulatedHomeOverviewSnapshot(scenario, timeframe, tick, year, quarterIndex, filterMultiplier),
-    [filterMultiplier, quarterIndex, scenario, tick, timeframe, year],
+    () => buildStaticHomeOverviewSnapshot(scenario, timeframe, year, quarterIndex, filterMultiplier),
+    [filterMultiplier, quarterIndex, scenario, timeframe, year],
   )
 
-  // Smart setters that bump the tick so the chart re-renders immediately
   const setTimeframe = useCallback((tf: HomeTimeframe) => {
     setTimeframeRaw(tf)
-    setTick((c) => c + 1)
   }, [])
 
   const setYear = useCallback((y: 2026 | 2027 | 2028) => {
     setYearRaw(y)
-    setTick((c) => c + 1)
   }, [])
 
   const setQuarterIndex = useCallback((qi: number) => {
     setQuarterIndexRaw(qi)
-    setTick((c) => c + 1)
   }, [])
-
-  // Advance simulation tick only while the home surface is visible
-  useEffect(() => {
-    if (!isActive) return
-    const id = window.setInterval(() => setTick((c) => c + 1), HOME_SIMULATION_INTERVAL_MS)
-    return () => window.clearInterval(id)
-  }, [isActive])
 
   // Keep the active chart point at the midpoint of the selected range
   useEffect(() => {
@@ -137,7 +124,6 @@ export function useHomeState(isActive: boolean): HomeState {
       setTimeframeRaw(nextTimeframe)
       setYearRaw(nextYear)
       setQuarterIndexRaw(nextQuarterIndex)
-      setTick((c) => c + 1)
       setPendingResponse({
         title: nextScenario.title,
         body: `${nextScenario.summary} Current simulation scope: ${nextTimeframe} ${

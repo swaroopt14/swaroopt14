@@ -59,7 +59,6 @@ export async function GET(
 
     return NextResponse.json(intentDetail)
   } catch (error) {
-    console.error('Error fetching intent detail from backend:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to fetch intent' },
       { status: 500 }

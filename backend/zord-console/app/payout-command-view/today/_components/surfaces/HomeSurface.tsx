@@ -129,7 +129,7 @@ export function HomeSurface({
   const safePoint = clamp(displayPoint, 0, Math.max(0, chartData.length - 1))
   const selectedRange = trendChartReady
     ? ([0, Math.max(0, chartData.length - 1)] as const)
-    : snapshot.range
+    : ([0, 0] as const)
   const [selectedRangeStart, selectedRangeEnd] = selectedRange
   const activeChartDatum = chartData[safePoint] ?? {
     point: 0,
@@ -228,7 +228,7 @@ export function HomeSurface({
       : null
 
   const actionHeadline =
-    exposureMinor !== null && Number.isFinite(exposureMinor) ? fmtInrCompact(exposureMinor) : fmtInrCompact(0)
+    exposureMinor !== null && Number.isFinite(exposureMinor) ? fmtInrCompact(exposureMinor) : loading ? '…' : '—'
   const actionSub =
     patternsData != null
       ? `${patternsData.pending_count} intents pending · ${patternsData.finality_status.replace(/_/g, ' ').toLowerCase()}`
@@ -237,7 +237,11 @@ export function HomeSurface({
         : 'Awaiting intelligence snapshot for this workspace'
 
   const heroTotalDisbursementDisplay =
-    observedMinor !== null && Number.isFinite(observedMinor) ? fmtInrCompact(observedMinor) : fmtInrCompact(0)
+    observedMinor !== null && Number.isFinite(observedMinor)
+      ? fmtInrCompact(observedMinor)
+      : loading
+        ? '…'
+        : '—'
 
   const trendInsight = useMemo(() => {
     if (trendSeries?.data_available && trendSeries.buckets.length >= 2) {
@@ -256,7 +260,7 @@ export function HomeSurface({
     if (patternsData) {
       return `Latest batch anomaly ${(patternsData.batch_anomaly_score * 100).toFixed(0)}% (${patternsData.anomaly_level}) with ${patternsData.success_count}/${patternsData.total_count} successes.`
     }
-    return 'Confirmation values are increasing steadily while pending amounts are reducing, indicating normal settlement flow.'
+    return 'No live trend or intelligence KPI payload yet for this tenant — numbers above appear when leakage, patterns, or disbursement-trend APIs return data.'
   }, [trendSeries, trendRange, leakageData, patternsData])
 
   /** 2×2 grid: row1 Leakage | Batch anomaly · row2 Defensibility | Action contracts — each tile is its own Insight-style card. */
@@ -668,7 +672,13 @@ export function HomeSurface({
             <div className="mt-6 rounded-[20px] border border-white/30 bg-white/15 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-md">
               <span className="text-[13px] font-bold uppercase tracking-[0.12em] text-white/85">Recommended Action:</span>
               <p className="mt-2 text-[16px] font-medium leading-snug text-white/95">
-                Follow up on delayed confirmations — this is the primary reason for pending value
+                {patternsData && leakageData
+                  ? `Review ${patternsData.pending_count} pending intents and ${(leakageData.leakage_percentage * 100).toFixed(1)}% leakage — triage in Leakage / Journal docks.`
+                  : leakageData
+                    ? `${leakageData.risk_tier} leakage tier — open Leakage dock for unmatched and under-settlement amounts.`
+                    : patternsData
+                      ? `Batch anomaly ${patternsData.anomaly_level} on latest patterns signal — cross-check Intent Journal.`
+                      : 'When intelligence KPIs load for this tenant, recommended follow-ups appear here.'}
               </p>
             </div>
           </div>
@@ -680,7 +690,7 @@ export function HomeSurface({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-[14px] font-medium uppercase tracking-[0.14em] text-[#179a4c]">
-                  {commandStatus === 'loading' ? 'Analyzing snapshot' : commandStatus === 'typing' ? 'Drafting response' : 'Simulation response'}
+                  {commandStatus === 'loading' ? 'Analyzing prompt' : commandStatus === 'typing' ? 'Drafting response' : 'Scope summary'}
                 </div>
                 <div className="mt-1 text-[18px] font-medium text-[#111111]">{commandResponse.title}</div>
                 <div className="mt-2 min-h-[3.25rem] text-[16px] leading-6 text-[#6f716d]">
@@ -755,7 +765,7 @@ export function HomeSurface({
                     ? 'Reading disbursement snapshot and confirmation signals…'
                     : commandStatus === 'typing'
                       ? 'Drafting a short operator-style answer…'
-                      : 'Simulation only — answers summarize the numbers on this screen.'}
+                      : 'Prompt adjusts scope labels only — disbursement chart and KPIs load from `/api/prod` intelligence and trend routes.'}
                 </div>
               </div>
               <div className="flex items-center gap-2">

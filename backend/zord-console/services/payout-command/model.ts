@@ -176,7 +176,7 @@ export const dockItems = [
     navLabel: 'Sandbox',
     title: 'Sandbox',
     breadcrumbLabel: 'Sandbox',
-    summary: 'Test the full Intent Journal flow without touching real funds. Use canned scenarios or upload your own files.',
+    summary: 'Test the full Intent Journal flow without touching real funds. Uses the same APIs as live with your sandbox tenant.',
     icon: 'terminal',
   },
   {
@@ -413,7 +413,7 @@ export function resolveHomeQuarterFromPrompt(prompt: string, currentQuarterIndex
   return currentQuarterIndex
 }
 
-function buildTimeframeConfig(timeframe: HomeTimeframe, quarterIndex: number, selectedYear: 2026 | 2027 | 2028) {
+function buildHomeTimeframeLayout(timeframe: HomeTimeframe, quarterIndex: number, selectedYear: 2026 | 2027 | 2028) {
   if (timeframe === 'Today') {
     return {
       totalBars: 48,
@@ -428,7 +428,7 @@ function buildTimeframeConfig(timeframe: HomeTimeframe, quarterIndex: number, se
     return {
       totalBars: 84,
       labels: [...HOME_WEEKDAY_LABELS],
-      holidayLabels: ['Thursday (Bank Holiday)', 'Sunday (Weekend Holiday)'],
+      holidayLabels: [] as readonly string[],
       timeframeLabel: `Week view • Mon-Sun • ${selectedYear}`,
       rangeLength: 42,
     }
@@ -484,7 +484,7 @@ export function buildSimulatedHomeOverviewSnapshot(
   const rangeLift =
     timeframe === 'Today' ? 0.88 : timeframe === 'Week' ? 0.92 : timeframe === 'Month' ? 1 : 1.08
   const yearScale = selectedYear === 2026 ? 1 : selectedYear === 2027 ? 1.07 : 1.14
-  const timeframeConfig = buildTimeframeConfig(timeframe, quarterIndex, selectedYear)
+  const timeframeConfig = buildHomeTimeframeLayout(timeframe, quarterIndex, selectedYear)
   const phase = tick * 0.26
   const range = resolveHomeRange(scenario.range, tick, timeframeConfig.totalBars, timeframeConfig.rangeLength)
   const [selectedRangeStart, selectedRangeEnd] = range
@@ -571,6 +571,51 @@ export function buildSimulatedHomeOverviewSnapshot(
     expensesBaseValue: expensesBaseScaled * filterMultiplier,
     budgetBaseValue: budgetBaseScaled * filterMultiplier,
     insightBaseValue: insightBaseScaled * filterMultiplier,
+    timeframeLabel: timeframeConfig.timeframeLabel,
+  }
+}
+
+/**
+ * Period chrome for Home without animated mock chart series. Hero + trend chart use API hooks (`useDisbursementTrend`, `useIntelligenceKpis`).
+ */
+export function buildStaticHomeOverviewSnapshot(
+  scenario: HomeSimulation,
+  timeframe: HomeTimeframe,
+  selectedYear: 2026 | 2027 | 2028,
+  quarterIndex: number,
+  _filterMultiplier = 1,
+): HomeOverviewSnapshot {
+  const timeframeConfig = buildHomeTimeframeLayout(timeframe, quarterIndex, selectedYear)
+  const activeQuarter = HOME_QUARTERS[clamp(quarterIndex, 0, HOME_QUARTERS.length - 1)]
+  const range = [0, 0] as const
+  const emptyChart: HomeOverviewSnapshot['chartData'] = []
+
+  return {
+    metricValue: '—',
+    title: scenario.title,
+    summary: scenario.summary,
+    tooltipValue: '—',
+    tooltipDelta: '—',
+    tooltipNote: scenario.tooltipNote,
+    range,
+    chartData: emptyChart,
+    salesValue: '—',
+    expensesValue: '—',
+    budgetValue: '—',
+    insightText: scenario.insightText,
+    insightValue: '—',
+    insightGaugeProgress: 0,
+    forecastBars: [],
+    budgetBars: [],
+    axisLabels: timeframeConfig.labels,
+    quarterName: activeQuarter.name,
+    quarterMonths: activeQuarter.months,
+    selectedYear,
+    holidayLabels: timeframeConfig.holidayLabels,
+    salesBaseValue: 0,
+    expensesBaseValue: 0,
+    budgetBaseValue: 0,
+    insightBaseValue: 0,
     timeframeLabel: timeframeConfig.timeframeLabel,
   }
 }

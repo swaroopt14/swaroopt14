@@ -14,13 +14,18 @@ import { getProdIntentsPage } from '@/services/payout-command/prod-api/getProdIn
 import {
   getIntelligenceBatchDetail,
   getIntelligenceBatches,
+  getPatternsKpis,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type { BatchDetailResponse, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
+import type {
+  BatchDetailResponse,
+  IntelligenceBatchRow,
+  PatternsKpiResponse,
+} from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { ApiDlqRow, ApiIntentRow, ApiProdIntentDetailPayload } from '@/services/payout-command/prod-api/prodApiTypes'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
+import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
 
 type BatchType = 'Disbursement' | 'Settlement'
 type BatchStatus = 'Strong' | 'Stable' | 'Risk' | 'Critical'
@@ -229,21 +234,6 @@ function intentStatusLabel(status: IntentStatus) {
   return status
 }
 
-/** Sandbox journal has no demo batches until the user uploads — safe placeholder for KPI + filters. */
-const EMPTY_SANDBOX_BATCH_ID = '__sandbox_no_batch__'
-
-const SANDBOX_EMPTY_BATCH: BatchRecord = {
-  batchId: EMPTY_SANDBOX_BATCH_ID,
-  type: 'Disbursement',
-  source: '—',
-  totalValue: 0,
-  transactions: 0,
-  confirmedCount: 0,
-  highConfidenceCount: 0,
-  mismatchCount: 0,
-  unresolvedCount: 0,
-}
-
 const SANDBOX_JOURNAL_ONBOARDING_DISMISSED_KEY = 'zord:sandbox-intent-journal-onboarding-dismissed'
 
 function HeaderIcon({ kind }: { kind: 'request' | 'reference' | 'amount' | 'payment' | 'status' | 'updated' }) {
@@ -402,7 +392,8 @@ function mapApiIntentToIntentRow(intent: ApiIntentRow, batchFallback: string): I
 }
 
 function mapApiDlqToFailureRow(row: ApiDlqRow): FailureRow {
-  const batchId = row.envelope_id ? String(row.envelope_id) : '—'
+  const batchFromIngest = (row.client_batch_ref ?? '').trim()
+  const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
   const stageRaw = (row.stage ?? '').toLowerCase()
   let failureStage: FailureRow['failureStage'] = 'Processing'
   if (stageRaw.includes('valid')) failureStage = 'Validation'
@@ -427,45 +418,17 @@ function mapApiDlqToFailureRow(row: ApiDlqRow): FailureRow {
   }
 }
 
-const LIVE_JOURNAL_POLL_MS = 12_000
+const LIVE_JOURNAL_POLL_MS = 8_000
+/** KPI 14 — `GET /v1/intelligence/dashboard/patterns?tenant_id&batch_id` (snapshots), not batch list/detail. */
+const KPI14_PATTERNS_POLL_MS = 30_000
 
 export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const { mode } = useEnvironment()
   const batchCommandCenterHref = payoutBatchCommandCenterHref(mode === 'sandbox')
   /** Same `/api/prod/intelligence/*` + `/api/prod/intents` + DLQ polling as live — sandbox is not local-only. */
   const journalUsesBackendFeed = mode === 'live' || mode === 'sandbox'
-  const envTenant = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_ZORD_TENANT_ID?.trim()) || ''
-  const [liveTenantId, setLiveTenantId] = useState(envTenant || 'tenant_arealis_nbfc')
-
-  useEffect(() => {
-    if (!journalUsesBackendFeed) return
-    let cancelled = false
-    ;(async () => {
-      let resolved: string | null = envTenant || null
-      try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' })
-        if (!cancelled && res.ok) {
-          const data = (await res.json()) as { session?: { tenant_id?: string } }
-          const tid = data.session?.tenant_id?.trim()
-          if (tid) resolved = tid
-        }
-      } catch {
-        /* ignore */
-      }
-      if (!cancelled && !resolved) {
-        try {
-          const ls = typeof window !== 'undefined' ? localStorage.getItem('zord_tenant_id') : null
-          if (ls?.trim()) resolved = ls.trim()
-        } catch {
-          /* ignore */
-        }
-      }
-      if (!cancelled && resolved) setLiveTenantId(resolved)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [journalUsesBackendFeed, envTenant])
+  /** Matches Batch Command Center / customer-test: session → env → localStorage → demo tenant. */
+  const liveTenantId = useSessionTenantId()
 
   const [liveIntentRows, setLiveIntentRows] = useState<IntentRow[]>([])
   const [liveFailureRows, setLiveFailureRows] = useState<FailureRow[]>([])
@@ -473,16 +436,35 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   // Per-batch drilldown fetched from /v1/intelligence/batches/{id} when a batch is
   // selected. Drives the right-pane KPI cards (intended/confirmed/variance/ambiguity).
   const [liveBatchDetail, setLiveBatchDetail] = useState<BatchDetailResponse | null>(null)
+  /** Raw patterns response; overview uses this only for KPI 14 after `batch_id` matches selection. */
+  const [kpi14Patterns, setKpi14Patterns] = useState<PatternsKpiResponse | null>(null)
   const [liveFeedLoaded, setLiveFeedLoaded] = useState(false)
   const [liveSyncAt, setLiveSyncAt] = useState<Date | null>(null)
 
-  const fetchLiveBackendFeed = useCallback(async (): Promise<string> => {
-    const dq = `tenant_id=${encodeURIComponent(liveTenantId)}`
-    const [dlqRes, batchesRes] = await Promise.all([
-      getProdDlqPage(dq),
-      getIntelligenceBatches(liveTenantId, { limit: 100 }),
-    ])
-    setLiveFailureRows((dlqRes?.items ?? []).map(mapApiDlqToFailureRow))
+  /**
+   * DLQ + intelligence batch list. Failures tab uses DLQ only (intent-engine).
+   * Batch list is for sidebar + KPI / batch-detail only — it must not gate intent rows.
+   */
+  const refreshDlqAndIntelligenceBatches = useCallback(async () => {
+    const tid = liveTenantId.trim()
+    if (!tid) {
+      setLiveFailureRows([])
+      setLiveBatchList([])
+      return
+    }
+    const dq = `tenant_id=${encodeURIComponent(tid)}`
+    try {
+      const dlqRes = await getProdDlqPage(dq)
+      setLiveFailureRows((dlqRes?.items ?? []).map(mapApiDlqToFailureRow))
+    } catch {
+      setLiveFailureRows([])
+    }
+    let batchesRes: Awaited<ReturnType<typeof getIntelligenceBatches>> | null = null
+    try {
+      batchesRes = await getIntelligenceBatches(tid, { limit: 100 })
+    } catch {
+      batchesRes = null
+    }
     const batchRows: BatchRecord[] = (batchesRes?.batches ?? []).map((b: IntelligenceBatchRow) => ({
       batchId: b.batch_id,
       type: 'Disbursement',
@@ -501,26 +483,12 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       },
     }))
     setLiveBatchList(batchRows)
-    let nextSelected = ''
     setSelectedBatchId((prev) => {
-      if (batchRows.length === 0) {
-        nextSelected = ''
-        return ''
-      }
-      if (initialBatchId && batchRows.some((b) => b.batchId === initialBatchId)) {
-        nextSelected = initialBatchId
-        return initialBatchId
-      }
-      if (prev && batchRows.some((b) => b.batchId === prev)) {
-        nextSelected = prev
-        return prev
-      }
-      nextSelected = batchRows[0]!.batchId
-      return nextSelected
+      if (batchRows.length === 0) return ''
+      if (initialBatchId && batchRows.some((b) => b.batchId === initialBatchId)) return initialBatchId
+      if (prev && batchRows.some((b) => b.batchId === prev)) return prev
+      return batchRows[0]!.batchId
     })
-    setLiveFeedLoaded(true)
-    setLiveSyncAt(new Date())
-    return nextSelected
   }, [liveTenantId, initialBatchId])
 
   const batches = useMemo(() => {
@@ -540,36 +508,22 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
   const [selectedBatchId, setSelectedBatchId] = useState<string>(() => initialBatchId ?? '')
 
-  const selectedBatchIdRef = useRef(selectedBatchId)
-  selectedBatchIdRef.current = selectedBatchId
-
-  const loadLiveIntents = useCallback(async (batchOverride?: string) => {
-    const bid = (batchOverride ?? selectedBatchIdRef.current ?? '').trim()
-    if (!liveTenantId.trim() || !bid || bid === EMPTY_SANDBOX_BATCH_ID) {
+  /** Intent-engine list: always `tenant_id` only so ingest from Batch Command Center is never blocked by intelligence. Sidebar batch scopes rows in the UI only. */
+  const loadLiveIntents = useCallback(async () => {
+    const tid = liveTenantId.trim()
+    if (!tid) {
       setLiveIntentRows([])
       return
     }
-    const q = `page=1&page_size=120&tenant_id=${encodeURIComponent(liveTenantId)}&batch_id=${encodeURIComponent(bid)}`
+    const q = `page=1&page_size=120&tenant_id=${encodeURIComponent(tid)}`
     try {
       const res = await getProdIntentsPage(q)
-      let items = res?.items ?? []
-      const hasBatchIds = items.some((it) => Boolean(it.batch_id))
-      if (hasBatchIds) {
-        items = items.filter((it) => !it.batch_id || it.batch_id === bid)
-      }
-      setLiveIntentRows(items.map((it) => mapApiIntentToIntentRow(it, it.batch_id ?? bid)))
+      const items = res?.items ?? []
+      setLiveIntentRows(items.map((it) => mapApiIntentToIntentRow(it, it.batch_id ?? '—')))
     } catch {
       setLiveIntentRows([])
     }
   }, [liveTenantId])
-
-  const loadLiveIntentsRef = useRef(loadLiveIntents)
-  loadLiveIntentsRef.current = loadLiveIntents
-
-  useEffect(() => {
-    if (!journalUsesBackendFeed) return
-    void loadLiveIntents()
-  }, [journalUsesBackendFeed, selectedBatchId, loadLiveIntents])
 
   useEffect(() => {
     if (!journalUsesBackendFeed) return
@@ -578,10 +532,14 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     const tick = async () => {
       if (cancelled) return
       try {
-        const nextBatch = await fetchLiveBackendFeed()
-        await loadLiveIntentsRef.current(nextBatch)
+        await refreshDlqAndIntelligenceBatches()
       } catch {
-        if (!cancelled) setLiveFeedLoaded(true)
+        /* DLQ / intelligence sidebar is best-effort */
+      }
+      if (!cancelled) await loadLiveIntents()
+      if (!cancelled) {
+        setLiveFeedLoaded(true)
+        setLiveSyncAt(new Date())
       }
     }
     void tick()
@@ -592,7 +550,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       cancelled = true
       window.clearInterval(id)
     }
-  }, [journalUsesBackendFeed, fetchLiveBackendFeed])
+  }, [journalUsesBackendFeed, refreshDlqAndIntelligenceBatches, loadLiveIntents, liveTenantId])
 
   const [sandboxOnboardingOpen, setSandboxOnboardingOpen] = useState(false)
 
@@ -623,7 +581,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   // Per-batch detail (intended/confirmed/variance) from /v1/intelligence/batches/{id}.
   // Re-fetched whenever the user selects a different batch (live or sandbox).
   useEffect(() => {
-    if (!journalUsesBackendFeed || !liveTenantId || !selectedBatchId || selectedBatchId === EMPTY_SANDBOX_BATCH_ID) {
+    if (!journalUsesBackendFeed || !liveTenantId || !selectedBatchId.trim()) {
       setLiveBatchDetail(null)
       return
     }
@@ -636,15 +594,28 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     }
   }, [journalUsesBackendFeed, liveTenantId, selectedBatchId])
 
-  // KPI 14 — patterns / batch anomaly score for the currently-selected batch.
-  // Drives the sidebar severity badge and a dedicated anomaly card on the right pane.
-  const intelligenceKpis = useIntelligenceKpis(journalUsesBackendFeed ? liveTenantId : '', {
-    batchId: journalUsesBackendFeed && selectedBatchId.trim() ? selectedBatchId : undefined,
-  })
-  const batchAnomalyRaw = isDataAvailable(intelligenceKpis.patterns) ? intelligenceKpis.patterns : null
-  // Only trust KPI 14 counts when the payload is explicitly for this batch. Tenant-wide
-  // patterns responses often omit `batch_id`; using them here made every batch show the
-  // same donut / dispatch % (felt like mock data).
+  // KPI 14 only — `GET /v1/intelligence/dashboard/patterns` (Isolation Forest). Not used for intent counts or INR health.
+  useEffect(() => {
+    if (!journalUsesBackendFeed || !liveTenantId.trim() || !selectedBatchId.trim()) {
+      setKpi14Patterns(null)
+      return
+    }
+    let cancelled = false
+    const run = () => {
+      void getPatternsKpis(liveTenantId, selectedBatchId).then((res) => {
+        if (!cancelled) setKpi14Patterns(res)
+      })
+    }
+    run()
+    const id = window.setInterval(run, KPI14_PATTERNS_POLL_MS)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [journalUsesBackendFeed, liveTenantId, selectedBatchId])
+
+  const batchAnomalyRaw = isDataAvailable(kpi14Patterns) ? kpi14Patterns : null
+  // Only trust KPI 14 when the payload names this batch (tenant-wide patterns omit `batch_id`).
   const batchAnomaly =
     journalUsesBackendFeed &&
     selectedBatchId.trim() &&
@@ -735,11 +706,13 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     return sidebarBatchList.filter((b) => batchStatus(batchQualityScore(b)) === 'Strong' || batchStatus(batchQualityScore(b)) === 'Stable')
   }, [batchFilter, sidebarBatchList])
 
-  const selectedBatch =
-    filteredBatches.find((b) => b.batchId === selectedBatchId) ??
-    batches.find((b) => b.batchId === selectedBatchId) ??
-    batches[0] ??
-    SANDBOX_EMPTY_BATCH
+  /** Resolved from intelligence batch list only — no synthetic batch row. */
+  const selectedBatch: BatchRecord | null =
+    selectedBatchId.trim() === ''
+      ? null
+      : (filteredBatches.find((b) => b.batchId === selectedBatchId) ??
+          batches.find((b) => b.batchId === selectedBatchId) ??
+          null)
 
   const sandboxJournalEmpty = mode === 'sandbox' && liveFeedLoaded && liveBatchList.length === 0
 
@@ -757,11 +730,13 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const sidebarBatches = filteredBatches.slice((safeSidebarPage - 1) * SIDEBAR_PAGE_SIZE, safeSidebarPage * SIDEBAR_PAGE_SIZE)
 
   const filteredIntents = useMemo(() => {
-    if (selectedBatch.batchId === EMPTY_SANDBOX_BATCH_ID) return []
+    const sidebarBid = journalUsesBackendFeed && selectedBatch ? selectedBatch.batchId : ''
+    const scopeBatch = sidebarBid !== ''
     return intents.filter((row) => {
       const q = tableSearch.trim().toLowerCase()
       const bySearch = !q || intentHaystack(row).includes(q)
-      const byBatch =
+      const bySidebarBatch = !scopeBatch || row.batchId === sidebarBid
+      const byBatchFilter =
         !filterBatchId.trim() || row.batchId.toLowerCase().includes(filterBatchId.trim().toLowerCase())
       const byConnector = connectorFilter === 'All' || row.paymentPartner === connectorFilter
       const byDispatch = dispatchModeFilter === 'All' || row.method === dispatchModeFilter
@@ -771,23 +746,27 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
         (amountRangeFilter === 'Under $1,500' && row.amount < 1500) ||
         (amountRangeFilter === '$1,500 – $2,000' && row.amount >= 1500 && row.amount <= 2000) ||
         (amountRangeFilter === 'Over $2,000' && row.amount > 2000)
-      const bySelectedBatch = row.batchId === selectedBatch.batchId
-      return bySelectedBatch && bySearch && byBatch && byConnector && byDispatch && byStatus && byAmount
+      return bySearch && bySidebarBatch && byBatchFilter && byConnector && byDispatch && byStatus && byAmount
     })
-  }, [intents, selectedBatch.batchId, tableSearch, filterBatchId, connectorFilter, dispatchModeFilter, intentStatusFilter, amountRangeFilter])
+  }, [
+    journalUsesBackendFeed,
+    intents,
+    selectedBatch?.batchId ?? '',
+    tableSearch,
+    filterBatchId,
+    connectorFilter,
+    dispatchModeFilter,
+    intentStatusFilter,
+    amountRangeFilter,
+  ])
 
   const filteredFailures = useMemo(() => {
+    const sidebarBid = journalUsesBackendFeed && selectedBatch ? selectedBatch.batchId : ''
+    const scopeBatch = sidebarBid !== ''
     return failures.filter((row) => {
       const q = tableSearch.trim().toLowerCase()
       const bySearch = !q || failureHaystack(row).includes(q)
-      // Scope failures to the currently-selected batch so the Failures tab
-      // surfaces the unresolved rows for that batch (with their reason codes).
-      // The free-text filter input still narrows further.
-      // Live DLQ rows are keyed by tenant_id, not intelligence batch_id — show tenant-wide DLQ.
-      const bySelectedBatch =
-        journalUsesBackendFeed ||
-        selectedBatch.batchId === EMPTY_SANDBOX_BATCH_ID ||
-        row.batchId === selectedBatch.batchId
+      const bySidebarBatch = !scopeBatch || row.batchId === sidebarBid
       const byBatch =
         !filterBatchId.trim() || row.batchId.toLowerCase().includes(filterBatchId.trim().toLowerCase())
       const byConnector = connectorFilter === 'All' || row.paymentPartner === connectorFilter
@@ -798,16 +777,37 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
         (amountRangeFilter === 'Under $1,500' && row.amount < 1500) ||
         (amountRangeFilter === '$1,500 – $2,000' && row.amount >= 1500 && row.amount <= 2000) ||
         (amountRangeFilter === 'Over $2,000' && row.amount > 2000)
-      return bySearch && bySelectedBatch && byBatch && byConnector && byDispatch && byStage && byAmount
+      return bySearch && bySidebarBatch && byBatch && byConnector && byDispatch && byStage && byAmount
     })
-  }, [journalUsesBackendFeed, failures, tableSearch, selectedBatch.batchId, filterBatchId, connectorFilter, dispatchModeFilter, failureStageFilter, amountRangeFilter])
+  }, [
+    journalUsesBackendFeed,
+    failures,
+    selectedBatch?.batchId ?? '',
+    tableSearch,
+    filterBatchId,
+    connectorFilter,
+    dispatchModeFilter,
+    failureStageFilter,
+    amountRangeFilter,
+  ])
 
   useEffect(() => {
     setPage(1)
     setJumpPage('1')
     setFailurePage(1)
     setFailureJumpPage('1')
-  }, [tableSearch, dateRange, filterBatchId, connectorFilter, dispatchModeFilter, intentStatusFilter, failureStageFilter, amountRangeFilter, activeTab])
+  }, [
+    tableSearch,
+    dateRange,
+    filterBatchId,
+    connectorFilter,
+    dispatchModeFilter,
+    intentStatusFilter,
+    failureStageFilter,
+    amountRangeFilter,
+    activeTab,
+    selectedBatchId,
+  ])
 
   const intentTotal = filteredIntents.length
   const totalPages = Math.max(1, Math.ceil(intentTotal / rowsPerPage))
@@ -819,37 +819,24 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const safeFailurePage = Math.min(failurePage, failureTotalPages)
   const failurePageRows = filteredFailures.slice((safeFailurePage - 1) * rowsPerPage, safeFailurePage * rowsPerPage)
 
-  // Derive KPIs + intent distribution from the actually-selected batch so the
-  // right side responds to sidebar selection (not hardcoded 97.3% / 847).
-  // Per-intent Service 2 scores are not wired yet; `batchQualityScore` uses intelligence counts.
-  // KPI 14 (patterns) + batch list/detail (`/v1/intelligence/batches*`) drive live overview metrics.
-  const anomalyCounts = batchAnomaly
-    ? {
-        total: batchAnomaly.total_count ?? 0,
-        success: batchAnomaly.success_count ?? 0,
-        failed: batchAnomaly.failed_count ?? 0,
-        pending: batchAnomaly.pending_count ?? 0,
-      }
-    : null
+  // Derive overview KPIs from intelligence batch list + batch detail only (`/v1/intelligence/batches*`).
+  // KPI 14 (`/v1/intelligence/dashboard/patterns`) is fetched separately — never used for intent counts or INR.
   const healthBatch = liveBatchDetail?.batch
   const healthTotals = liveBatchDetail?.batch_health
-  const listCounts = selectedBatch.intelligenceCounts
+  const listCounts = selectedBatch?.intelligenceCounts
 
-  /** When backend feed is on, batch detail (when loaded) is the canonical count row; sidebar list can lag. */
+  /** Batch detail row when loaded; else list `total_count` for the selected batch. */
   const overviewIntentTotal =
-    journalUsesBackendFeed ? (healthBatch?.total_count ?? selectedBatch.transactions) : selectedBatch.transactions
+    journalUsesBackendFeed
+      ? (healthBatch?.total_count ?? selectedBatch?.transactions ?? 0)
+      : (selectedBatch?.transactions ?? 0)
 
-  const selectedBatchTotal = Math.max(
-    0,
-    anomalyCounts?.total ?? healthBatch?.total_count ?? overviewIntentTotal,
-  )
+  const selectedBatchTotal = Math.max(0, healthBatch?.total_count ?? overviewIntentTotal)
   const pctBase = Math.max(selectedBatchTotal, 1)
   const rawConfirmed =
-    anomalyCounts?.success ?? healthBatch?.success_count ?? listCounts?.success_count ?? selectedBatch.confirmedCount
-  const rawFailed =
-    anomalyCounts?.failed ?? healthBatch?.failed_count ?? listCounts?.failed_count ?? selectedBatch.mismatchCount
-  const rawPending =
-    anomalyCounts?.pending ?? healthBatch?.pending_count ?? listCounts?.pending_count ?? selectedBatch.unresolvedCount
+    healthBatch?.success_count ?? listCounts?.success_count ?? selectedBatch?.confirmedCount ?? 0
+  const rawFailed = healthBatch?.failed_count ?? listCounts?.failed_count ?? selectedBatch?.mismatchCount ?? 0
+  const rawPending = healthBatch?.pending_count ?? listCounts?.pending_count ?? selectedBatch?.unresolvedCount ?? 0
 
   const selectedConfirmed = Math.min(rawConfirmed, selectedBatchTotal)
   const selectedFailed = Math.min(rawFailed, selectedBatchTotal - selectedConfirmed)
@@ -860,7 +847,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const confirmedMinor = healthTotals?.total_confirmed_amount_minor
   const varianceMinor = healthTotals?.total_variance_minor
   const intendedRupees =
-    intendedMinor && Number.isFinite(Number(intendedMinor)) ? Number(intendedMinor) / 100 : selectedBatch.totalValue
+    intendedMinor && Number.isFinite(Number(intendedMinor))
+      ? Number(intendedMinor) / 100
+      : (selectedBatch?.totalValue ?? 0)
   const selectedConfirmedValue = confirmedMinor
     ? Number(confirmedMinor) / 100
     : intendedRupees * (selectedConfirmed / pctBase)
@@ -871,20 +860,21 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const selectedAttentionValue =
     varianceRupees ?? Math.max(0, intendedRupees > 0 ? intendedRupees - confirmedRupeesResolved : 0)
 
-  const anomalyHealthPct =
+  const operationalDispatchPct =
+    selectedBatchTotal === 0 ? 0 : (selectedConfirmed / selectedBatchTotal) * 100
+  /** Settlement-style ratio from batch row / detail — not the ML anomaly score. */
+  const dispatchConfidencePct = operationalDispatchPct
+
+  /** KPI 14 batch anomaly (0–100 scale from 0–1 score) when patterns payload matches this `batch_id`. */
+  const kpi14AnomalyPct =
     batchAnomaly != null &&
     typeof batchAnomaly.batch_anomaly_score === 'number' &&
     Number.isFinite(batchAnomaly.batch_anomaly_score)
-      ? (1 - Math.min(1, Math.max(0, batchAnomaly.batch_anomaly_score))) * 100
+      ? Math.min(100, Math.max(0, batchAnomaly.batch_anomaly_score * 100))
       : null
-  const operationalDispatchPct =
-    selectedBatchTotal === 0 ? 0 : (selectedConfirmed / selectedBatchTotal) * 100
-  const dispatchConfidencePct = anomalyHealthPct ?? operationalDispatchPct
 
   const selectedBatchScore = Math.round(
-    journalUsesBackendFeed && (healthBatch != null || batchAnomaly != null || listCounts != null)
-      ? dispatchConfidencePct
-      : batchQualityScore(selectedBatch, undefined),
+    !selectedBatch ? 0 : journalUsesBackendFeed ? operationalDispatchPct : batchQualityScore(selectedBatch, undefined),
   )
 
   const intentDistribution = [
@@ -1012,14 +1002,14 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           </div>
 
           <div className="flex-1 overflow-y-auto px-2 py-2">
-            {mode === 'sandbox' && sidebarBatches.length === 0 ? (
+            {journalUsesBackendFeed && sidebarBatches.length === 0 ? (
               <p className="rounded-lg border border-dashed border-[#E5E5E5] bg-[#fafafa] px-3 py-4 text-center text-[15px] leading-relaxed text-[#94a3b8]">
                 No batches yet for this tenant. After ingest, batches appear here from intelligence (
                 <span className="font-mono text-[13px] text-[#64748b]">GET /v1/intelligence/batches</span>).
               </p>
             ) : null}
             {sidebarBatches.map((batch) => {
-              const selected = batch.batchId === selectedBatch.batchId
+              const selected = batch.batchId === selectedBatchId
               const score = batchQualityScore(batch)
               const detailRow =
                 journalUsesBackendFeed && selected && liveBatchDetail?.batch?.batch_id === batch.batchId
@@ -1276,6 +1266,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 </button>
               </div>
             ) : null}
+            {selectedBatch ? (
+              <>
             <section className="mb-4 overflow-hidden rounded-[20px] border border-slate-200/80 bg-white shadow-[0_4px_16px_rgba(15,23,42,0.04)]">
               <div className="flex flex-col gap-3 border-b border-slate-200/80 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
@@ -1288,14 +1280,20 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       <span className="font-semibold text-emerald-700">Dispatch confidence:</span>{' '}
                       {dispatchConfidencePct.toFixed(1)}% ({batchStatus(selectedBatchScore)})
                       {batchAnomaly ? (
-                        <span className="text-[14px] text-slate-500"> · KPI 14 anomaly {(batchAnomaly.batch_anomaly_score * 100).toFixed(1)}%</span>
+                        <span className="text-[14px] text-slate-500">
+                          {' '}
+                          · KPI 14 (patterns){' '}
+                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
+                            /v1/intelligence/dashboard/patterns
+                          </code>
+                          : {(batchAnomaly.batch_anomaly_score * 100).toFixed(1)}% · {batchAnomaly.anomaly_level}
+                        </span>
                       ) : null}
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
-                  disabled={selectedBatch.batchId === EMPTY_SANDBOX_BATCH_ID}
                   onClick={() => setDispatchModalOpen(true)}
                   className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[10px] bg-[#0f172a] px-3.5 text-[15px] font-semibold text-white shadow-[0_4px_12px_rgba(15,23,42,0.18)] transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#94a3b8] disabled:shadow-none"
                 >
@@ -1312,7 +1310,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       variant: 'pending' as const,
                       label: 'Dispatch confidence',
                       value: `${dispatchConfidencePct.toFixed(1)}%`,
-                      trend: batchAnomaly ? `KPI 14 · ${batchAnomaly.anomaly_level}` : `${batchStatus(selectedBatchScore)}`,
+                      trend: batchAnomaly
+                        ? `Success ratio · KPI 14: ${batchAnomaly.anomaly_level} (${(batchAnomaly.batch_anomaly_score * 100).toFixed(1)}% anomaly)`
+                        : `${batchStatus(selectedBatchScore)} · success / total from batch`,
                       trendTone: 'text-sky-700',
                       iconWrap: 'bg-sky-50 text-sky-600 ring-1 ring-sky-100',
                       spark: 'bg-sky-500',
@@ -1385,9 +1385,20 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       <p className="text-[18px] font-semibold text-[#111827]">Intent Activity</p>
                       <p className="text-[14px] text-[#64748b]">Distribution by state</p>
                       {journalUsesBackendFeed ? (
-                        <p className="mt-1 max-w-[14rem] text-[13px] leading-snug text-slate-500">
-                          From intelligence batch detail or batch list — not time-filtered. KPI 14 donut only when patterns include this{' '}
-                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">batch_id</code>.
+                        <p className="mt-1 max-w-[22rem] text-[13px] leading-snug text-slate-500">
+                          Segment counts from batch detail{' '}
+                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
+                            GET /v1/intelligence/batches/{'{batch_id}'}?tenant_id=…
+                          </code>{' '}
+                          when loaded, else the list{' '}
+                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
+                            GET /v1/intelligence/batches?tenant_id=…
+                          </code>
+                          . Center: KPI 14 only if{' '}
+                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
+                            GET /v1/intelligence/dashboard/patterns?batch_id=…
+                          </code>{' '}
+                          returns this batch; otherwise the settlement success ratio.
                         </p>
                       ) : null}
                     </div>
@@ -1430,9 +1441,13 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       </svg>
                       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
                         <div className="flex h-[130px] w-[130px] flex-col items-center justify-center rounded-full border border-[#e5e7eb] bg-white shadow-sm">
-                          <p className="text-[36px] font-semibold leading-none tabular-nums text-[#0f172a]">{dispatchConfidencePct.toFixed(1)}%</p>
+                          <p className="text-[36px] font-semibold leading-none tabular-nums text-[#0f172a]">
+                            {(kpi14AnomalyPct != null ? kpi14AnomalyPct : dispatchConfidencePct).toFixed(1)}%
+                          </p>
                           <p className="mt-1 text-[14px] font-medium text-[#64748b]">
-                            {batchAnomaly ? 'Batch quality (inverse KPI 14)' : 'Dispatch confidence'}
+                            {kpi14AnomalyPct != null
+                              ? `KPI 14 anomaly${batchAnomaly ? ` · ${batchAnomaly.anomaly_level}` : ''}`
+                              : 'Dispatch confidence (success ratio)'}
                           </p>
                         </div>
                       </div>
@@ -1456,7 +1471,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
             {/* ── Defensibility Insight — minimal: just why it's green/yellow/red ─ */}
             {(() => {
-              const total = selectedBatchTotal
+              const total = Math.max(selectedBatchTotal, 1)
               const mismatchPct = (selectedNeedsReview / total) * 100
               const unresolvedPct = (selectedFailed / total) * 100
               const dragPct = mismatchPct + unresolvedPct
@@ -1498,6 +1513,17 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 </section>
               )
             })()}
+              </>
+            ) : (
+              <section className="mb-4 rounded-[20px] border border-dashed border-slate-200/90 bg-slate-50/60 px-6 py-8 text-center shadow-[0_2px_12px_rgba(15,23,42,0.04)]">
+                <h2 className="text-[18px] font-semibold tracking-tight text-[#0f172a]">Batch overview</h2>
+                <p className="mx-auto mt-2 max-w-xl text-[15px] leading-relaxed text-[#64748b]">
+                  Select a batch from the intelligence list for KPIs. Batches load from{' '}
+                  <code className="rounded bg-white px-1 font-mono text-[13px]">GET /v1/intelligence/batches</code>.
+                  Intent and DLQ tables below use the intent engine for this tenant only — no synthetic batch rows.
+                </p>
+              </section>
+            )}
 
             <nav className="mb-4 flex items-center gap-0.5 border-b border-[#e5e7eb]">
               {TAB_ITEMS.map((tab) => (
@@ -1535,7 +1561,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setFilterBatchId(selectedBatch.batchId)}
+                    disabled={!selectedBatch}
+                    onClick={() => {
+                      if (selectedBatch) setFilterBatchId(selectedBatch.batchId)
+                    }}
                     className="h-9 shrink-0 rounded-lg border border-[#e2e8f0] bg-[#f8fafc] px-3 text-[15px] font-medium text-[#334155] shadow-sm transition hover:bg-[#f1f5f9]"
                   >
                     Use sidebar batch
@@ -1920,7 +1949,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       </div>
 
       {/* ── Dispatch modal — smart routing recommendation ─────────────── */}
-      {dispatchModalOpen ? (
+      {dispatchModalOpen && selectedBatch ? (
         <DispatchRoutingModal
           batch={selectedBatch}
           useCase={dispatchUseCase}

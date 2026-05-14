@@ -63,6 +63,7 @@ type ManualReviewThresholds struct {
 	HighConfidenceScore        float64 `json:"high_confidence_score"`
 	ExactMatchScore            float64 `json:"exact_match_score"`
 	AmbiguityMarginThreshold   float64 `json:"ambiguity_margin_threshold"`
+	ExactMarginThreshold       float64 `json:"exact_margin_threshold"`
 	MinScoreForAutoAttach      float64 `json:"min_score_for_auto_attach"`
 	MaxCandidatesForAutoAttach int     `json:"max_candidates_for_auto_attach"`
 }
@@ -103,6 +104,7 @@ func parseRuleProfile(profile *models.AttachmentRuleProfile) AttachmentPolicyCon
 			HighConfidenceScore:      120.0,
 			MinScoreForAutoAttach:    70.0,
 			AmbiguityMarginThreshold: 15.0,
+			ExactMarginThreshold:     20.0,
 		},
 	}
 
@@ -132,8 +134,15 @@ func parseRuleProfile(profile *models.AttachmentRuleProfile) AttachmentPolicyCon
 // ScoreBreakdown is persisted as score_breakdown_json for full auditability.
 type ScoreBreakdown struct {
 	RulesetVersion         string  `json:"ruleset_version"`
-	ZordSignatureScore     float64 `json:"zord_signature_score"`
-	ClientRefScore         float64 `json:"client_ref_score"`
+	// ZordSignatureScore     float64 `json:"zord_signature_score"`
+	// ClientRefScore         float64 `json:"client_ref_score"`
+	// ParseConfModifier      float64 `json:"parse_conf_modifier"`
+	// SourceStrengthModifier float64 `json:"source_strength_modifier"`
+
+	ExactCarrierScore      float64 `json:"exact_carrier_score"`
+	BusinessReferenceScore float64 `json:"business_reference_score"`
+	QualityModifiers       float64 `json:"quality_modifiers"`
+
 	ProviderRefScore       float64 `json:"provider_ref_score"`
 	BankRefScore           float64 `json:"bank_ref_score"`
 	AmountMatchScore       float64 `json:"amount_match_score"`
@@ -141,13 +150,8 @@ type ScoreBreakdown struct {
 	TimeWindowScore        float64 `json:"time_window_score"`
 	BatchMatchScore        float64 `json:"batch_match_score"`
 	SourceSystemScore      float64 `json:"source_system_score"`
-	ParseConfModifier      float64 `json:"parse_conf_modifier"`
-	SourceStrengthModifier float64 `json:"source_strength_modifier"`
 	ConflictingRefPenalty  float64 `json:"conflicting_ref_penalty"`
 	TotalScore             float64 `json:"total_score"`
-	ExactCarrierScore      float64 `json:"exact_carrier_score"`
-	BusinessReferenceScore float64 `json:"business_reference_score"`
-	QualityModifiers       float64 `json:"quality_modifiers"`
 }
 
 // CandidateScore is the intermediate result returned by ScoreCandidate.
@@ -169,10 +173,12 @@ type CandidateScore struct {
 	SourceSystemMatch  bool
 	ZordSignatureMatch bool
 	CompositeMatch     bool
-	// ParseConfPenalised is set when obs.ParseConfidence < 0.6.
-	// Used by classifyConfidence to prevent low-trust observations
-	// from reaching the HIGH bucket regardless of composite score.
+
+	// Classification context
 	ParseConfPenalised bool
+	QualityAcceptable  bool
+	HasHardConflict    bool
+	HasAnyConflict     bool
 }
 
 func ScoreCandidate(
@@ -210,11 +216,8 @@ func ScoreCandidate(
 	}
 
 	// batch_id + source_row_ref exact match: +90
-	// We use ClientBatchRef as batch_id and SourceRowRef as row identifier.
 	if intent.ClientBatchRef != nil && obs.BatchReference != nil &&
 		*intent.ClientBatchRef == *obs.BatchReference && *intent.ClientBatchRef != "" {
-		// If we also had source_row_ref in intent, we'd check it here.
-		// For now, batch match is a strong signal.
 		bd.BatchMatchScore += 90
 		cs.BatchMatch = true
 	}
@@ -229,6 +232,8 @@ func ScoreCandidate(
 		*obs.ProviderReference != *intent.ProviderHint && *obs.ProviderReference != "" {
 		// Conflict penalty: provider/bank reference conflict: -70
 		bd.ConflictingRefPenalty -= 70
+		cs.HasHardConflict = true
+		cs.HasAnyConflict = true
 	}
 
 	// bank reference deterministic link: +85
@@ -257,15 +262,18 @@ func ScoreCandidate(
 	} else {
 		// Conflict: amount mismatch beyond tolerance: -50
 		bd.ConflictingRefPenalty -= 50
+		cs.HasAnyConflict = true
 	}
 
 	// Currency match: +10
 	if obs.CurrencyCode == intent.CurrencyCode && obs.CurrencyCode != "" {
-		bd.AmountMatchScore += 10
+		bd.CurrencyMatchScore += 10
 		cs.CurrencyMatch = true
 	} else {
 		// Conflict: currency mismatch: -100
 		bd.ConflictingRefPenalty -= 100
+		cs.HasHardConflict = true
+		cs.HasAnyConflict = true
 	}
 
 	// Time window match: +20
@@ -276,12 +284,6 @@ func ScoreCandidate(
 			bd.TimeWindowScore += 20
 			cs.TimeWindowMatch = true
 		}
-	}
-
-	// Batch family match: +15
-	if intent.ClientBatchRef != nil && obs.BatchReference != nil &&
-		*intent.ClientBatchRef == *obs.BatchReference && *intent.ClientBatchRef != "" {
-		bd.BatchMatchScore += 15
 	}
 
 	// Source system/corridor match: +10
@@ -295,29 +297,35 @@ func ScoreCandidate(
 
 	// ── QUALITY MODIFIERS ─────────────────────────────────────────────────
 
+	cs.QualityAcceptable = true
+
 	// parse_confidence < 70: -20
 	if obs.ParseConfidence < 0.7 {
 		bd.QualityModifiers -= 20
 		cs.ParseConfPenalised = true
+		cs.QualityAcceptable = false
 	}
 
 	// mapping_confidence < 70: -15
 	if obs.MappingConfidence < 0.7 {
 		bd.QualityModifiers -= 15
+		cs.QualityAcceptable = false
 	}
 
 	// attachment_readiness_score < 60: -15
 	if obs.AttachmentReadinessScore < 0.6 {
 		bd.QualityModifiers -= 15
+		cs.QualityAcceptable = false
 	}
 
-	// source_strength_class = INTERNAL_EXPORT: -10
-	if obs.SourceStrengthClass == "INTERNAL_EXPORT" {
+	// ── SOURCE STRENGTH CLASS MODIFIERS ──────────────────────────────────
+	// Per PDF review: INTERNAL_EXPORT -10, MANUAL_UPLOAD -20.
+	// BANK_LEDGER, PSP_REPORT, UNKNOWN carry no additional modifier here
+	// (the attachment_readiness_score already reflects source strength).
+	switch obs.SourceStrengthClass {
+	case "INTERNAL_EXPORT":
 		bd.QualityModifiers -= 10
-	}
-
-	// source_strength_class = MANUAL_UPLOAD: -20
-	if obs.SourceStrengthClass == "MANUAL_UPLOAD" {
+	case "MANUAL_UPLOAD":
 		bd.QualityModifiers -= 20
 	}
 
@@ -325,10 +333,12 @@ func ScoreCandidate(
 
 	total := bd.ExactCarrierScore +
 		bd.BusinessReferenceScore +
+		bd.ProviderRefScore +
 		bd.BankRefScore +
 		bd.AmountMatchScore +
-		bd.BatchMatchScore +
+		bd.CurrencyMatchScore +
 		bd.TimeWindowScore +
+		bd.BatchMatchScore +
 		bd.SourceSystemScore +
 		bd.QualityModifiers +
 		bd.ConflictingRefPenalty
@@ -343,23 +353,40 @@ func ScoreCandidate(
 	// Composite: amount + currency qualifies.
 	cs.CompositeMatch = cs.AmountMatch && cs.CurrencyMatch
 
-	// ── CONFIDENCE BUCKET ─────────────────────────────────────────────────
-	cs.ConfidenceBucket = classifyConfidence(cs, policy.ManualReviewThresholds)
-
 	return cs
 }
 
-func classifyConfidence(cs CandidateScore, thresholds ManualReviewThresholds) string {
-	switch {
-	case cs.ExactRefMatch && cs.AmountMatch && cs.CurrencyMatch && !cs.ParseConfPenalised:
-		return models.ConfidenceExact
-	case cs.Total >= 150.0 && !cs.ParseConfPenalised: // Bank-grade high threshold
-		return models.ConfidenceHigh
-	case cs.Total >= 90.0:
-		return models.ConfidenceMedium
-	default:
-		return models.ConfidenceLow
+func ClassifyConfidenceContext(top CandidateScore, ranked []CandidateScore, thresholds ManualReviewThresholds) string {
+	if top.HasHardConflict {
+		return models.ConfidenceInvalid
 	}
+
+	margin := 0.0
+	if len(ranked) > 1 {
+		margin = top.Total - ranked[1].Total
+	}
+
+	// EXACT
+	if top.ExactRefMatch && top.AmountMatch && top.CurrencyMatch && !top.HasAnyConflict {
+		if len(ranked) == 1 || margin >= thresholds.ExactMarginThreshold {
+			return models.ConfidenceExact
+		}
+	}
+
+	// HIGH
+	if top.Total >= thresholds.HighConfidenceScore &&
+		margin >= thresholds.AmbiguityMarginThreshold &&
+		top.QualityAcceptable && !top.HasHardConflict {
+		return models.ConfidenceHigh
+	}
+
+	// MEDIUM
+	if top.Total >= thresholds.MinScoreForAutoAttach {
+		return models.ConfidenceMedium
+	}
+
+	// LOW
+	return models.ConfidenceLow
 }
 
 // SelectDecisionType converts a ranked candidate list into a formal decision type.
@@ -370,21 +397,19 @@ func SelectDecisionType(
 	profile *models.AttachmentRuleProfile,
 ) (decisionType string, reasonCode string) {
 
-	policy := parseRuleProfile(profile)
-	ambiguityMargin := policy.ManualReviewThresholds.AmbiguityMarginThreshold
-	// If ambiguity_margin_threshold is expressed as a fraction instead of whole score points:
-	// We check if it's <= 1.0; if so we multiply by 100.
-	if ambiguityMargin > 0 && ambiguityMargin <= 1.0 {
-		ambiguityMargin = ambiguityMargin * 100
+	if len(ranked) == 0 {
+		return models.DecisionMatchUnresolved, "NO_CANDIDATES"
 	}
 
-	switch {
-	case len(ranked) == 0:
-		return models.DecisionMatchUnresolved, "NO_CANDIDATES"
+	policy := parseRuleProfile(profile)
+	top := ranked[0]
+	// Re-evaluate confidence bucket based on context (ranked list)
+	top.ConfidenceBucket = ClassifyConfidenceContext(top, ranked, policy.ManualReviewThresholds)
+	ranked[0] = top // update back into slice
 
+	switch {
 	case len(ranked) == 1:
-		cs := ranked[0]
-		switch cs.ConfidenceBucket {
+		switch top.ConfidenceBucket {
 		case models.ConfidenceExact:
 			return models.DecisionMatchExact, "SINGLE_EXACT_CARRIER"
 		case models.ConfidenceHigh:
@@ -396,7 +421,6 @@ func SelectDecisionType(
 		}
 
 	default:
-		top := ranked[0]
 		runnerUp := ranked[1]
 
 		// Conflicting strong carriers (two candidates with exact refs) = CONFLICTED.
@@ -404,13 +428,7 @@ func SelectDecisionType(
 			return models.DecisionMatchConflicted, "CONFLICTING_EXACT_CARRIERS"
 		}
 
-		// If top two candidates are within the ambiguity margin → AMBIGUOUS.
-		margin := top.Total - runnerUp.Total
-		if margin <= ambiguityMargin {
-			return models.DecisionMatchAmbiguous, "CANDIDATES_WITHIN_AMBIGUITY_MARGIN"
-		}
-
-		// Dominant candidate exists.
+		// Dominant candidate exists based on re-evaluated confidence.
 		switch top.ConfidenceBucket {
 		case models.ConfidenceExact:
 			return models.DecisionMatchExact, "DOMINANT_EXACT_CARRIER"
@@ -422,41 +440,222 @@ func SelectDecisionType(
 	}
 }
 
-// ComputeAmbiguityScore returns a normalised 0-1 ambiguity score.
-// Higher = more uncertain. Feeds Service 7 ambiguity intelligence.
-func ComputeAmbiguityScore(ranked []CandidateScore, decisionType string) float64 {
-	switch decisionType {
-	case models.DecisionMatchExact:
-		return 0.02
-	case models.DecisionMatchHighConfidence:
-		if len(ranked) > 1 {
-			margin := ranked[0].Total - ranked[1].Total
-			return math.Max(0.05, 1-math.Min(margin/100, 1))
-		}
-		return 0.10
-	case models.DecisionMatchAmbiguous:
-		return 0.70
-	case models.DecisionMatchConflicted:
-		return 0.90
-	default: // UNRESOLVED
+// sourceStrengthScore converts obs.SourceStrengthClass to a 0-1 normalised value
+// for use inside confidence and ambiguity formulas.
+// Matches the source strength table from the PDF review.
+func sourceStrengthScore(sourceStrengthClass string) float64 {
+	switch sourceStrengthClass {
+	case "BANK_LEDGER":
 		return 1.0
+	case "PSP_REPORT":
+		return 0.85
+	case "INTERNAL_EXPORT":
+		return 0.65
+	case "MANUAL_UPLOAD":
+		return 0.45
+	default: // UNKNOWN
+		return 0.30
 	}
 }
 
-// ComputeConfidenceScore returns a 0-1 confidence for the winning candidate.
-func ComputeConfidenceScore(top CandidateScore, decisionType string) float64 {
+// ComputeAmbiguityScore returns a normalised 0-1 ambiguity score.
+// Higher = more uncertain. Feeds Service 7 ambiguity intelligence.
+//
+// Formula (per PDF review):
+//
+//	ambiguity_score =
+//	  0.30 * candidate_set_risk
+//	  + 0.25 * margin_risk
+//	  + 0.20 * carrier_weakness
+//	  + 0.10 * parse_mapping_weakness
+//	  + 0.10 * source_weakness
+//	  + 0.05 * conflict_risk
+//
+// Hard overrides applied after formula:
+//
+//	MATCH_UNRESOLVED  → 1.0
+//	MATCH_CONFLICTED  → 0.95
+//	MATCH_EXACT       → cap at 0.05
+func ComputeAmbiguityScore(
+	ranked []CandidateScore,
+	decisionType string,
+	obs models.CanonicalSettlementObservation,
+	policy AttachmentPolicyConfig,
+) float64 {
+	// Hard overrides — these never run the formula.
 	switch decisionType {
-	case models.DecisionMatchExact:
-		return 0.99
-	case models.DecisionMatchHighConfidence:
-		return math.Min(top.Total/150.0, 0.94)
-	case models.DecisionMatchAmbiguous:
-		return 0.50
+	case models.DecisionMatchUnresolved:
+		return 1.0
 	case models.DecisionMatchConflicted:
-		return 0.30
-	default:
-		return 0.0
+		return 0.95
 	}
+
+	candidateSetSize := len(ranked)
+
+	// candidate_set_risk
+	var candidateSetRisk float64
+	switch {
+	case candidateSetSize <= 1:
+		candidateSetRisk = 0.0
+	case candidateSetSize == 2:
+		candidateSetRisk = 0.3
+	case candidateSetSize <= 5:
+		candidateSetRisk = 0.6
+	default:
+		candidateSetRisk = 1.0
+	}
+
+	// margin_risk
+	var marginRisk float64
+	ambiguityThreshold := policy.ManualReviewThresholds.AmbiguityMarginThreshold
+	if ambiguityThreshold <= 0 {
+		ambiguityThreshold = 15.0
+	}
+	if candidateSetSize >= 2 {
+		scoreMargin := ranked[0].Total - ranked[1].Total
+		marginRisk = 1.0 - math.Min(scoreMargin/ambiguityThreshold, 1.0)
+	} else {
+		// Only one candidate — no margin risk from competition.
+		marginRisk = 0.0
+	}
+
+	// carrier_weakness: 1 - carrier_richness_score (already 0-1 on the observation)
+	carrierWeakness := 1.0 - obs.CarrierRichnessScore
+
+	// parse_mapping_weakness
+	parseMappingAvg := (obs.ParseConfidence + obs.MappingConfidence) / 2.0
+	parseMappingWeakness := 1.0 - parseMappingAvg
+
+	// source_weakness
+	sourceWeakness := 1.0 - sourceStrengthScore(obs.SourceStrengthClass)
+
+	// conflict_risk
+	var conflictRisk float64
+	if candidateSetSize > 0 && (ranked[0].HasHardConflict || ranked[0].HasAnyConflict) {
+		conflictRisk = 1.0
+	}
+
+	score := 0.30*candidateSetRisk +
+		0.25*marginRisk +
+		0.20*carrierWeakness +
+		0.10*parseMappingWeakness +
+		0.10*sourceWeakness +
+		0.05*conflictRisk
+
+	// Hard cap for MATCH_EXACT.
+	if decisionType == models.DecisionMatchExact {
+		if score > 0.05 {
+			score = 0.05
+		}
+	}
+
+	return math.Min(score, 1.0)
+}
+
+// ComputeConfidenceScore returns a 0-1 confidence for the winning candidate.
+//
+// Formula (per PDF review):
+//
+//	confidence_score =
+//	  0.35 * normalized_winning_score
+//	  + 0.25 * margin_strength
+//	  + 0.15 * carrier_tier_strength
+//	  + 0.10 * parse_mapping_quality
+//	  + 0.10 * source_strength_score
+//	  + 0.05 * candidate_set_simplicity
+//
+// Hard caps applied after formula:
+//
+//	MATCH_AMBIGUOUS   → cap at 0.60
+//	MATCH_CONFLICTED  → cap at 0.35
+//	MATCH_UNRESOLVED  → cap at 0.20
+//	hard conflict     → cap at 0.30
+func ComputeConfidenceScore(
+	top CandidateScore,
+	decisionType string,
+	ranked []CandidateScore,
+	obs models.CanonicalSettlementObservation,
+	policy AttachmentPolicyConfig,
+) float64 {
+	ambiguityThreshold := policy.ManualReviewThresholds.AmbiguityMarginThreshold
+	if ambiguityThreshold <= 0 {
+		ambiguityThreshold = 15.0
+	}
+
+	// normalized_winning_score
+	normalizedWinningScore := math.Min(top.Total/150.0, 1.0)
+
+	// margin_strength
+	var marginStrength float64
+	if len(ranked) >= 2 {
+		scoreMargin := ranked[0].Total - ranked[1].Total
+		marginStrength = math.Min(scoreMargin/ambiguityThreshold, 1.0)
+	} else {
+		// Single candidate — treat as full margin strength.
+		marginStrength = 1.0
+	}
+
+	// carrier_tier_strength: derived from the top candidate's match flags.
+	// Exact ref match = 1.0, composite match only = 0.5, neither = 0.2.
+	var carrierTierStrength float64
+	switch {
+	case top.ExactRefMatch:
+		carrierTierStrength = 1.0
+	case top.CompositeMatch:
+		carrierTierStrength = 0.5
+	default:
+		carrierTierStrength = 0.2
+	}
+
+	// parse_mapping_quality
+	parseMappingQuality := (obs.ParseConfidence + obs.MappingConfidence) / 2.0
+
+	// source_strength_score
+	srcStrength := sourceStrengthScore(obs.SourceStrengthClass)
+
+	// candidate_set_simplicity
+	var candidateSetSimplicity float64
+	candidateSetSize := len(ranked)
+	switch {
+	case candidateSetSize <= 1:
+		candidateSetSimplicity = 1.0
+	case candidateSetSize == 2:
+		candidateSetSimplicity = 0.7
+	case candidateSetSize <= 5:
+		candidateSetSimplicity = 0.4
+	default:
+		candidateSetSimplicity = 0.1
+	}
+
+	score := 0.35*normalizedWinningScore +
+		0.25*marginStrength +
+		0.15*carrierTierStrength +
+		0.10*parseMappingQuality +
+		0.10*srcStrength +
+		0.05*candidateSetSimplicity
+
+	// Hard caps per decision type.
+	switch decisionType {
+	case models.DecisionMatchAmbiguous:
+		if score > 0.60 {
+			score = 0.60
+		}
+	case models.DecisionMatchConflicted:
+		if score > 0.35 {
+			score = 0.35
+		}
+	case models.DecisionMatchUnresolved:
+		if score > 0.20 {
+			score = 0.20
+		}
+	}
+
+	// Hard conflict cap overrides the above.
+	if top.HasHardConflict && score > 0.30 {
+		score = 0.30
+	}
+
+	return math.Min(score, 1.0)
 }
 
 // abs64 is a simple absolute value for int64.
@@ -584,6 +783,38 @@ func classifyVarianceSeverity(variance decimal.Decimal, intendedAmount decimal.D
 		return models.VarianceSeverityLow
 	}
 	return models.VarianceSeverityInfo
+}
+
+// classifyVarianceType derives the variance_type enum value from the computed
+// flags and amounts.  Added per PDF review (section 9 — corrected variance schema).
+func classifyVarianceType(
+	amountVariance decimal.Decimal,
+	flags map[string]bool,
+	obs models.CanonicalSettlementObservation,
+) string {
+	if flags["status_variance"] {
+		return models.VarianceTypeStatusMismatch
+	}
+	if flags["cross_period"] {
+		return models.VarianceTypeCrossPeriod
+	}
+	if flags["value_date_mismatch"] {
+		return models.VarianceTypeValueDateMismatch
+	}
+	if amountVariance.IsZero() {
+		return models.VarianceTypeNoVariance
+	}
+	// Fee/deduction variance when the observation recorded a fee or deduction amount.
+	if obs.FeeAmount != nil && !obs.FeeAmount.IsZero() {
+		return models.VarianceTypeFeeDeduction
+	}
+	if obs.DeductionAmount != nil && !obs.DeductionAmount.IsZero() {
+		return models.VarianceTypeFeeDeduction
+	}
+	if amountVariance.IsPositive() {
+		return models.VarianceTypeUnderSettlement
+	}
+	return models.VarianceTypeOverSettlement
 }
 
 // isCrossPeriod returns true when intent and settlement fall in different calendar months.

@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { normalizeAuthorizationHeader } from '@/services/payout-command/batch-intake/intakeHttpShared'
 
-/** Proxies multipart bulk file to zord-edge `/v1/bulk-ingest` (or intelligence URL if set).
- * Contract: row-level failures belong on intents / batch line items with structured errors;
- * DLQ is for dead-letter traffic that never becomes a normal intent. See `postIntentBulkIngest.ts`. */
+/** Proxies multipart bulk file to zord-edge `POST /v1/bulk-ingest` only (never zord-intelligence).
+ * Row-level failures stay as intents / line items; DLQ is for true dead letters. See `postIntentBulkIngest.ts`. */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-function candidateBases() {
-  if (process.env.ZORD_INTELLIGENCE_URL?.trim()) return [process.env.ZORD_INTELLIGENCE_URL.trim()]
+function candidateEdgeBases(): string[] {
   if (process.env.ZORD_EDGE_URL?.trim()) return [process.env.ZORD_EDGE_URL.trim()]
-  return ['http://localhost:8080', 'http://zord-intelligence:8080']
+  return ['http://localhost:8080', 'http://zord-edge:8080']
 }
 
 function resolveAuthHeader(req: NextRequest) {
@@ -52,7 +50,7 @@ export async function POST(req: NextRequest) {
     req.headers.get('batch-id') || req.headers.get('Batch-Id') || req.headers.get('batchid') || req.headers.get('BatchId')
   if (batchId?.trim()) headers['Batch-Id'] = batchId.trim()
 
-  const candidateUrls = candidateBases().map((base) => `${base.replace(/\/$/, '')}/v1/bulk-ingest`)
+  const candidateUrls = candidateEdgeBases().map((base) => `${base.replace(/\/$/, '')}/v1/bulk-ingest`)
   let lastError: unknown = null
   let lastResponse: Response | null = null
   let lastUrl = candidateUrls[candidateUrls.length - 1]

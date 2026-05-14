@@ -1,5 +1,5 @@
 /**
- * Step 1 — Intent batch file → Next proxy → upstream POST /v1/bulk-ingest
+ * Step 1 — Intent batch file → Next proxy → zord-edge POST /v1/bulk-ingest (never intelligence)
  * Breakpoint-friendly: all request/response handling lives here.
  *
  * Product default (Arealis): failed **bulk rows** (validation / business rules after a row

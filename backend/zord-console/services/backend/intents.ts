@@ -72,8 +72,14 @@ export async function fetchIntents(params: IntentListParams = {}): Promise<Inten
       throw new Error(`Failed to fetch intents: ${response.status} ${response.statusText}`)
     }
 
-    const data = await response.json()
-    return data
+    const data = (await response.json()) as Partial<IntentListResponse> & Record<string, unknown>
+    const items = Array.isArray(data.items) ? data.items : []
+    const p = data.pagination
+    const pagination =
+      p && typeof p.page === 'number' && typeof p.page_size === 'number' && typeof p.total === 'number'
+        ? p
+        : { page, page_size, total: items.length }
+    return { items, pagination }
   } catch (error) {
     clearTimeout(timeoutId)
     if (error instanceof Error && error.name === 'AbortError') {

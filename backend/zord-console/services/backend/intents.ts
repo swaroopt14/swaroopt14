@@ -59,6 +59,11 @@ export async function fetchIntents(params: IntentListParams = {}): Promise<Inten
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
 
+  const empty = (): IntentListResponse => ({
+    items: [],
+    pagination: { page, page_size, total: 0 },
+  })
+
   try {
     const response = await fetch(fullUrl, {
       ...DEFAULT_FETCH_OPTIONS,
@@ -69,10 +74,15 @@ export async function fetchIntents(params: IntentListParams = {}): Promise<Inten
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch intents: ${response.status} ${response.statusText}`)
+      return empty()
     }
 
-    const data = (await response.json()) as Partial<IntentListResponse> & Record<string, unknown>
+    let data: Partial<IntentListResponse> & Record<string, unknown>
+    try {
+      data = (await response.json()) as Partial<IntentListResponse> & Record<string, unknown>
+    } catch {
+      return empty()
+    }
     const items = Array.isArray(data.items) ? data.items : []
     const p = data.pagination
     const pagination =
@@ -83,9 +93,9 @@ export async function fetchIntents(params: IntentListParams = {}): Promise<Inten
   } catch (error) {
     clearTimeout(timeoutId)
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Request timeout: Intent engine not responding')
+      return empty()
     }
-    throw error
+    return empty()
   }
 }
 
@@ -116,16 +126,20 @@ export async function fetchIntentById(intentId: string): Promise<BackendIntent |
     }
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch intent: ${response.status} ${response.statusText}`)
+      return null
     }
 
-    const data = await response.json()
-    return data
+    try {
+      const data = (await response.json()) as BackendIntent
+      return data
+    } catch {
+      return null
+    }
   } catch (error) {
     clearTimeout(timeoutId)
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Request timeout: Intent engine not responding')
+      return null
     }
-    throw error
+    return null
   }
 }

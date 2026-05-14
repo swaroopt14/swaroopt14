@@ -34,23 +34,10 @@ export async function GET(request: NextRequest) {
   const maxPages = 8
   const items: Awaited<ReturnType<typeof fetchIntents>>['items'] = []
 
-  try {
-    for (let page = 1; page <= maxPages; page++) {
-      const res = await fetchIntents({ tenant_id: tenantId, page, page_size: pageSize })
-      items.push(...res.items)
-      if (res.items.length < pageSize) break
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'intent_engine_error'
-    const body: DisbursementTrendResponse = {
-      data_available: false,
-      range,
-      currency: 'INR',
-      buckets: [],
-      source: 'intent_engine_aggregate',
-      note: message,
-    }
-    return NextResponse.json(body, { status: 502 })
+  for (let page = 1; page <= maxPages; page++) {
+    const res = await fetchIntents({ tenant_id: tenantId, page, page_size: pageSize })
+    items.push(...(res.items ?? []))
+    if ((res.items ?? []).length < pageSize) break
   }
 
   const buckets = aggregateIntentsToTrend(items, range)

@@ -65,7 +65,7 @@ export async function GET(request: NextRequest) {
       tenant_id: item.tenant_id,
     }))
 
-    const items = intentsRes.items.map((intent) => ({
+    const items = (intentsRes.items ?? []).map((intent) => ({
       intent_id: intent.intent_id,
       intent_type: intent.intent_type,
       source: intent.intent_type || 'API',
@@ -87,7 +87,6 @@ export async function GET(request: NextRequest) {
       dlq: { items: dlqItems },
     })
   } catch (error) {
-    console.error('Error in intent-journal composed GET:', error)
     return NextResponse.json(
       {
         batches: null,
@@ -96,7 +95,7 @@ export async function GET(request: NextRequest) {
         dlq: { items: [] },
         error: error instanceof Error ? error.message : 'Failed to load intent journal',
       },
-      { status: 502 },
+      { status: 200, headers: { 'cache-control': 'no-store' } },
     )
   }
 }

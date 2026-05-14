@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import Image from 'next/image'
+import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
 
 type TableType = 'intents' | 'dlq' | 'envelopes' | 'contracts'
 
@@ -110,34 +111,6 @@ type ApiPagedResponse<T> = {
   }
   error?: string
 }
-
-type MockIntentSeed = {
-  intentId: string
-  envelopeId: string
-  traceId: string
-  source: string
-  sourceLogo: string
-  stage: 'Canonical' | 'Relay' | 'Fusion' | 'Evidence'
-  status: string
-  amount: string
-  confidence: number
-  createdAt: string
-  schema: string
-}
-
-const mockIntentSeeds: MockIntentSeed[] = [
-  { intentId: 'in_01JZ3A8N9R7T', envelopeId: 'env_8f2b8', traceId: 'tr_0af90', source: 'PayPal', sourceLogo: '/sources/paypal-clean.png', stage: 'Relay', status: 'READY_FOR_RELAY', amount: '₹4,120', confidence: 0.96, createdAt: '2026-03-04 08:39', schema: 'v3.2.0' },
-  { intentId: 'in_01JZ3ABH2P1M', envelopeId: 'env_8f2bf', traceId: 'tr_0af96', source: 'Cashfree', sourceLogo: '/sources/cashfree.png', stage: 'Fusion', status: 'EXCEPTION', amount: '₹8,900', confidence: 0.82, createdAt: '2026-03-04 07:31', schema: 'v3.2.0' },
-  { intentId: 'in_01JZ3ADN0A7C', envelopeId: 'env_8f2d2', traceId: 'tr_0af99', source: 'Razorpay', sourceLogo: '/sources/razorpay-clean-clean.png', stage: 'Canonical', status: 'CANONICALIZED', amount: '₹2,375', confidence: 0.95, createdAt: '2026-03-04 06:27', schema: 'v3.2.0' },
-  { intentId: 'in_01JZ3AEE6M8N', envelopeId: 'env_8f2f0', traceId: 'tr_0afA2', source: 'PayPal', sourceLogo: '/sources/paypal-clean.png', stage: 'Evidence', status: 'EVIDENCE_READY', amount: '₹18,220', confidence: 0.98, createdAt: '2026-03-03 23:22', schema: 'v3.2.0' },
-  { intentId: 'in_01JZ3AFR8Q1K', envelopeId: 'env_8f301', traceId: 'tr_0afA8', source: 'Cashfree', sourceLogo: '/sources/cashfree.png', stage: 'Relay', status: 'OUTCOME_RECEIVED', amount: '₹6,540', confidence: 0.91, createdAt: '2026-03-03 20:17', schema: 'v3.1.9' },
-  { intentId: 'in_01JZ3AGX6Y8D', envelopeId: 'env_8f315', traceId: 'tr_0afB0', source: 'Razorpay', sourceLogo: '/sources/razorpay-clean-clean.png', stage: 'Canonical', status: 'PENDING', amount: '₹3,780', confidence: 0.89, createdAt: '2026-03-03 19:11', schema: 'v3.2.0' },
-  { intentId: 'in_01JZ3AHH3W2F', envelopeId: 'env_8f320', traceId: 'tr_0afB4', source: 'PayPal', sourceLogo: '/sources/paypal-clean.png', stage: 'Fusion', status: 'FUSED_SUCCESS', amount: '₹9,210', confidence: 0.97, createdAt: '2026-03-03 17:05', schema: 'v3.2.0' },
-  { intentId: 'in_01JZ3AJK1N5R', envelopeId: 'env_8f329', traceId: 'tr_0afB9', source: 'Cashfree', sourceLogo: '/sources/cashfree.png', stage: 'Relay', status: 'DLQ', amount: '₹5,030', confidence: 0.76, createdAt: '2026-03-03 15:59', schema: 'v3.1.9' },
-  { intentId: 'in_01JZ3AKM7L2S', envelopeId: 'env_8f332', traceId: 'tr_0afC2', source: 'Razorpay', sourceLogo: '/sources/razorpay-clean-clean.png', stage: 'Evidence', status: 'EVIDENCE_READY', amount: '₹11,980', confidence: 0.98, createdAt: '2026-03-03 14:54', schema: 'v3.2.0' },
-  { intentId: 'in_01JZ3AMN9Q3T', envelopeId: 'env_8f33a', traceId: 'tr_0afC9', source: 'PayPal', sourceLogo: '/sources/paypal-clean.png', stage: 'Canonical', status: 'CANONICALIZED', amount: '₹1,940', confidence: 0.94, createdAt: '2026-03-01 09:47', schema: 'v3.2.0' },
-  { intentId: 'in_01JZ3ANP5D1V', envelopeId: 'env_8f341', traceId: 'tr_0afD3', source: 'Cashfree', sourceLogo: '/sources/cashfree.png', stage: 'Fusion', status: 'EXCEPTION', amount: '₹7,420', confidence: 0.84, createdAt: '2026-03-01 09:42', schema: 'v3.1.9' },
-]
 
 type SourceMeta = { source: string; sourceLogo: string }
 
@@ -320,103 +293,6 @@ function toContractRow(item: ApiContract): ContractRow {
   }
 }
 
-const mockIntents: IntentRow[] = mockIntentSeeds.map((seed, index) => ({
-  kind: 'intents',
-  rowId: seed.intentId,
-  ...seed,
-  ...SOURCE_SEQUENCE[index % SOURCE_SEQUENCE.length],
-  createdAtDate: parseDate(seed.createdAt),
-}))
-
-const mockDlqSeeds = [
-  { dlqId: 'dlq_0dffdf61', envelopeId: 'env_0dffdf61', source: 'Razorpay', sourceLogo: '/sources/razorpay-clean-clean.png', stage: 'Relay', reasonCode: 'PROVIDER_TIMEOUT', replayable: true, createdAt: '2026-03-04 17:56' },
-  { dlqId: 'dlq_ce28601c', envelopeId: 'env_ce28601c', source: 'PayPal', sourceLogo: '/sources/paypal-clean.png', stage: 'Ingress', reasonCode: 'AUTH_FAILURE', replayable: false, createdAt: '2026-03-04 17:30' },
-  { dlqId: 'dlq_8cc0cbbd', envelopeId: 'env_8cc0cbbd', source: 'Cashfree', sourceLogo: '/sources/cashfree.png', stage: 'Validation', reasonCode: 'INVALID_SIGNATURE', replayable: true, createdAt: '2026-03-04 16:44' },
-  { dlqId: 'dlq_1ee6177c', envelopeId: 'env_1ee6177c', source: 'Razorpay', sourceLogo: '/sources/razorpay-clean-clean.png', stage: 'Canonical', reasonCode: 'SCHEMA_MISMATCH', replayable: false, createdAt: '2026-03-04 15:08' },
-  { dlqId: 'dlq_env_8f2bf', envelopeId: 'env_8f2bf', source: 'PayPal', sourceLogo: '/sources/paypal-clean.png', stage: 'Relay', reasonCode: 'DELIVERY_FAILED', replayable: true, createdAt: '2026-03-04 13:40' },
-  { dlqId: 'dlq_env_8f301', envelopeId: 'env_8f301', source: 'Cashfree', sourceLogo: '/sources/cashfree.png', stage: 'Fusion', reasonCode: 'CONFLICT_UNRESOLVED', replayable: false, createdAt: '2026-03-04 12:12' },
-  { dlqId: 'dlq_env_8f315', envelopeId: 'env_8f315', source: 'Razorpay', sourceLogo: '/sources/razorpay-clean-clean.png', stage: 'Evidence', reasonCode: 'MERKLE_BUILD_FAILURE', replayable: true, createdAt: '2026-03-04 11:57' },
-  { dlqId: 'dlq_env_8f329', envelopeId: 'env_8f329', source: 'PayPal', sourceLogo: '/sources/paypal-clean.png', stage: 'Relay', reasonCode: 'RATE_LIMIT', replayable: true, createdAt: '2026-03-04 10:21' },
-  { dlqId: 'dlq_env_8f341', envelopeId: 'env_8f341', source: 'Cashfree', sourceLogo: '/sources/cashfree.png', stage: 'Ingress', reasonCode: 'PAYLOAD_TOO_LARGE', replayable: false, createdAt: '2026-03-04 09:33' },
-  { dlqId: 'dlq_env_8f33a', envelopeId: 'env_8f33a', source: 'Razorpay', sourceLogo: '/sources/razorpay-clean-clean.png', stage: 'Canonical', reasonCode: 'IDEMPOTENCY_CONFLICT', replayable: true, createdAt: '2026-03-04 08:49' },
-  { dlqId: 'dlq_env_9a102', envelopeId: 'env_9a102', source: 'PayPal', sourceLogo: '/sources/paypal-clean.png', stage: 'Relay', reasonCode: 'ENDPOINT_UNREACHABLE', replayable: true, createdAt: '2026-03-03 22:19' },
-  { dlqId: 'dlq_env_9a109', envelopeId: 'env_9a109', source: 'Cashfree', sourceLogo: '/sources/cashfree.png', stage: 'Fusion', reasonCode: 'OUTCOME_MISMATCH', replayable: false, createdAt: '2026-03-03 20:02' },
-]
-
-const mockDlq: DlqRow[] = mockDlqSeeds.map((seed, index) => ({
-  kind: 'dlq',
-  rowId: seed.dlqId,
-  dlqId: seed.dlqId,
-  envelopeId: seed.envelopeId,
-  ...SOURCE_SEQUENCE[index % SOURCE_SEQUENCE.length],
-  stage: seed.stage,
-  reasonCode: seed.reasonCode,
-  replayable: seed.replayable,
-  createdAt: seed.createdAt,
-  createdAtDate: parseDate(seed.createdAt),
-}))
-
-const mockEnvelopes: EnvelopeRow[] = [
-  {
-    kind: 'envelopes',
-    rowId: 'ce28601c-3bdc-4254-9ea8-3548ef05caf9',
-    envelopeId: 'ce28601c-3bdc-4254-9ea8-3548ef05caf9',
-    source: 'REST',
-    parseStatus: 'RECEIVED',
-    signatureStatus: 'VERIFIED',
-    tenantId: '920d6a21-8e2d-4f18-9c23-7b9e2ea56107',
-    payloadHash: '8a32431beeb2f31d3176d884124ac85ad3a57b511d204b5afdc9bb78b4314e44',
-    createdAt: '2026-03-04 17:30',
-    createdAtDate: parseDate('2026-03-04 17:30'),
-  },
-  {
-    kind: 'envelopes',
-    rowId: '8cc0cbbd-0518-4be6-8601-997ab600ce6c',
-    envelopeId: '8cc0cbbd-0518-4be6-8601-997ab600ce6c',
-    source: 'REST',
-    parseStatus: 'RECEIVED',
-    signatureStatus: 'VERIFIED',
-    tenantId: '20c14c08-8ceb-442d-8980-9b42bd3ac258',
-    payloadHash: '8a32431beeb2f31d3176d884124ac85ad3a57b511d204b5afdc9bb78b4314e44',
-    createdAt: '2026-03-04 17:34',
-    createdAtDate: parseDate('2026-03-04 17:34'),
-  },
-  {
-    kind: 'envelopes',
-    rowId: '1ee6177c-a000-45b6-94ca-91b152894a84',
-    envelopeId: '1ee6177c-a000-45b6-94ca-91b152894a84',
-    source: 'INTENT_ENGINE',
-    parseStatus: 'CANONICALIZED',
-    signatureStatus: 'VERIFIED',
-    tenantId: '7533ca05-ca0c-49f3-8e99-72d1d667e68d',
-    payloadHash: 'bb9da523791eba214b18820c6aaba08eeed8253f4ef0c5ec0fe1bcb713ca3933',
-    createdAt: '2026-03-04 17:54',
-    createdAtDate: parseDate('2026-03-04 17:54'),
-  },
-]
-
-const mockContracts: ContractRow[] = [
-  {
-    kind: 'contracts',
-    rowId: 'ctr_6339e5ff',
-    contractId: 'ctr_6339e5ff',
-    intentId: '6339e5ff-1267-4135-bfe3-07b0f4518ef5',
-    envelopeId: '1ee6177c-a000-45b6-94ca-91b152894a84',
-    status: 'SENT',
-    traceId: '0a1e035f-33c8-4d2f-a7c7-34d02b378d6f',
-    tenantId: '7533ca05-ca0c-49f3-8e99-72d1d667e68d',
-    createdAt: '2026-03-04 17:56',
-    createdAtDate: parseDate('2026-03-04 17:56'),
-  },
-]
-
-const fallbackByTable: Record<TableType, JournalRow[]> = {
-  intents: mockIntents,
-  dlq: mockDlq,
-  envelopes: mockEnvelopes,
-  contracts: mockContracts,
-}
-
 function sourceLogoDimensions() {
   return {
     width: 112,
@@ -440,8 +316,9 @@ function rowSearchText(row: JournalRow) {
 
 function CustomerTestIntentJournalContent() {
   const searchParams = useSearchParams()
+  const tenantId = useSessionTenantId()
   const [tableType, setTableType] = useState<TableType>('intents')
-  const [rows, setRows] = useState<JournalRow[]>(mockIntents)
+  const [rows, setRows] = useState<JournalRow[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -453,20 +330,23 @@ function CustomerTestIntentJournalContent() {
   const [selected, setSelected] = useState<string[]>([])
   const rowsPerPage = 10
 
-  const fetchPaged = useCallback(async <T,>(endpoint: string) => {
+  const fetchPaged = useCallback(async <T,>(endpoint: string, tid: string) => {
     const pageSize = 200
     const maxPages = 5
     let currentPage = 1
     let total = 0
     const collected: T[] = []
+    const tidTrim = tid.trim()
+    if (!tidTrim) return collected
 
     while (currentPage <= maxPages) {
       const params = new URLSearchParams()
       params.set('page', String(currentPage))
       params.set('page_size', String(pageSize))
+      params.set('tenant_id', tidTrim)
 
       const response = await fetch(`${endpoint}?${params.toString()}`, { cache: 'no-store' })
-      if (!response.ok) throw new Error(`Failed to load data (${response.status})`)
+      if (!response.ok) break
 
       const data = (await response.json()) as ApiPagedResponse<T>
       const items = data.items || []
@@ -488,41 +368,43 @@ function CustomerTestIntentJournalContent() {
 
     try {
       if (tableType === 'intents') {
-        const items = await fetchPaged<ApiIntent>('/api/prod/intents')
+        const items = await fetchPaged<ApiIntent>('/api/prod/intents', tenantId)
         const mapped = items.map(toIntentRow).filter((row) => !EXCLUDED_INTENT_IDS.has(row.intentId))
-        if (mapped.length === 0) {
-          setRows(fallbackByTable.intents)
-          setLoadError(null)
-        } else {
-          setRows(mapped)
-        }
+        setRows(mapped)
+        setLoadError(null)
       } else if (tableType === 'dlq') {
-        const response = await fetch('/api/prod/dlq', { cache: 'no-store' })
-        if (!response.ok) throw new Error(`Failed to load DLQ (${response.status})`)
-        const data = (await response.json()) as ApiPagedResponse<ApiDLQ>
-        const mapped = (data.items || []).map(toDlqRow)
-        if (mapped.length === 0) {
-          setRows(fallbackByTable.dlq)
+        const tid = tenantId.trim()
+        const response = await fetch(
+          tid ? `/api/prod/dlq?tenant_id=${encodeURIComponent(tid)}` : '/api/prod/dlq',
+          { cache: 'no-store' },
+        )
+        if (!response.ok) {
+          setRows([])
           setLoadError(null)
         } else {
+          const data = (await response.json()) as ApiPagedResponse<ApiDLQ>
+          const mapped = (data.items || []).map(toDlqRow)
           setRows(mapped)
+          setLoadError(null)
         }
       } else if (tableType === 'envelopes') {
-        const items = await fetchPaged<ApiEnvelope>('/api/prod/raw-envelopes')
+        const items = await fetchPaged<ApiEnvelope>('/api/prod/raw-envelopes', tenantId)
         setRows(items.map(toEnvelopeRow))
+        setLoadError(null)
       } else {
         const response = await fetch('/api/prod/payout-contracts', { cache: 'no-store' })
         if (!response.ok) throw new Error(`Failed to load contracts (${response.status})`)
         const data = (await response.json()) as ApiPagedResponse<ApiContract>
         setRows((data.items || []).map(toContractRow))
+        setLoadError(null)
       }
     } catch (error) {
-      setRows(fallbackByTable[tableType])
+      setRows([])
       setLoadError(error instanceof Error ? error.message : 'Unable to load backend data.')
     } finally {
       setLoading(false)
     }
-  }, [fetchPaged, tableType])
+  }, [fetchPaged, tableType, tenantId])
 
   useEffect(() => {
     void loadTableData()

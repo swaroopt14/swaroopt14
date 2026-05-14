@@ -1,10 +1,5 @@
 'use client'
 
-import Image from 'next/image'
-import { useState } from 'react'
-
-const LOGO_SRC = '/sources/logo_company-removebg-preview.png'
-
 interface ZordLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'hero'
   className?: string
@@ -13,59 +8,47 @@ interface ZordLogoProps {
   fitToHeight?: boolean
 }
 
-export function ZordLogo({ size = 'md', className = '', variant = 'dark', fitToHeight }: ZordLogoProps) {
-  const [broken, setBroken] = useState(false)
-  const imageClassName = variant === 'dark' ? 'brightness-0 invert' : ''
+/** Inline wordmark — avoids Next/Image and missing raster assets under `public/sources/`. */
+function Wordmark({ className }: { className: string }) {
+  return (
+    <span className={`font-bold tracking-[-0.04em] ${className}`} aria-hidden>
+      Zord
+    </span>
+  )
+}
 
-  if (broken) {
-    return (
-      <div
-        className={`flex items-center justify-start ${fitToHeight ? 'h-14' : 'min-h-[2rem]'} ${className}`}
-        aria-label="Arealis Zord"
-      >
-        <span className="rounded-md bg-neutral-900 px-2 py-1 text-[13px] font-bold tracking-tight text-white sm:text-sm">
-          Zord
-        </span>
-      </div>
-    )
-  }
+export function ZordLogo({ size = 'md', className = '', variant = 'dark', fitToHeight }: ZordLogoProps) {
+  const textClass = variant === 'dark' ? 'text-white' : 'text-neutral-900'
+  const sizeClass = fitToHeight
+    ? 'text-[1.35rem] sm:text-[1.45rem]'
+    : size === 'sm'
+      ? 'text-[1.05rem]'
+      : size === 'md'
+        ? 'text-[1.2rem] sm:text-[1.28rem]'
+        : size === 'lg'
+          ? 'text-[1.45rem] sm:text-[1.55rem]'
+          : 'text-[1.65rem] sm:text-[2rem] lg:text-[2.35rem]'
 
   if (fitToHeight) {
     return (
-      <div className={`flex h-14 w-auto shrink-0 items-center justify-start ${className}`}>
-        <Image
-          src={LOGO_SRC}
-          alt="Arealis Zord"
-          width={640}
-          height={160}
-          className={`${imageClassName} h-14 w-auto max-h-14 object-contain object-left`}
-          priority
-          onError={() => setBroken(true)}
-        />
+      <div className={`flex h-14 w-auto shrink-0 items-center justify-start ${className}`} aria-label="Arealis Zord">
+        <Wordmark className={`${textClass} ${sizeClass}`} />
       </div>
     )
   }
 
-  const sizeConfig = {
-    sm: { width: 136, height: 34, containerClassName: 'w-[136px]' },
-    md: { width: 176, height: 44, containerClassName: 'w-[176px]' },
-    lg: { width: 236, height: 59, containerClassName: 'w-[236px]' },
-    hero: { width: 408, height: 102, containerClassName: 'w-[220px] sm:w-[300px] lg:w-[408px]' },
-  }
-
-  const currentSize = sizeConfig[size]
+  const containerClass =
+    size === 'sm'
+      ? 'w-[136px]'
+      : size === 'md'
+        ? 'w-[176px]'
+        : size === 'lg'
+          ? 'w-[236px]'
+          : 'w-[220px] sm:w-[300px] lg:w-[408px]'
 
   return (
-    <div className={`flex items-center ${currentSize.containerClassName} ${className}`}>
-      <Image
-        src={LOGO_SRC}
-        alt="Arealis Zord"
-        width={currentSize.width}
-        height={currentSize.height}
-        className={`${imageClassName} h-auto w-full`}
-        priority={size === 'lg' || size === 'hero'}
-        onError={() => setBroken(true)}
-      />
+    <div className={`flex items-center ${containerClass} ${className}`} aria-label="Arealis Zord">
+      <Wordmark className={`${textClass} ${sizeClass}`} />
     </div>
   )
 }

@@ -2,7 +2,9 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { type GlyphName } from '@/services/payout-command/model'
+import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
+import type { GlyphName } from '@/services/payout-command/model'
+import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { ApiKeysPopoverButton } from './ApiKeysPopoverButton'
 import { Glyph } from '../shared'
 
@@ -46,6 +48,8 @@ export function PageHeader({
   homeCommandFilters,
   homeSystemKnowledgeFlow,
 }: PageHeaderProps) {
+  const { mode } = useEnvironment()
+  const batchCenterHref = payoutBatchCommandCenterHref(mode === 'sandbox')
   const showPageHeading = Boolean(pageTitle)
   const showEyebrow = Boolean(pageEyebrow && pageEyebrow !== pageTitle)
 
@@ -137,7 +141,7 @@ export function PageHeader({
         </button>
 
         <Link
-          href="/payout-command-view/batch-command-center"
+          href={batchCenterHref}
           className="inline-flex h-9 items-center rounded-[8px] border border-[#111111] bg-white px-2.5 text-[14px] font-semibold text-[#111111] hover:bg-[#fafafa]"
         >
           Batch Center

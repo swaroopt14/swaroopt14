@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 export default function BatchCommandCenterPage() {
   return (
     <>
-      <BatchTopNav />
+      <BatchTopNav shell="live" />
       <BatchCommandCenterClient />
     </>
   )

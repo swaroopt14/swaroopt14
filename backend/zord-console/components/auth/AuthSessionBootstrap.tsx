@@ -8,13 +8,16 @@ import { UserRole } from '@/types/auth'
 function getLoginRoute(pathname: string, searchSuffix: string) {
   const q = searchSuffix.startsWith('?') ? searchSuffix : searchSuffix ? `?${searchSuffix}` : ''
   if (pathname.startsWith('/payout-command-view')) {
-    return `/console/login?next=${encodeURIComponent(pathname + q)}`
+    return `/signin/tenant?next=${encodeURIComponent(pathname + q)}`
+  }
+  if (pathname.startsWith('/sandbox')) {
+    return `/signin?next=${encodeURIComponent(pathname + q)}`
   }
   if (pathname.startsWith('/admin')) return '/admin/login'
   if (pathname.startsWith('/ops')) return '/ops/login'
   if (pathname.startsWith('/customer')) return '/customer/login'
   if (pathname.startsWith('/app-final')) return '/app-final/login'
-  return '/console/login'
+  return '/signin'
 }
 
 function isProtectedPath(pathname: string) {
@@ -24,12 +27,22 @@ function isProtectedPath(pathname: string) {
     pathname.startsWith('/ops') ||
     pathname.startsWith('/admin') ||
     pathname.startsWith('/app-final') ||
-    pathname.startsWith('/payout-command-view')
+    pathname.startsWith('/payout-command-view') ||
+    pathname.startsWith('/sandbox')
   )
 }
 
 function isLoginPath(pathname: string) {
-  return pathname === '/console/login' || pathname === '/customer/login' || pathname === '/ops/login' || pathname === '/admin/login' || pathname === '/app-final/login'
+  return (
+    pathname === '/signin' ||
+    pathname === '/signin/tenant' ||
+    pathname === '/signup' ||
+    pathname === '/console/login' ||
+    pathname === '/customer/login' ||
+    pathname === '/ops/login' ||
+    pathname === '/admin/login' ||
+    pathname === '/app-final/login'
+  )
 }
 
 function roleMatchesPath(pathname: string, role: UserRole) {
@@ -39,7 +52,8 @@ function roleMatchesPath(pathname: string, role: UserRole) {
     pathname.startsWith('/customer') ||
     pathname.startsWith('/console') ||
     pathname.startsWith('/app-final') ||
-    pathname.startsWith('/payout-command-view')
+    pathname.startsWith('/payout-command-view') ||
+    pathname.startsWith('/sandbox')
   ) {
     return role === 'CUSTOMER_USER' || role === 'CUSTOMER_ADMIN'
   }

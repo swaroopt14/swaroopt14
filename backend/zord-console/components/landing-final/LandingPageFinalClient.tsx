@@ -752,7 +752,7 @@ const pricingPlans = [
     detail: 'Unlimited usage with no upfront commitment. Best when teams want to test, launch, and pay only for what they use.',
     points: ['Access to GA products', 'Unlimited live API calls', 'Sandbox to production path', 'Standard onboarding'],
     ctaLabel: 'Start self-serve',
-    href: '/console/login',
+    href: '/signup',
   },
   {
     title: 'Growth',
@@ -3118,7 +3118,7 @@ export function PricingTeaserSection() {
                 </p>
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row">
                   <Link
-                    href="/console/login"
+                    href="/signup"
                     className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-[13px] font-semibold text-black transition hover:bg-zinc-200"
                   >
                     Sign up

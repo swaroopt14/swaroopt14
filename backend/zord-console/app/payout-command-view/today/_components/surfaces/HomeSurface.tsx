@@ -129,7 +129,7 @@ export function HomeSurface({
   const safePoint = clamp(displayPoint, 0, Math.max(0, chartData.length - 1))
   const selectedRange = trendChartReady
     ? ([0, Math.max(0, chartData.length - 1)] as const)
-    : snapshot.range
+    : ([0, 0] as const)
   const [selectedRangeStart, selectedRangeEnd] = selectedRange
   const activeChartDatum = chartData[safePoint] ?? {
     point: 0,
@@ -228,7 +228,7 @@ export function HomeSurface({
       : null
 
   const actionHeadline =
-    exposureMinor !== null && Number.isFinite(exposureMinor) ? fmtInrCompact(exposureMinor) : fmtInrCompact(0)
+    exposureMinor !== null && Number.isFinite(exposureMinor) ? fmtInrCompact(exposureMinor) : loading ? '…' : '—'
   const actionSub =
     patternsData != null
       ? `${patternsData.pending_count} intents pending · ${patternsData.finality_status.replace(/_/g, ' ').toLowerCase()}`
@@ -237,7 +237,11 @@ export function HomeSurface({
         : 'Awaiting intelligence snapshot for this workspace'
 
   const heroTotalDisbursementDisplay =
-    observedMinor !== null && Number.isFinite(observedMinor) ? fmtInrCompact(observedMinor) : fmtInrCompact(0)
+    observedMinor !== null && Number.isFinite(observedMinor)
+      ? fmtInrCompact(observedMinor)
+      : loading
+        ? '…'
+        : '—'
 
   const trendInsight = useMemo(() => {
     if (trendSeries?.data_available && trendSeries.buckets.length >= 2) {
@@ -256,7 +260,7 @@ export function HomeSurface({
     if (patternsData) {
       return `Latest batch anomaly ${(patternsData.batch_anomaly_score * 100).toFixed(0)}% (${patternsData.anomaly_level}) with ${patternsData.success_count}/${patternsData.total_count} successes.`
     }
-    return 'Confirmation values are increasing steadily while pending amounts are reducing, indicating normal settlement flow.'
+    return 'No live trend or intelligence KPI payload yet for this tenant — numbers above appear when leakage, patterns, or disbursement-trend APIs return data.'
   }, [trendSeries, trendRange, leakageData, patternsData])
 
   /** 2×2 grid: row1 Leakage | Batch anomaly · row2 Defensibility | Action contracts — each tile is its own Insight-style card. */
@@ -307,14 +311,14 @@ export function HomeSurface({
   )
 
   return (
-    <div className="mt-0 w-full min-w-0 text-[16px]">
+    <div className="mt-0 w-full min-w-0 text-[18px]">
         {/* Primary metric */}
         <div className="px-4 pt-2 text-center sm:px-6 lg:px-8">
           <div className="text-[4.51rem] font-light tracking-[-0.03em] text-[#111111] md:text-[5.59rem] lg:text-[5.91rem]">
             {heroTotalDisbursementDisplay}
           </div>
           <div className="mt-2 text-[1.45rem] font-normal text-[#111111]">Total Disbursement Value</div>
-          <p className="mx-auto mt-2 max-w-2xl text-[16px] leading-7 text-[#6f716d]">
+          <p className="mx-auto mt-2 max-w-2xl text-[18px] leading-7 text-[#6f716d]">
             {intendedMinor !== null
               ? `of ${fmtInrCompact(intendedMinor)} intended this period · settled cleanly`
               : loading
@@ -324,7 +328,7 @@ export function HomeSurface({
         </div>
 
         <div className="mt-6 flex w-full min-h-[48px] items-stretch border-y border-[#e8e8e5] bg-white">
-          <div className="flex w-1/2 min-w-0 items-center border-r border-[#ecece9] px-4 py-3 text-left text-[14px] font-medium text-[#6f716d] sm:px-6 lg:px-8">
+          <div className="flex w-1/2 min-w-0 items-center border-r border-[#ecece9] px-4 py-3 text-left text-[16px] font-medium text-[#6f716d] sm:px-6 lg:px-8">
             <span className="truncate">{snapshot.timeframeLabel}</span>
           </div>
           <div className="flex w-1/2 min-w-0 items-center justify-end gap-2 px-4 py-3 sm:px-6 lg:px-8">
@@ -333,7 +337,7 @@ export function HomeSurface({
                 key={year}
                 type="button"
                 onClick={() => onYearChange(year)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-[13px] font-medium transition ${
+                className={`shrink-0 rounded-full px-3 py-1.5 text-[15px] font-medium transition ${
                   snapshot.selectedYear === year ? 'bg-[#111111] text-white' : 'border border-[#E5E5E5] bg-white text-[#6f716d] hover:bg-[#f5f5f5]'
                 }`}
               >
@@ -345,7 +349,7 @@ export function HomeSurface({
 
         {timeframe === 'Week' && snapshot.holidayLabels.length > 0 ? (
           <div className="mt-3 px-4 sm:px-6 lg:px-8">
-            <div className="rounded-[0.95rem] border border-[#E5E5E5] bg-white px-3 py-2 text-[13px] text-[#6f716d]">
+            <div className="rounded-[0.95rem] border border-[#E5E5E5] bg-white px-3 py-2 text-[15px] text-[#6f716d]">
               Holidays included: {snapshot.holidayLabels.join(' • ')}
             </div>
           </div>
@@ -353,7 +357,7 @@ export function HomeSurface({
 
         {timeframe === 'Custom' ? (
           <div className="mt-3 px-4 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-[1rem] border border-[#E5E5E5] bg-white text-[13px] text-[#6f716d]">
+        <div className="overflow-hidden rounded-[1rem] border border-[#E5E5E5] bg-white text-[15px] text-[#6f716d]">
           <div className="grid grid-cols-[1.1fr_2fr_0.8fr] bg-[#f8f8f7] px-3 py-2 font-medium text-[#5f605b]">
             <div>Range</div>
             <div>Months included</div>
@@ -389,7 +393,7 @@ export function HomeSurface({
                   key={f.id}
                   type="button"
                   onClick={() => setTrendRange(f.id)}
-                  className={`rounded-full px-3 py-1 text-[12px] font-semibold transition ${
+                  className={`rounded-full px-3 py-1 text-[14px] font-semibold transition ${
                     trendRange === f.id ? 'bg-[#111111] text-white' : 'border border-[#e5e5e5] bg-white text-[#64748b] hover:bg-[#fafafa]'
                   }`}
                 >
@@ -400,9 +404,9 @@ export function HomeSurface({
                 isLive={trendChartReady}
                 source={tenantReady ? 'intents · trend' : 'workspace'}
               />
-              {trendLoading ? <span className="text-[11px] text-[#94a3b8]">Updating…</span> : null}
+              {trendLoading ? <span className="text-[13px] text-[#94a3b8]">Updating…</span> : null}
             </div>
-            <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px] text-[#6f716d]">
+            <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-[15px] text-[#6f716d]">
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-2 w-2 shrink-0 rounded-full bg-[#888888]" /> Total disbursement
               </span>
@@ -414,7 +418,7 @@ export function HomeSurface({
               </span>
             </p>
           </div>
-          <p className="max-w-md shrink-0 rounded-xl border border-[#eef2f7] bg-[#f8fafc] px-3 py-2 text-[13px] leading-snug text-[#475569]">
+          <p className="max-w-md shrink-0 rounded-xl border border-[#eef2f7] bg-[#f8fafc] px-3 py-2 text-[15px] leading-snug text-[#475569]">
             <span className="font-semibold text-[#111111]">Insight: </span>
             {trendInsight}
           </p>
@@ -433,21 +437,21 @@ export function HomeSurface({
         >
           <button
             type="button"
-            className="absolute right-2 top-2 text-[13px] leading-none text-[#999999] hover:text-[#111111]"
+            className="absolute right-2 top-2 text-[15px] leading-none text-[#999999] hover:text-[#111111]"
             aria-label="Dismiss chart note"
           >
             ×
           </button>
-          <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-[#8b8a86]">{monthLabel}</div>
+          <div className="text-[13px] font-medium uppercase tracking-[0.12em] text-[#8b8a86]">{monthLabel}</div>
           <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="text-[17px] font-semibold text-[#111111]">
+            <div className="text-[19px] font-semibold text-[#111111]">
               {fmtTrendTooltipInr(activeChartDatum.barValue)}
             </div>
-            <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-[#4ADE80] px-2.5 text-[11px] font-semibold text-[#111111] shadow-[0_2px_10px_rgba(74,222,128,0.45)]">
+            <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-[#4ADE80] px-2.5 text-[13px] font-semibold text-[#111111] shadow-[0_2px_10px_rgba(74,222,128,0.45)]">
               {activeDelta}
             </span>
           </div>
-          <div className="mt-2 text-[12px] font-normal leading-4 text-[#8b8a86]">{liveTooltipNote}</div>
+          <div className="mt-2 text-[14px] font-normal leading-4 text-[#8b8a86]">{liveTooltipNote}</div>
         </div>
         ) : null}
 
@@ -481,7 +485,7 @@ export function HomeSurface({
                   domain={[0, yDomainMax]}
                   ticks={yTicks}
                   tickFormatter={(value: number) => (value === 0 ? '0' : `₹${value.toFixed(0)}k`)}
-                  tick={{ fill: '#999999', fontSize: 11, fontWeight: 400 }}
+                  tick={{ fill: '#999999', fontSize: 13, fontWeight: 400 }}
                 />
                 <Bar dataKey="barValue" barSize={4} radius={[0, 0, 0, 0]} isAnimationActive>
                   {chartData.map((entry) => (
@@ -520,16 +524,16 @@ export function HomeSurface({
           ) : tenantReady && trendLoading ? (
             <div className="h-[21rem] w-full animate-pulse rounded-lg bg-slate-100 md:h-[23rem]" aria-busy="true" />
           ) : (
-            <div className="flex h-[21rem] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 text-center text-[14px] leading-snug text-slate-600 md:h-[23rem]">
+            <div className="flex h-[21rem] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 text-center text-[16px] leading-snug text-slate-600 md:h-[23rem]">
               {tenantReady ? (
                 <>
                   <span className="font-medium text-slate-800">No trend data in this range</span>
-                  <span className="max-w-md text-[13px] text-slate-500">Try Week / Month / Quarter / Year, or wait until intents exist in the selected window.</span>
+                  <span className="max-w-md text-[15px] text-slate-500">Try Week / Month / Quarter / Year, or wait until intents exist in the selected window.</span>
                 </>
               ) : (
                 <>
                   <span className="font-medium text-slate-800">Workspace required</span>
-                  <span className="max-w-md text-[13px] text-slate-500">Sign in and select a tenant to plot disbursement and confirmation from the intent ledger.</span>
+                  <span className="max-w-md text-[15px] text-slate-500">Sign in and select a tenant to plot disbursement and confirmation from the intent ledger.</span>
                 </>
               )}
             </div>
@@ -549,7 +553,7 @@ export function HomeSurface({
         </div>
 
         <div
-          className="mt-4 grid min-w-0 text-[12px] text-[#999999]"
+          className="mt-4 grid min-w-0 text-[14px] text-[#999999]"
           style={{ gridTemplateColumns: `repeat(${axisLabelsForChart.length}, minmax(0, 1fr))` }}
         >
           {axisLabelsForChart.map((month, i) => (
@@ -563,7 +567,7 @@ export function HomeSurface({
           {chartTags.map((tag) => (
             <span
               key={tag.key}
-              className="rounded-full border border-black/10 bg-[#fafafa] px-3 py-1.5 text-[12px] font-semibold text-[#111111]"
+              className="rounded-full border border-black/10 bg-[#fafafa] px-3 py-1.5 text-[14px] font-semibold text-[#111111]"
             >
               {tag.label}
             </span>
@@ -579,10 +583,10 @@ export function HomeSurface({
         >
           <div className="w-full max-w-none space-y-3">
             <div className="rounded-[12px] border border-slate-200/90 bg-white/95 px-3 py-2.5 shadow-[0_2px_12px_rgba(15,23,42,0.04)] sm:px-3.5 sm:py-2.5">
-              <h2 id="home-today-command-center-title" className="text-[14px] font-bold tracking-[-0.02em] text-[#0f172a]">
+              <h2 id="home-today-command-center-title" className="text-[16px] font-bold tracking-[-0.02em] text-[#0f172a]">
                 Today · command center
               </h2>
-              <p className="mt-0.5 text-[12px] leading-snug text-slate-600">{homePageSummary}</p>
+              <p className="mt-0.5 text-[14px] leading-snug text-slate-600">{homePageSummary}</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <LiveDataHint
                   isLive={Boolean(loading || leakageData || defData || patternsData || recsData || ambData)}
@@ -631,14 +635,14 @@ export function HomeSurface({
             <div className="relative mb-4 h-1 w-12 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.5)]" />
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0 flex-1">
-                <h2 id="home-action-required-title" className="text-[16px] font-bold tracking-[-0.02em] text-white drop-shadow-sm">
+                <h2 id="home-action-required-title" className="text-[18px] font-bold tracking-[-0.02em] text-white drop-shadow-sm">
                   Action Required
                 </h2>
-                <p className="mt-2 text-[29px] font-bold tracking-[-0.04em] text-white drop-shadow-sm sm:text-[33px]">
+                <p className="mt-2 text-[32px] font-bold tracking-[-0.04em] text-white drop-shadow-sm sm:text-[36px]">
                   {actionHeadline}
                 </p>
-                <p className="mt-2 text-[14px] leading-relaxed text-white/90">{actionSub}</p>
-                <p className="mt-3 text-[16px] font-semibold text-white">
+                <p className="mt-2 text-[16px] leading-relaxed text-white/90">{actionSub}</p>
+                <p className="mt-3 text-[18px] font-semibold text-white">
                   {ambData
                     ? `${ambData.ambiguous_intent_count} ambiguous intents · ambiguity ${(ambData.ambiguity_rate * 100).toFixed(1)}%`
                     : patternsData
@@ -650,7 +654,7 @@ export function HomeSurface({
                 <button
                   type="button"
                   onClick={onOpenProblemWorkspace}
-                  className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/35 bg-white/15 px-4 py-3 text-[14px] font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.15)] backdrop-blur-md transition hover:bg-white/25 hover:border-white/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:w-auto"
+                  className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/35 bg-white/15 px-4 py-3 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.15)] backdrop-blur-md transition hover:bg-white/25 hover:border-white/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:w-auto"
                 >
                   Open problem workspace
                   <Glyph name="arrow-up-right" className="h-4 w-4 opacity-90" />
@@ -658,7 +662,7 @@ export function HomeSurface({
               ) : (
                 <Link
                   href="/payout-command-view/today?dock=leakage"
-                  className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/35 bg-white/15 px-4 py-3 text-[14px] font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.15)] backdrop-blur-md transition hover:bg-white/25 sm:w-auto"
+                  className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/35 bg-white/15 px-4 py-3 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.15)] backdrop-blur-md transition hover:bg-white/25 sm:w-auto"
                 >
                   Open problem workspace
                   <Glyph name="arrow-up-right" className="h-4 w-4 opacity-90" />
@@ -666,9 +670,15 @@ export function HomeSurface({
               )}
             </div>
             <div className="mt-6 rounded-[20px] border border-white/30 bg-white/15 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-md">
-              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-white/85">Recommended Action:</span>
-              <p className="mt-2 text-[14px] font-medium leading-snug text-white/95">
-                Follow up on delayed confirmations — this is the primary reason for pending value
+              <span className="text-[13px] font-bold uppercase tracking-[0.12em] text-white/85">Recommended Action:</span>
+              <p className="mt-2 text-[16px] font-medium leading-snug text-white/95">
+                {patternsData && leakageData
+                  ? `Review ${patternsData.pending_count} pending intents and ${(leakageData.leakage_percentage * 100).toFixed(1)}% leakage — triage in Leakage / Journal docks.`
+                  : leakageData
+                    ? `${leakageData.risk_tier} leakage tier — open Leakage dock for unmatched and under-settlement amounts.`
+                    : patternsData
+                      ? `Batch anomaly ${patternsData.anomaly_level} on latest patterns signal — cross-check Intent Journal.`
+                      : 'When intelligence KPIs load for this tenant, recommended follow-ups appear here.'}
               </p>
             </div>
           </div>
@@ -679,16 +689,16 @@ export function HomeSurface({
           <div className="mx-auto mb-3 w-full max-w-[30rem] rounded-[1.2rem] border border-black/10 bg-white px-4 py-3 shadow-[0_12px_24px_rgba(0,0,0,0.08)]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-[#179a4c]">
-                  {commandStatus === 'loading' ? 'Analyzing snapshot' : commandStatus === 'typing' ? 'Drafting response' : 'Simulation response'}
+                <div className="text-[14px] font-medium uppercase tracking-[0.14em] text-[#179a4c]">
+                  {commandStatus === 'loading' ? 'Analyzing prompt' : commandStatus === 'typing' ? 'Drafting response' : 'Scope summary'}
                 </div>
-                <div className="mt-1 text-[16px] font-medium text-[#111111]">{commandResponse.title}</div>
-                <div className="mt-2 min-h-[3.25rem] text-[14px] leading-6 text-[#6f716d]">
+                <div className="mt-1 text-[18px] font-medium text-[#111111]">{commandResponse.title}</div>
+                <div className="mt-2 min-h-[3.25rem] text-[16px] leading-6 text-[#6f716d]">
                   {commandResponse.body}
                   {commandStatus === 'typing' ? <span className="ml-0.5 inline-block h-4 w-px animate-pulse bg-[#179a4c] align-middle" /> : null}
                 </div>
               </div>
-              <button type="button" onClick={onDismissCommandResponse} className="text-[15px] text-[#8b8a86]">
+              <button type="button" onClick={onDismissCommandResponse} className="text-[17px] text-[#8b8a86]">
                 ×
               </button>
             </div>
@@ -704,7 +714,7 @@ export function HomeSurface({
             <span className="flex h-9 w-9 items-center justify-center rounded-[0.7rem] bg-[#4ADE80] text-[#111111]">
               <Glyph name="zap" className="h-4 w-4" />
             </span>
-            <span className="text-[15px] font-medium">Ask Zord</span>
+            <span className="text-[17px] font-medium">Ask Zord</span>
             <span className="ml-auto text-white/70">
               <Glyph name="arrow-up-right" className="h-4 w-4" />
             </span>
@@ -712,11 +722,11 @@ export function HomeSurface({
         ) : (
           <div className="rounded-[1.35rem] bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-[12px] uppercase tracking-[0.1em] text-white/60">Ask Zord</div>
+              <div className="text-[14px] uppercase tracking-[0.1em] text-white/60">Ask Zord</div>
               <button
                 type="button"
                 onClick={() => setIsPromptExpanded(false)}
-                className="rounded-full border border-white/20 px-2.5 py-1 text-[12px] text-white/75 hover:text-white"
+                className="rounded-full border border-white/20 px-2.5 py-1 text-[14px] text-white/75 hover:text-white"
               >
                 Minimize
               </button>
@@ -727,7 +737,7 @@ export function HomeSurface({
                   key={`home-command-${item.prompt}`}
                   type="button"
                   onClick={() => onQuickPrompt(item.prompt)}
-                  className={`rounded-[0.9rem] px-3 py-2 text-[13px] transition ${
+                  className={`rounded-[0.9rem] px-3 py-2 text-[15px] transition ${
                     scenario.prompt === item.prompt ? 'bg-white/16 text-white' : 'bg-white/10 text-white/74 hover:bg-white/14 hover:text-white'
                   } ${commandStatus === 'loading' || commandStatus === 'typing' ? 'opacity-70' : ''}`}
                 >
@@ -748,14 +758,14 @@ export function HomeSurface({
                     if (event.key === 'Enter') onPromptSubmit()
                   }}
                   placeholder="Ask about disbursement status, delays, or confirmations"
-                  className={`w-full bg-transparent text-center text-[16px] !text-white placeholder:text-white/48 caret-[#4ADE80] outline-none ${promptTone.inputToneClass}`}
+                  className={`w-full bg-transparent text-center text-[18px] !text-white placeholder:text-white/48 caret-[#4ADE80] outline-none ${promptTone.inputToneClass}`}
                 />
-                <div className={`mt-1 text-center text-[12px] tracking-[0.04em] ${promptTone.captionToneClass}`}>
+                <div className={`mt-1 text-center text-[14px] tracking-[0.04em] ${promptTone.captionToneClass}`}>
                   {commandStatus === 'loading'
                     ? 'Reading disbursement snapshot and confirmation signals…'
                     : commandStatus === 'typing'
                       ? 'Drafting a short operator-style answer…'
-                      : 'Simulation only — answers summarize the numbers on this screen.'}
+                      : 'Prompt adjusts scope labels only — disbursement chart and KPIs load from `/api/prod` intelligence and trend routes.'}
                 </div>
               </div>
               <div className="flex items-center gap-2">

@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { normalizeAuthorizationHeader } from '@/services/payout-command/batch-intake/intakeHttpShared'
 
+/** Proxies multipart bulk file to zord-edge `/v1/bulk-ingest` (or intelligence URL if set).
+ * Contract: row-level failures belong on intents / batch line items with structured errors;
+ * DLQ is for dead-letter traffic that never becomes a normal intent. See `postIntentBulkIngest.ts`. */
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 

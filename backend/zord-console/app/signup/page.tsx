@@ -1,8 +1,9 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { persistEnvMode } from '@/services/auth/persistEnvMode'
 
 type SignupResult = {
   apiKey: string
@@ -71,8 +72,8 @@ function SignupMarketingAside() {
               3
             </span>
             <span>
-              <span className="font-semibold text-white">Open the dashboard</span> — payout command view, intents, and
-              evidence tools use your new session.
+              <span className="font-semibold text-white">Open the sandbox</span> — first session lands in sandbox so you
+              can explore safely; switch to live when you are ready.
             </span>
           </li>
         </ol>
@@ -137,7 +138,8 @@ export default function SignUpPage() {
         setLoading(false)
         return
       }
-      router.push('/payout-command-view')
+      persistEnvMode('sandbox')
+      router.push('/sandbox')
       router.refresh()
     } catch {
       setError('Network error. Try again.')
@@ -157,9 +159,14 @@ export default function SignUpPage() {
   }
 
   function handleContinue() {
-    router.push('/payout-command-view')
+    persistEnvMode('sandbox')
+    router.push('/sandbox')
     router.refresh()
   }
+
+  useEffect(() => {
+    if (signupResult) persistEnvMode('sandbox')
+  }, [signupResult])
 
   if (signupResult) {
     return (
@@ -224,7 +231,7 @@ export default function SignUpPage() {
               onClick={handleContinue}
               className="mt-6 w-full rounded-[10px] bg-[#0f172a] py-2.5 text-[14px] font-semibold text-white shadow-[0_4px_12px_rgba(15,23,42,0.18)] transition hover:bg-black"
             >
-              Continue to dashboard
+              Continue to sandbox
             </button>
           </div>
         </main>
@@ -247,8 +254,8 @@ export default function SignUpPage() {
           <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[#0f172a]">Create your workspace</h1>
           <p className="mt-2 text-[14px] leading-relaxed text-[#64748b]">
             One short form creates your <span className="font-medium text-[#334155]">tenant</span> and your{' '}
-            <span className="font-medium text-[#334155]">first admin</span>. Next screen: copy your API key, then open
-            the dashboard.
+            <span className="font-medium text-[#334155]">first admin</span>. Next screen: copy your API key, then continue
+            to the sandbox workspace.
           </p>
 
           <ul className="mt-4 space-y-2 rounded-xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-[13px] leading-snug text-[#475569]">

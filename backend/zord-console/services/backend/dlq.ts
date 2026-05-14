@@ -5,6 +5,7 @@ export interface BackendDLQItem {
   dlq_id: string
   tenant_id: string
   envelope_id: string
+  client_batch_ref?: string
   stage: string
   reason_code: string
   error_detail?: string
@@ -42,17 +43,24 @@ export async function fetchDLQItems(params: DLQListParams = {}): Promise<Backend
     clearTimeout(timeoutId)
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch DLQ items: ${response.status} ${response.statusText}`)
+      return []
     }
 
-    const data = await response.json()
-    return data
+    let data: unknown
+    try {
+      data = await response.json()
+    } catch {
+      return []
+    }
+    // Empty DLQ: intent-engine historically returned JSON `null` (Go nil slice). Always return an array.
+    if (Array.isArray(data)) return data as BackendDLQItem[]
+    return []
   } catch (error) {
     clearTimeout(timeoutId)
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error('Request timeout: Intent engine not responding')
+      return []
     }
-    throw error
+    return []
   }
 }
 

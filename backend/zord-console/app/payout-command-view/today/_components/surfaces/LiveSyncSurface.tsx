@@ -9,7 +9,8 @@ const dmSans = DM_Sans({
   weight: ['400', '500', '600', '700'],
 })
 
-const VB = { w: 760, h: 600 }
+/** Design “virtual” canvas — wide + tall so cards sit near corners and link labels fit in the middle. */
+const VB = { w: 960, h: 800 }
 
 type EdgeKey = 'loan' | 'banks' | 'payment' | 'mandate' | 'other'
 
@@ -18,18 +19,21 @@ type SystemKey = EdgeKey
 type Health = 'ok' | 'warn'
 
 /** Card width in design coordinates — inset from edges so cards stay inside the diagram */
-const CARD_W = 226
+const CARD_W = 208
 const CARD_W_PCT = (CARD_W / VB.w) * 100
 
 const SYSTEM_LAYOUT: Record<
   SystemKey,
   { top?: number; left?: number; right?: number; bottom?: number; centerX?: boolean }
 > = {
-  loan: { top: 42, left: 22 },
-  banks: { top: 286, left: 22 },
-  payment: { top: 42, right: 22 },
-  mandate: { top: 286, right: 22 },
-  other: { bottom: 18, centerX: true },
+  /** Tight to top-left / top-right corners */
+  loan: { top: 10, left: 2 },
+  payment: { top: 10, right: 2 },
+  /** Lower row clears the hub; wires arc through open space for status pills */
+  banks: { top: 532, left: 2 },
+  mandate: { top: 532, right: 2 },
+  /** Bottom-center; `bottom` inset keeps the card below the lower spokes */
+  other: { bottom: 22, centerX: true },
 }
 
 const SYSTEM_DETAILS: Record<
@@ -243,13 +247,13 @@ function EdgePaths({
       xmlns="http://www.w3.org/2000/svg"
       role="presentation"
     >
-      <circle cx="380" cy="292" r="162" fill="none" stroke="#E4E4DE" strokeWidth="1" strokeDasharray="5 7" pointerEvents="none" />
-      <circle cx="380" cy="292" r="136" fill="none" stroke="rgba(99,102,241,0.08)" strokeWidth="1" pointerEvents="none" />
+      <circle cx="480" cy="400" r="118" fill="none" stroke="#E4E4DE" strokeWidth="1" strokeDasharray="5 7" pointerEvents="none" />
+      <circle cx="480" cy="400" r="98" fill="none" stroke="rgba(99,102,241,0.08)" strokeWidth="1" pointerEvents="none" />
 
-      {hit('M 224 110 Q 292 168 315 238', 'loan')}
-      <path d="M 224 110 Q 292 168 315 238" fill="none" stroke={g(edgeOk('loan'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      {hit('M 218 78 Q 308 205 405 318', 'loan')}
+      <path d="M 218 78 Q 308 205 405 318" fill="none" stroke={g(edgeOk('loan'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
       <path
-        d="M 224 110 Q 292 168 315 238"
+        d="M 218 78 Q 308 205 405 318"
         fill="none"
         stroke={s(edgeOk('loan'))}
         strokeWidth="2"
@@ -257,13 +261,13 @@ function EdgePaths({
         className={cls(edgeOk('loan'))}
         pointerEvents="none"
       />
-      <circle cx="270" cy="178" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
-      <circle cx="296" cy="212" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="290" cy="188" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="340" cy="248" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
 
-      {hit('M 224 378 Q 290 360 316 338', 'banks')}
-      <path d="M 224 378 Q 290 360 316 338" fill="none" stroke={g(edgeOk('banks'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      {hit('M 218 598 Q 312 455 405 378', 'banks')}
+      <path d="M 218 598 Q 312 455 405 378" fill="none" stroke={g(edgeOk('banks'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
       <path
-        d="M 224 378 Q 290 360 316 338"
+        d="M 218 598 Q 312 455 405 378"
         fill="none"
         stroke={s(edgeOk('banks'))}
         strokeWidth="2"
@@ -271,13 +275,13 @@ function EdgePaths({
         className={cls(edgeOk('banks'))}
         pointerEvents="none"
       />
-      <circle cx="268" cy="360" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
-      <circle cx="294" cy="346" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="288" cy="518" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="340" cy="438" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
 
-      {hit('M 536 110 Q 468 168 445 238', 'payment')}
-      <path d="M 536 110 Q 468 168 445 238" fill="none" stroke={g(edgeOk('payment'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      {hit('M 742 78 Q 652 205 555 318', 'payment')}
+      <path d="M 742 78 Q 652 205 555 318" fill="none" stroke={g(edgeOk('payment'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
       <path
-        d="M 536 110 Q 468 168 445 238"
+        d="M 742 78 Q 652 205 555 318"
         fill="none"
         stroke={s(edgeOk('payment'))}
         strokeWidth="2"
@@ -285,13 +289,13 @@ function EdgePaths({
         className={cls(edgeOk('payment'))}
         pointerEvents="none"
       />
-      <circle cx="490" cy="178" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
-      <circle cx="464" cy="212" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="670" cy="188" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="620" cy="248" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
 
-      {hit('M 536 378 Q 470 360 444 338', 'mandate')}
-      <path d="M 536 378 Q 470 360 444 338" fill="none" stroke={g(edgeOk('mandate'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      {hit('M 742 598 Q 648 455 555 378', 'mandate')}
+      <path d="M 742 598 Q 648 455 555 378" fill="none" stroke={g(edgeOk('mandate'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
       <path
-        d="M 536 378 Q 470 360 444 338"
+        d="M 742 598 Q 648 455 555 378"
         fill="none"
         stroke={s(edgeOk('mandate'))}
         strokeWidth="2"
@@ -299,13 +303,13 @@ function EdgePaths({
         className={cls(edgeOk('mandate'))}
         pointerEvents="none"
       />
-      <circle cx="492" cy="360" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
-      <circle cx="466" cy="346" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="672" cy="518" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="620" cy="438" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
 
-      {hit('M 380 500 L 380 357', 'other')}
-      <path d="M 380 500 L 380 357" fill="none" stroke={g(edgeOk('other'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
+      {hit('M 480 712 L 480 392', 'other')}
+      <path d="M 480 712 L 480 392" fill="none" stroke={g(edgeOk('other'))} strokeWidth="10" strokeLinecap="round" pointerEvents="none" />
       <path
-        d="M 380 500 L 380 357"
+        d="M 480 712 L 480 392"
         fill="none"
         stroke={s(edgeOk('other'))}
         strokeWidth="2"
@@ -313,9 +317,9 @@ function EdgePaths({
         className={cls(edgeOk('other'))}
         pointerEvents="none"
       />
-      <circle cx="380" cy="444" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
-      <circle cx="380" cy="406" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
-      <circle cx="380" cy="369" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="480" cy="628" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="480" cy="538" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
+      <circle cx="480" cy="452" r="4" fill="#6366F1" stroke="white" strokeWidth="1.5" pointerEvents="none" />
     </svg>
   )
 }
@@ -361,19 +365,23 @@ function ConnLabel({
   return (
     <button
       type="button"
-      className="absolute z-[6] flex cursor-pointer flex-col items-center gap-[3px] rounded-md border border-transparent bg-transparent p-1 text-center outline-none ring-indigo-500/0 transition hover:ring-2 hover:ring-indigo-400/40 focus-visible:ring-2"
+      className="absolute z-[13] flex max-w-[min(132px,38vw)] cursor-pointer items-center gap-2 rounded-lg border border-black/[0.07] bg-white px-2 py-1.5 text-left shadow-[0_2px_14px_rgba(15,23,42,0.08)] outline-none ring-indigo-500/0 transition hover:border-indigo-200/80 hover:shadow-[0_4px_18px_rgba(15,23,42,0.1)] hover:ring-2 hover:ring-indigo-400/35 focus-visible:ring-2 focus-visible:ring-indigo-400/45 sm:max-w-[150px]"
       style={style}
-      aria-label={`${label}. Open connection details.`}
+      title={`${line1} · ${line2}`}
+      aria-label={`${label}: ${line1} ${line2}. Open connection details.`}
       onClick={() => onSelect(systemId)}
     >
-      <div className="flex h-7 w-7 items-center justify-center rounded-full shadow-[0_1px_2px_rgba(0,0,0,0.05)]" style={{ background: bg, border }}>
+      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full shadow-[0_1px_2px_rgba(0,0,0,0.05)]" style={{ background: bg, border }}>
         {ok ? <ClIconCheck /> : <ClIconWarn />}
-          </div>
-      <div className="max-w-[100px] text-center text-[12px] font-semibold leading-[1.3] tracking-[-0.01em] sm:text-[13px]" style={{ color, textShadow: '0 0 8px white, 0 0 12px white' }}>
-        {line1}
-        <br />
-        {line2}
       </div>
+      <span className="min-w-0 leading-[1.2]">
+        <span className="block text-[10.5px] font-semibold tracking-[-0.02em] sm:text-[11.5px]" style={{ color }}>
+          {line1}
+        </span>
+        <span className="mt-0.5 block text-[10.5px] font-semibold tracking-[-0.02em] sm:text-[11.5px]" style={{ color }}>
+          {line2}
+        </span>
+      </span>
     </button>
   )
 }
@@ -577,9 +585,9 @@ export function LiveSyncSurface() {
 
         <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch lg:gap-5">
           <div className="relative isolate z-0 min-h-0 w-full min-w-0 flex-1 overflow-hidden rounded-[18px] border border-[rgba(0,0,0,0.08)] bg-white shadow-[0_4px_24px_rgba(0,0,0,0.06),0_0_0_1px_rgba(0,0,0,0.04)]">
-            <div className="flex min-h-[min(520px,calc(100dvh-20rem))] items-center justify-center bg-[radial-gradient(ellipse_85%_65%_at_50%_42%,#fafaf8_0%,#ffffff_55%,#f6f6f3_100%)] px-3 py-5 sm:px-5 sm:py-6">
+            <div className="flex min-h-[min(620px,calc(100dvh-18rem))] items-center justify-center bg-[radial-gradient(ellipse_85%_65%_at_50%_42%,#fafaf8_0%,#ffffff_55%,#f6f6f3_100%)] px-3 py-5 sm:px-5 sm:py-6">
               <div
-                className="relative w-full max-w-[min(100%,920px)] shrink-0"
+                className="relative w-full max-w-[min(100%,1080px)] shrink-0"
                 style={{ aspectRatio: `${VB.w} / ${VB.h}` }}
               >
             <EdgePaths edgeOk={edgeOk} onEdgeSelect={open} />
@@ -591,7 +599,7 @@ export function LiveSyncSurface() {
               line1="Syncing"
               line2="Normally"
               label="Loan → Zord link"
-              style={{ left: `${(234 / VB.w) * 100}%`, top: `${(136 / VB.h) * 100}%`, transform: 'translateX(-50%)' }}
+              style={{ left: `${(318 / VB.w) * 100}%`, top: `${(198 / VB.h) * 100}%`, transform: 'translate(-50%, -50%)' }}
             />
             <ConnLabel
               systemId="banks"
@@ -600,7 +608,7 @@ export function LiveSyncSurface() {
               line1="Confirmation"
               line2="Delays"
               label="Banks → Zord link"
-              style={{ left: `${(234 / VB.w) * 100}%`, top: `${(382 / VB.h) * 100}%`, transform: 'translateX(-50%)' }}
+              style={{ left: `${(312 / VB.w) * 100}%`, top: `${(472 / VB.h) * 100}%`, transform: 'translate(-50%, -50%)' }}
             />
             <ConnLabel
               systemId="payment"
@@ -609,7 +617,7 @@ export function LiveSyncSurface() {
               line1="Delayed"
               line2="Updates"
               label="Payment → Zord link"
-              style={{ right: `${(234 / VB.w) * 100}%`, top: `${(136 / VB.h) * 100}%`, transform: 'translateX(50%)' }}
+              style={{ right: `${(318 / VB.w) * 100}%`, top: `${(198 / VB.h) * 100}%`, transform: 'translate(50%, -50%)' }}
             />
             <ConnLabel
               systemId="mandate"
@@ -618,7 +626,7 @@ export function LiveSyncSurface() {
               line1="Syncing"
               line2="Normally"
               label="Mandate → Zord link"
-              style={{ right: `${(234 / VB.w) * 100}%`, top: `${(382 / VB.h) * 100}%`, transform: 'translateX(50%)' }}
+              style={{ right: `${(318 / VB.w) * 100}%`, top: `${(472 / VB.h) * 100}%`, transform: 'translate(50%, -50%)' }}
             />
             <ConnLabel
               systemId="other"
@@ -627,10 +635,10 @@ export function LiveSyncSurface() {
               line1="Syncing"
               line2="Normally"
               label="Other platforms → Zord link"
-              style={{ left: '50%', bottom: `${(94 / VB.h) * 100}%`, transform: 'translateX(22px)' }}
+              style={{ left: '50%', top: `${(548 / VB.h) * 100}%`, transform: 'translate(calc(-50% + 26px), -50%)' }}
             />
 
-            <div className="pointer-events-none absolute left-1/2 top-1/2 z-[15] -translate-x-1/2 -translate-y-1/2 scale-100 sm:scale-[1.08]">
+            <div className="pointer-events-none absolute left-1/2 top-1/2 z-[15] -translate-x-1/2 -translate-y-1/2 scale-[0.98] sm:scale-[1.02]">
               <div
                 className="skg-center-glow absolute left-1/2 top-1/2 h-[220px] w-[220px] rounded-full bg-[radial-gradient(circle,rgba(99,102,241,0.2)_0%,transparent_70%)]"
                 aria-hidden
@@ -657,7 +665,7 @@ export function LiveSyncSurface() {
 
             <button
               type="button"
-              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              className="skg-sys-card absolute z-20 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
               style={cardPositionStyle(SYSTEM_LAYOUT.loan)}
               onClick={() => open('loan')}
               aria-label="Open Loan System connection details"
@@ -695,7 +703,7 @@ export function LiveSyncSurface() {
 
             <button
               type="button"
-              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              className="skg-sys-card absolute z-20 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
               style={cardPositionStyle(SYSTEM_LAYOUT.banks)}
               onClick={() => open('banks')}
               aria-label="Open Banks connection details"
@@ -738,7 +746,7 @@ export function LiveSyncSurface() {
 
             <button
               type="button"
-              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              className="skg-sys-card absolute z-20 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
               style={cardPositionStyle(SYSTEM_LAYOUT.payment)}
               onClick={() => open('payment')}
               aria-label="Open Payment Partner connection details"
@@ -779,7 +787,7 @@ export function LiveSyncSurface() {
 
             <button
               type="button"
-              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              className="skg-sys-card absolute z-20 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
               style={cardPositionStyle(SYSTEM_LAYOUT.mandate)}
               onClick={() => open('mandate')}
               aria-label="Open Mandate System connection details"
@@ -819,7 +827,7 @@ export function LiveSyncSurface() {
 
             <button
               type="button"
-              className="skg-sys-card absolute z-10 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white/95 px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
+              className="skg-sys-card absolute z-20 cursor-pointer rounded-2xl border border-[rgba(0,0,0,0.06)] bg-white px-4 pb-3.5 pt-4 text-left shadow-[0_1px_0_rgba(255,255,255,0.8)_inset,0_8px_28px_-6px_rgba(15,23,42,0.12)] outline-none ring-1 ring-black/[0.03] transition hover:ring-2 hover:ring-indigo-400/25 focus-visible:ring-2"
               style={cardPositionStyle(SYSTEM_LAYOUT.other)}
               onClick={() => open('other')}
               aria-label="Open Other Platforms connection details"

@@ -46,6 +46,14 @@ type BulkJob struct {
 	IdempotencyKey string // client-provided (from CSV/xlsx column) or server-assigned deterministic hash
 }
 
+// BulkIntentHandler ingests a CSV/XLSX into per-row envelopes.
+//
+// Architectural default: per-row outcomes that map to a business row (parse errors,
+// validation failures, duplicate/conflict after idempotency) should surface as
+// first-class ingestion results (intents or batch line items) with FAILED/DUPLICATE
+// status and structured errors for Intent Journal — not conflated with DLQ, which
+// is reserved for dead-letter traffic that never becomes a proper intent (or must
+// stay out of normal intent lists).
 func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 	file, err := c.FormFile("file")

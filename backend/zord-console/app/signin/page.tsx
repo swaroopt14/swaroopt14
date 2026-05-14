@@ -1,76 +1,10 @@
 'use client'
 
-import type { ReactNode } from 'react'
 import { FormEvent, Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
-
-function SignInShell({ children }: { children: ReactNode }) {
-  return (
-    <div className="min-h-screen bg-[#f7f7f4] grid lg:grid-cols-[1.05fr_0.95fr]">
-      <aside className="relative hidden overflow-hidden bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#312e81] p-10 text-white lg:flex lg:flex-col lg:justify-between">
-        <div className="pointer-events-none absolute inset-0 opacity-30">
-          <div className="absolute -top-20 -left-16 h-80 w-80 rounded-full bg-emerald-400/30 blur-3xl" />
-          <div className="absolute bottom-0 right-0 h-96 w-96 rounded-full bg-violet-500/40 blur-3xl" />
-          <div className="absolute top-1/3 left-1/2 h-64 w-64 -translate-x-1/2 rounded-full bg-sky-400/20 blur-3xl" />
-        </div>
-        <div
-          className="pointer-events-none absolute inset-0 opacity-[0.07]"
-          style={{
-            backgroundImage:
-              'linear-gradient(rgba(255,255,255,.4) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.4) 1px, transparent 1px)',
-            backgroundSize: '44px 44px',
-          }}
-        />
-
-        <div className="relative">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur">
-              <span className="text-[18px] font-black tracking-tight">Z</span>
-            </div>
-            <span className="text-[15px] font-semibold tracking-tight">Zord Console</span>
-          </div>
-        </div>
-
-        <div className="relative max-w-md">
-          <p className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80 backdrop-blur">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            Defensibility-first payments
-          </p>
-          <h2 className="mt-5 text-[34px] font-semibold leading-[1.1] tracking-[-0.02em]">
-            Prove every rupee moved.
-          </h2>
-          <p className="mt-4 text-[15px] leading-relaxed text-white/70">
-            One platform that tells you exactly how defensible your payments are — and closes the gap with
-            cryptographic evidence packs, real-time signal fusion, and intelligent recovery.
-          </p>
-
-          <dl className="mt-8 grid grid-cols-3 gap-4 border-t border-white/10 pt-6">
-            <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/55">Avg score</dt>
-              <dd className="mt-1 text-[24px] font-semibold tabular-nums">94.3%</dd>
-              <dd className="text-[11px] text-white/55">defensibility</dd>
-            </div>
-            <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/55">Closed</dt>
-              <dd className="mt-1 text-[24px] font-semibold tabular-nums">₹34 L</dd>
-              <dd className="text-[11px] text-white/55">last 6 months</dd>
-            </div>
-            <div>
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/55">Disputes</dt>
-              <dd className="mt-1 text-[24px] font-semibold tabular-nums">11/11</dd>
-              <dd className="text-[11px] text-white/55">won this quarter</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="relative text-[12px] text-white/40">© {new Date().getFullYear()} Zord · arealis.network</div>
-      </aside>
-
-      <main className="flex items-center justify-center p-6 sm:p-10">{children}</main>
-    </div>
-  )
-}
+import { persistEnvMode } from '@/services/auth/persistEnvMode'
+import { SignInShell } from './_components/SignInShell'
 
 function SignInFormFallback() {
   return (
@@ -91,12 +25,14 @@ function SignInForm() {
   const router = useRouter()
   const params = useSearchParams()
   const next = params.get('next') || '/payout-command-view'
+  const sandboxDefault = params.get('sandbox') !== '0'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [openInSandbox, setOpenInSandbox] = useState(sandboxDefault)
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -119,7 +55,13 @@ function SignInForm() {
         setLoading(false)
         return
       }
-      router.push(next)
+      if (openInSandbox) {
+        persistEnvMode('sandbox')
+        router.push('/sandbox')
+      } else {
+        persistEnvMode('live')
+        router.push(next)
+      }
       router.refresh()
     } catch {
       setError('Network error. Try again.')
@@ -186,6 +128,19 @@ function SignInForm() {
             </div>
           </label>
 
+          <label className="flex cursor-pointer items-start gap-3 rounded-[12px] border border-slate-200 bg-slate-50/80 px-3.5 py-3">
+            <input
+              type="checkbox"
+              checked={openInSandbox}
+              onChange={(e) => setOpenInSandbox(e.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#0f172a] focus:ring-[#0f172a]"
+            />
+            <span className="text-[13px] leading-snug text-[#475569]">
+              <span className="font-semibold text-[#0f172a]">Open in sandbox</span> — safe test workspace first. Turn off
+              to go straight to the live payout command view after sign-in.
+            </span>
+          </label>
+
           {error ? (
             <div className="flex items-start gap-2 rounded-[12px] border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-[13px] leading-relaxed text-rose-700">
               <svg className="mt-0.5 h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="currentColor">
@@ -220,6 +175,13 @@ function SignInForm() {
         >
           Create a new workspace
         </Link>
+
+        <p className="mt-5 text-center text-[13px] text-[#64748b]">
+          Production tenant?{' '}
+          <Link href="/signin/tenant" className="font-semibold text-[#0f172a] underline-offset-2 hover:underline">
+            Sign in to live
+          </Link>
+        </p>
 
         <p className="mt-8 text-center text-[12px] text-[#94a3b8]">
           By signing in you agree to our{' '}

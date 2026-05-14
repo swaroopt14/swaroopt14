@@ -40,16 +40,16 @@ export function SandboxConnectorsSurface() {
         {/* Page header */}
         <header className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F59E0B]/30 bg-[#FFF7ED] px-2.5 py-0.5 text-[14px] font-semibold uppercase tracking-[0.12em] text-[#9A3412]">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#F59E0B]/30 bg-[#FFF7ED] px-2.5 py-0.5 text-[16px] font-semibold uppercase tracking-[0.12em] text-[#9A3412]">
               <span className="h-1.5 w-1.5 rounded-full bg-[#F59E0B]" aria-hidden />
               Sandbox · Connectors
             </span>
-            <p className="mt-3 max-w-2xl text-[18px] leading-relaxed text-[#64748b]">
+            <p className="mt-3 max-w-2xl text-[20px] leading-relaxed text-[#64748b]">
               Connect a payment provider or bank to start dispatching test intents. Sandbox uses test
               credentials only — no real funds move. You can connect multiple providers and switch between rails.
             </p>
           </div>
-          <span className="rounded-full border border-[#E5E5E5] bg-white px-3 py-1 text-[16px] font-medium text-[#475569]">
+          <span className="rounded-full border border-[#E5E5E5] bg-white px-3 py-1 text-[18px] font-medium text-[#475569]">
             {providers.length} connected · {remaining.length} available
           </span>
         </header>
@@ -60,10 +60,10 @@ export function SandboxConnectorsSurface() {
             <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#0f172a] text-white">
               <Glyph name="shield" className="h-6 w-6" />
             </div>
-            <h2 className="mt-4 text-[20px] font-semibold tracking-[-0.01em] text-[#0f172a]">
+            <h2 className="mt-4 text-[22px] font-semibold tracking-[-0.01em] text-[#0f172a]">
               Connect your first provider to start
             </h2>
-            <p className="mx-auto mt-1.5 max-w-md text-[16px] leading-relaxed text-[#64748b]">
+            <p className="mx-auto mt-1.5 max-w-md text-[18px] leading-relaxed text-[#64748b]">
               Pick any of the providers below. Paste your sandbox API key (we&apos;ll never use it for live
               traffic). Once connected, you can run scenarios and dispatch test batches through that rail.
             </p>
@@ -73,7 +73,7 @@ export function SandboxConnectorsSurface() {
         {/* Connected providers list */}
         {providers.length > 0 ? (
           <section>
-            <h2 className="mb-2 text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Connected</h2>
+            <h2 className="mb-2 text-[16px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Connected</h2>
             <ul className="space-y-2">
               {providers.map((provider) => (
                 <ConnectedRow
@@ -90,7 +90,7 @@ export function SandboxConnectorsSurface() {
         {/* Catalog of providers to connect */}
         {remaining.length > 0 ? (
           <section>
-            <h2 className="mb-2 text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">
+            <h2 className="mb-2 text-[16px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">
               Available providers
             </h2>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -146,17 +146,17 @@ function ConnectedRow({
         <EntityLogo name={provider.name} kind={provider.kind} size={32} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-[18px] font-semibold text-[#0f172a]">{provider.name}</p>
-            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[14px] font-semibold ${healthTone}`}>
+            <p className="text-[20px] font-semibold text-[#0f172a]">{provider.name}</p>
+            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[16px] font-semibold ${healthTone}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${
                 provider.health === 'healthy' ? 'bg-emerald-500' : provider.health === 'degraded' ? 'bg-amber-500' : 'bg-rose-500'
               }`} aria-hidden />
               {provider.health}
             </span>
-            <span className="text-[15px] text-[#64748b]">· {provider.rails.join(' · ')}</span>
+            <span className="text-[17px] text-[#64748b]">· {provider.rails.join(' · ')}</span>
           </div>
-          <p className="mt-0.5 font-mono text-[15px] text-[#0f172a]">{provider.apiKeyDisplay}</p>
-          <p className="mt-0.5 truncate font-mono text-[14px] text-[#94a3b8]" title={provider.webhookUrl}>
+          <p className="mt-0.5 font-mono text-[17px] text-[#0f172a]">{provider.apiKeyDisplay}</p>
+          <p className="mt-0.5 truncate font-mono text-[16px] text-[#94a3b8]" title={provider.webhookUrl}>
             ↳ {provider.webhookUrl}
           </p>
         </div>
@@ -164,14 +164,14 @@ function ConnectedRow({
           <button
             type="button"
             onClick={onReconnect}
-            className="rounded-[6px] border border-[#E5E5E5] bg-white px-2.5 py-1 text-[15px] font-medium text-[#475569] transition hover:bg-[#fafafa]"
+            className="rounded-[6px] border border-[#E5E5E5] bg-white px-2.5 py-1 text-[17px] font-medium text-[#475569] transition hover:bg-[#fafafa]"
           >
             Update credentials
           </button>
           <button
             type="button"
             onClick={onDisconnect}
-            className="rounded-[6px] border border-rose-200 bg-white px-2.5 py-1 text-[15px] font-medium text-rose-700 transition hover:bg-rose-50"
+            className="rounded-[6px] border border-rose-200 bg-white px-2.5 py-1 text-[17px] font-medium text-rose-700 transition hover:bg-rose-50"
           >
             Disconnect
           </button>
@@ -201,19 +201,19 @@ function ProviderCard({
       <div className="flex items-center gap-2.5">
         <EntityLogo name={name} kind={kind} size={28} />
         <div className="min-w-0 flex-1">
-          <p className="text-[18px] font-semibold text-[#0f172a]">{name}</p>
-          <p className="text-[15px] text-[#64748b]">{description}</p>
+          <p className="text-[20px] font-semibold text-[#0f172a]">{name}</p>
+          <p className="text-[17px] text-[#64748b]">{description}</p>
         </div>
       </div>
       <button
         type="button"
         onClick={onConnect}
-        className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-[8px] bg-[#0f172a] px-3 py-2 text-[16px] font-semibold text-white transition hover:bg-black"
+        className="mt-4 inline-flex items-center justify-center gap-1.5 rounded-[8px] bg-[#0f172a] px-3 py-2 text-[18px] font-semibold text-white transition hover:bg-black"
       >
         Connect {name}
         <Glyph name="arrow-up-right" className="h-3 w-3" />
       </button>
-      <p className="mt-2 text-center font-mono text-[13px] uppercase tracking-wider text-[#94a3b8]">
+      <p className="mt-2 text-center font-mono text-[15px] uppercase tracking-wider text-[#94a3b8]">
         provider_id: {id}
       </p>
     </article>
@@ -253,14 +253,14 @@ function ConnectModal({
         <header className="flex items-start gap-3 border-b border-[#E5E5E5] px-5 py-4">
           <EntityLogo name={meta.name} kind={meta.kind} size={32} />
           <div className="min-w-0 flex-1">
-            <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Sandbox connection</p>
-            <h2 className="mt-1 text-[20px] font-semibold tracking-[-0.01em] text-[#0f172a]">Connect {meta.name}</h2>
-            <p className="mt-1 text-[16px] text-[#64748b]">{meta.description}</p>
+            <p className="text-[16px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Sandbox connection</p>
+            <h2 className="mt-1 text-[22px] font-semibold tracking-[-0.01em] text-[#0f172a]">Connect {meta.name}</h2>
+            <p className="mt-1 text-[18px] text-[#64748b]">{meta.description}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md border border-[#E5E5E5] bg-white px-2 py-1 text-[16px] text-[#475569] transition hover:bg-[#fafafa]"
+            className="rounded-md border border-[#E5E5E5] bg-white px-2 py-1 text-[18px] text-[#475569] transition hover:bg-[#fafafa]"
           >
             Close
           </button>
@@ -281,7 +281,7 @@ function ConnectModal({
             mono
             hint="Zord will send signal callbacks to this endpoint."
           />
-          <div className="rounded-[8px] border border-[#E5E5E5] bg-[#fafafa] p-3 text-[15px] leading-relaxed text-[#475569]">
+          <div className="rounded-[8px] border border-[#E5E5E5] bg-[#fafafa] p-3 text-[17px] leading-relaxed text-[#475569]">
             We never use sandbox credentials for live traffic. Switch to a live account to add real keys.
           </div>
         </div>
@@ -290,7 +290,7 @@ function ConnectModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-[8px] border border-[#E5E5E5] bg-white px-3 py-1.5 text-[16px] font-medium text-[#475569] transition hover:bg-[#f3f3ee]"
+            className="rounded-[8px] border border-[#E5E5E5] bg-white px-3 py-1.5 text-[18px] font-medium text-[#475569] transition hover:bg-[#f3f3ee]"
           >
             Cancel
           </button>
@@ -298,7 +298,7 @@ function ConnectModal({
             type="button"
             disabled={!isValid}
             onClick={() => onConfirm(apiKey, webhookUrl)}
-            className="inline-flex items-center gap-2 rounded-[8px] bg-[#0f172a] px-3 py-1.5 text-[16px] font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-[8px] bg-[#0f172a] px-3 py-1.5 text-[18px] font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
           >
             Connect
             <Glyph name="check" className="h-3 w-3" />
@@ -326,14 +326,14 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="text-[14px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">{label}</span>
+      <span className="text-[16px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">{label}</span>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className={`mt-1 h-9 w-full rounded-[8px] border border-[#E5E5E5] bg-white px-3 text-[16px] text-[#0f172a] outline-none transition placeholder:text-[#94a3b8] focus:border-[#0f172a]/40 focus:ring-2 focus:ring-[#0f172a]/10 ${mono ? 'font-mono' : ''}`}
+        className={`mt-1 h-9 w-full rounded-[8px] border border-[#E5E5E5] bg-white px-3 text-[18px] text-[#0f172a] outline-none transition placeholder:text-[#94a3b8] focus:border-[#0f172a]/40 focus:ring-2 focus:ring-[#0f172a]/10 ${mono ? 'font-mono' : ''}`}
       />
-      {hint ? <p className="mt-1 text-[15px] text-[#64748b]">{hint}</p> : null}
+      {hint ? <p className="mt-1 text-[17px] text-[#64748b]">{hint}</p> : null}
     </label>
   )
 }

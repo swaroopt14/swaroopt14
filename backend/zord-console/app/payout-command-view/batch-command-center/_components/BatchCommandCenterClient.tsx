@@ -4,10 +4,9 @@ import Link from 'next/link'
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { DASHBOARD_FONT_STACK } from '@/services/payout-command/model'
+import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
 import { ClientChart, Glyph } from '../../today/_components/shared'
 import {
-  buildDefaultBatchRows,
-  buildSeedSummary,
   computeFailureCounts,
   deriveZordPipelineTimeline,
   type ZordPipelineIntake,
@@ -28,8 +27,6 @@ import { getIntelligenceBatchDetail } from '@/services/payout-command/prod-api/g
 import type { ApiIntentRow } from '@/services/payout-command/prod-api/prodApiTypes'
 import type { BatchDetailResponse } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { CreatePaymentRequestForm } from '../../../customer/intents/create/page'
-import { buildSeededBatchFromBulkUpload } from '@/services/payout-command/buildSeededBatchFromBulkUpload'
-import { persistSeededBatchPrepend } from '@/services/payout-command/seeded-batches-store'
 import {
   postLoanSystemBatchPull,
   postMandateNachPull,
@@ -268,8 +265,14 @@ function DataTable({ head, rows, footer }: {
 /* ── Main ── */
 
 export default function BatchCommandCenterClient() {
-  const [rows, setRows] = useState<BatchRow[]>(() => buildDefaultBatchRows())
-  const [summary, setSummary] = useState<BatchSummary>(() => buildSeedSummary())
+  const [rows, setRows] = useState<BatchRow[]>([])
+  const [summary, setSummary] = useState<BatchSummary>(() => ({
+    totalRows: 0,
+    processed: 0,
+    success: 0,
+    failed: 0,
+    pending: 0,
+  }))
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All')
   const [sortMode, setSortMode] = useState<SortMode>('Latest')
@@ -292,7 +295,8 @@ export default function BatchCommandCenterClient() {
   const [sourceType, setSourceType] = useState('CSV')
   const [tenantType, setTenantType] = useState<'MERCHANT' | 'BANK' | 'NBFC' | 'VENDOR' | 'GATEWAY'>('MERCHANT')
   const [batchIdInput, setBatchIdInput] = useState('')
-  const [tenantId, setTenantId] = useState(() => process.env.NEXT_PUBLIC_ZORD_TENANT_ID ?? '')
+  /** Same resolution as Intent Journal / Home (`useSessionTenantId`) so sandbox hits `/api/prod/*` with a tenant. */
+  const tenantId = useSessionTenantId()
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [intentIngestOk, setIntentIngestOk] = useState(false)
   /** Batch id used for settlement (response body, optional Step 1 field, or LOCAL-* fallback). */
@@ -429,42 +433,6 @@ export default function BatchCommandCenterClient() {
     return () => window.clearInterval(id)
   }, [refreshSimulation])
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      let resolved: string | null = null
-      let fromSession = false
-      try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' })
-        if (!cancelled && res.ok) {
-          const data = (await res.json()) as { session?: { tenant_id?: string } }
-          const tid = data.session?.tenant_id?.trim()
-          if (tid) {
-            resolved = tid
-            fromSession = true
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-      if (cancelled) return
-      if (!resolved) {
-        try {
-          const ls = typeof window !== 'undefined' ? localStorage.getItem('zord_tenant_id') : null
-          if (ls?.trim()) resolved = ls.trim()
-        } catch {
-          /* ignore */
-        }
-      }
-      if (!resolved) return
-      if (fromSession) setTenantId(resolved)
-      else setTenantId((prev) => (prev.trim() ? prev : resolved!))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   const pollIntentEngineTenant = useCallback(async () => {
     const tid = tenantId.trim()
     if (!tid || !intentIngestOk) return
@@ -524,7 +492,11 @@ export default function BatchCommandCenterClient() {
     setLastRefreshedAt(new Date())
   }, [])
 
-  /** Step 1 — POST /api/bulk-ingest (proxies intelligence bulk-ingest), then local parse for the table. */
+  /**
+   * Step 1 — POST /api/bulk-ingest (proxies zord-edge bulk ingest), then local parse for the table.
+   * Target model: failed rows → intents (or batch line items) with FAILED + structured errors;
+   * DLQ only for true dead letters that never become normal intents.
+   */
   const onIntentBatchUpload = useCallback(
     async (file: File | null) => {
       if (!file) return
@@ -557,7 +529,7 @@ export default function BatchCommandCenterClient() {
         setUploadRelayState('synced')
         setUploadRelayMessage(
           effectiveBatch
-            ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal lists this batch under Sandbox seeded.`
+            ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal loads batches from intelligence and intents from the intent engine for this tenant.`
             : `Intent batch accepted. Settlement step uses id ${journalBatchId} (enter Batch-Id above and re-run Step 1 if the settlement service requires a server-issued id).`,
         )
         setRows(parsed)
@@ -567,15 +539,6 @@ export default function BatchCommandCenterClient() {
         setSelectedFailureReason(null)
         setUploadState('ready')
         setLastRefreshedAt(new Date())
-        if (parsed.length > 0) {
-          persistSeededBatchPrepend(
-            buildSeededBatchFromBulkUpload({
-              batchId: journalBatchId,
-              fileName: file.name,
-              rows: parsed,
-            }),
-          )
-        }
         setIntakeStep('intent_ready')
       } catch (error) {
         setIntentIngestOk(false)

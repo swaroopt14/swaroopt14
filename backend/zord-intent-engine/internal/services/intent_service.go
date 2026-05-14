@@ -389,13 +389,13 @@ func (s *IntentService) computeScores(
 		reasonCodes = appendUniq(reasonCodes, "LOW_PROOF_READINESS_CAP")
 	}
 
-	schema = capScore100(schema)
-	mapping = capScore100(mapping)
-	refQuality = capScore100(refQuality)
-	matchability = capScore100(matchability)
-	proof = capScore100(proof)
-	dupRisk = capScore100(dupRisk)
-	quality = capScore100(quality)
+	schema = capScore100(schema) / 100.0
+	mapping = capScore100(mapping) / 100.0
+	refQuality = capScore100(refQuality) / 100.0
+	matchability = capScore100(matchability) / 100.0
+	proof = capScore100(proof) / 100.0
+	dupRisk = capScore100(dupRisk) / 100.0
+	quality = capScore100(quality) / 100.0
 
 	return
 }
@@ -1271,7 +1271,7 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	// score_validity_status — set based on governance gate
 	scoreValidityStatus := models.ScoreValidityScoredValid
-	if iScore < 70.0 || len(scoreReasonCodes) > 0 {
+	if iScore < 0.70 || len(scoreReasonCodes) > 0 {
 		scoreValidityStatus = models.ScoreValidityScoredReview
 	}
 
@@ -1647,7 +1647,7 @@ func (s *IntentService) ProcessTokenizeResult(
 
 	// score_validity_status — set based on governance gate
 	scoreValidityStatus := models.ScoreValidityScoredValid
-	if iScore < 70.0 || len(scoreReasonCodes) > 0 {
+	if iScore < 0.70 || len(scoreReasonCodes) > 0 {
 		scoreValidityStatus = models.ScoreValidityScoredReview
 	}
 

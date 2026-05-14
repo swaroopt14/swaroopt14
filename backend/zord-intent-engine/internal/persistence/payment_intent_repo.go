@@ -804,51 +804,51 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
     dupRiskRate := float64(dupRiskCount)  / float64(received)
     lowMatchRate := float64(lowMatchCount) / float64(received)
 
-    // Normalize avg scores to 0–1 for weighting (they are stored as 0–100)
-    avgQ  := safeFloat(avgQuality)  / 100.0
-    avgM  := safeFloat(avgMatchability) / 100.0
-    avgP  := safeFloat(avgProof)    / 100.0
+	// Normalize avg scores to 0–1 for weighting (now stored as 0–1 in DB)
+	avgQ := safeFloat(avgQuality)
+	avgM := safeFloat(avgMatchability)
+	avgP := safeFloat(avgProof)
 
-    batchScore := (canonRate        * 0.20 +
-        avgQ                        * 0.20 +
-        avgM                        * 0.20 +
-        avgP                        * 0.15 +
-        (1.0 - dupRiskRate)         * 0.10 +
-        (1.0 - lowMatchRate)        * 0.10 +
-        (1.0 - reviewRate)          * 0.05) * 100.0
+	batchScore := (canonRate*0.20 +
+		avgQ*0.20 +
+		avgM*0.20 +
+		avgP*0.15 +
+		(1.0-dupRiskRate)*0.10 +
+		(1.0-lowMatchRate)*0.10 +
+		(1.0-reviewRate)*0.05)
 
-    // DLQ caps — the critical fix for the 487-DLQ problem
-    switch {
-    case dlqRate > 0.20:
-        if batchScore > 40.0 {
-            batchScore = 40.0
-        }
-    case dlqRate > 0.10:
-        if batchScore > 60.0 {
-            batchScore = 60.0
-        }
-    case dlqRate > 0.05:
-        if batchScore > 75.0 {
-            batchScore = 75.0
-        }
-    }
+	// DLQ caps — the critical fix for the 487-DLQ problem
+	switch {
+	case dlqRate > 0.20:
+		if batchScore > 0.40 {
+			batchScore = 0.40
+		}
+	case dlqRate > 0.10:
+		if batchScore > 0.60 {
+			batchScore = 0.60
+		}
+	case dlqRate > 0.05:
+		if batchScore > 0.75 {
+			batchScore = 0.75
+		}
+	}
 
-    if batchScore < 0 {
-        batchScore = 0
-    }
-    if batchScore > 100 {
-        batchScore = 100
-    }
+	if batchScore < 0 {
+		batchScore = 0
+	}
+	if batchScore > 1.0 {
+		batchScore = 1.0
+	}
 
-    // Step 5: Update payment_intents with batch quality score + counters
-    _, err = r.db.ExecContext(ctx, `
+	// Step 5: Update payment_intents with batch quality score + counters
+	_, err = r.db.ExecContext(ctx, `
         UPDATE payment_intents
         SET aggregate_confidence_score = $1
         WHERE batchid = $2
-    `, batchScore/100.0, batchID) // keep aggregate_confidence_score as 0–1 for backwards compat
-    if err != nil {
-        return 0, err
-    }
+    `, batchScore, batchID) // stored as 0–1
+	if err != nil {
+		return 0, err
+	}
 
 	// Step 6: Update outbox payload with all batch quality fields
 	batchBreakdown := map[string]any{
@@ -880,7 +880,7 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
                 '{batch_quality_breakdown}', $2::jsonb
             )
         WHERE batchid = $3
-    `, batchScore/100.0, breakdownJSON, batchID)
+    `, batchScore, breakdownJSON, batchID)
 	if err != nil {
 		return 0, err
 	}
@@ -924,7 +924,7 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 	_, err = r.db.ExecContext(ctx, upsertBatchQuery,
 		batchID, tenantID, sourceSystem, received, canonicalized, dlqCount, reviewCount,
 		lowMatchCount, lowProofCount, dupRiskCount,
-		canonRate*100.0, safeFloat(avgSchema),
+		canonRate, safeFloat(avgSchema),
 		safeFloat(avgMapping), safeFloat(avgMatchability), safeFloat(avgProof),
 		safeFloat(avgQuality), dupRiskAmount, batchScore,
 		breakdownJSON,

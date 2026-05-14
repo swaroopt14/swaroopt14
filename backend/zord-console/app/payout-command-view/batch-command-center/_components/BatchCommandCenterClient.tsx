@@ -76,6 +76,8 @@ const AUTO_REFRESH_MS = 8000
 const INTENT_ENGINE_POLL_MS = 20_000
 /** Poll Intelligence batch detail for the operational snapshot card. */
 const BATCH_INTEL_POLL_MS = 15_000
+/** Avoid hitting `/v1/intelligence/batches/{id}` on every keystroke while ops type a batch id. */
+const BATCH_INTEL_ID_DEBOUNCE_MS = 450
 const PAGE_SIZE = 10
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: 'All', label: 'All' },
@@ -346,6 +348,14 @@ export default function BatchCommandCenterClient() {
     () => (settlementBatchId ?? batchIdInput.trim()).trim(),
     [batchIdInput, settlementBatchId],
   )
+  const [debouncedBatchIdForIntelPoll, setDebouncedBatchIdForIntelPoll] = useState('')
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setDebouncedBatchIdForIntelPoll(settlementBatchIdResolved)
+    }, BATCH_INTEL_ID_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [settlementBatchIdResolved])
+
   const settlementCredentialsReady = useMemo(
     () => tenantId.trim().length > 0 && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
     [psp, settlementBatchIdResolved, tenantId],
@@ -354,9 +364,9 @@ export default function BatchCommandCenterClient() {
   const intelligenceBatchPollEligible = useMemo(
     () =>
       tenantId.trim().length > 0 &&
-      settlementBatchIdResolved.length > 0 &&
-      !settlementBatchIdResolved.startsWith('LOCAL-'),
-    [settlementBatchIdResolved, tenantId],
+      debouncedBatchIdForIntelPoll.length > 0 &&
+      !debouncedBatchIdForIntelPoll.startsWith('LOCAL-'),
+    [debouncedBatchIdForIntelPoll, tenantId],
   )
 
   const refreshSimulation = useCallback(() => {
@@ -390,7 +400,7 @@ export default function BatchCommandCenterClient() {
     setIntelBatchDetailLoading(true)
     setIntelBatchDetailError(null)
     try {
-      const res = await getIntelligenceBatchDetail(tenantId.trim(), settlementBatchIdResolved)
+      const res = await getIntelligenceBatchDetail(tenantId.trim(), debouncedBatchIdForIntelPoll)
       setIntelBatchDetail(res)
       setIntelBatchDetailAt(new Date())
       if (!res) {
@@ -403,7 +413,7 @@ export default function BatchCommandCenterClient() {
     } finally {
       setIntelBatchDetailLoading(false)
     }
-  }, [intelligenceBatchPollEligible, settlementBatchIdResolved, tenantId])
+  }, [debouncedBatchIdForIntelPoll, intelligenceBatchPollEligible, tenantId])
 
   useEffect(() => {
     if (!intelligenceBatchPollEligible) {

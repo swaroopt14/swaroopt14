@@ -6,6 +6,7 @@ function getLoginPath(pathname: string) {
   if (pathname.startsWith('/admin')) return '/admin/login'
   if (pathname.startsWith('/ops')) return '/ops/login'
   if (pathname.startsWith('/payout-command-view')) return '/signin/tenant'
+  if (pathname.startsWith('/sandbox')) return '/signin/tenant'
   return '/signin'
 }
 

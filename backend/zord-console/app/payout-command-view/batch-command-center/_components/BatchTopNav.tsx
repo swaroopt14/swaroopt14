@@ -1,16 +1,30 @@
 'use client'
 
 import Link from 'next/link'
+import { useMemo } from 'react'
 import { ZordLogo } from '@/components/ZordLogo'
-import { dockItems, type DockId } from '@/services/payout-command/model'
+import { dockItems, SANDBOX_DOCK_IDS, type DockId } from '@/services/payout-command/model'
 import { Glyph } from '../../today/_components/shared'
+
+export type BatchTopNavShell = 'live' | 'sandbox'
 
 /**
  * Batch Command Center top bar — same grid + scroll contract as DockNav
  * so dock links never overlap the trailing actions.
+ *
+ * `sandbox`: dock links go to `/sandbox?dock=…` and match the reduced sandbox rail.
  */
-export function BatchTopNav() {
-  const visibleItems = dockItems.filter((d) => d.id !== 'sandbox' && d.id !== 'billing')
+export function BatchTopNav({ shell = 'live' }: { shell?: BatchTopNavShell }) {
+  const visibleItems = useMemo(() => {
+    if (shell === 'sandbox') {
+      return SANDBOX_DOCK_IDS.map((id) => dockItems.find((d) => d.id === id)).filter(
+        (d): d is (typeof dockItems)[number] => Boolean(d),
+      )
+    }
+    return dockItems.filter((d) => d.id !== 'sandbox' && d.id !== 'billing')
+  }, [shell])
+
+  const consoleBase = shell === 'sandbox' ? '/sandbox' : '/payout-command-view/today'
 
   return (
     <header className="payout-command-nav sticky top-0 z-40">
@@ -29,7 +43,7 @@ export function BatchTopNav() {
             title="Batch Command Center"
           >
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" aria-hidden />
-            Batch center
+            {shell === 'sandbox' ? 'Sandbox · batch' : 'Batch center'}
           </span>
         </div>
 
@@ -41,7 +55,7 @@ export function BatchTopNav() {
             {visibleItems.map((item) => (
               <Link
                 key={item.id}
-                href={`/payout-command-view/today?dock=${item.id satisfies DockId}`}
+                href={`${consoleBase}?dock=${item.id satisfies DockId}`}
                 title={`${item.navLabel} — ${item.title}`}
                 aria-label={`${item.navLabel}. ${item.title}`}
                 className="group relative flex h-9 max-w-[9rem] shrink-0 items-center overflow-hidden rounded-xl border border-neutral-200/90 bg-white text-left text-neutral-800 shadow-sm outline-none transition-[max-width] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-neutral-900/35 focus-visible:ring-offset-1 hover:border-neutral-300 hover:bg-neutral-50 sm:h-10 md:max-w-[2.5rem] md:hover:max-w-[9rem] md:focus-visible:max-w-[9rem]"
@@ -59,7 +73,7 @@ export function BatchTopNav() {
 
         <div className="relative z-20 flex shrink-0 justify-end bg-white/95 pl-1.5 backdrop-blur-sm sm:pl-2 lg:pl-3">
           <Link
-            href="/payout-command-view/today"
+            href={consoleBase}
             className="inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-neutral-200/90 bg-white px-3 text-[13px] font-semibold text-neutral-900 shadow-sm transition hover:bg-neutral-50 hover:shadow sm:h-11 sm:px-4 sm:text-[14px]"
           >
             <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>

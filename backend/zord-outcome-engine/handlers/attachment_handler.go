@@ -115,7 +115,7 @@ func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
 			settlement_observation_id, intent_id, attachment_job_id,
 			decision_type, decision_reason_code, decision_reason_detail_json,
 			matching_ruleset_version,
-			winning_score, runner_up_score, score_margin,
+			winning_score, runner_up_score, score_margin, relative_score_margin,
 			confidence_score, ambiguity_score,
 			supporting_carriers_json, candidate_set_hash,
 			created_at, updated_at
@@ -133,7 +133,7 @@ func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
 		&d.DecisionType, &d.DecisionReasonCode, &d.DecisionReasonDetailJSON,
 		&d.MatchingRulesetVersion,
 		&d.WinningScore, &d.RunnerUpScore, &d.ScoreMargin,
-		&d.ConfidenceScore, &d.AmbiguityScore,
+		&d.RelativeScoreMargin, &d.ConfidenceScore, &d.AmbiguityScore,
 		&d.SupportingCarriersJSON, &d.CandidateSetHash,
 		&d.CreatedAt, &d.UpdatedAt,
 	)
@@ -251,6 +251,7 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state, 
+		--	beneficiary_fingerprint, zord_signature_carrier,
 			created_at
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
@@ -260,12 +261,15 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 			amount                  = EXCLUDED.amount,
 			currency_code           = EXCLUDED.currency_code,
 			governance_state        = EXCLUDED.governance_state`,
+		/*	beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
+			zord_signature_carrier  = EXCLUDED.zord_signature_carrier */
 		intent.IntentID, intent.TenantID,
 		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
 		intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
 		intent.ProofReadinessScore, intent.MatchabilityScore,
-		intent.CanonicalHash, intent.GovernanceState, 
+		intent.CanonicalHash, intent.GovernanceState,
+		// intent.BeneficiaryFingerprint, intent.ZordSignatureCarrier,
 		intent.CreatedAt,
 	)
 	if err != nil {

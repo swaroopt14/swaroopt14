@@ -43,3 +43,34 @@ type SettlementParser interface {
 	Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID, profile models.MappingProfile) ([]ParsedRowResult, error)
 }
 
+// ParsedRowResult captures the standard output of parsing a single spreadsheet row.
+// Used to decouple parsing logic from the database storage layer.
+type ParsedRowResult struct {
+	RowIndex      int
+	Shape         models.UniversalSettlementShape
+	RawColumns    map[string]string // Key-value map of original column headers to cell values
+	Warnings      []string          // Non-fatal parse issues
+	Confidence    float64           // 0.0 to 1.0 scoring based on data richness
+	Failed        bool              // Flag for fatal row-level failure
+	FailureReason string            // Description if Failed is true
+}
+
+// ParseConfidenceInputs captures the raw technical signals used to calculate parse reliability.
+// This allows the engine to distinguish between technical parser problems and missing business identifiers.
+type ParseConfidenceInputs struct {
+	FileFormatValid                bool
+	RowDecodedSuccessfully         bool
+	ColumnCountConsistent          bool
+	HeaderDetected                 bool
+	AmountParseSuccess             bool
+	TimestampParseSuccess          bool
+	StatusParseSuccess             bool
+	EncodingValid                  bool
+	RawLineHashCreated             bool
+	DuplicateHeaderOrFooterDetected bool
+	PartialRowParse                bool
+	TimestampFallbackUsed          bool
+	AmountFallbackUsed             bool
+	StatusAmbiguous                bool
+}
+

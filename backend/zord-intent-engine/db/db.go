@@ -380,5 +380,33 @@ CREATE TABLE IF NOT EXISTS etl_quality_results (
 		log.Fatal("tenant_synonym_profiles:", err)
 	}
 
+	canonicalBatches := `
+	CREATE TABLE IF NOT EXISTS canonical_batches (
+		batch_id                        TEXT PRIMARY KEY,
+		tenant_id                       UUID,
+		source_system                   TEXT,
+		received_count                  INT NOT NULL DEFAULT 0,
+		canonicalized_count             INT NOT NULL DEFAULT 0,
+		dlq_count                       INT NOT NULL DEFAULT 0,
+		review_count                    INT NOT NULL DEFAULT 0,
+		low_matchability_count          INT NOT NULL DEFAULT 0,
+		low_proof_readiness_count       INT NOT NULL DEFAULT 0,
+		duplicate_risk_count            INT NOT NULL DEFAULT 0,
+		canonicalization_success_rate   NUMERIC(6,2) DEFAULT 0,
+		avg_schema_completeness_score   NUMERIC(6,2) DEFAULT 0,
+		avg_mapping_confidence_score    NUMERIC(6,2) DEFAULT 0,
+		avg_matchability_score          NUMERIC(6,2) DEFAULT 0,
+		avg_proof_readiness_score       NUMERIC(6,2) DEFAULT 0,
+		avg_intent_quality_score        NUMERIC(6,2) DEFAULT 0,
+		duplicate_risk_amount_minor     BIGINT DEFAULT 0,
+		batch_quality_score             NUMERIC(6,2) DEFAULT 0,
+		score_breakdown_json            JSONB DEFAULT '{}',
+		created_at                      TIMESTAMPTZ DEFAULT now(),
+		updated_at                      TIMESTAMPTZ DEFAULT now()
+	);`
+	if _, err := DB.Exec(canonicalBatches); err != nil {
+		log.Fatal("canonical_batches:", err)
+	}
+
 	return nil
 }

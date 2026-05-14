@@ -2,6 +2,8 @@
 .gitignore
 .vscode
 .idea
+**/.DS_Store
+Thumbs.db
 node_modules
 .next
 out
@@ -11,3 +13,9 @@ coverage
 **/*.log
 .env
 .env.*
+.turbo
+.cache
+**/.cache
+*.tsbuildinfo
+playwright-report
+test-results

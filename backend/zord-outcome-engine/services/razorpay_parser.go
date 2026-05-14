@@ -23,18 +23,6 @@ var razorpayHeaders = []string{
 	"settled_at", "settlement_utr", "settled_by",
 }
 
-// ParsedRowResult captures the standard output of parsing a single spreadsheet row.
-// Used to decouple parsing logic from the database storage layer.
-type ParsedRowResult struct {
-	RowIndex      int
-	Shape         models.UniversalSettlementShape
-	RawColumns    map[string]string // Key-value map of original column headers to cell values
-	Warnings      []string          // Non-fatal parse issues
-	Confidence    float64           // 0.0 to 1.0 scoring based on data richness
-	Failed        bool              // Flag for fatal row-level failure
-	FailureReason string            // Description if Failed is true
-}
-
 // RazorpayParser implements the parser for Razorpay settlement recon sheets.
 type RazorpayParser struct{}
 
@@ -110,7 +98,6 @@ func validateRazorpayHeaders(headerRow []string) error {
 
 // parseRazorpayRow performs the actual field mapping and normalization for a single row.
 func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelopeID uuid.UUID, headerRow []string, profile models.MappingProfile) ParsedRowResult {
-	confidence := 1.0
 	var warnings []string
 
 	// Capture Raw Columns for audit transparency.
@@ -129,14 +116,11 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	observationTS, tsWarning := parseSettlementDate(cellStr(row, 12)) // payment_captured_at
 	if tsWarning != "" {
 		warnings = append(warnings, "observation_timestamp: "+tsWarning)
-		confidence -= 0.1
 	}
 
 	valueDate, vdWarning := parseSettlementDate(cellStr(row, 24)) // settled_at
 	if vdWarning != "" {
 		warnings = append(warnings, "value_date: "+vdWarning)
-		// We don't necessarily penalize confidence for value_date if observationTS is present,
-		// but we should definitely track the warning as requested.
 	}
 
 	// Extract References.
@@ -146,17 +130,25 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	clientRefCand := cellStr(row, 18) // order_receipt
 	batchRef := cellStr(row, 23)      // settlement_id
 
-	// Calculate Confidence based on key identifier presence.
+	// ── Technical Confidence Scoring ──────────────────────────────────────────
+	// Measure physical parser reliability instead of business identifier richness.
+	confidenceInputs := ParseConfidenceInputs{
+		FileFormatValid:        true, // If we're here, XLSX structure was readable
+		RowDecodedSuccessfully: true,
+		ColumnCountConsistent:  len(row) >= len(razorpayHeaders),
+		HeaderDetected:         true,
+		EncodingValid:          true,
+		RawLineHashCreated:     true,
+		TimestampFallbackUsed:  tsWarning != "",
+		AmountFallbackUsed:     amount.IsZero() && cellStr(row, 2) != "0" && cellStr(row, 2) != "0.00",
+	}
+	confidence := ComputeParseConfidence(confidenceInputs)
+
 	if bankRef == "" {
-		confidence -= 0.1
 		warnings = append(warnings, "missing bank_reference (settlement_utr)")
 	}
 	if providerRef == "" {
-		confidence -= 0.1
 		warnings = append(warnings, "missing provider_reference (entity_id)")
-	}
-	if confidence < 0.0 {
-		confidence = 0.0
 	}
 
 	// Determine Observation Kind based on Razorpay's entity type.
@@ -201,6 +193,22 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		PaymentMethod:            cellStr(row, 8),
 		RawEnvelopeRef:           envelopeID,
 		CarrierCandidates:        map[string]interface{}{},
+		MappingInputs: models.MappingConfidenceInputs{
+			AmountExisted:     true,
+			AmountMapped:      !amount.IsZero() || cellStr(row, 2) == "0" || cellStr(row, 2) == "0.00",
+			CurrencyExisted:   true,
+			CurrencyMapped:    cellStr(row, 3) != "",
+			StatusExisted:     true,
+			StatusMapped:      statusCandidate != "",
+			TimestampExisted:  true,
+			TimestampMapped:   tsWarning == "",
+			ProviderRefExisted: true,
+			ProviderRefMapped: providerRef != "",
+			BankRefExisted:     true,
+			BankRefMapped:     bankRef != "",
+			ClientRefExisted:   true,
+			ClientRefMapped:   clientRefCand != "",
+		},
 	}
 
 	if shape.CarrierCandidates == nil {

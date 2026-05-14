@@ -19,6 +19,7 @@ RUN npm ci --include=optional
 FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
+# BuildKit "metadata_v2.db: input/output error" = Docker/disk issue on the host, not this layer.
 COPY . .
 
 # Next.js collects completely anonymous telemetry data about general usage.

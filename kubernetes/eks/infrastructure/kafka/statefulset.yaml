@@ -61,7 +61,7 @@ spec:
                 - sh
                 - -c
                 - kafka-topics --bootstrap-server zord-kafka:9092 --list >/dev/null 2>&1
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 15
             failureThreshold: 10
           livenessProbe:
@@ -70,16 +70,16 @@ spec:
                 - sh
                 - -c
                 - kafka-topics --bootstrap-server zord-kafka:9092 --list >/dev/null 2>&1
-            initialDelaySeconds: 60
-            periodSeconds: 20
+            initialDelaySeconds: 120
+            periodSeconds: 30
             failureThreshold: 5
           resources:
             requests:
               cpu: 500m
-              memory: 1Gi
+              memory: 2Gi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 4Gi
   volumeClaimTemplates:
     - metadata:
         name: data

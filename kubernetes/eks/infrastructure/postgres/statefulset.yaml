@@ -13,6 +13,8 @@ spec:
       labels:
         app.kubernetes.io/name: zord-postgres
     spec:
+      securityContext:
+        fsGroup: 999
       containers:
         - name: postgres
           image: postgres:16-alpine
@@ -67,6 +69,7 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+              subPath: pgdata
             - name: bootstrap
               mountPath: /docker-entrypoint-initdb.d
           readinessProbe:

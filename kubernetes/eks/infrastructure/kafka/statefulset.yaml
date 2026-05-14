@@ -13,6 +13,8 @@ spec:
       labels:
         app.kubernetes.io/name: zord-kafka
     spec:
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:7.6.0

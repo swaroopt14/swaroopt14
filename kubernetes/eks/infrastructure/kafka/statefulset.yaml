@@ -29,7 +29,7 @@ spec:
             - name: KAFKA_PROCESS_ROLES
               value: broker,controller
             - name: KAFKA_CONTROLLER_QUORUM_VOTERS
-              value: 1@zord-kafka-0.zord-kafka-headless:9093
+              value: 1@localhost:9093
             - name: KAFKA_CONTROLLER_LISTENER_NAMES
               value: CONTROLLER
             - name: KAFKA_LISTENERS

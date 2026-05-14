@@ -14,6 +14,7 @@ resources:
   - shared/external-secret-app-secrets.yaml
   - shared/external-secret-edge-signing-key.yaml
   - shared/relay-config.yaml
+  - shared/aws-config.yaml
   - shared/postgres-bootstrap-config.yaml
   - infrastructure/postgres/service.yaml
   - infrastructure/postgres/statefulset.yaml

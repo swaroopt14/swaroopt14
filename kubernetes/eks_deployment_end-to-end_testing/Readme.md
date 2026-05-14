@@ -20,60 +20,59 @@ Only the frontend domain is public.
 
 Private backend services:
 
-- `zord-edge`
-- `zord-intent-engine`
-- `zord-token-enclave`
-- `zord-relay`
-- `zord-outcome-engine`
-- `zord-evidence`
-- `zord-intelligence`
-- `zord-prompt-layer`
-- `zord-postgres`
-- `zord-kafka`
+- `zord-edge` (Port 8080)
+- `zord-intent-engine` (Port 8083)
+- `zord-token-enclave` (Port 8087)
+- `zord-relay` (Port 8082)
+- `zord-outcome-engine` (Port 8081)
+- `zord-evidence` (Port 8088)
+- `zord-intelligence` (Port 8089)
+- `zord-prompt-layer` (Port 8086)
+- `zord-postgres` (Port 5432)
+- `zord-kafka` (Port 9092)
 
-That means users should open:
+Users should only open:
 
 ```text
 https://zordnet.com
 ```
 
-They should not directly open backend service URLs.
+They should never directly access backend service URLs.
 
 ## Before You Start
 
 You need these installed on your laptop or admin machine:
 
-- `aws`
+- `aws` CLI
 - `kubectl`
-- access to the AWS account
-- access to the EKS cluster
+- Access to AWS account `522189039032`
+- Access to the EKS cluster
 
-You also need these already prepared:
+You also need these already completed:
 
-- Docker images pushed to ECR
-- AWS Secrets Manager secret `zord/app-secrets`
-- AWS Secrets Manager secret `zord/edge-signing-key`
-- External Secrets Operator installed
-- AWS Load Balancer Controller installed
-- metrics-server installed
-- ACM certificate for `zordnet.com`
-- DNS record for `zordnet.com`
+- Docker images pushed to ECR (Jenkins handles this)
+- AWS Secrets Manager secret `zord/app-secrets` created (Terraform handles this)
+- AWS Secrets Manager secret `zord/edge-signing-key` created (Terraform handles this)
+- External Secrets Operator installed in cluster
+- AWS Load Balancer Controller installed in cluster
+- metrics-server installed in cluster
+- EBS CSI Driver installed in cluster
+- ACM certificate for `zordnet.com` created
+- DNS record for `zordnet.com` pointing to ALB
+
+---
 
 ## Step 1: Confirm You Are Connected To EKS
 
-Run:
-
-```powershell
+```bash
 kubectl config current-context
 ```
 
 Expected:
 
 ```text
-arn:aws:eks:...
+arn:aws:eks:ap-south-1:522189039032:cluster/<cluster-name>
 ```
-
-or a context name that clearly points to your EKS cluster.
 
 Bad result:
 
@@ -81,784 +80,447 @@ Bad result:
 docker-desktop
 ```
 
-If you see `docker-desktop`, stop. You are not connected to EKS.
+If you see `docker-desktop`, connect to EKS first:
 
-Connect to EKS:
-
-```powershell
+```bash
 aws eks update-kubeconfig --region ap-south-1 --name <your-cluster-name>
 ```
 
-Then check nodes:
+Then verify nodes:
 
-```powershell
+```bash
 kubectl get nodes
 ```
 
-Expected:
+All nodes must show `Ready`. Do NOT continue if nodes are not ready.
 
-```text
-STATUS
-Ready
-```
-
-If nodes are not ready, fix EKS/node group first.
+---
 
 ## Step 2: Check Required Cluster Add-ons
 
-### AWS Load Balancer Controller
+Run all 5 checks. ALL must pass before testing:
 
-Run:
-
-```powershell
-kubectl get deployment -A | Select-String aws-load-balancer-controller
-```
-
-Expected:
-
-```text
-aws-load-balancer-controller
-```
-
-If missing, ALB ingress will not work.
-
-### External Secrets Operator
-
-Run:
-
-```powershell
+```bash
+# 1. External Secrets Operator
 kubectl get pods -n external-secrets
+# Must show running pods
+
+# 2. metrics-server
+kubectl get pods -n kube-system | grep metrics-server
+# Must show running pod
+
+# 3. AWS Load Balancer Controller
+kubectl get deployment -A | grep aws-load-balancer
+# Must show a deployment
+
+# 4. EBS CSI Driver
+kubectl get pods -n kube-system | grep ebs
+# Must show running pods
+
+# 5. StorageClass (must have default)
+kubectl get storageclass
+# Must show gp2 (default)
 ```
 
-Expected:
+If any are missing, fix them before continuing.
 
-```text
-Running
-```
+---
 
-If this namespace or pods do not exist, `ExternalSecret` and `SecretStore` will fail.
+## Step 3: Check All Pods Are Running
 
-### metrics-server
-
-Run:
-
-```powershell
-kubectl get pods -n kube-system | Select-String metrics-server
-```
-
-Expected:
-
-```text
-metrics-server ... Running
-```
-
-If missing, HPA will show unknown metrics.
-
-### EBS CSI Driver
-
-Run:
-
-```powershell
-kubectl get pods -n kube-system | Select-String ebs
-kubectl get csidriver
-```
-
-Expected:
-
-```text
-ebs.csi.aws.com
-```
-
-If missing, Postgres/Kafka PVCs may not bind.
-
-## Step 3: Build The Manifests Locally
-
-From repo root:
-
-```powershell
-kubectl kustomize kubernetes/eks
-```
-
-Expected:
-
-- A big YAML output
-- No error
-
-If this fails, fix YAML before applying.
-
-## Step 4: Apply The Deployment
-
-Run:
-
-```powershell
-kubectl apply -k kubernetes/eks
-```
-
-Expected:
-
-```text
-namespace/zord created
-service/... created
-deployment.apps/... created
-statefulset.apps/... created
-ingress.networking.k8s.io/zord-public created
-```
-
-If resources say `configured`, that is okay. It means they already existed and were updated.
-
-## Step 5: Watch All Pods
-
-Run:
-
-```powershell
-kubectl get pods -n zord -w
-```
-
-Wait until pods become:
-
-```text
-Running
-```
-
-You should see pods for:
-
-- `zord-console`
-- `zord-edge`
-- `zord-intent-engine`
-- `zord-token-enclave`
-- `zord-relay`
-- `zord-outcome-engine`
-- `zord-evidence`
-- `zord-intelligence`
-- `zord-prompt-layer`
-- `zord-postgres`
-- `zord-kafka`
-- `zord-kafka-topics`
-
-Stop watching:
-
-```text
-Ctrl + C
-```
-
-## Step 6: Check Pod Health
-
-Run:
-
-```powershell
+```bash
 kubectl get pods -n zord
 ```
 
-Good:
+Expected — ALL pods should be `Running` or `Completed`:
 
 ```text
-Running
-Completed
+NAME                                   READY   STATUS
+zord-postgres-0                        1/1     Running
+zord-kafka-0                           1/1     Running
+zord-kafka-topics-xxxxx                0/1     Completed
+zord-console-xxxxx                     1/1     Running
+zord-console-xxxxx                     1/1     Running
+zord-edge-xxxxx                        1/1     Running
+zord-edge-xxxxx                        1/1     Running
+zord-intent-engine-xxxxx               1/1     Running
+zord-intent-engine-xxxxx               1/1     Running
+zord-token-enclave-xxxxx               1/1     Running
+zord-token-enclave-xxxxx               1/1     Running
+zord-relay-xxxxx                       1/1     Running
+zord-relay-xxxxx                       1/1     Running
+zord-outcome-engine-xxxxx              1/1     Running
+zord-outcome-engine-xxxxx              1/1     Running
+zord-evidence-xxxxx                    1/1     Running
+zord-evidence-xxxxx                    1/1     Running
+zord-intelligence-xxxxx                1/1     Running
+zord-intelligence-xxxxx                1/1     Running
+zord-prompt-layer-xxxxx                1/1     Running
+zord-prompt-layer-xxxxx                1/1     Running
 ```
 
-Bad:
+If any pod is NOT Running:
 
-```text
-ImagePullBackOff
-ErrImagePull
-CrashLoopBackOff
-CreateContainerConfigError
-Pending
-```
-
-If bad, describe the pod:
-
-```powershell
+```bash
 kubectl describe pod <pod-name> -n zord
+kubectl logs <pod-name> -n zord --tail=30
 ```
 
-Then check logs:
+---
 
-```powershell
-kubectl logs -n zord <pod-name>
-```
+## Step 4: Check Secrets Are Synced
 
-## Step 7: Check Secrets
-
-Run:
-
-```powershell
+```bash
 kubectl get externalsecret -n zord
+```
+
+Expected:
+
+```text
+NAME                    STATUS         READY
+zord-app-secrets        SecretSynced   True
+zord-edge-signing-key   SecretSynced   True
+```
+
+Verify secrets exist:
+
+```bash
 kubectl get secret zord-app-secrets -n zord
 kubectl get secret zord-edge-signing-key -n zord
 ```
 
-Expected:
+If `STATUS` is not `SecretSynced`:
 
-- `zord-app-secrets` exists
-- `zord-edge-signing-key` exists
-
-If missing, check:
-
-```powershell
+```bash
 kubectl describe externalsecret zord-app-secrets -n zord
-kubectl describe externalsecret zord-edge-signing-key -n zord
 ```
 
-Common issue:
+---
 
-- AWS secret name is wrong
-- External Secrets Operator IAM role cannot read Secrets Manager
-- Secret key is missing inside `ZORD_APP_SECRETS_JSON`
+## Step 5: Check Service Account IAM Role
 
-## Step 8: Check S3 IAM Role On Service Account
-
-Run:
-
-```powershell
+```bash
 kubectl describe serviceaccount zord-aws-access -n zord
 ```
 
 Expected annotation:
 
 ```text
-eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/ZordAppS3AccessRole
+eks.amazonaws.com/role-arn: arn:aws:iam::522189039032:role/ZordAppS3AccessRole
 ```
 
-If this annotation is missing, pods may fail when using S3.
+If missing, S3 operations will fail.
 
-Remember:
+---
 
-- bucket names are in `zord/app-secrets`
-- bucket permissions are in IAM role `ZordAppS3AccessRole`
+## Step 6: Check Services
 
-## Step 9: Check Services
-
-Run:
-
-```powershell
+```bash
 kubectl get svc -n zord
 ```
 
-Expected service names:
+All services should be `ClusterIP` (private). No service should be type `LoadBalancer`.
 
-- `zord-console`
-- `zord-edge`
-- `zord-intent-engine`
-- `zord-token-enclave`
-- `zord-relay`
-- `zord-outcome-engine`
-- `zord-evidence`
-- `zord-intelligence`
-- `zord-prompt-layer`
-- `zord-postgres`
-- `zord-kafka`
+---
 
-These services should normally be `ClusterIP`, not public `LoadBalancer`.
+## Step 7: Check Ingress and ALB
 
-## Step 10: Check Ingress And ALB
-
-Run:
-
-```powershell
+```bash
 kubectl get ingress -n zord
 ```
 
 Expected:
 
 ```text
-zord-public
+NAME          CLASS   HOSTS         ADDRESS                                              PORTS
+zord-public   alb     zordnet.com   k8s-zord-xxx.ap-south-1.elb.amazonaws.com            80, 443
 ```
 
-Check details:
+If ADDRESS is empty:
 
-```powershell
+```bash
 kubectl describe ingress zord-public -n zord
 ```
 
-You want to see:
+---
 
-- no error events
-- ALB address is created
-- certificate ARN accepted
-- rule for `zordnet.com`
+## Step 8: Check HPA
 
-Current production model:
+```bash
+kubectl get hpa -n zord
+```
+
+TARGETS should show actual percentages (e.g., `5%/70%`), NOT `<unknown>/70%`.
+
+---
+
+## Step 9: Check PDB
+
+```bash
+kubectl get pdb -n zord
+```
+
+All services should have PDB with `ALLOWED DISRUPTIONS >= 1`.
+
+---
+
+## Step 10: Test Postgres
+
+```bash
+kubectl exec -n zord zord-postgres-0 -- pg_isready -U postgres
+```
+
+Expected: `accepting connections`
+
+Check logs:
+
+```bash
+kubectl logs zord-postgres-0 -n zord --tail=10
+```
+
+---
+
+## Step 11: Test Kafka
+
+```bash
+kubectl exec -n zord zord-kafka-0 -- kafka-topics --bootstrap-server localhost:9092 --list
+```
+
+Expected — list of 28 topics:
 
 ```text
-zordnet.com -> zord-console
+payments.ledger.events.v1
+payments.intent.events.v1
+payments.dispatch.events.v1
+payments.outcome.events.v1
+pii.tokenize.request
+pii.tokenize.result
+relay.dlq.publish_failure
+relay.dlq.poison
+z.dispatch.events.v1
+z.outcome.events.v1
+canonical.intent.created
+dispatch.attempt.created
+outcome.event.normalized
+finality.certificate.issued
+final.contract.updated
+evidence.pack.ready
+dlq.event
+statement.match.event
+corridor.health.tick
+sla.timer.tick
+canonical.settlement.created
+attachment.decision.created
+variance.record.created
+batch.summary.updated
+governance.decision.created
+zpi.actuation.retry
+zpi.actuation.evidence
+zpi.actuation.alert
+zpi.actuation.batch_patch
 ```
 
-There should not be a public rule for every backend service.
+---
 
-## Step 11: Check DNS
-
-Get ingress address:
-
-```powershell
-kubectl get ingress zord-public -n zord
-```
-
-You will see an ALB DNS name like:
-
-```text
-k8s-zord-xxxx.ap-south-1.elb.amazonaws.com
-```
-
-In your domain DNS provider, `zordnet.com` should point to the ALB.
-
-Test DNS:
-
-```powershell
-nslookup zordnet.com
-```
-
-If DNS does not point to ALB yet, wait or fix DNS.
-
-## Step 12: Test Frontend In Browser
-
-Open:
-
-```text
-https://zordnet.com
-```
-
-Expected:
-
-- page loads
-- no browser certificate warning
-- login or console UI appears
-
-If page does not open, check:
-
-```powershell
-kubectl logs -n zord deploy/zord-console
-kubectl describe ingress zord-public -n zord
-```
-
-## Step 13: Test Frontend Health
-
-Run:
-
-```powershell
-curl https://zordnet.com/api/health
-```
-
-Expected:
-
-```json
-healthy
-```
-
-or a JSON response from Next.js health route.
-
-If this fails:
-
-- ALB routing may be wrong
-- `zord-console` pod may be unhealthy
-- certificate or DNS may be wrong
-
-## Step 14: Test Backend Through Frontend
-
-Backends are private. Do not test them through public URLs.
-
-Test through frontend API routes:
-
-```powershell
-curl https://zordnet.com/api/prod/overview
-```
-
-Try:
-
-```powershell
-curl https://zordnet.com/api/prod/tenants
-```
-
-For tenant-protected routes:
-
-```powershell
-curl "https://zordnet.com/api/prod/intents?tenant_id=<tenant-id>"
-```
-
-Expected:
-
-- JSON response
-- maybe empty data, but route should respond
-- no connection refused
-
-If response says backend unreachable, check `zord-console` env vars and backend service health.
-
-## Step 15: Test Private Backend From Inside Cluster
+## Step 12: Test All Backend Health Endpoints (From Inside Cluster)
 
 Run a temporary curl pod:
 
-```powershell
+```bash
 kubectl run curl-test -n zord --rm -it --image=curlimages/curl -- sh
 ```
 
-Inside the pod, test:
+Inside the pod, test each service:
 
 ```sh
-curl http://zord-console:3000/api/health
-curl http://zord-edge:8080/health
-curl http://zord-intent-engine:8083/health
-curl http://zord-relay:8082/health
-curl http://zord-token-enclave:8087/v1/health
-curl http://zord-outcome-engine:8081/health
-curl http://zord-evidence:8088/healthz
-curl http://zord-intelligence:8089/healthz
-curl http://zord-prompt-layer:8086/health
+curl -s http://zord-console:3000/api/health
+curl -s http://zord-edge:8080/health
+curl -s http://zord-intent-engine:8083/health
+curl -s http://zord-relay:8082/health
+curl -s http://zord-token-enclave:8087/v1/health
+curl -s http://zord-outcome-engine:8081/v1/health
+curl -s http://zord-evidence:8088/healthz
+curl -s http://zord-intelligence:8089/healthz
+curl -s http://zord-prompt-layer:8086/health
 ```
 
-Exit:
+ALL should return a JSON response. Exit:
 
 ```sh
 exit
 ```
 
-If a service fails:
+---
 
-- check the service port
-- check the pod logs
-- check if the app exposes a different health path
+## Step 13: Test Frontend (Public Access)
 
-## Step 16: Test Postgres
+### Health Check
 
-Check Postgres pod:
-
-```powershell
-kubectl get pods -n zord | Select-String zord-postgres
+```bash
+curl -s https://zordnet.com/api/health
 ```
 
-Logs:
+Expected: JSON response
 
-```powershell
-kubectl logs -n zord statefulset/zord-postgres
-```
+### Browser Test
 
-Good signs:
-
-- database system is ready to accept connections
-- no password or init script errors
-
-Bad signs:
-
-- missing `POSTGRES_SUPERUSER_PASSWORD`
-- bootstrap script error
-- PVC mount problem
-
-## Step 17: Test Kafka
-
-Check Kafka pod:
-
-```powershell
-kubectl get pods -n zord | Select-String zord-kafka
-```
-
-Check Kafka topics job:
-
-```powershell
-kubectl get job zord-kafka-topics -n zord
-kubectl logs -n zord job/zord-kafka-topics
-```
+Open: `https://zordnet.com`
 
 Expected:
+- Page loads without errors
+- No browser certificate warning
+- Login or console UI appears
 
-```text
-created topic ...
+### Check No Backend Leaks
+
+Open browser DevTools (F12) → Network tab. Navigate the app.
+
+All API calls should go to `https://zordnet.com/api/...`
+
+NO calls should go to internal URLs like `http://zord-edge:8080/...`
+
+---
+
+## Step 14: Test Frontend → Backend Flow
+
+```bash
+curl -s https://zordnet.com/api/prod/overview
+curl -s https://zordnet.com/api/prod/tenants
+curl -s https://zordnet.com/api/prod/intents
 ```
 
-or no errors if topics already exist.
+Expected: JSON response (may be empty data, but route should respond without errors)
 
-If job fails:
+---
 
-- Kafka may not be ready
-- service name may be wrong
-- Kafka pod may be unhealthy
+## Step 15: Test Login Flow
 
-## Step 18: Test Login Flow
+Open `https://zordnet.com` and try login/signup.
 
-Open:
+Watch logs:
 
-```text
-https://zordnet.com
+```bash
+kubectl logs -n zord deploy/zord-console -f --tail=20
+kubectl logs -n zord deploy/zord-edge -f --tail=20
 ```
 
-Try login/signup if configured.
+---
 
-Watch console logs:
+## Step 16: Test Ingestion Flow
 
-```powershell
-kubectl logs -n zord deploy/zord-console -f
-```
+Submit a test payment through the UI, then check logs:
 
-Watch edge logs:
-
-```powershell
-kubectl logs -n zord deploy/zord-edge -f
-```
-
-Expected:
-
-- frontend sends request to `/api/auth/login`
-- Next.js server calls private `zord-edge`
-- no browser call to `http://zord-edge:8080`
-
-## Step 19: Test Ingestion Flow
-
-If your UI has create payment / ingest page, submit a test payment.
-
-Then check:
-
-```powershell
-kubectl logs -n zord deploy/zord-edge --tail=100
-kubectl logs -n zord deploy/zord-intent-engine --tail=100
-kubectl logs -n zord deploy/zord-token-enclave --tail=100
-kubectl logs -n zord deploy/zord-relay --tail=100
+```bash
+kubectl logs -n zord deploy/zord-edge --tail=50
+kubectl logs -n zord deploy/zord-intent-engine --tail=50
+kubectl logs -n zord deploy/zord-relay --tail=50
+kubectl logs -n zord deploy/zord-outcome-engine --tail=50
 ```
 
 Expected flow:
 
 ```text
-zord-console
-  -> zord-edge
-  -> Kafka
-  -> zord-intent-engine
-  -> zord-token-enclave if PII tokenization is needed
-  -> zord-relay / outcome / evidence depending on workflow
+zord-console → zord-edge → Kafka → zord-intent-engine → zord-token-enclave → zord-relay → zord-outcome-engine → zord-evidence
 ```
 
-## Step 20: Test Prompt Layer
+---
 
-If Ask Zord or copilot is enabled, test it in UI.
+## Step 17: Test Prompt Layer (AI Copilot)
 
-Or call:
-
-```powershell
-curl -X POST https://zordnet.com/api/prompt-layer/query `
-  -H "Content-Type: application/json" `
-  -d "{\"query\":\"show me recent payout risk\"}"
+```bash
+curl -X POST https://zordnet.com/api/prompt-layer/query \
+  -H "Content-Type: application/json" \
+  -d '{"query":"show me recent payout risk"}'
 ```
 
-Expected:
+Expected: JSON response with AI-generated answer
 
-- JSON response
-- no upstream connection error
+---
 
-If it fails:
+## Step 18: Test S3 Access
 
-```powershell
-kubectl logs -n zord deploy/zord-console --tail=100
-kubectl logs -n zord deploy/zord-prompt-layer --tail=100
+```bash
+kubectl logs -n zord deploy/zord-edge --tail=50 | grep -i "s3\|access denied"
+kubectl logs -n zord deploy/zord-evidence --tail=50 | grep -i "s3\|access denied"
 ```
 
-## Step 21: Check HPA
+If you see `Access Denied`:
+- Check: `kubectl describe sa zord-aws-access -n zord`
+- Verify IAM role trust policy has correct OIDC provider
+- Verify IAM policy has correct bucket ARNs
 
-Run:
+---
 
-```powershell
-kubectl get hpa -n zord
+## Step 19: Verify No Backend Is Publicly Exposed
+
+```bash
+# Should only show zordnet.com → zord-console
+kubectl get ingress -n zord -o yaml | grep -A5 "rules:"
+
+# Should return nothing (no LoadBalancer services)
+kubectl get svc -n zord | grep LoadBalancer
 ```
 
-Good:
+---
 
-```text
-TARGETS
-10%/70%
+## Step 20: Final Success Checklist
+
+```bash
+echo "=== Nodes ===" && kubectl get nodes
+echo "=== Pods ===" && kubectl get pods -n zord
+echo "=== Secrets ===" && kubectl get externalsecret -n zord
+echo "=== Services ===" && kubectl get svc -n zord
+echo "=== Ingress ===" && kubectl get ingress -n zord
+echo "=== HPA ===" && kubectl get hpa -n zord
+echo "=== PDB ===" && kubectl get pdb -n zord
 ```
 
-Bad:
+Deployment is healthy when ALL of these are true:
 
-```text
-<unknown>
-```
+- [ ] All nodes are `Ready`
+- [ ] All pods are `Running` (or `Completed` for jobs)
+- [ ] Both ExternalSecrets show `SecretSynced` / `True`
+- [ ] `zord-app-secrets` and `zord-edge-signing-key` secrets exist
+- [ ] `zord-aws-access` service account has IAM role annotation
+- [ ] Ingress shows ALB address
+- [ ] `https://zordnet.com` opens in browser
+- [ ] `https://zordnet.com/api/health` responds
+- [ ] All 9 backend health endpoints respond from inside cluster
+- [ ] Kafka has 28 topics created
+- [ ] HPA targets show actual percentages (not `<unknown>`)
+- [ ] No service is type `LoadBalancer`
+- [ ] No S3 access denied errors in logs
+- [ ] Frontend API calls go through `/api/...` not direct backend URLs
 
-If bad, metrics-server is missing or broken.
+---
 
-## Step 22: Check PDB
+## Quick Test (Short Version)
 
-Run:
-
-```powershell
-kubectl get pdb -n zord
-```
-
-Expected:
-
-- PDBs exist for app services
-- `ALLOWED DISRUPTIONS` should not be broken forever
-
-## Step 23: Check No Backend Is Public
-
-Run:
-
-```powershell
-kubectl get ingress -n zord -o yaml
-```
-
-Expected public rule:
-
-```text
-zordnet.com -> zord-console
-```
-
-There should not be public rules like:
-
-```text
-intent.zordnet.com
-relay.zordnet.com
-evidence.zordnet.com
-token.zordnet.com
-```
-
-Also check services:
-
-```powershell
-kubectl get svc -n zord
-```
-
-Backend services should not be type `LoadBalancer`.
-
-## Step 24: Common Failure Fixes
-
-### ImagePullBackOff
-
-Check:
-
-```powershell
-kubectl describe pod <pod-name> -n zord
-```
-
-Likely causes:
-
-- image tag is wrong
-- image repo is wrong
-- ECR permission problem
-- image was not pushed
-
-### CreateContainerConfigError
-
-Likely causes:
-
-- missing secret
-- missing key inside `zord-app-secrets`
-- missing `zord-edge-signing-key`
-
-Check:
-
-```powershell
-kubectl describe pod <pod-name> -n zord
-kubectl get secret zord-app-secrets -n zord
-```
-
-### CrashLoopBackOff
-
-Check:
-
-```powershell
-kubectl logs -n zord <pod-name> --previous
-kubectl logs -n zord <pod-name>
-```
-
-Likely causes:
-
-- DB password wrong
-- Kafka unreachable
-- S3 permission denied
-- missing env var
-- app health path mismatch
-
-### Pending
-
-Check:
-
-```powershell
-kubectl describe pod <pod-name> -n zord
-```
-
-Likely causes:
-
-- not enough CPU/memory
-- PVC not bound
-- node affinity / anti-affinity too strict
-- EBS CSI missing
-
-### Ingress Has No Address
-
-Check:
-
-```powershell
-kubectl describe ingress zord-public -n zord
-kubectl logs -n kube-system deployment/aws-load-balancer-controller
-```
-
-Likely causes:
-
-- AWS Load Balancer Controller not installed
-- subnet tags missing
-- invalid ACM certificate ARN
-- IAM permission issue for controller
-
-### S3 Access Denied
-
-Check app logs:
-
-```powershell
-kubectl logs -n zord deploy/zord-edge --tail=100
-kubectl logs -n zord deploy/zord-intent-engine --tail=100
-kubectl logs -n zord deploy/zord-outcome-engine --tail=100
-kubectl logs -n zord deploy/zord-evidence --tail=100
-```
-
-Check service account annotation:
-
-```powershell
-kubectl describe serviceaccount zord-aws-access -n zord
-```
-
-Likely causes:
-
-- missing IRSA annotation
-- IAM trust policy has wrong OIDC provider
-- IAM trust policy has wrong service account namespace/name
-- IAM policy has wrong bucket ARN
-- bucket name in `zord/app-secrets` does not match IAM policy
-
-## Final Success Checklist
-
-Deployment is healthy when:
-
-- `kubectl get nodes` shows nodes `Ready`
-- all pods in `zord` are `Running` or jobs `Completed`
-- `zord-app-secrets` exists
-- `zord-edge-signing-key` exists
-- `zord-aws-access` has IAM role annotation
-- `kubectl get ingress -n zord` shows ALB address
-- `https://zordnet.com` opens
-- `https://zordnet.com/api/health` responds
-- frontend pages call `/api/...`, not private backend URLs in browser
-- private service curl tests work inside cluster
-- Postgres logs are clean
-- Kafka topics job completed
-- no `ImagePullBackOff`
-- no `CrashLoopBackOff`
-- no S3 access denied errors
-- HPA metrics are not `<unknown>`
-
-## Short Testing Order
-
-If you want the tiny version:
-
-```powershell
-kubectl config current-context
-kubectl get nodes
-kubectl apply -k kubernetes/eks
-kubectl get pods -n zord -w
+```bash
+kubectl get pods -n zord
 kubectl get externalsecret -n zord
-kubectl get secret zord-app-secrets -n zord
 kubectl get ingress -n zord
-curl https://zordnet.com/api/health
-kubectl logs -n zord deploy/zord-console --tail=100
-kubectl logs -n zord deploy/zord-edge --tail=100
+kubectl exec -n zord zord-kafka-0 -- kafka-topics --bootstrap-server localhost:9092 --list
+curl -s https://zordnet.com/api/health
 ```
 
-Then open:
+Then open `https://zordnet.com` in browser.
 
-```text
-https://zordnet.com
-```
+---
+
+## Troubleshooting Reference
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Pod `Pending` | No StorageClass or EBS CSI missing | `kubectl get storageclass`, install EBS CSI |
+| Pod `ImagePullBackOff` | Image not in ECR or wrong tag | Push image, verify tag |
+| Pod `CreateContainerConfigError` | Missing secret key | `kubectl describe pod`, check secret keys |
+| Pod `CrashLoopBackOff` | App crash (DB/Kafka unreachable) | `kubectl logs <pod>` |
+| Kafka OOM (exit 137) | Not enough memory | Already fixed: 4Gi limit + KAFKA_HEAP_OPTS |
+| Kafka DNS error | KRaft quorum voter | Already fixed: uses `localhost:9093` |
+| HPA `<unknown>` | metrics-server missing | Install metrics-server |
+| ALB not created | LB Controller missing or bad cert | Check controller + certificate ARN |
+| S3 Access Denied | IRSA not configured | Check SA annotation + IAM role |
+| Services can't reach Kafka | Kafka not ready when services started | `kubectl rollout restart deployment <name> -n zord` |
+| Postgres `lost+found` error | EBS mount at data dir root | Already fixed: `subPath: pgdata` |
+| Kafka data dir not writable | EBS permissions | Already fixed: `fsGroup: 1000` |

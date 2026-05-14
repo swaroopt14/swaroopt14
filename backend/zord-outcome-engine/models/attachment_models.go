@@ -26,10 +26,11 @@ const (
 // ─── Confidence bucket constants ──────────────────────────────────────────────
 
 const (
-	ConfidenceExact  = "EXACT"
-	ConfidenceHigh   = "HIGH"
-	ConfidenceMedium = "MEDIUM"
-	ConfidenceLow    = "LOW"
+	ConfidenceExact   = "EXACT"
+	ConfidenceHigh    = "HIGH"
+	ConfidenceMedium  = "MEDIUM"
+	ConfidenceLow     = "LOW"
+	ConfidenceInvalid = "INVALID"
 )
 
 // ─── Variance severity constants ─────────────────────────────────────────────
@@ -40,6 +41,20 @@ const (
 	VarianceSeverityMedium   = "MEDIUM"
 	VarianceSeverityHigh     = "HIGH"
 	VarianceSeverityCritical = "CRITICAL"
+)
+
+// ─── Variance type constants (PDF review section 9) ──────────────────────────
+
+const (
+	VarianceTypeNoVariance       = "NO_VARIANCE"
+	VarianceTypeUnderSettlement  = "UNDER_SETTLEMENT"
+	VarianceTypeOverSettlement   = "OVER_SETTLEMENT"
+	VarianceTypeFeeDeduction     = "FEE_DEDUCTION"
+	VarianceTypeTaxTDSDeduction  = "TAX_TDS_DEDUCTION"
+	VarianceTypeRounding         = "ROUNDING"
+	VarianceTypeStatusMismatch   = "STATUS_MISMATCH"
+	VarianceTypeValueDateMismatch = "VALUE_DATE_MISMATCH"
+	VarianceTypeCrossPeriod      = "CROSS_PERIOD"
 )
 
 // ─── Batch attachment status constants ───────────────────────────────────────
@@ -58,6 +73,15 @@ const (
 	JobScopeSingleObservation = "SINGLE_OBSERVATION"
 	JobScopeReplay            = "REPLAY"
 	JobScopeBackfill          = "BACKFILL"
+)
+
+// ─── Unresolved intent reason code constants (PDF review section 10) ─────────
+
+const (
+	UnresolvedReasonNoSettlementObservationFound  = "NO_SETTLEMENT_OBSERVATION_FOUND"
+	UnresolvedReasonOnlyAmbiguousCandidatesFound  = "ONLY_AMBIGUOUS_CANDIDATES_FOUND"
+	UnresolvedReasonOnlyConflictedCandidatesFound = "ONLY_CONFLICTED_CANDIDATES_FOUND"
+	UnresolvedReasonSourceFileNotReceived         = "SOURCE_FILE_NOT_RECEIVED"
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -175,6 +199,7 @@ type AttachmentDecision struct {
 // ─────────────────────────────────────────────────────────────────────────────
 // VARIANCE RECORD — formalizes what differs between intent and observation.
 // Value-date mismatch and cross-period flags are first-class fields per spec.
+// PDF review (section 9) adds: VarianceType and whitelist fields.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type VarianceRecord struct {
@@ -201,10 +226,44 @@ type VarianceRecord struct {
 	BankRefMissingFlag     bool `json:"bank_ref_missing_flag" db:"bank_ref_missing_flag"`
 	EvidenceGapFlag        bool `json:"evidence_gap_flag" db:"evidence_gap_flag"`
 
+	// Variance classification (PDF review section 9)
+	VarianceType string `json:"variance_type" db:"variance_type"`
+
 	// Severity & classification
 	VarianceSeverity        string          `json:"variance_severity" db:"variance_severity"`
 	VarianceReasonCodesJSON json.RawMessage `json:"variance_reason_codes_json" db:"variance_reason_codes_json"`
-	CreatedAt               time.Time       `json:"created_at" db:"created_at"`
+
+	// Whitelist fields (PDF review section 8 & 9)
+	// Service 7 must not count expected PSP fees, TDS, commissions, rounding,
+	// or policy-approved deductions as leakage. Variance can exist without being leakage.
+	IsWhitelisted        bool    `json:"is_whitelisted" db:"is_whitelisted"`
+	WhitelistPolicyID    *string `json:"whitelist_policy_id,omitempty" db:"whitelist_policy_id"`
+	WhitelistPolicyVersion *string `json:"whitelist_policy_version,omitempty" db:"whitelist_policy_version"`
+	WhitelistReasonCode  *string `json:"whitelist_reason_code,omitempty" db:"whitelist_reason_code"`
+	WhitelistExplanation *string `json:"whitelist_explanation,omitempty" db:"whitelist_explanation"`
+
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UNRESOLVED INTENT RECORD — reverse scan output (PDF review section 10).
+//
+// Records every canonical intent for which no acceptable settlement observation
+// was found within the expected attachment window.  This is the only mechanism
+// that can prove "every dollar intended to be paid was accounted for."
+// ─────────────────────────────────────────────────────────────────────────────
+
+type UnresolvedIntentRecord struct {
+	UnresolvedID        uuid.UUID  `json:"unresolved_id" db:"unresolved_id"`
+	TenantID            uuid.UUID  `json:"tenant_id" db:"tenant_id"`
+	AttachmentJobID     uuid.UUID  `json:"attachment_job_id" db:"attachment_job_id"`
+	IntentID            uuid.UUID  `json:"intent_id" db:"intent_id"`
+	BatchID             *string    `json:"batch_id,omitempty" db:"batch_id"`
+	ExpectedWindowEnd   *time.Time `json:"expected_window_end,omitempty" db:"expected_window_end"`
+	ReasonCode          string     `json:"reason_code" db:"reason_code"`
+	Amount              decimal.Decimal `json:"amount" db:"amount"`
+	CurrencyCode        string     `json:"currency_code" db:"currency_code"`
+	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -268,7 +327,7 @@ type AttachmentRuleProfile struct {
 type AttachmentOutboxEvent struct {
 	OutboxEventID   uuid.UUID       `json:"outbox_event_id" db:"outbox_event_id"`
 	TenantID        uuid.UUID       `json:"tenant_id" db:"tenant_id"`
-	TraceID         *uuid.UUID       `json:"trace_id" db:"trace_id"`
+	TraceID         *uuid.UUID      `json:"trace_id" db:"trace_id"`
 	AttachmentJobID uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
 	EntityFamily    string          `json:"entity_family" db:"entity_family"`
 	EntityID        uuid.UUID       `json:"entity_id" db:"entity_id"`

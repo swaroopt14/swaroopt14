@@ -70,8 +70,12 @@ spec:
               value: http://zord-intelligence:8089
             - name: ZORD_SETTLEMENT_URL
               value: http://zord-outcome-engine:8081
+            - name: ZORD_EVIDENCE_URL
+              value: http://zord-evidence:8088
             - name: PROMPT_LAYER_URL
               value: http://zord-prompt-layer:8086
+            - name: NEXT_PUBLIC_PROMPT_LAYER_URL
+              value: /api/prompt-layer
           readinessProbe:
             httpGet:
               path: /api/health

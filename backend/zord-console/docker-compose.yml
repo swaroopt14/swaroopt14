@@ -15,7 +15,8 @@ services:
       - HOSTNAME=0.0.0.0
       - NEXT_PUBLIC_PROMPT_LAYER_URL=${NEXT_PUBLIC_PROMPT_LAYER_URL:-/api/prompt-layer}
       - PROMPT_LAYER_URL=${PROMPT_LAYER_URL:-http://localhost:8086}
-      - ZORD_INTELLIGENCE_URL=${ZORD_INTELLIGENCE_URL:-http://host.docker.internal:8080}
+      # Default 8089 matches zord-intelligence (see config/api.endpoints.ts). 8080 is zord-edge — wrong target for KPI/batch proxies.
+      - ZORD_INTELLIGENCE_URL=${ZORD_INTELLIGENCE_URL:-http://host.docker.internal:8089}
       - ZORD_BULK_INGEST_API_KEY=${ZORD_BULK_INGEST_API_KEY:-}
       - ZORD_BULK_INGEST_SOURCE_TYPE=${ZORD_BULK_INGEST_SOURCE_TYPE:-batch_upload}
       - ZORD_BULK_INGEST_SOURCE_CLASS=${ZORD_BULK_INGEST_SOURCE_CLASS:-operator}

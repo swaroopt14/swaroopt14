@@ -434,7 +434,7 @@ export function FinalLandingNavbar({
 
         <div className="relative z-10 ml-auto flex items-center gap-3">
           <Link
-            href="/console/login"
+            href="/signin/tenant"
             className="hidden h-14 items-center rounded-[20px] border border-white/12 px-6 text-[16px] font-semibold text-slate-100/90 shadow-[0_14px_24px_rgba(0,0,0,0.14)] transition hover:border-white/18 hover:text-white lg:inline-flex"
             style={frostedNavTrackStyle}
           >
@@ -538,7 +538,7 @@ export function FinalLandingNavbar({
 
               <div className="flex items-center gap-3 pt-2">
                 <Link
-                  href="/console/login"
+                  href="/signin/tenant"
                   onClick={() => setMobileOpen(false)}
                   className="flex-1 rounded-[20px] border border-white/10 bg-white/[0.03] px-4 py-3 text-center text-[15px] font-semibold text-slate-200"
                 >

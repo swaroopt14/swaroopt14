@@ -43,21 +43,21 @@ function OutcomeCard({ card }: { card: OutcomeInsightCard }) {
       <div className="relative mb-4 h-1 w-12 rounded-full bg-gradient-to-r from-white via-white/70 to-white/30" />
 
       <div className="relative z-[1] flex min-h-0 flex-1 flex-col text-left">
-        <h3 className="text-[16px] font-bold leading-snug tracking-[-0.02em] text-white">{card.title}</h3>
-        <p className="mt-2 text-[27px] font-bold tracking-[-0.04em] text-white sm:text-[29px]">{card.value}</p>
+        <h3 className="text-[18px] font-bold leading-snug tracking-[-0.02em] text-white">{card.title}</h3>
+        <p className="mt-2 text-[30px] font-bold tracking-[-0.04em] text-white sm:text-[32px]">{card.value}</p>
         {card.valueDelta ? (
-          <p className="mt-1 text-[16px] font-semibold tabular-nums text-neutral-300">{card.valueDelta}</p>
+          <p className="mt-1 text-[18px] font-semibold tabular-nums text-neutral-300">{card.valueDelta}</p>
         ) : null}
-        <p className="mt-2 text-[14px] leading-relaxed text-neutral-400">{card.subtext}</p>
+        <p className="mt-2 text-[16px] leading-relaxed text-neutral-400">{card.subtext}</p>
 
         <div className="mt-auto pt-5">
           <button
             type="button"
-            className="flex w-full items-center justify-between gap-3 rounded-full border border-white/15 bg-white/5 px-4 py-3 text-left text-[14px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:border-white/25 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40"
+            className="flex w-full items-center justify-between gap-3 rounded-full border border-white/15 bg-white/5 px-4 py-3 text-left text-[16px] font-semibold text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition hover:border-white/25 hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white/40"
           >
             <span className="min-w-0 leading-snug">
-              <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-neutral-500">Insight</span>
-              <span className="mt-0.5 block text-[13px] font-medium text-neutral-300">{card.aiInsight}</span>
+              <span className="block text-[13px] font-bold uppercase tracking-[0.12em] text-neutral-500">Insight</span>
+              <span className="mt-0.5 block text-[15px] font-medium text-neutral-300">{card.aiInsight}</span>
             </span>
             <ChevronRight />
           </button>
@@ -103,15 +103,15 @@ export function HomeHeroInsightCard({ fullWidth = false }: HomeHeroInsightCardPr
       <div className="relative mb-4 h-1 w-12 rounded-full bg-gradient-to-r from-[#4ADE80] via-emerald-400 to-emerald-700" />
 
       <div className="relative z-[1] flex min-h-0 flex-1 flex-col text-left">
-        <h3 className="text-[16px] font-bold leading-snug tracking-[-0.02em] text-white">Insight</h3>
-        <p className="mt-2 text-[27px] font-bold leading-snug tracking-[-0.04em] text-white sm:text-[29px]">{HOME_HERO_INSIGHT_LEAD}</p>
-        <p className="mt-2 text-[14px] leading-relaxed text-emerald-100/80">{HOME_HERO_INSIGHT_TAIL}</p>
+        <h3 className="text-[18px] font-bold leading-snug tracking-[-0.02em] text-white">Insight</h3>
+        <p className="mt-2 text-[30px] font-bold leading-snug tracking-[-0.04em] text-white sm:text-[32px]">{HOME_HERO_INSIGHT_LEAD}</p>
+        <p className="mt-2 text-[16px] leading-relaxed text-emerald-100/80">{HOME_HERO_INSIGHT_TAIL}</p>
 
         <div className="mt-auto pt-5">
           <div className="flex w-full items-center justify-between gap-3 rounded-full border border-emerald-300/25 bg-emerald-950/35 px-4 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
             <span className="min-w-0 leading-snug">
-              <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-[#4ADE80]/90">Insight</span>
-              <span className="mt-0.5 block text-[13px] font-medium text-emerald-50/95">{HOME_HERO_INSIGHT_BODY}</span>
+              <span className="block text-[13px] font-bold uppercase tracking-[0.12em] text-[#4ADE80]/90">Insight</span>
+              <span className="mt-0.5 block text-[15px] font-medium text-emerald-50/95">{HOME_HERO_INSIGHT_BODY}</span>
             </span>
             <ChevronRight className="text-emerald-400/75" />
           </div>
@@ -143,8 +143,8 @@ export function OutcomeInsightCardGroup({
 
   return (
     <section aria-label={heading}>
-      <h2 className="mb-1 text-[14px] font-semibold uppercase tracking-wide text-[#6b7280]">{heading}</h2>
-      <p className="mb-4 max-w-3xl text-[13px] leading-relaxed text-[#787872]">{description}</p>
+      <h2 className="mb-1 text-[16px] font-semibold uppercase tracking-wide text-[#6b7280]">{heading}</h2>
+      <p className="mb-4 max-w-3xl text-[15px] leading-relaxed text-[#787872]">{description}</p>
       <div className={`grid gap-5 sm:grid-cols-2 ${xlClass}`}>
         {cards.map((card) => (
           <OutcomeCard key={card.id} card={card} />

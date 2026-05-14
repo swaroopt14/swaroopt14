@@ -11,9 +11,10 @@ export async function GET(request: NextRequest) {
 
     // Fetch from real backend (zord-intent-engine)
     const items = await fetchDLQItems({ tenant_id: tenantId })
+    const list = Array.isArray(items) ? items : []
 
     // Transform backend response to match frontend DLQItem type
-    const transformedItems = items.map((item) => ({
+    const transformedItems = list.map((item) => ({
       dlq_id: item.dlq_id,
       envelope_id: item.envelope_id,
       stage: item.stage,

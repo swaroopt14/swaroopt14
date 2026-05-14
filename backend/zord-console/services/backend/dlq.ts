@@ -45,8 +45,10 @@ export async function fetchDLQItems(params: DLQListParams = {}): Promise<Backend
       throw new Error(`Failed to fetch DLQ items: ${response.status} ${response.statusText}`)
     }
 
-    const data = await response.json()
-    return data
+    const data: unknown = await response.json()
+    // Empty DLQ: intent-engine historically returned JSON `null` (Go nil slice). Always return an array.
+    if (Array.isArray(data)) return data as BackendDLQItem[]
+    return []
   } catch (error) {
     clearTimeout(timeoutId)
     if (error instanceof Error && error.name === 'AbortError') {

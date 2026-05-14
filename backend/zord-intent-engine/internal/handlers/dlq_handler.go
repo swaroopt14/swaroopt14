@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
-	
+
 	"zord-intent-engine/internal/models"
 	"zord-intent-engine/internal/persistence"
 )
@@ -40,9 +40,15 @@ func (h *DLQHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Nil slice encodes as JSON null; clients expect a JSON array for list endpoints.
+	if items == nil {
+		items = []models.DLQEntry{}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
 }
+
 // NEW: GET /v1/dlq/:dlq_id
 // Fetches a single DLQ entry by its primary key
 func (h *DLQHandler) GetByID(w http.ResponseWriter, r *http.Request) {

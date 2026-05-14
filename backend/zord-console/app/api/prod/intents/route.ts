@@ -31,8 +31,8 @@ export async function GET(request: NextRequest) {
       batch_id: batchId,
     })
 
-    // Transform backend response to match frontend types
-    const items = response.items.map((intent) => ({
+    // Transform backend response to match frontend types (defensive: never assume `items` is non-null)
+    const items = (response.items ?? []).map((intent) => ({
       intent_id: intent.intent_id,
       intent_type: intent.intent_type,
       source: intent.intent_type || 'API', // Map intent_type or default

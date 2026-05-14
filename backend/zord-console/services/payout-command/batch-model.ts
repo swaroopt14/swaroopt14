@@ -293,6 +293,9 @@ export function computeFailureCounts(rows: BatchRow[]) {
 }
 
 export function progressFromSummary(summary: BatchSummary) {
+  if (summary.totalRows <= 0) {
+    return { successPct: 0, failedPct: 0, pendingPct: 0, processedPct: 0, processingPct: 0 }
+  }
   const successPct = (summary.success / summary.totalRows) * 100
   const failedPct = (summary.failed / summary.totalRows) * 100
   const pendingPct = (summary.pending / summary.totalRows) * 100
@@ -318,22 +321,30 @@ export function sortRowsByLatest(rows: BatchRow[], sortMode: 'Latest' | 'Oldest'
   return sortMode === 'Latest' ? sorted : sorted.reverse()
 }
 
-export async function parseUploadedSheet(file: File): Promise<BatchRow[]> {
-  const isCsv = file.name.toLowerCase().endsWith('.csv')
-  if (!isCsv) {
-    return buildDefaultBatchRows(120)
+/** Neutral row for missing cells — no random “demo” grid. */
+function emptyBatchRowSkeleton(index: number): BatchRow {
+  return {
+    refId: `R${index + 1}`,
+    amount: 0,
+    beneficiary: '—',
+    status: 'Pending',
+    stage: STAGES_BY_STATUS.Pending,
+    reason: '-',
+    time: '-',
+    actionLabel: actionFor('Pending'),
+    provider: 'RazorpayX',
+    dispatchId: '—',
+    bankReference: '—',
+    timeline: buildTimeline('Pending', '-'),
   }
+}
 
-  const text = await file.text()
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
+function parseMatrixToBatchRows(matrix: string[][]): BatchRow[] {
+  const rows = matrix.map((r) => r.map((c) => String(c ?? '').trim())).filter((r) => r.some(Boolean))
+  if (rows.length <= 1) return []
 
-  if (lines.length <= 1) return buildDefaultBatchRows(60)
-
-  const [headerLine, ...dataLines] = lines
-  const headers = headerLine.split(',').map((header) => header.trim().toLowerCase())
+  const [headerRow, ...dataRows] = rows
+  const headers = headerRow.map((h) => h.toLowerCase())
 
   const refIdx = headers.findIndex((header) => header.includes('ref') || header.includes('request'))
   const amountIdx = headers.findIndex((header) => header.includes('amount'))
@@ -341,9 +352,8 @@ export async function parseUploadedSheet(file: File): Promise<BatchRow[]> {
   const statusIdx = headers.findIndex((header) => header.includes('status'))
   const reasonIdx = headers.findIndex((header) => header.includes('reason') || header.includes('error'))
 
-  const rows = dataLines.slice(0, 1200).map((line, index) => {
-    const cells = line.split(',').map((cell) => cell.trim())
-    const seeded = createRow(index)
+  return dataRows.slice(0, 1200).map((cells, index) => {
+    const base = emptyBatchRowSkeleton(index)
 
     const rawStatus = statusIdx >= 0 ? cells[statusIdx]?.toLowerCase() : ''
     const status: BatchRowStatus =
@@ -355,23 +365,55 @@ export async function parseUploadedSheet(file: File): Promise<BatchRow[]> {
             ? 'Pending'
             : rawStatus.includes('process')
               ? 'Processing'
-              : seeded.status
+              : base.status
 
     const amountValue = amountIdx >= 0 ? Number(cells[amountIdx]?.replace(/[^0-9.-]/g, '')) : Number.NaN
 
     return {
-      ...seeded,
-      refId: refIdx >= 0 && cells[refIdx] ? cells[refIdx] : seeded.refId,
-      amount: Number.isFinite(amountValue) && amountValue > 0 ? amountValue : seeded.amount,
-      beneficiary: beneficiaryIdx >= 0 && cells[beneficiaryIdx] ? cells[beneficiaryIdx] : seeded.beneficiary,
+      ...base,
+      refId: refIdx >= 0 && cells[refIdx] ? cells[refIdx] : base.refId,
+      amount: Number.isFinite(amountValue) && amountValue > 0 ? amountValue : base.amount,
+      beneficiary: beneficiaryIdx >= 0 && cells[beneficiaryIdx] ? cells[beneficiaryIdx] : base.beneficiary,
       status,
       stage: STAGES_BY_STATUS[status],
-      reason: status === 'Failed' ? (reasonIdx >= 0 && cells[reasonIdx] ? cells[reasonIdx] : seeded.reason) : '-',
+      reason: status === 'Failed' ? (reasonIdx >= 0 && cells[reasonIdx] ? cells[reasonIdx] : base.reason) : '-',
       actionLabel: actionFor(status),
-      timeline: buildTimeline(status, seeded.time),
+      timeline: buildTimeline(status, status === 'Pending' ? '-' : formatClock(index % 900)),
     }
   })
+}
 
-  return rows.length ? rows : buildDefaultBatchRows(120)
+export async function parseUploadedSheet(file: File): Promise<BatchRow[]> {
+  const lower = file.name.toLowerCase()
+  const isCsv = lower.endsWith('.csv')
+  const isSheet = lower.endsWith('.xlsx') || lower.endsWith('.xls')
+
+  if (isCsv) {
+    const text = await file.text()
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+    if (lines.length <= 1) return []
+    const matrix = lines.map((line) => line.split(',').map((cell) => cell.trim()))
+    return parseMatrixToBatchRows(matrix)
+  }
+
+  if (isSheet) {
+    const XLSX = await import('xlsx')
+    const ab = await file.arrayBuffer()
+    const wb = XLSX.read(ab, { type: 'array' })
+    const sheetName = wb.SheetNames[0]
+    if (!sheetName) return []
+    const sheet = wb.Sheets[sheetName]
+    const matrixUnknown = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '', raw: false }) as unknown[]
+    const matrix: string[][] = matrixUnknown.map((row) => {
+      if (!Array.isArray(row)) return []
+      return row.map((cell) => (cell === null || cell === undefined ? '' : String(cell)))
+    })
+    return parseMatrixToBatchRows(matrix)
+  }
+
+  return []
 }
 

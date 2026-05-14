@@ -7,8 +7,6 @@ import { DASHBOARD_FONT_STACK } from '@/services/payout-command/model'
 import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
 import { ClientChart, Glyph } from '../../today/_components/shared'
 import {
-  buildDefaultBatchRows,
-  buildSeedSummary,
   computeFailureCounts,
   deriveZordPipelineTimeline,
   type ZordPipelineIntake,
@@ -29,8 +27,6 @@ import { getIntelligenceBatchDetail } from '@/services/payout-command/prod-api/g
 import type { ApiIntentRow } from '@/services/payout-command/prod-api/prodApiTypes'
 import type { BatchDetailResponse } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { CreatePaymentRequestForm } from '../../../customer/intents/create/page'
-import { buildSeededBatchFromBulkUpload } from '@/services/payout-command/buildSeededBatchFromBulkUpload'
-import { persistSeededBatchPrepend } from '@/services/payout-command/seeded-batches-store'
 import {
   postLoanSystemBatchPull,
   postMandateNachPull,
@@ -269,8 +265,14 @@ function DataTable({ head, rows, footer }: {
 /* ── Main ── */
 
 export default function BatchCommandCenterClient() {
-  const [rows, setRows] = useState<BatchRow[]>(() => buildDefaultBatchRows())
-  const [summary, setSummary] = useState<BatchSummary>(() => buildSeedSummary())
+  const [rows, setRows] = useState<BatchRow[]>([])
+  const [summary, setSummary] = useState<BatchSummary>(() => ({
+    totalRows: 0,
+    processed: 0,
+    success: 0,
+    failed: 0,
+    pending: 0,
+  }))
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('All')
   const [sortMode, setSortMode] = useState<SortMode>('Latest')
@@ -490,7 +492,11 @@ export default function BatchCommandCenterClient() {
     setLastRefreshedAt(new Date())
   }, [])
 
-  /** Step 1 — POST /api/bulk-ingest (proxies intelligence bulk-ingest), then local parse for the table. */
+  /**
+   * Step 1 — POST /api/bulk-ingest (proxies zord-edge bulk ingest), then local parse for the table.
+   * Target model: failed rows → intents (or batch line items) with FAILED + structured errors;
+   * DLQ only for true dead letters that never become normal intents.
+   */
   const onIntentBatchUpload = useCallback(
     async (file: File | null) => {
       if (!file) return
@@ -523,7 +529,7 @@ export default function BatchCommandCenterClient() {
         setUploadRelayState('synced')
         setUploadRelayMessage(
           effectiveBatch
-            ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal lists this batch under Sandbox seeded.`
+            ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal loads batches from intelligence and intents from the intent engine for this tenant.`
             : `Intent batch accepted. Settlement step uses id ${journalBatchId} (enter Batch-Id above and re-run Step 1 if the settlement service requires a server-issued id).`,
         )
         setRows(parsed)
@@ -533,15 +539,6 @@ export default function BatchCommandCenterClient() {
         setSelectedFailureReason(null)
         setUploadState('ready')
         setLastRefreshedAt(new Date())
-        if (parsed.length > 0) {
-          persistSeededBatchPrepend(
-            buildSeededBatchFromBulkUpload({
-              batchId: journalBatchId,
-              fileName: file.name,
-              rows: parsed,
-            }),
-          )
-        }
         setIntakeStep('intent_ready')
       } catch (error) {
         setIntentIngestOk(false)

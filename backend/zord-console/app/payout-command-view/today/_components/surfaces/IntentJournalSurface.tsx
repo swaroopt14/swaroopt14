@@ -3,8 +3,6 @@
 import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EntityLogo } from '../entity-logo'
-import { SandboxBatchNotice } from '../intent-journal/SandboxBatchNotice'
-import { SandboxSeededSection } from '../intent-journal/SandboxSeededSection'
 import {
   BankingInformationTokensBlock,
 } from '../intent-journal/IntentDrawerSections'
@@ -22,7 +20,6 @@ import type { BatchDetailResponse, IntelligenceBatchRow } from '@/services/payou
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import type { ApiDlqRow, ApiIntentRow, ApiProdIntentDetailPayload } from '@/services/payout-command/prod-api/prodApiTypes'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
-import { useSeededBatches } from '@/services/payout-command/seeded-batches-store'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 
 type BatchType = 'Disbursement' | 'Settlement'
@@ -230,73 +227,6 @@ function intentStatusClass(status: IntentStatus) {
 
 function intentStatusLabel(status: IntentStatus) {
   return status
-}
-
-/**
- * Adapter — converts the stable `IntentDetail` shape (from the seeded-batches
- * store) to the table `IntentRow` shape.
- */
-function intentDetailToRow(detail: IntentDetail): IntentRow {
-  const partner: string =
-    detail.connector === 'Razorpay' ? 'Razorpay'
-      : detail.connector === 'Cashfree' ? 'Cashfree'
-        : detail.connector === 'PayU' ? 'PayU'
-          : detail.connector
-  const method: IntentRow['method'] =
-    detail.rail === 'IMPS' ? 'LSM'
-      : detail.rail === 'NACH' ? 'NACH'
-        : 'Bank Transfer'
-  const status: IntentStatus =
-    detail.status === 'confirmed' ? 'Confirmed'
-      : detail.status === 'pending' ? 'Pending'
-        : detail.status === 'ambiguous' ? 'Needs Review'
-          : detail.status === 'failed' ? 'Needs Review'
-            : 'In Progress'
-  const match: IntentMatch =
-    detail.status === 'confirmed' ? 'Matched'
-      : detail.status === 'pending' ? 'Awaiting'
-        : detail.status === 'ambiguous' ? 'Mismatch'
-          : detail.status === 'failed' ? 'Not Found'
-            : 'Awaiting'
-  const bank: string =
-    detail.connector === 'HDFC Bank' ? 'HDFC Bank'
-      : detail.connector === 'ICICI Bank' ? 'ICICI Bank'
-        : detail.connector === 'SBI' ? 'SBI'
-          : detail.connector
-  const paymentMethodDetail = [detail.rail, detail.connector].filter(Boolean).join(' · ') || '—'
-  return {
-    batchId: detail.batchId,
-    requestId: detail.intentId,
-    reference: `intent_${detail.intentId.slice(-6)}`,
-    amount: detail.amount,
-    method,
-    status,
-    match,
-    lastUpdated: new Date(detail.dispatchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-    paymentPartner: partner,
-    bank,
-    paymentMethodDetail,
-  }
-}
-
-function intentDetailToFailureRow(detail: IntentDetail): FailureRow {
-  const ir = intentDetailToRow(detail)
-  return {
-    batchId: detail.batchId,
-    requestId: detail.intentId,
-    reference: `intent_${detail.intentId.slice(-6)}`,
-    amount: detail.amount,
-    method: ir.method,
-    paymentPartner: ir.paymentPartner,
-    connectorSubtitle: ir.paymentMethodDetail,
-    failureReason:
-      detail.variance.kind !== 'none' && detail.variance.summary
-        ? detail.variance.summary
-        : 'Intent marked failed',
-    failureStage: 'Processing',
-    lastUpdated: ir.lastUpdated,
-    action: 'Retry',
-  }
 }
 
 /** Sandbox journal has no demo batches until the user uploads — safe placeholder for KPI + filters. */
@@ -593,58 +523,20 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     return nextSelected
   }, [liveTenantId, initialBatchId])
 
-  // Sandbox-seeded batches from localStorage (sidebar "Sandbox seeded" block).
-  const { seededBatches, removeSeededBatch, clearAll, hydrated } = useSeededBatches()
-
-  // Intelligence batches from API; in sandbox/live append seeded-only batches (FILE uploads) after API rows.
   const batches = useMemo(() => {
-    const seededBatchRows = seededBatches.map(
-      (s): BatchRecord => ({
-        batchId: s.batch.batchId,
-        type: s.batch.type,
-        source: s.batch.source,
-        totalValue: s.batch.totalValue,
-        transactions: s.batch.transactions,
-        confirmedCount: s.batch.confirmedCount,
-        highConfidenceCount: s.batch.highConfidenceCount,
-        mismatchCount: s.batch.mismatchCount,
-        unresolvedCount: s.batch.unresolvedCount,
-      }),
-    )
-    if (!journalUsesBackendFeed) {
-      return [...seededBatchRows]
-    }
-    const seen = new Set(liveBatchList.map((b) => b.batchId))
-    return [...liveBatchList, ...seededBatchRows.filter((b) => !seen.has(b.batchId))]
-  }, [journalUsesBackendFeed, seededBatches, liveBatchList])
+    if (!journalUsesBackendFeed) return []
+    return liveBatchList
+  }, [journalUsesBackendFeed, liveBatchList])
 
-  // Intents: `/api/prod/intents` when using backend feed; merge seeded FILE-upload rows (dedupe by request id).
   const intents = useMemo(() => {
-    const seededRows = seededBatches.flatMap((sb) =>
-      sb.intents.map((d) => intentDetailToRow(d)),
-    )
-    if (!journalUsesBackendFeed) return seededRows
-    const byId = new Map<string, IntentRow>()
-    for (const r of liveIntentRows) byId.set(r.requestId, r)
-    for (const r of seededRows) {
-      if (!byId.has(r.requestId)) byId.set(r.requestId, r)
-    }
-    return Array.from(byId.values())
-  }, [seededBatches, liveIntentRows, journalUsesBackendFeed])
+    if (!journalUsesBackendFeed) return []
+    return liveIntentRows
+  }, [journalUsesBackendFeed, liveIntentRows])
 
   const failures = useMemo(() => {
-    if (journalUsesBackendFeed) return liveFailureRows
-    return seededBatches.flatMap((sb) =>
-      sb.intents.filter((d) => d.status === 'failed').map((d) => intentDetailToFailureRow(d)),
-    )
-  }, [journalUsesBackendFeed, seededBatches, liveFailureRows])
-
-  // Quick lookup for intent details (used by the inline drawer).
-  const intentDetailIndex = useMemo(() => {
-    const map = new Map<string, IntentDetail>()
-    seededBatches.forEach((sb) => sb.intents.forEach((d) => map.set(d.intentId, d)))
-    return map
-  }, [seededBatches])
+    if (!journalUsesBackendFeed) return []
+    return liveFailureRows
+  }, [journalUsesBackendFeed, liveFailureRows])
 
   const [selectedBatchId, setSelectedBatchId] = useState<string>(() => initialBatchId ?? '')
 
@@ -705,11 +597,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const [sandboxOnboardingOpen, setSandboxOnboardingOpen] = useState(false)
 
   useEffect(() => {
-    if (mode !== 'sandbox' || !hydrated) {
+    if (mode !== 'sandbox') {
       setSandboxOnboardingOpen(false)
       return
     }
-    if (seededBatches.length > 0 || liveBatchList.length > 0) {
+    if (liveBatchList.length > 0) {
       setSandboxOnboardingOpen(false)
       return
     }
@@ -720,21 +612,13 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     if (typeof window === 'undefined') return
     const dismissed = window.localStorage.getItem(SANDBOX_JOURNAL_ONBOARDING_DISMISSED_KEY) === '1'
     setSandboxOnboardingOpen(!dismissed)
-  }, [mode, hydrated, seededBatches.length, liveBatchList.length, liveFeedLoaded])
+  }, [mode, liveBatchList.length, liveFeedLoaded])
 
   useEffect(() => {
     if (!journalUsesBackendFeed) return
     if (selectedBatchId) return
     if (liveBatchList[0]) setSelectedBatchId(liveBatchList[0].batchId)
   }, [journalUsesBackendFeed, selectedBatchId, liveBatchList])
-
-  useEffect(() => {
-    if (mode !== 'sandbox' || !hydrated) return
-    if (liveBatchList.length > 0) return
-    if (seededBatches.length === 0) return
-    if (seededBatches.some((s) => s.batchId === selectedBatchId)) return
-    setSelectedBatchId(seededBatches[0]!.batchId)
-  }, [mode, hydrated, liveBatchList.length, seededBatches, selectedBatchId])
 
   // Per-batch detail (intended/confirmed/variance) from /v1/intelligence/batches/{id}.
   // Re-fetched whenever the user selects a different batch (live or sandbox).
@@ -772,14 +656,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   // If parent passes an initialBatchId after mount (e.g. URL syncs late), pick it up.
   useEffect(() => {
     if (!initialBatchId || initialBatchId === selectedBatchId) return
-    if (seededBatches.some((s) => s.batchId === initialBatchId)) {
-      setSelectedBatchId(initialBatchId)
-      return
-    }
     if (liveBatchList.some((b) => b.batchId === initialBatchId)) {
       setSelectedBatchId(initialBatchId)
     }
-  }, [initialBatchId, seededBatches, selectedBatchId, liveBatchList])
+  }, [initialBatchId, selectedBatchId, liveBatchList])
   const [batchFilter, setBatchFilter] = useState<BatchFilter>('All Batches')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('listed')
   const [sidebarPage, setSidebarPage] = useState(1)
@@ -818,10 +698,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       setLiveIntentDrawerApi(null)
       return
     }
-    if (intentDetailIndex.has(expandedId)) {
-      setLiveIntentDrawerApi(null)
-      return
-    }
     let cancelled = false
     const targetId = expandedId
     setLiveIntentDrawerApi(null)
@@ -832,7 +708,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     return () => {
       cancelled = true
     }
-  }, [journalUsesBackendFeed, expandedId, intentDetailIndex])
+  }, [journalUsesBackendFeed, expandedId])
 
   // Dispatch modal — smart routing on use-case + connector history
   const [dispatchModalOpen, setDispatchModalOpen] = useState(false)
@@ -846,29 +722,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   } | null>(null)
 
   const sidebarBatchList = useMemo(() => {
-    const seededAsRecords = seededBatches.map(
-      (s): BatchRecord => ({
-        batchId: s.batch.batchId,
-        type: s.batch.type,
-        source: s.batch.source,
-        totalValue: s.batch.totalValue,
-        transactions: s.batch.transactions,
-        confirmedCount: s.batch.confirmedCount,
-        highConfidenceCount: s.batch.highConfidenceCount,
-        mismatchCount: s.batch.mismatchCount,
-        unresolvedCount: s.batch.unresolvedCount,
-      }),
-    )
-    if (!journalUsesBackendFeed) {
-      return seededAsRecords
-    }
-    const seen = new Set(liveBatchList.map((b) => b.batchId))
-    const merged = [...liveBatchList, ...seededAsRecords.filter((b) => !seen.has(b.batchId))]
-    return merged
-  }, [journalUsesBackendFeed, liveBatchList, seededBatches])
+    if (!journalUsesBackendFeed) return []
+    return liveBatchList
+  }, [journalUsesBackendFeed, liveBatchList])
 
-  // Sidebar canned list filters — includes live batch when connected; seeded batches live in
-  // the dedicated SandboxSeededSection at the top of the sidebar.
+  // Sidebar list filters — intelligence batches from `GET /v1/intelligence/batches`.
   const filteredBatches = useMemo(() => {
     if (batchFilter === 'All Batches') return sidebarBatchList
     if (batchFilter === 'Recent') return sidebarBatchList.slice(0, 10)
@@ -883,8 +741,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     batches[0] ??
     SANDBOX_EMPTY_BATCH
 
-  const sandboxJournalEmpty =
-    mode === 'sandbox' && hydrated && liveFeedLoaded && liveBatchList.length === 0 && seededBatches.length === 0
+  const sandboxJournalEmpty = mode === 'sandbox' && liveFeedLoaded && liveBatchList.length === 0
 
   const dismissSandboxOnboarding = (remember: boolean) => {
     setSandboxOnboardingOpen(false)
@@ -893,12 +750,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     }
   }
 
-  const pickBatchIdAfterRemove = (removedId: string) => {
-    const remaining = seededBatches.filter((s) => s.batchId !== removedId)
-    if (remaining[0]) return remaining[0].batchId
-    if (journalUsesBackendFeed) return liveBatchList[0]?.batchId ?? ''
-    return ''
-  }
   const needsAttentionCount = batches.filter((b) => batchQualityScore(b) < 80).length
   const sourceCount = new Set(batches.map((b) => b.source)).size
   const sidebarTotalPages = Math.max(1, Math.ceil(filteredBatches.length / SIDEBAR_PAGE_SIZE))
@@ -970,13 +821,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
   // Derive KPIs + intent distribution from the actually-selected batch so the
   // right side responds to sidebar selection (not hardcoded 97.3% / 847).
-  // When the selected batch has loaded intents (seeded), use the KPI doc §4.5
-  // weighted-six formula; otherwise fall back to the row-count proxy.
-  const selectedBatchIntents = useMemo(
-    () => seededBatches.find((sb) => sb.batchId === selectedBatch.batchId)?.intents,
-    [seededBatches, selectedBatch.batchId],
-  )
-
+  // Per-intent Service 2 scores are not wired yet; `batchQualityScore` uses intelligence counts.
   // KPI 14 (patterns) + batch list/detail (`/v1/intelligence/batches*`) drive live overview metrics.
   const anomalyCounts = batchAnomaly
     ? {
@@ -995,9 +840,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     journalUsesBackendFeed ? (healthBatch?.total_count ?? selectedBatch.transactions) : selectedBatch.transactions
 
   const selectedBatchTotal = Math.max(
+    0,
     anomalyCounts?.total ?? healthBatch?.total_count ?? overviewIntentTotal,
-    1,
   )
+  const pctBase = Math.max(selectedBatchTotal, 1)
   const rawConfirmed =
     anomalyCounts?.success ?? healthBatch?.success_count ?? listCounts?.success_count ?? selectedBatch.confirmedCount
   const rawFailed =
@@ -1017,7 +863,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     intendedMinor && Number.isFinite(Number(intendedMinor)) ? Number(intendedMinor) / 100 : selectedBatch.totalValue
   const selectedConfirmedValue = confirmedMinor
     ? Number(confirmedMinor) / 100
-    : intendedRupees * (selectedConfirmed / selectedBatchTotal)
+    : intendedRupees * (selectedConfirmed / pctBase)
   const varianceRupees =
     varianceMinor && Number.isFinite(Number(varianceMinor)) ? Math.max(0, Number(varianceMinor) / 100) : null
   const confirmedRupeesResolved =
@@ -1031,20 +877,21 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     Number.isFinite(batchAnomaly.batch_anomaly_score)
       ? (1 - Math.min(1, Math.max(0, batchAnomaly.batch_anomaly_score))) * 100
       : null
-  const operationalDispatchPct = (selectedConfirmed / selectedBatchTotal) * 100
+  const operationalDispatchPct =
+    selectedBatchTotal === 0 ? 0 : (selectedConfirmed / selectedBatchTotal) * 100
   const dispatchConfidencePct = anomalyHealthPct ?? operationalDispatchPct
 
   const selectedBatchScore = Math.round(
     journalUsesBackendFeed && (healthBatch != null || batchAnomaly != null || listCounts != null)
       ? dispatchConfidencePct
-      : batchQualityScore(selectedBatch, selectedBatchIntents),
+      : batchQualityScore(selectedBatch, undefined),
   )
 
   const intentDistribution = [
-    { label: 'Confirmed', count: selectedConfirmed.toLocaleString('en-US'), pct: (selectedConfirmed / selectedBatchTotal) * 100, color: '#10B981' },
-    { label: 'Pending', count: selectedPending.toLocaleString('en-US'), pct: (selectedPending / selectedBatchTotal) * 100, color: '#F59E0B' },
-    { label: 'Needs Review', count: selectedNeedsReview.toLocaleString('en-US'), pct: (selectedNeedsReview / selectedBatchTotal) * 100, color: '#06B6D4' },
-    { label: 'Failed', count: selectedFailed.toLocaleString('en-US'), pct: (selectedFailed / selectedBatchTotal) * 100, color: '#EC4899' },
+    { label: 'Confirmed', count: selectedConfirmed.toLocaleString('en-US'), pct: (selectedConfirmed / pctBase) * 100, color: '#10B981' },
+    { label: 'Pending', count: selectedPending.toLocaleString('en-US'), pct: (selectedPending / pctBase) * 100, color: '#F59E0B' },
+    { label: 'Needs Review', count: selectedNeedsReview.toLocaleString('en-US'), pct: (selectedNeedsReview / pctBase) * 100, color: '#06B6D4' },
+    { label: 'Failed', count: selectedFailed.toLocaleString('en-US'), pct: (selectedFailed / pctBase) * 100, color: '#EC4899' },
   ] as const
   const donutRadius = 42
   const donutCircumference = 2 * Math.PI * donutRadius
@@ -1085,13 +932,13 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             </h2>
             <p className="mt-2 text-[18px] leading-relaxed text-[#64748b]">
               Sandbox Intent Journal starts empty — no demo rows. Open <strong className="text-[#0f172a]">Batch Command Center</strong>,
-              upload your <strong>intent</strong> file (step 1), then your <strong>settlement</strong> file (step 2). Your batch id appears
-              here under <strong className="text-[#0f172a]">Sandbox seeded</strong> (FILE pill).
+              upload your <strong>intent</strong> file (step 1), then your <strong>settlement</strong> file (step 2). Batches and intents
+              here load only from <strong className="text-[#0f172a]">intelligence</strong> and the <strong className="text-[#0f172a]">intent engine</strong> for your tenant (same as live).
             </p>
             <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[15px] text-[#475569]">
               <li>Batch Center → Step 1: intent batch + API key → ingest</li>
               <li>Step 2: settlement file (tenant + PSP) → upload</li>
-              <li>Return to Intent Journal and select your batch</li>
+              <li>Return here — batches appear when intelligence lists them; intents load per batch from the intent API</li>
             </ol>
             <div className="mt-5 flex flex-wrap gap-2">
               <Link
@@ -1164,26 +1011,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             </div>
           </div>
 
-          <SandboxSeededSection
-            seededBatches={seededBatches}
-            selectedBatchId={selectedBatchId}
-            onSelectBatch={setSelectedBatchId}
-            onRemoveBatch={(id) => {
-              removeSeededBatch(id)
-              if (id === selectedBatchId) {
-                setSelectedBatchId(pickBatchIdAfterRemove(id))
-              }
-            }}
-            onClearAll={() => {
-              clearAll()
-              setSelectedBatchId(liveBatchList[0]?.batchId ?? '')
-            }}
-          />
-
           <div className="flex-1 overflow-y-auto px-2 py-2">
             {mode === 'sandbox' && sidebarBatches.length === 0 ? (
               <p className="rounded-lg border border-dashed border-[#E5E5E5] bg-[#fafafa] px-3 py-4 text-center text-[15px] leading-relaxed text-[#94a3b8]">
-                No demo batches in sandbox. After you ingest in Batch Command Center, your batch id appears under <span className="font-medium text-[#64748b]">Sandbox seeded</span> above.
+                No batches yet for this tenant. After ingest, batches appear here from intelligence (
+                <span className="font-mono text-[13px] text-[#64748b]">GET /v1/intelligence/batches</span>).
               </p>
             ) : null}
             {sidebarBatches.map((batch) => {
@@ -1200,7 +1032,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               const liveTotalRaw = journalUsesBackendFeed
                 ? (detailRow?.total_count ?? batch.transactions ?? 0)
                 : batch.transactions
-              const liveTotal = Math.max(liveTotalRaw, 1)
+              const liveTotal = Math.max(liveTotalRaw, 0)
               const liveFinality = detailRow?.finality_status ?? batch.intelligenceCounts?.finality_status
               const status =
                 journalUsesBackendFeed ? batchStatusFromFinality(liveFinality) : batchStatus(score)
@@ -1208,7 +1040,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 journalUsesBackendFeed && liveSuccess !== null ? liveSuccess.toLocaleString('en-US') : String(score)
               const progressWidthPct =
                 journalUsesBackendFeed && liveSuccess !== null
-                  ? Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
+                  ? liveTotal === 0
+                    ? 0
+                    : Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
                   : score
               const tone = statusTone(status)
               const dotColor =
@@ -1334,22 +1168,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
         <main className="flex h-full min-w-0 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-5">
-            {/* ── Sandbox-seeded batch notice ───────────────────────────── */}
-            {(() => {
-              const seeded = seededBatches.find((s) => s.batchId === selectedBatchId)
-              if (!seeded) return null
-              return (
-                <SandboxBatchNotice
-                  scenarioName={seeded.scenarioName}
-                  variant={seeded.scenarioId === 'bulk_upload' ? 'bulk_upload' : 'scenario'}
-                  onDismissBatch={() => {
-                    removeSeededBatch(seeded.batchId)
-                    setSelectedBatchId(pickBatchIdAfterRemove(seeded.batchId))
-                  }}
-                />
-              )
-            })()}
-
             {journalUsesBackendFeed && liveFeedLoaded ? (
               <div className="mb-4 rounded-[10px] border border-slate-200 bg-slate-50 px-3.5 py-2 text-[15px] text-slate-700">
                 <span className="font-semibold text-slate-900">
@@ -1401,7 +1219,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-amber-800">Sandbox · no data yet</p>
                 <p className="mt-2 text-[17px] font-semibold text-[#0f172a]">Upload intent + settlement in Batch Command Center</p>
                 <p className="mt-1.5 max-w-2xl text-[18px] leading-relaxed text-[#64748b]">
-                  Demo tables are hidden in sandbox. Complete both steps there; your batch id will show under <span className="font-medium text-[#475569]">Sandbox seeded</span> with a FILE tag, and intents will load here.
+                  Batches and intents load only from APIs (intelligence + intent engine + DLQ). Complete ingest in Batch Command Center, then batches appear here when intelligence lists them for this tenant.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Link
@@ -1872,21 +1690,18 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                               <tr className="bg-[#fafafa]">
                                 <td colSpan={6} className="px-3 pb-4 pt-3">
                                   {(() => {
-                                    const seededDetail = intentDetailIndex.get(row.requestId)
-                                    const detail: IntentDetail = seededDetail
-                                      ? seededDetail
-                                      : buildLiveIntentDetailFromRowAndApi(
-                                            {
-                                              requestId: row.requestId,
-                                              batchId: row.batchId,
-                                              amount: row.amount,
-                                              method: row.method,
-                                              paymentPartner: row.paymentPartner,
-                                              bank: row.bank,
-                                              uiStatus: row.status,
-                                            },
-                                            journalUsesBackendFeed && expandedId === row.requestId ? liveIntentDrawerApi : null,
-                                          )
+                                    const detail: IntentDetail = buildLiveIntentDetailFromRowAndApi(
+                                      {
+                                        requestId: row.requestId,
+                                        batchId: row.batchId,
+                                        amount: row.amount,
+                                        method: row.method,
+                                        paymentPartner: row.paymentPartner,
+                                        bank: row.bank,
+                                        uiStatus: row.status,
+                                      },
+                                      journalUsesBackendFeed && expandedId === row.requestId ? liveIntentDrawerApi : null,
+                                    )
                                     return (
                                       <div className="space-y-3">
                                         {/* Drawer header */}

@@ -1,6 +1,12 @@
 /**
  * Step 1 — Intent batch file → Next proxy → upstream POST /v1/bulk-ingest
  * Breakpoint-friendly: all request/response handling lives here.
+ *
+ * Product default (Arealis): failed **bulk rows** (validation / business rules after a row
+ * is identified) should remain **intents** (or dedicated batch line-item entities) with
+ * **FAILED** status and **structured errors**, reconciled in Intent Journal / batch UIs.
+ * Reserve **DLQ** for true ingest/engine **dead letters** that never became a proper intent
+ * (or must not be mixed with normal intent lists).
  */
 import {
   errorMessageFromProxyResponse,

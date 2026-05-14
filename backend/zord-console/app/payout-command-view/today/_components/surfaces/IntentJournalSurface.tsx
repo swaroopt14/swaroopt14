@@ -21,6 +21,7 @@ import { isDataAvailable } from '@/services/payout-command/prod-api/intelligence
 import type { BatchDetailResponse, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import type { ApiDlqRow, ApiIntentRow, ApiProdIntentDetailPayload } from '@/services/payout-command/prod-api/prodApiTypes'
+import { payoutBatchCommandCenterHref } from '@/services/payout-command/model'
 import { useSeededBatches } from '@/services/payout-command/seeded-batches-store'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 
@@ -500,6 +501,7 @@ const LIVE_JOURNAL_POLL_MS = 12_000
 
 export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const { mode } = useEnvironment()
+  const batchCommandCenterHref = payoutBatchCommandCenterHref(mode === 'sandbox')
   /** Same `/api/prod/intelligence/*` + `/api/prod/intents` + DLQ polling as live — sandbox is not local-only. */
   const journalUsesBackendFeed = mode === 'live' || mode === 'sandbox'
   const envTenant = (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_ZORD_TENANT_ID?.trim()) || ''
@@ -1093,7 +1095,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             </ol>
             <div className="mt-5 flex flex-wrap gap-2">
               <Link
-                href="/payout-command-view/batch-command-center"
+                href={batchCommandCenterHref}
                 className="inline-flex min-w-[10rem] flex-1 items-center justify-center rounded-xl bg-[#111111] px-4 py-2.5 text-[18px] font-semibold text-white transition hover:bg-black/90"
                 onClick={() => dismissSandboxOnboarding(false)}
               >
@@ -1403,7 +1405,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Link
-                    href="/payout-command-view/batch-command-center"
+                    href={batchCommandCenterHref}
                     className="inline-flex items-center justify-center rounded-xl bg-[#111111] px-4 py-2.5 text-[18px] font-semibold text-white transition hover:bg-black/90"
                   >
                     Open Batch Command Center

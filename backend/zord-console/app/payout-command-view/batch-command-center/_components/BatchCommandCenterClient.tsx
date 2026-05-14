@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { DASHBOARD_FONT_STACK } from '@/services/payout-command/model'
+import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
 import { ClientChart, Glyph } from '../../today/_components/shared'
 import {
   buildDefaultBatchRows,
@@ -292,7 +293,8 @@ export default function BatchCommandCenterClient() {
   const [sourceType, setSourceType] = useState('CSV')
   const [tenantType, setTenantType] = useState<'MERCHANT' | 'BANK' | 'NBFC' | 'VENDOR' | 'GATEWAY'>('MERCHANT')
   const [batchIdInput, setBatchIdInput] = useState('')
-  const [tenantId, setTenantId] = useState(() => process.env.NEXT_PUBLIC_ZORD_TENANT_ID ?? '')
+  /** Same resolution as Intent Journal / Home (`useSessionTenantId`) so sandbox hits `/api/prod/*` with a tenant. */
+  const tenantId = useSessionTenantId()
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [intentIngestOk, setIntentIngestOk] = useState(false)
   /** Batch id used for settlement (response body, optional Step 1 field, or LOCAL-* fallback). */
@@ -428,42 +430,6 @@ export default function BatchCommandCenterClient() {
     const id = window.setInterval(() => refreshSimulation(), AUTO_REFRESH_MS)
     return () => window.clearInterval(id)
   }, [refreshSimulation])
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      let resolved: string | null = null
-      let fromSession = false
-      try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' })
-        if (!cancelled && res.ok) {
-          const data = (await res.json()) as { session?: { tenant_id?: string } }
-          const tid = data.session?.tenant_id?.trim()
-          if (tid) {
-            resolved = tid
-            fromSession = true
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-      if (cancelled) return
-      if (!resolved) {
-        try {
-          const ls = typeof window !== 'undefined' ? localStorage.getItem('zord_tenant_id') : null
-          if (ls?.trim()) resolved = ls.trim()
-        } catch {
-          /* ignore */
-        }
-      }
-      if (!resolved) return
-      if (fromSession) setTenantId(resolved)
-      else setTenantId((prev) => (prev.trim() ? prev : resolved!))
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const pollIntentEngineTenant = useCallback(async () => {
     const tid = tenantId.trim()

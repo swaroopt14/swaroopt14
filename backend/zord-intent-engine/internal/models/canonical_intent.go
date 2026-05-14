@@ -74,6 +74,15 @@ type CanonicalIntent struct {
 	UpdatedAt                *time.Time `json:"updated_at,omitempty"`
 	BatchID                  *string    `json:"batchid,omitempty" db:"batchid"`
 	AggregateConfidenceScore *float64   `json:"aggregate_confidence_score,omitempty" db:"aggregate_confidence_score"` // NEW
+
+	// ── Scoring v2 fields ──────────────────────────────────────────────────────
+	ReferenceQualityScore  float64         `json:"reference_quality_score,omitempty"  db:"reference_quality_score"`
+	DuplicateRiskScore     float64         `json:"duplicate_risk_score,omitempty"      db:"duplicate_risk_score"`
+	ScoreVersion           string          `json:"score_version,omitempty"             db:"score_version"`
+	ScoreValidityStatus    string          `json:"score_validity_status,omitempty"     db:"score_validity_status"`
+	ScoreBreakdownJSON     json.RawMessage `json:"score_breakdown_json,omitempty"      db:"score_breakdown_json"`
+	ScoreReasonCodesJSON   json.RawMessage `json:"score_reason_codes_json,omitempty"   db:"score_reason_codes_json"`
+	ScoredAt               *time.Time      `json:"scored_at,omitempty"                 db:"scored_at"`
 }
 type BatchSidebarItem struct {
 	BatchID             string   `json:"batchId"`

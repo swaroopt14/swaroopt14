@@ -12,6 +12,7 @@ type DLQEntry struct {
 	ErrorDetail    string `json:"error_detail"`
 	Replayable     bool   `json:"replayable"`
 	ClientBatchRef string `json:"client_batch_ref"`
+	BatchID        string `json:"batch_id,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 }

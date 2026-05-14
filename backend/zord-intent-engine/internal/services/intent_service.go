@@ -32,6 +32,69 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
+// Score field weights — all values sum to 100 within their score.
+// Expressed as float64 for direct arithmetic.
+const (
+	// schema_completeness_score weights
+	wSchemaAmount          = 10.0
+	wSchemaCurrency        = 5.0
+	wSchemaBeneficiary     = 15.0
+	wSchemaClientPayoutRef = 15.0
+	wSchemaSourceSystem    = 5.0
+	wSchemaSourceRowRef    = 5.0
+	wSchemaClientBatchRef  = 8.0
+	wSchemaExecutionAt     = 7.0
+	wSchemaPayoutType      = 5.0
+	wSchemaVendorRef       = 8.0
+	wSchemaPurpose         = 7.0
+	wSchemaMappingProfile  = 5.0
+	wSchemaTokenization    = 5.0
+	wSchemaTotalMax        = 100.0
+
+	// reference_quality_score weights
+	wRefClientPayoutRef = 25.0
+	wRefClientBatchRef  = 10.0
+	wRefSourceRowRef    = 10.0
+	wRefBeneficiaryFP   = 15.0
+	wRefBusinessIdemKey = 15.0
+	wRefExecutionAt     = 5.0
+	wRefProviderHint    = 5.0
+	wRefTotalMax        = 85.0 // Zord signature bonus (+15) applied separately, capped at 100
+
+	// matchability_score sub-weights (each sub-score is 0–100)
+	wMatchExternalRef  = 0.30
+	wMatchPartyAmount  = 0.20
+	wMatchBatchContext = 0.15
+	wMatchTiming       = 0.15
+	wMatchSourceSystem = 0.10
+	wMatchMappingConf  = 0.10
+
+	// proof_readiness_score weights
+	wProofRawEnvelope      = 0.15
+	wProofNIRProvenance    = 0.15
+	wProofCanonicalHash    = 0.15
+	wProofGovernance       = 0.15
+	wProofTokenization     = 0.10
+	wProofBusinessIdem     = 0.10
+	wProofReferenceQuality = 0.10
+	wProofMappingProfile   = 0.05
+	wProofBatchContext     = 0.05
+
+	// intent_quality_score weights
+	wQualitySchema       = 0.20
+	wQualityMapping      = 0.20
+	wQualityReference    = 0.20
+	wQualityMatchability = 0.15
+	wQualityProof        = 0.15
+	wQualityDupSafety    = 0.10
+
+	// Duplicate risk thresholds
+	dupRiskLow      = 30.0
+	dupRiskMedium   = 60.0
+	dupRiskHigh     = 80.0
+	dupRiskCritical = 100.0
+)
+
 var batchAggregateGroup singleflight.Group
 
 type IntentService struct {
@@ -234,167 +297,469 @@ func (s *IntentService) computeRequestFingerprint(beneficiaryName string, amount
 	return hex.EncodeToString(hash[:])
 }
 
-func (s *IntentService) computeConfidenceScore(qualityScore float64) float64 {
-	// Ensure: confidenceScore := ComputeConfidence(...)
-	// if confidenceScore == 0: assign minimum fallback (e.g., 0.5)
-	if qualityScore <= 0 {
-		return 0.5
-	}
-	return qualityScore
-}
-
+// computeScores calculates all 7 intent-level scores.
+// All scores are in 0–100 space.
+// tempIntent must have BeneficiaryFingerprint, Amount, Currency, ClientPayoutRef,
+// ClientBatchRef, ProviderHint, SourceSystem, GovernanceHash, BusinessIdempotencyKey,
+// and DuplicateRiskFlag set before calling this.
+// nir may be nil (pre-NIR path) — scores degrade gracefully.
+// gov is the Governance struct from ApplyPolicy().
 func (s *IntentService) computeScores(
 	intent *models.CanonicalIntent,
 	nir *models.NormalizedIngestRecord,
 	gov models.Governance,
-) (mappingScore, proofScore, matchScore, qualityScore, schemaScore float64) {
-	// 1. schema_completeness_score
-	totalRequired := 5.0 // intent_type, amount, currency, beneficiary_name, idempotency_key
-	if nir != nil {
-		presentRequired := totalRequired - float64(nir.RequiredFieldGapCount)
-		schemaScore = presentRequired / totalRequired
-	}
+	tokenizationComplete bool,
+) (schema, mapping, refQuality, matchability, proof, dupRisk, quality float64, reasonCodes []string) {
 
-	// 2. mapping_confidence_score
-	totalFields := 6.0 // Based on fields added in Step 6
-	if totalFields > 0 && nir != nil {
-		var confSummary struct {
-			AvgConfidence float64 `json:"avg_confidence"`
-			Overall       float64 `json:"overall"`
-			LowConfCount  int     `json:"low_confidence_field_count"`
-		}
+	// ── 1. Schema Completeness Score ─────────────────────────────────────────
+	// Measures whether the intent has enough canonical fields to be a payout contract.
+	schema = s.computeSchemaScore(intent, nir, tokenizationComplete, &reasonCodes)
 
-		avgConf := 1.0
-		lowConfCount := nir.LowConfidenceFieldCount
+	// ── 2. Mapping Confidence Score ───────────────────────────────────────────
+	// Measures how reliably source fields were mapped. Reads directly from NIR.
+	mapping = s.computeMappingScore(intent, nir, gov, &reasonCodes)
 
-		if len(nir.FieldConfidenceSummary) > 0 {
-			_ = json.Unmarshal(nir.FieldConfidenceSummary, &confSummary)
-			if confSummary.AvgConfidence > 0 {
-				avgConf = confSummary.AvgConfidence
-			} else if confSummary.Overall > 0 {
-				avgConf = confSummary.Overall
-			}
-			if confSummary.LowConfCount > 0 {
-				lowConfCount = confSummary.LowConfCount
-			}
-		}
+	// ── 3. Reference Quality Score ────────────────────────────────────────────
+	// Measures carrier strength for PSP/bank traceability.
+	// Does NOT include trace_id — settlement files never return it.
+	refQuality = s.computeReferenceQualityScore(intent, &reasonCodes)
 
-		// Base mapping on average confidence and high-confidence ratio
-		highConfRatio := (totalFields - float64(nir.RequiredFieldGapCount) - float64(lowConfCount)) / totalFields
-		mappingScore = (avgConf * 0.6) + (highConfRatio * 0.4)
+	// ── 4. Matchability Score ─────────────────────────────────────────────────
+	// Measures likelihood of clean settlement attachment later.
+	matchability = s.computeMatchabilityScore(intent, mapping, &reasonCodes)
 
-		// Penalize low confidence and gaps
-		// UPDATED: Use Governance signals
-		if len(gov.LowConfidenceFields) > 0 {
-			mappingScore -= 0.2
-		}
-		mappingScore -= float64(lowConfCount) * 0.1
-		mappingScore -= float64(nir.RequiredFieldGapCount) * 0.2
-	}
+	// ── 5. Proof Readiness Score ──────────────────────────────────────────────
+	// Measures evidence-pack defensibility for audit/dispute.
+	proof = s.computeProofScore(intent, nir, refQuality, &reasonCodes)
 
-	// 3. proof_readiness_score
-	if intent.BeneficiaryFingerprint != "" {
-		proofScore += 0.2
-	}
-	if !intent.Amount.IsZero() {
-		proofScore += 0.2
-	}
-	if intent.Currency != "" {
-		proofScore += 0.1
-	}
-	if intent.TraceID != "" && intent.EnvelopeID != "" {
-		proofScore += 0.2
-	}
-	if intent.ClientPayoutRef != "" && intent.ClientPayoutRef != "NA" {
-		proofScore += 0.2
-	}
-	if intent.ClientBatchRef != "" && intent.ClientBatchRef != "NA" {
-		proofScore += 0.1
-	}
+	// ── 6. Duplicate Risk Score ───────────────────────────────────────────────
+	// Risk only — not confirmed duplicate. Confirmation belongs to Service 7.
+	dupRisk = s.computeDuplicateRiskScore(intent, &reasonCodes)
 
-	// Weight by schema completeness
-	proofScore = proofScore * schemaScore
+	// ── 7. Intent Quality Score ───────────────────────────────────────────────
+	// Aggregate with governance caps.
+	dupSafety := 100.0 - dupRisk
+	quality = (schema*wQualitySchema +
+		mapping*wQualityMapping +
+		refQuality*wQualityReference +
+		matchability*wQualityMatchability +
+		proof*wQualityProof +
+		dupSafety*wQualityDupSafety)
 
-	// 4. matchability_score
-	if intent.BeneficiaryFingerprint != "" {
-		matchScore += 0.3
-	}
-	if !intent.Amount.IsZero() {
-		matchScore += 0.2
-	}
-	if intent.Currency != "" {
-		matchScore += 0.1
-	}
-	if intent.ClientPayoutRef != "" && intent.ClientPayoutRef != "NA" {
-		matchScore += 0.2
-	}
-	// time field (using CreatedAt)
-	if !intent.CreatedAt.IsZero() {
-		matchScore += 0.1
-	}
-	if intent.TraceID != "" {
-		matchScore += 0.1
-	}
-
-	// source_system signal
-	if intent.SourceSystem != "" {
-		matchScore += 0.1
-		if s.isTrustedSystem(intent.SourceSystem) {
-			matchScore += 0.1
-		}
-	}
-
-	// 5. intent_quality_score
-	// Baseline from mapping and completeness
-	qualityScore = (mappingScore * 0.4) + (schemaScore * 0.6)
-
-	// UPDATED: Use Governance signals
+	// Governance caps — applied after formula
 	if !gov.SemanticValid {
-		qualityScore -= 0.5
+		quality -= 50.0
+		reasonCodes = appendUniq(reasonCodes, "SEMANTIC_INVALID")
 	}
 	if gov.DuplicateDetected {
-		qualityScore -= 0.4
+		quality -= 40.0
+		reasonCodes = appendUniq(reasonCodes, "DUPLICATE_DETECTED")
 	}
 	if len(gov.MissingFields) > 0 {
-		qualityScore -= 0.3
+		quality -= 30.0
+		reasonCodes = appendUniq(reasonCodes, "MISSING_REQUIRED_FIELDS")
 	}
-
 	if intent.DuplicateRiskFlag {
-		qualityScore -= 0.3
+		quality -= 30.0
 	}
-
-	// UPDATED: Penalize validation anomalies (Soft policy violations)
 	if len(intent.ValidationAnomalies) > 0 {
-		qualityScore -= float64(len(intent.ValidationAnomalies)) * 0.1
+		quality -= float64(len(intent.ValidationAnomalies)) * 10.0
+	}
+	if nir != nil && nir.LowConfidenceFieldCount > 0 {
+		quality -= float64(nir.LowConfidenceFieldCount) * 5.0
 	}
 
-	if nir != nil {
-		// Extract low confidence count again or use the one from NIR directly
-		lowConf := nir.LowConfidenceFieldCount
-		// Penalize intent quality score based on low confidence fields
-		if lowConf > 0 {
-			qualityScore -= float64(lowConf) * 0.05
+	// Cap thresholds (doc section 6.7)
+	if dupRisk >= 80.0 {
+		if quality > 60.0 {
+			quality = 60.0
 		}
+		reasonCodes = appendUniq(reasonCodes, "HIGH_DUPLICATE_RISK_CAP")
+	}
+	if matchability < 40.0 {
+		if quality > 75.0 {
+			quality = 75.0
+		}
+		reasonCodes = appendUniq(reasonCodes, "LOW_MATCHABILITY_CAP")
+	}
+	if proof < 40.0 {
+		if quality > 70.0 {
+			quality = 70.0
+		}
+		reasonCodes = appendUniq(reasonCodes, "LOW_PROOF_READINESS_CAP")
 	}
 
-	// Cap all scores between 0 and 1
-	capScore := func(v float64) float64 {
-		if v < 0 {
-			return 0
-		}
-		if v > 1 {
-			return 1
-		}
-		return v
-	}
-
-	mappingScore = capScore(mappingScore)
-	proofScore = capScore(proofScore)
-	matchScore = capScore(matchScore)
-	qualityScore = capScore(qualityScore)
-	schemaScore = capScore(schemaScore)
+	schema = capScore100(schema)
+	mapping = capScore100(mapping)
+	refQuality = capScore100(refQuality)
+	matchability = capScore100(matchability)
+	proof = capScore100(proof)
+	dupRisk = capScore100(dupRisk)
+	quality = capScore100(quality)
 
 	return
+}
+
+func (s *IntentService) computeSchemaScore(
+	intent *models.CanonicalIntent,
+	nir *models.NormalizedIngestRecord,
+	tokenizationComplete bool,
+	reasonCodes *[]string,
+) float64 {
+	score := 0.0
+
+	if !intent.Amount.IsZero() {
+		score += wSchemaAmount
+	} else {
+		*reasonCodes = appendUniq(*reasonCodes, "MISSING_AMOUNT")
+	}
+	if intent.Currency != "" {
+		score += wSchemaCurrency
+	}
+	// Beneficiary identity basis: fingerprint OR pii_tokens present
+	if intent.BeneficiaryFingerprint != "" {
+		score += wSchemaBeneficiary
+	} else {
+		*reasonCodes = appendUniq(*reasonCodes, "MISSING_BENEFICIARY_IDENTITY_BASIS")
+	}
+	// client_payout_ref OR business_idempotency_key
+	if (intent.ClientPayoutRef != "" && intent.ClientPayoutRef != "NA") ||
+		intent.BusinessIdempotencyKey != "" {
+		score += wSchemaClientPayoutRef
+	} else {
+		*reasonCodes = appendUniq(*reasonCodes, "MISSING_CLIENT_REFERENCE")
+	}
+	if intent.SourceSystem != "" {
+		score += wSchemaSourceSystem
+	}
+	// source_row_ref lives on NIR as EnvelopeID/SourcePath — use EnvelopeID as proxy
+	if intent.EnvelopeID != "" {
+		score += wSchemaSourceRowRef
+	}
+	if intent.ClientBatchRef != "" && intent.ClientBatchRef != "NA" {
+		score += wSchemaClientBatchRef
+	} else {
+		*reasonCodes = appendUniq(*reasonCodes, "MISSING_BATCH_REFERENCE")
+	}
+	if intent.IntendedExecutionAt != nil {
+		score += wSchemaExecutionAt
+	}
+	if intent.IntentType != "" {
+		score += wSchemaPayoutType
+	}
+	// vendor/seller/customer token: check pii_tokens is not empty {}
+	if len(intent.PIITokens) > 2 { // "{}" = 2 bytes
+		score += wSchemaVendorRef
+	}
+	// purpose/narration — use GovernanceReasonCodesJSON as a proxy for purpose being set
+	if intent.ProviderHint != "" {
+		score += wSchemaPurpose
+	}
+	if intent.MappingProfileID != "" && intent.MappingProfileVersion != "" {
+		score += wSchemaMappingProfile
+	} else {
+		*reasonCodes = appendUniq(*reasonCodes, "MAPPING_PROFILE_NOT_PINNED")
+	}
+	if tokenizationComplete {
+		score += wSchemaTokenization
+	}
+
+	// Hard required fields: if gap count > 0, penalise
+	if nir != nil && nir.RequiredFieldGapCount > 0 {
+		score -= float64(nir.RequiredFieldGapCount) * 10.0
+		*reasonCodes = appendUniq(*reasonCodes, "REQUIRED_FIELD_GAPS")
+	}
+
+	return score
+}
+
+func (s *IntentService) computeMappingScore(
+	intent *models.CanonicalIntent,
+	nir *models.NormalizedIngestRecord,
+	gov models.Governance,
+	reasonCodes *[]string,
+) float64 {
+	if nir == nil {
+		return 50.0 // no NIR = moderate confidence only
+	}
+
+	// Field confidence levels (doc section 6.2):
+	// 1.00 = exact profile match, 0.90 = approved synonym, 0.75 = source fallback,
+	// 0.60 = fuzzy/inferred, 0.40 = derived from weak fields, 0.00 = missing
+	var confSummary struct {
+		AvgConfidence float64 `json:"avg_confidence"`
+		Overall       float64 `json:"overall"`
+		LowConfCount  int     `json:"low_confidence_field_count"`
+	}
+	avgConf := 1.0
+	lowConfCount := nir.LowConfidenceFieldCount
+
+	if len(nir.FieldConfidenceSummary) > 0 {
+		_ = json.Unmarshal(nir.FieldConfidenceSummary, &confSummary)
+		if confSummary.AvgConfidence > 0 {
+			avgConf = confSummary.AvgConfidence
+		} else if confSummary.Overall > 0 {
+			avgConf = confSummary.Overall
+		}
+		if confSummary.LowConfCount > 0 {
+			lowConfCount = confSummary.LowConfCount
+		}
+	}
+
+	totalFields := 10.0 // critical field count per doc section 6.2
+	highConfRatio := (totalFields - float64(nir.RequiredFieldGapCount) - float64(lowConfCount)) / totalFields
+	if highConfRatio < 0 {
+		highConfRatio = 0
+	}
+
+	// Convert 0–1 avgConf to 0–100
+	score := (avgConf * 100 * 0.6) + (highConfRatio * 100 * 0.4)
+
+	// Penalties (doc section 6.2)
+	if nir.MappingUncertainFlag {
+		score -= 15.0 // hard required field was inferred
+		*reasonCodes = appendUniq(*reasonCodes, "FUZZY_MAPPING_USED")
+	}
+	if len(gov.LowConfidenceFields) > 0 {
+		score -= 10.0
+	}
+	score -= float64(lowConfCount) * 5.0
+	score -= float64(nir.RequiredFieldGapCount) * 10.0
+
+	return score
+}
+
+func (s *IntentService) computeReferenceQualityScore(
+	intent *models.CanonicalIntent,
+	reasonCodes *[]string,
+) float64 {
+	score := 0.0
+
+	// Do NOT include trace_id — settlement files never return it (doc section 6.3)
+	if intent.ClientPayoutRef != "" && intent.ClientPayoutRef != "NA" {
+		score += wRefClientPayoutRef
+	} else {
+		*reasonCodes = appendUniq(*reasonCodes, "MISSING_CLIENT_PAYOUT_REF")
+	}
+	if intent.ClientBatchRef != "" && intent.ClientBatchRef != "NA" {
+		score += wRefClientBatchRef
+	} else {
+		*reasonCodes = appendUniq(*reasonCodes, "LOW_BATCH_REFERENCE")
+	}
+	if intent.EnvelopeID != "" {
+		score += wRefSourceRowRef
+	}
+	if intent.BeneficiaryFingerprint != "" {
+		score += wRefBeneficiaryFP
+	}
+	if intent.BusinessIdempotencyKey != "" {
+		score += wRefBusinessIdemKey
+	}
+	if intent.IntendedExecutionAt != nil {
+		score += wRefExecutionAt
+	}
+	if intent.ProviderHint != "" {
+		score += wRefProviderHint
+	}
+
+	return score // Zord signature bonus not implemented yet — reserved for Prepare-and-Sign
+}
+
+func (s *IntentService) computeMatchabilityScore(
+	intent *models.CanonicalIntent,
+	mappingConf float64,
+	reasonCodes *[]string,
+) float64 {
+	// Sub-scores all in 0–100 before weighting
+
+	// external_reference_strength
+	extRef := 0.0
+	if intent.ClientPayoutRef != "" && intent.ClientPayoutRef != "NA" {
+		extRef += 60.0
+	}
+	if intent.ProviderHint != "" {
+		extRef += 30.0 // provider hint as proxy for prepared carrier
+	}
+	// invoice/order ref not available in current model — skip
+
+	// party_amount_strength
+	partyAmt := 0.0
+	if intent.BeneficiaryFingerprint != "" {
+		partyAmt += 40.0
+	}
+	if !intent.Amount.IsZero() {
+		partyAmt += 30.0
+	}
+	if intent.Currency != "" {
+		partyAmt += 20.0
+	}
+	if intent.IntentType != "" {
+		partyAmt += 10.0
+	}
+
+	// batch_context_strength
+	batchCtx := 0.0
+	if intent.ClientBatchRef != "" && intent.ClientBatchRef != "NA" {
+		batchCtx += 50.0
+	}
+	if intent.EnvelopeID != "" {
+		batchCtx += 30.0
+	}
+	if intent.BusinessIdempotencyKey != "" {
+		batchCtx += 20.0
+	}
+
+	// timing_strength
+	timing := 0.0
+	if intent.IntendedExecutionAt != nil {
+		timing = 70.0 // precise execution time
+	} else if !intent.CreatedAt.IsZero() {
+		timing = 40.0 // date bucket only
+	}
+
+	// source_system_strength
+	srcSystem := 0.0
+	if intent.SourceSystem != "" {
+		srcSystem += 60.0
+		if s.isTrustedSystem(intent.SourceSystem) {
+			srcSystem += 40.0
+		}
+	}
+
+	score := extRef*wMatchExternalRef +
+		partyAmt*wMatchPartyAmount +
+		batchCtx*wMatchBatchContext +
+		timing*wMatchTiming +
+		srcSystem*wMatchSourceSystem +
+		mappingConf*wMatchMappingConf
+
+	if score < 40.0 {
+		*reasonCodes = appendUniq(*reasonCodes, "LOW_MATCHABILITY")
+	}
+
+	return score
+}
+
+func (s *IntentService) computeProofScore(
+	intent *models.CanonicalIntent,
+	nir *models.NormalizedIngestRecord,
+	refQuality float64,
+	reasonCodes *[]string,
+) float64 {
+	score := 0.0
+
+	// raw_envelope_integrity: envelope present + payload hash present
+	if intent.EnvelopeID != "" && intent.PayloadHash != "" {
+		score += wProofRawEnvelope * 100
+	}
+	// NIR_provenance
+	if nir != nil && len(nir.FieldsJSON) > 2 {
+		score += wProofNIRProvenance * 100
+	}
+	// canonical_hash_ready
+	if intent.CanonicalHash != "" {
+		score += wProofCanonicalHash * 100
+	}
+	// governance_decision_ready
+	if intent.GovernanceHash != "" && intent.GovernanceState != "" {
+		score += wProofGovernance * 100
+	}
+	// tokenization_complete: pii_tokens non-empty
+	if len(intent.PIITokens) > 2 {
+		score += wProofTokenization * 100
+	}
+	// business_idempotency_ready
+	if intent.BusinessIdempotencyKey != "" {
+		score += wProofBusinessIdem * 100
+	}
+	// reference_quality (normalized 0–100 → 0–1 for weighting)
+	score += wProofReferenceQuality * refQuality
+	// mapping_profile_version_pinned
+	if intent.MappingProfileID != "" && intent.MappingProfileVersion != "" {
+		score += wProofMappingProfile * 100
+	}
+	// batch_context_ready
+	if intent.ClientBatchRef != "" && intent.ClientBatchRef != "NA" {
+		score += wProofBatchContext * 100
+	}
+
+	if score < 40.0 {
+		*reasonCodes = appendUniq(*reasonCodes, "LOW_PROOF_READINESS")
+	}
+
+	return score
+}
+
+func (s *IntentService) computeDuplicateRiskScore(
+	intent *models.CanonicalIntent,
+	reasonCodes *[]string,
+) float64 {
+	// Strict duplicate signals (terminal)
+	if intent.DuplicateRiskFlag && intent.DuplicateReasonCode != "" && intent.DuplicateReasonCode != "NONE" {
+		switch {
+		case intent.DuplicateReasonCode == "SAME_IDEMPOTENCY_KEY":
+			*reasonCodes = appendUniq(*reasonCodes, "STRICT_DUPLICATE_IDEMPOTENCY")
+			return 100.0
+		case intent.DuplicateReasonCode == "CLIENT_PAYOUT_REF_REUSED":
+			*reasonCodes = appendUniq(*reasonCodes, "STRICT_DUPLICATE_CLIENT_REF")
+			return 95.0
+		}
+	}
+
+	// Semantic duplicate score — additive signals
+	semantic := 0.0
+	if intent.BeneficiaryFingerprint != "" && intent.DuplicateRiskFlag {
+		semantic += 25.0
+	}
+	if !intent.Amount.IsZero() && intent.DuplicateRiskFlag {
+		semantic += 25.0
+	}
+	if intent.DuplicateRiskFlag {
+		semantic += 30.0 // registry hit = same beneficiary+amount+time bucket
+		*reasonCodes = appendUniq(*reasonCodes, "SAME_BENEFICIARY_AMOUNT_TIME")
+	}
+
+	return semantic
+}
+
+// buildScoreBreakdown returns score_breakdown_json for every intent.
+// This is required by the manager's doc — every score must have component breakdown.
+func buildScoreBreakdown(
+	schema, mapping, refQuality, matchability, proof, dupRisk, quality float64,
+) json.RawMessage {
+	breakdown := map[string]any{
+		"schema_completeness_score": schema,
+		"mapping_confidence_score":  mapping,
+		"reference_quality_score":   refQuality,
+		"matchability_score":        matchability,
+		"proof_readiness_score":     proof,
+		"duplicate_risk_score":      dupRisk,
+		"intent_quality_score":      quality,
+		"score_version":             models.ScoreVersion,
+	}
+	b, _ := json.Marshal(breakdown)
+	return b
+}
+
+// capScore100 caps a float64 to [0, 100].
+func capScore100(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 100 {
+		return 100
+	}
+	return v
+}
+
+// appendUniq appends s to slice only if not already present.
+func appendUniq(slice []string, s string) []string {
+	for _, v := range slice {
+		if v == s {
+			return slice
+		}
+	}
+	return append(slice, s)
 }
 
 func (s *IntentService) isTrustedSystem(source string) bool {
@@ -420,27 +785,24 @@ func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req mode
 	// ----------------------------------------
 	// SEMANTIC POLICY (HARD)
 	// ----------------------------------------
-	kind := strings.ToUpper(req.Beneficiary.Instrument.Kind)
-	isBank := kind == "BANK" || kind == "NEFT" || kind == "IMPS" || kind == "RTGS"
-	isUPI := kind == "UPI"
 
 	// BANK requires IFSC
-	if isBank && req.Beneficiary.Instrument.IFSC == "" {
+	if req.Beneficiary.Instrument.Kind == "BANK" && req.Beneficiary.Instrument.IFSC == "" {
 		gov.SemanticValid = false
 		gov.SemanticErrors = append(gov.SemanticErrors, "BANK_REQUIRES_IFSC")
 	}
 	// UPI requires VPA
-	if isUPI && req.Beneficiary.Instrument.VPA == "" {
+	if req.Beneficiary.Instrument.Kind == "UPI" && req.Beneficiary.Instrument.VPA == "" {
 		gov.SemanticValid = false
 		gov.SemanticErrors = append(gov.SemanticErrors, "UPI_REQUIRES_VPA")
 	}
 	// BANK + VPA -> error
-	if isBank && strings.TrimSpace(req.Beneficiary.Instrument.VPA) != "" {
+	if req.Beneficiary.Instrument.Kind == "BANK" && req.Beneficiary.Instrument.VPA != "" {
 		gov.SemanticValid = false
 		gov.SemanticErrors = append(gov.SemanticErrors, "BANK_WITH_VPA_INVALID")
 	}
 	// UPI + IFSC -> error
-	if isUPI && strings.TrimSpace(req.Beneficiary.Instrument.IFSC) != "" {
+	if req.Beneficiary.Instrument.Kind == "UPI" && req.Beneficiary.Instrument.IFSC != "" {
 		gov.SemanticValid = false
 		gov.SemanticErrors = append(gov.SemanticErrors, "UPI_WITH_IFSC_INVALID")
 	}
@@ -532,31 +894,36 @@ func (s *IntentService) ProcessIncomingIntent(
 		return s.processWebhook(ctx, in)
 	}
 
+	batchIDStr := ""
+	if in.BatchID != nil {
+		batchIDStr = *in.BatchID
+	}
+
 	if len(in.EncryptedPayload) == 0 {
-		return nil, &models.DLQEntry{ReasonCode: "EMPTY_PAYLOAD"}, nil
+		return nil, &models.DLQEntry{ReasonCode: "EMPTY_PAYLOAD", BatchID: batchIDStr}, nil
 	}
 
 	if in.TraceID == uuid.Nil {
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_TRACE_ID"}, nil
+		return nil, &models.DLQEntry{ReasonCode: "MISSING_TRACE_ID", BatchID: batchIDStr}, nil
 	}
 
 	if in.EnvelopeID == uuid.Nil {
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_ENVELOPE_ID"}, nil
+		return nil, &models.DLQEntry{ReasonCode: "MISSING_ENVELOPE_ID", BatchID: batchIDStr}, nil
 	}
 
 	if in.TenantID == uuid.Nil {
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_TENANT_ID"}, nil
+		return nil, &models.DLQEntry{ReasonCode: "MISSING_TENANT_ID", BatchID: batchIDStr}, nil
 	}
 
 	if in.ObjectRef == "" {
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_OBJECT_REF"}, nil
+		return nil, &models.DLQEntry{ReasonCode: "MISSING_OBJECT_REF", BatchID: batchIDStr}, nil
 	}
 
 	// -------- STEP 5: Parse raw payload into domain model --------
 	decryptedPayload, err := vault.DecryptPayload(in.EncryptedPayload)
 	if err != nil {
 		log.Printf("⚠️ Payload decryption failed for EnvelopeID=%s: %v", in.EnvelopeID, err)
-		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "PAYLOAD_DECRYPTION_FAILED"}, nil
+		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "PAYLOAD_DECRYPTION_FAILED", BatchID: batchIDStr}, nil
 	}
 
 	// -------- STEP 4: Recompute SHA256(raw_bytes) and compare --------
@@ -564,16 +931,16 @@ func (s *IntentService) ProcessIncomingIntent(
 	hexRawHash := hex.EncodeToString(rawHash[:])
 	if in.PayloadHash == "" {
 		log.Printf("⚠️ Missing raw payload hash for EnvelopeID=%s", in.EnvelopeID)
-		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "MISSING_RAW_PAYLOAD_HASH"}, nil
+		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "MISSING_RAW_PAYLOAD_HASH", BatchID: batchIDStr}, nil
 	}
 
 	if len(in.PayloadHash) != 64 {
 		log.Printf("⚠️ Invalid raw payload hash length for EnvelopeID=%s (expected 64, got %d)", in.EnvelopeID, len(in.PayloadHash))
-		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "INVALID_RAW_PAYLOAD_HASH_LENGTH"}, nil
+		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "INVALID_RAW_PAYLOAD_HASH_LENGTH", BatchID: batchIDStr}, nil
 	}
 	if in.PayloadHash != "" && hexRawHash != in.PayloadHash {
 		log.Printf("⚠️ Raw payload hash mismatch for EnvelopeID=%s", in.EnvelopeID)
-		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "RAW_PAYLOAD_INTEGRITY_FAILED"}, nil
+		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "RAW_PAYLOAD_INTEGRITY_FAILED", BatchID: batchIDStr}, nil
 	}
 
 	// -------- STEP 5.1: Header normalization (ETL 10.1 / 10.2 / 10.3) --------
@@ -595,6 +962,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	if err := json.Unmarshal(decryptedPayload, &parsed); err != nil {
 		return nil, &models.DLQEntry{
 			ReasonCode: "INVALID_JSON_PAYLOAD",
+			BatchID:    batchIDStr,
 		}, nil
 	}
 
@@ -693,7 +1061,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	governance := s.ApplyPolicy(nir, parsed)
 	if !governance.SemanticValid {
 		log.Printf("⚠️ Semantic Policy Violation for EnvelopeID=%s: %v", in.EnvelopeID, governance.SemanticErrors)
-		return nil, &models.DLQEntry{Stage: "POLICY_DLQ", ReasonCode: "SEMANTIC_INVALID", ErrorDetail: strings.Join(governance.SemanticErrors, ", ")}, nil
+		return nil, &models.DLQEntry{Stage: "POLICY_DLQ", ReasonCode: "SEMANTIC_INVALID", ErrorDetail: strings.Join(governance.SemanticErrors, ", "), BatchID: batchIDStr}, nil
 	}
 
 	// FIX: Generate IntentID early to include in GovernanceHash (NEW)
@@ -874,10 +1242,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		}
 	}
 
-	batchIDStr := ""
-	if in.BatchID != nil {
-		batchIDStr = *in.BatchID
-	}
+
 
 	// Score requires partial intent for signals
 	tempIntent := &models.CanonicalIntent{
@@ -900,8 +1265,19 @@ func (s *IntentService) ProcessIncomingIntent(
 		governance.DuplicateReason = dupReason
 	}
 
-	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir, governance)
-	confidenceScore := s.computeConfidenceScore(iScore)
+	tokenizationComplete := len(tempIntent.PIITokens) > 2
+	schemaScore, mapScore, refQualityScore, mScore, pScore, dupRiskScore, iScore, scoreReasonCodes :=
+		s.computeScores(tempIntent, nir, governance, tokenizationComplete)
+
+	// score_validity_status — set based on governance gate
+	scoreValidityStatus := models.ScoreValidityScoredValid
+	if iScore < 70.0 || len(scoreReasonCodes) > 0 {
+		scoreValidityStatus = models.ScoreValidityScoredReview
+	}
+
+	scoredAt := time.Now().UTC()
+	scoreBreakdown := buildScoreBreakdown(schemaScore, mapScore, refQualityScore, mScore, pScore, dupRiskScore, iScore)
+	scoreReasonCodesJSON, _ := json.Marshal(scoreReasonCodes)
 
 	// FIX: Deterministic Request Fingerprint
 	reqFingerprint := s.computeRequestFingerprint(
@@ -911,8 +1287,6 @@ func (s *IntentService) ProcessIncomingIntent(
 		canonicalInput.Beneficiary.Instrument.VPA,
 		canonicalInput.Amount.Currency,
 	)
-
-	log.Printf("Fingerprint=%s IdempotencyKey=%s Confidence=%f", reqFingerprint, in.IdempotencyKey, confidenceScore)
 
 	// -------- STEP 9: BUILD CANONICAL INTENT --------
 
@@ -972,13 +1346,22 @@ func (s *IntentService) ProcessIncomingIntent(
 		// Service 2 fields
 		BusinessIdempotencyKey:  bIdemKey,
 		BeneficiaryFingerprint:  bFingerprint,
-		ConfidenceScore:         &confidenceScore,
+		ConfidenceScore:         nil, // REMOVED
 		ProofReadinessScore:     pScore,
 		MatchabilityScore:       mScore,
 		IntentQualityScore:      iScore,
 		MappingConfidenceScore:  mapScore,
 		SchemaCompletenessScore: schemaScore,
 		DuplicateReasonCode:     dupReason,
+
+		// NEW fields:
+		ReferenceQualityScore: refQualityScore,
+		DuplicateRiskScore:    dupRiskScore,
+		ScoreVersion:          models.ScoreVersion,
+		ScoreValidityStatus:   scoreValidityStatus,
+		ScoreBreakdownJSON:    scoreBreakdown,
+		ScoreReasonCodesJSON:  scoreReasonCodesJSON,
+		ScoredAt:              &scoredAt,
 
 		UpdatedAt:           func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 		BatchID:             in.BatchID,
@@ -1258,8 +1641,19 @@ func (s *IntentService) ProcessTokenizeResult(
 		governance.DuplicateReason = dupReason
 	}
 
-	mapScore, pScore, mScore, iScore, schemaScore := s.computeScores(tempIntent, nir, governance)
-	confidenceScore := s.computeConfidenceScore(iScore)
+	tokenizationComplete := len(tempIntent.PIITokens) > 2
+	schemaScore, mapScore, refQualityScore, mScore, pScore, dupRiskScore, iScore, scoreReasonCodes :=
+		s.computeScores(tempIntent, nir, governance, tokenizationComplete)
+
+	// score_validity_status — set based on governance gate
+	scoreValidityStatus := models.ScoreValidityScoredValid
+	if iScore < 70.0 || len(scoreReasonCodes) > 0 {
+		scoreValidityStatus = models.ScoreValidityScoredReview
+	}
+
+	scoredAt := time.Now().UTC()
+	scoreBreakdown := buildScoreBreakdown(schemaScore, mapScore, refQualityScore, mScore, pScore, dupRiskScore, iScore)
+	scoreReasonCodesJSON, _ := json.Marshal(scoreReasonCodes)
 
 	idempotencyKey := event.IdempotencyKey
 	if idempotencyKey == "" {
@@ -1275,7 +1669,6 @@ func (s *IntentService) ProcessTokenizeResult(
 		canonicalInput.Amount.Currency,
 	)
 
-	log.Printf("Fingerprint=%s IdempotencyKey=%s Confidence=%f", reqFingerprint, idempotencyKey, confidenceScore)
 	// -------- Build CanonicalIntent --------
 
 	intentID := uuid.NewString()
@@ -1316,27 +1709,37 @@ func (s *IntentService) ProcessTokenizeResult(
 		Status:    "CREATED",
 		CreatedAt: time.Now().UTC(),
 
-		ClientPayoutRef:         canonicalInput.ClientPayoutRef,
-		ProviderHint:            canonicalInput.ProviderHint,
-		ClientBatchRef:          batchIDStr,
-		RequestFingerprint:      reqFingerprint,
-		RoutingHintsJSON:        json.RawMessage(`{}`),
-		GovernanceState:         "PENDING",
-		BusinessState:           "NEW",
-		DuplicateRiskFlag:       dupRisk,
-		MappingProfileID:        nir.ProfileID,
-		MappingProfileVersion:   nir.ProfileVersion, // Flowed from async NIR
-		SourceSystem:            event.SourceSystem,
-		GovernanceHash:          event.Canonical.GovernanceHash,
+		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
+		ProviderHint:          canonicalInput.ProviderHint,
+		ClientBatchRef:        batchIDStr,
+		RequestFingerprint:    reqFingerprint,
+		RoutingHintsJSON:      json.RawMessage(`{}`),
+		GovernanceState:       "PENDING",
+		BusinessState:         "NEW",
+		DuplicateRiskFlag:     dupRisk,
+		MappingProfileID:      nir.ProfileID,
+		MappingProfileVersion: nir.ProfileVersion, // Flowed from async NIR
+		SourceSystem:          event.SourceSystem,
+		GovernanceHash:        event.Canonical.GovernanceHash,
+		// Service 2 fields
 		BusinessIdempotencyKey:  bIdemKey,
 		BeneficiaryFingerprint:  bFingerprint,
-		ConfidenceScore:         &confidenceScore,
+		ConfidenceScore:         nil, // REMOVED
 		ProofReadinessScore:     pScore,
 		MatchabilityScore:       mScore,
 		IntentQualityScore:      iScore,
 		MappingConfidenceScore:  mapScore,
 		SchemaCompletenessScore: schemaScore,
 		DuplicateReasonCode:     dupReason,
+
+		// NEW fields:
+		ReferenceQualityScore: refQualityScore,
+		DuplicateRiskScore:    dupRiskScore,
+		ScoreVersion:          models.ScoreVersion,
+		ScoreValidityStatus:   scoreValidityStatus,
+		ScoreBreakdownJSON:    scoreBreakdown,
+		ScoreReasonCodesJSON:  scoreReasonCodesJSON,
+		ScoredAt:              &scoredAt,
 
 		UpdatedAt:           func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 		BatchID:             event.BatchID,

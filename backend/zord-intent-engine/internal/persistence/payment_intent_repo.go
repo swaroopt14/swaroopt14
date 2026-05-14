@@ -3,6 +3,7 @@ package persistence
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"log"
 
 	"zord-intent-engine/internal/models"
@@ -89,7 +90,14 @@ func (r *PaymentIntentRepo) Save(
     governance_reason_codes_json,
     duplicate_reason_code, client_batch_ref,
 	batchid,
-    aggregate_confidence_score -- NEW
+    aggregate_confidence_score, -- NEW
+    reference_quality_score,
+    duplicate_risk_score,
+    score_version,
+    score_validity_status,
+    score_breakdown_json,
+    score_reason_codes_json,
+    scored_at
 )
 VALUES (
     $1,$2,$3,$4,
@@ -108,7 +116,8 @@ VALUES (
     $40,$41,$42,
     $43,
     $44, $45,
-    $46, $47, $48, $49 -- UPDATED
+    $46, $47, $48, $49, -- UPDATED
+    $50, $51, $52, $53, $54, $55, $56
 ) `
 
 	_, err = tx.ExecContext(
@@ -163,6 +172,13 @@ VALUES (
 		intent.ClientBatchRef,            // $47
 		intent.BatchID,                   // $48
 		intent.AggregateConfidenceScore,  // $49 -- NEW
+		intent.ReferenceQualityScore,   // $50
+		intent.DuplicateRiskScore,      // $51
+		intent.ScoreVersion,            // $52
+		intent.ScoreValidityStatus,     // $53
+		intent.ScoreBreakdownJSON,      // $54
+		intent.ScoreReasonCodesJSON,    // $55
+		intent.ScoredAt,                // $56
 	)
 
 	if err != nil {
@@ -698,53 +714,163 @@ func (r *PaymentIntentRepo) CheckIdempotencyRegistry(
 	return &entry, nil
 }
 
-// UpdateBatchAggregateConfidence computes and persists the average confidence score for a batch.
-// After batch processing completes: Compute aggregateConfidence = totalConfidenceScore / totalIntentCount
+// UpdateBatchAggregateConfidence computes the batch_quality_score using the FULL received
+// population as denominator — including DLQ rows. This fixes the problem where
+// 487 DLQ rows produced a healthy 0.77 batch score.
+//
+// Formula (doc section 7):
+//   batch_quality_score =
+//     0.20 * canonicalization_success_rate
+//   + 0.20 * avg_intent_quality_score (normalized 0–100)
+//   + 0.20 * avg_matchability_score
+//   + 0.15 * avg_proof_readiness_score
+//   + 0.10 * (1 - duplicate_risk_rate)
+//   + 0.10 * (1 - low_matchability_rate)
+//   + 0.05 * (1 - review_rate)
+//
+// DLQ cap rules:
+//   dlq_rate > 0.05  → cap at 75
+//   dlq_rate > 0.10  → cap at 60
+//   dlq_rate > 0.20  → cap at 40
 func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, batchID string) (float64, error) {
-	if batchID == "" {
-		return 0, nil
-	}
+    if batchID == "" {
+        return 0, nil
+    }
 
-	// 1. Compute aggregate confidence
-	// Ensure: NULL confidence_score not included, skipped intents excluded, division-by-zero protected
-	var avgScore sql.NullFloat64
-	err := r.db.QueryRowContext(ctx, `
-		SELECT AVG(confidence_score) 
-		FROM payment_intents 
-		WHERE batchid = $1 AND confidence_score IS NOT NULL
-	`, batchID).Scan(&avgScore)
+    // Step 1: Gather batch counts from payment_intents (canonicalized rows)
+    var canonicalized int
+    var avgQuality, avgMatchability, avgProof, avgDupRisk sql.NullFloat64
+    var lowMatchCount, dupRiskCount int
 
-	if err != nil {
-		return 0, err
-	}
+    err := r.db.QueryRowContext(ctx, `
+        SELECT
+            COUNT(*),
+            AVG(intent_quality_score),
+            AVG(matchability_score),
+            AVG(proof_readiness_score),
+            AVG(duplicate_risk_score),
+            SUM(CASE WHEN matchability_score < 40 THEN 1 ELSE 0 END),
+            SUM(CASE WHEN duplicate_risk_score >= 31 THEN 1 ELSE 0 END)
+        FROM payment_intents
+        WHERE batchid = $1
+    `, batchID).Scan(
+        &canonicalized,
+        &avgQuality, &avgMatchability, &avgProof, &avgDupRisk,
+        &lowMatchCount, &dupRiskCount,
+    )
+    if err != nil {
+        return 0, err
+    }
 
-	score := 0.0
-	if avgScore.Valid {
-		score = avgScore.Float64
-	}
+    // Step 2: Get DLQ count for this batch from dlq_items
+    var dlqCount int
+    _ = r.db.QueryRowContext(ctx, `
+        SELECT COUNT(*) FROM dlq_items WHERE batch_id = $1
+    `, batchID).Scan(&dlqCount)
 
-	// 2. Update payment_intents
-	_, err = r.db.ExecContext(ctx, `
-		UPDATE payment_intents 
-		SET aggregate_confidence_score = $1 
-		WHERE batchid = $2
-	`, score, batchID)
-	if err != nil {
-		return 0, err
-	}
+    // Step 3: Get review count (FLAGGED governance state)
+    var reviewCount int
+    _ = r.db.QueryRowContext(ctx, `
+        SELECT COUNT(*) FROM payment_intents
+        WHERE batchid = $1 AND governance_state IN ('FLAGGED','REQUIRES_REVIEW')
+    `, batchID).Scan(&reviewCount)
 
-	// 3. Update outbox (reused for all intents in same batch)
-	// Also need to update the JSON payload to include the aggregate_confidence_score
-	_, err = r.db.ExecContext(ctx, `
-		UPDATE outbox 
-		SET aggregate_confidence_score = $1,
-		    payload = jsonb_set(payload, '{aggregate_confidence_score}', to_jsonb($1::numeric))
-		WHERE batchid = $2
-	`, score, batchID)
-	if err != nil {
-		return 0, err
-	}
+    // Step 4: Full denominator — received = canonicalized + dlq
+    received := canonicalized + dlqCount
+    if received == 0 {
+        return 0, nil
+    }
 
-	return score, nil
+    canonRate   := float64(canonicalized) / float64(received)
+    dlqRate     := float64(dlqCount)      / float64(received)
+    reviewRate  := float64(reviewCount)   / float64(received)
+    dupRiskRate := float64(dupRiskCount)  / float64(received)
+    lowMatchRate := float64(lowMatchCount) / float64(received)
+
+    // Normalize avg scores to 0–1 for weighting (they are stored as 0–100)
+    avgQ  := safeFloat(avgQuality)  / 100.0
+    avgM  := safeFloat(avgMatchability) / 100.0
+    avgP  := safeFloat(avgProof)    / 100.0
+
+    batchScore := (canonRate        * 0.20 +
+        avgQ                        * 0.20 +
+        avgM                        * 0.20 +
+        avgP                        * 0.15 +
+        (1.0 - dupRiskRate)         * 0.10 +
+        (1.0 - lowMatchRate)        * 0.10 +
+        (1.0 - reviewRate)          * 0.05) * 100.0
+
+    // DLQ caps — the critical fix for the 487-DLQ problem
+    switch {
+    case dlqRate > 0.20:
+        if batchScore > 40.0 {
+            batchScore = 40.0
+        }
+    case dlqRate > 0.10:
+        if batchScore > 60.0 {
+            batchScore = 60.0
+        }
+    case dlqRate > 0.05:
+        if batchScore > 75.0 {
+            batchScore = 75.0
+        }
+    }
+
+    if batchScore < 0 {
+        batchScore = 0
+    }
+    if batchScore > 100 {
+        batchScore = 100
+    }
+
+    // Step 5: Update payment_intents with batch quality score + counters
+    _, err = r.db.ExecContext(ctx, `
+        UPDATE payment_intents
+        SET aggregate_confidence_score = $1
+        WHERE batchid = $2
+    `, batchScore/100.0, batchID) // keep aggregate_confidence_score as 0–1 for backwards compat
+    if err != nil {
+        return 0, err
+    }
+
+    // Step 6: Update outbox payload with all batch quality fields
+    batchBreakdown := map[string]any{
+        "batch_quality_score":        batchScore,
+        "received_count":             received,
+        "canonicalized_count":        canonicalized,
+        "dlq_count":                  dlqCount,
+        "review_count":               reviewCount,
+        "canonicalization_rate":      canonRate,
+        "dlq_rate":                   dlqRate,
+        "duplicate_risk_count":       dupRiskCount,
+        "low_matchability_count":     lowMatchCount,
+        "avg_intent_quality_score":   safeFloat(avgQuality),
+        "avg_matchability_score":     safeFloat(avgMatchability),
+        "avg_proof_readiness_score":  safeFloat(avgProof),
+        "score_version":              "service2_score_v2.0",
+    }
+    breakdownJSON, _ := json.Marshal(batchBreakdown)
+
+    _, err = r.db.ExecContext(ctx, `
+        UPDATE outbox
+        SET aggregate_confidence_score = $1,
+            payload = jsonb_set(
+                jsonb_set(payload, '{aggregate_confidence_score}', to_jsonb($1::numeric)),
+                '{batch_quality_breakdown}', $2::jsonb
+            )
+        WHERE batchid = $3
+    `, batchScore/100.0, breakdownJSON, batchID)
+    if err != nil {
+        return 0, err
+    }
+
+    return batchScore, nil
+}
+
+func safeFloat(n sql.NullFloat64) float64 {
+    if n.Valid {
+        return n.Float64
+    }
+    return 0.0
 }
 

@@ -19,4 +19,16 @@ type Scores struct {
 	MatchabilityScore       float64 `json:"matchability_score"`
 	IntentQualityScore      float64 `json:"intent_quality_score"`
 	SchemaCompletenessScore float64 `json:"schema_completeness_score"`
+	// NEW
+	ReferenceQualityScore   float64 `json:"reference_quality_score"`
+	DuplicateRiskScore      float64 `json:"duplicate_risk_score"`
 }
+
+const (
+	ScoreValidityNotScored    = "NOT_SCORED"
+	ScoreValidityScoredValid  = "SCORED_VALID"
+	ScoreValidityScoredReview = "SCORED_REVIEW"
+	ScoreValidityFailed       = "SCORE_FAILED"
+)
+
+const ScoreVersion = "service2_score_v2.0"

@@ -21,7 +21,7 @@ import { isDataAvailable } from '@/services/payout-command/prod-api/intelligence
 import type { BatchDetailResponse, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import type { ApiDlqRow, ApiIntentRow, ApiProdIntentDetailPayload } from '@/services/payout-command/prod-api/prodApiTypes'
-import { payoutBatchCommandCenterHref } from '@/services/payout-command/model'
+import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
 import { useSeededBatches } from '@/services/payout-command/seeded-batches-store'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 

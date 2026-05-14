@@ -1,3 +1,8 @@
+import {
+  PAYOUT_BATCH_COMMAND_CENTER_LIVE_PATH,
+  PAYOUT_BATCH_COMMAND_CENTER_SANDBOX_PATH,
+} from './batchCommandCenterHref'
+
 export type GlyphName =
   | 'home'
   | 'document'
@@ -262,18 +267,13 @@ export const PAYOUT_VIEW_URLS = {
   sandboxConsole: '/sandbox',
   liveConsole: '/payout-command-view/today',
   /** Live-only shell; use `sandboxBatchCommandCenter` when `mode === 'sandbox'`. */
-  batchCommandCenter: '/payout-command-view/batch-command-center',
+  batchCommandCenter: PAYOUT_BATCH_COMMAND_CENTER_LIVE_PATH,
   /** Same Batch Command Center UI under `/sandbox` so links from sandbox never jump to live. */
-  sandboxBatchCommandCenter: '/sandbox/batch-command-center',
+  sandboxBatchCommandCenter: PAYOUT_BATCH_COMMAND_CENTER_SANDBOX_PATH,
   settingsAccount: '/payout-command-view/settings/account',
   settingsApiKeys: '/payout-command-view/settings/api-keys',
   connectorIntelligence: '/payout-command-view/connector-intelligence',
 } as const
-
-/** Batch Command Center path: sandbox route vs live payout-console route. */
-export function payoutBatchCommandCenterHref(isSandbox: boolean): string {
-  return isSandbox ? PAYOUT_VIEW_URLS.sandboxBatchCommandCenter : PAYOUT_VIEW_URLS.batchCommandCenter
-}
 
 /** One row per dock icon: tooltip label + full page name (matches `dockItems`). */
 export type PayoutConsoleDockPage = {

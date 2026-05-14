@@ -2,7 +2,8 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { payoutBatchCommandCenterHref, type GlyphName } from '@/services/payout-command/model'
+import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
+import type { GlyphName } from '@/services/payout-command/model'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { ApiKeysPopoverButton } from './ApiKeysPopoverButton'
 import { Glyph } from '../shared'

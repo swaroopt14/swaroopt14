@@ -55,10 +55,7 @@ spec:
                   name: zord-app-secrets
                   key: RELAY_DB_URL
             - name: RELAY_PSP_BASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: zord-app-secrets
-                  key: RELAY_PSP_BASE_URL
+              value: ""
             - name: RELAY_PSP_TIMEOUT_SECONDS
               value: "30"
             - name: RELAY_TOKEN_ENCLAVE_BASE_URL

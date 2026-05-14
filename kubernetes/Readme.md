@@ -477,24 +477,7 @@ metadata:
 
 Replace the ARN with your real role ARN.
 
-#### 7. Apply and restart the S3 services
-
-Apply:
-
-```powershell
-kubectl apply -k kubernetes/eks
-```
-
-Restart the services that use S3:
-
-```powershell
-kubectl rollout restart deploy/zord-edge -n zord
-kubectl rollout restart deploy/zord-intent-engine -n zord
-kubectl rollout restart deploy/zord-outcome-engine -n zord
-kubectl rollout restart deploy/zord-evidence -n zord
-```
-
-### External Secrets
+#### 7. External Secrets
 
 Files:
 
@@ -553,13 +536,15 @@ File:
 kubernetes/eks/shared/relay-config.yaml
 ```
 
-Replace all unsafe placeholders:
+Do not hardcode relay secrets in this ConfigMap. The relay deployment reads these values from `zord/app-secrets` through `zord-app-secrets`:
 
-- `replace-me`
-- `postgres://relay_user:replace-me@zord-postgres:5432/zord_relay_db?sslmode=disable`
-- `https://replace-me-psp.example.com`
+- `RELAY_SERVICES_0_AUTH_TOKEN`
+- `RELAY_SERVICES_1_AUTH_TOKEN`
+- `RELAY_SERVICES_2_AUTH_TOKEN`
+- `RELAY_DB_URL`
+- `RELAY_PSP_BASE_URL`
 
-Also check that the relay DB password inside the URL matches `RELAY_DB_PASSWORD`.
+Check that the password inside `RELAY_DB_URL` matches `RELAY_DB_PASSWORD`.
 
 ### Service deployments
 

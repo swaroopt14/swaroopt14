@@ -113,7 +113,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				provider_ref_status,
 				mapping_profile_id, mapping_profile_version, parser_version,
 				parse_confidence, mapping_confidence,
-				carrier_richness_score, attachment_readiness_score,
+				carrier_richness_score, attachment_readiness_score, score_breakdown_json, score_reason_codes_json, score_version,
 				canonical_hash, client_batch_id,
 				source_strength, source_type, source_system_id,
 				corridor_id, warnings_json,
@@ -123,7 +123,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 				$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
 				$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
-				$41,$42,$43,$44
+				$41,$42,$43,$44,$45,$46,$47
 			) ON CONFLICT (settlement_observation_id) DO NOTHING`,
 			obs.SettlementObservationID, obs.TenantID, obs.TraceID,
 			obs.SettlementEnvelopeID, ingestRunID, settlementBatchID,
@@ -136,7 +136,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			obs.ReversalFlag, obs.ReturnFlag, obs.ObservationTimestamp, obs.ValueDate,
 			obs.ProviderRefStatus, obs.MappingProfileID, obs.MappingProfileVersion, obs.MappingProfileVersion,
 			obs.ParseConfidence, obs.MappingConfidence, obs.CarrierRichnessScore,
-			obs.AttachmentReadinessScore, obs.CanonicalHash, obs.ClientBatchID,
+			obs.AttachmentReadinessScore, obs.ScoreBreakdownJSON, obs.ScoreReasonCodesJSON, obs.ScoreVersion, obs.CanonicalHash, obs.ClientBatchID,
 			obs.SourceStrength, obs.SourceType, obs.SourceSystemID,
 			obs.CorridorID, obs.WarningsJSON,
 			obs.CreatedAt, obs.UpdatedAt,
@@ -306,10 +306,12 @@ func buildCanonicalObservation(
 		CreatedAt:                time.Now().UTC(),
 		UpdatedAt:                time.Now().UTC(),
 	}
-	obs.AttachmentReadinessScore = computeAttachmentReadinessScore(shape, obs.ParseConfidence, obs.MappingConfidence)
+	obs.AttachmentReadinessScore, obs.ScoreBreakdownJSON = ComputeAttachmentReadinessScore(shape, obs.ParseConfidence, obs.MappingConfidence)
 	obs.SourceStrength = computeSourceStrength(obs.AttachmentReadinessScore)
 	obs.CanonicalHash = computeCanonicalHash(tenantID, obs.SettlementObservationID, shape)
 	obs.WarningsJSON = computeQualityWarnings(shape, obs.ParseConfidence, obs.MappingConfidence, obs.AttachmentReadinessScore)
+	obs.ScoreReasonCodesJSON = computeScoreReasonCodes(shape, obs.ParseConfidence, obs.MappingConfidence, obs.AttachmentReadinessScore)
+	obs.ScoreVersion = "service5b_score_v1.0"
 	return obs
 }
 
@@ -356,9 +358,6 @@ func computeCarrierRichnessScore(shape models.UniversalSettlementShape) float64 
 	return ComputeCarrierRichnessScore(shape)
 }
 
-func computeAttachmentReadinessScore(shape models.UniversalSettlementShape, parseConf, mapConf float64) float64 {
-	return ComputeAttachmentReadinessScore(shape, parseConf, mapConf)
-}
 
 func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.UniversalSettlementShape) string {
 	parts := []string{
@@ -413,5 +412,69 @@ func computeQualityWarnings(shape models.UniversalSettlementShape, parseConf, ma
 		return nil
 	}
 	b, _ := json.Marshal(warnings)
+	return b
+}
+
+func computeScoreReasonCodes(shape models.UniversalSettlementShape, parseConf, mapConf, attachScore float64) []byte {
+	var reasons []string
+	if len(shape.ScoreReasonCodes) > 0 {
+		reasons = append(reasons, shape.ScoreReasonCodes...)
+	}
+
+	// Reference signals
+	if shape.BankReference == nil || *shape.BankReference == "" {
+		reasons = append(reasons, "BANK_REFERENCE_MISSING")
+	} else {
+		reasons = append(reasons, "BANK_REFERENCE_PRESENT")
+	}
+
+	if shape.ClientReferenceCandidate != nil && *shape.ClientReferenceCandidate != "" {
+		reasons = append(reasons, "CLIENT_REFERENCE_PRESENT")
+	} else {
+		reasons = append(reasons, "CLIENT_REFERENCE_MISSING")
+	}
+
+	if shape.ProviderReference == nil || *shape.ProviderReference == "" {
+		reasons = append(reasons, "PROVIDER_REFERENCE_MISSING")
+	} else {
+		reasons = append(reasons, "PROVIDER_REFERENCE_PRESENT")
+	}
+
+	if shape.ExternalReference == nil || *shape.ExternalReference == "" {
+		reasons = append(reasons, "EXTERNAL_REFERENCE_MISSING")
+	} else {
+		reasons = append(reasons, "EXTERNAL_REFERENCE_PRESENT")
+	}
+
+	// Amount signals
+	if shape.Amount.IsNegative() {
+		reasons = append(reasons, "NEGATIVE_AMOUNT")
+	} else if shape.Amount.IsZero() {
+		reasons = append(reasons, "ZERO_AMOUNT")
+	}
+
+	if shape.CurrencyCode == "" || len(shape.CurrencyCode) != 3 {
+		reasons = append(reasons, "INVALID_CURRENCY_CODE")
+	}
+
+	if shape.ObservationTimestamp.IsZero() {
+		reasons = append(reasons, "INVALID_TIMESTAMP")
+	}
+
+	// Confidence degradation hints
+	if parseConf < 0.75 {
+		reasons = append(reasons, "LOW_PARSE_CONFIDENCE")
+	}
+	if mapConf < 0.8 {
+		reasons = append(reasons, "LOW_MAPPING_CONFIDENCE")
+	}
+	if attachScore < 0.75 {
+		reasons = append(reasons, "LOW_ATTACHMENT_READINESS")
+	}
+
+	if len(reasons) == 0 {
+		return nil
+	}
+	b, _ := json.Marshal(reasons)
 	return b
 }

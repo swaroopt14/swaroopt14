@@ -107,8 +107,8 @@ type CanonicalIntent struct {
 	MatchabilityScore      float64         `json:"matchability_score" db:"matchability_score"`
 	CanonicalHash          string          `json:"canonical_hash" db:"canonical_hash"`
 	GovernanceState        string          `json:"governance_state" db:"governance_state"`
-	// ZordSignatureCarrier   *string         `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
-	// BeneficiaryFingerprint *string         `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
+	ZordSignatureCarrier   *string         `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
+	BeneficiaryFingerprint *string         `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
 	CreatedAt              time.Time       `json:"created_at" db:"created_at"`
 }
 
@@ -190,6 +190,7 @@ type AttachmentDecision struct {
 	AmbiguityScore           float64         `json:"ambiguity_score" db:"ambiguity_score"`
 	SupportingCarriersJSON   json.RawMessage `json:"supporting_carriers_json" db:"supporting_carriers_json"`
 	CandidateSetHash         string          `json:"candidate_set_hash" db:"candidate_set_hash"`
+	CandidateSetSnapshotRef  string          `json:"candidate_set_snapshot_ref,omitempty" db:"candidate_set_snapshot_ref"`
 	CandidateSetSize         int             `json:"candidate_set_size" db:"candidate_set_size"`
 	CreatedAt                time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt                time.Time       `json:"updated_at" db:"updated_at"`

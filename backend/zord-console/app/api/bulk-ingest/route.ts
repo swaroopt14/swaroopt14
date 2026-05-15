@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { applyAuthCookies } from '@/services/auth/server'
-import { resolveProxyForwardAuthorization } from '@/services/auth/resolvePayoutTenant.server'
+import {
+  applyRefreshedSessionCookies,
+  resolveProxyForwardAuthorization,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 /** Proxies multipart bulk file to zord-edge `POST /v1/bulk-ingest` only (never zord-intelligence).
  * Enforces session vs API-key tenant match when both are present; never trusts client tenant_id. */
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (!lastResponse) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         error: 'Bulk ingest upstream unavailable',
         upstream: lastUrl,
@@ -69,6 +71,8 @@ export async function POST(req: NextRequest) {
       },
       { status: 502 },
     )
+    applyRefreshedSessionCookies(res, authResolution.refreshedPayload)
+    return res
   }
 
   const payload = await lastResponse.text()
@@ -79,8 +83,6 @@ export async function POST(req: NextRequest) {
       'cache-control': 'no-store, max-age=0',
     },
   })
-  if (authResolution.refreshedPayload) {
-    applyAuthCookies(res, authResolution.refreshedPayload)
-  }
+  applyRefreshedSessionCookies(res, authResolution.refreshedPayload)
   return res
 }

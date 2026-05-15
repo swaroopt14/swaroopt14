@@ -539,7 +539,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     }
     let cancelled = false
     const run = () => {
-      void getPatternsKpis(liveTenantId, selectedBatchId).then((res) => {
+      void getPatternsKpis(selectedBatchId).then((res) => {
         if (!cancelled) setKpi14Patterns(res)
       })
     }

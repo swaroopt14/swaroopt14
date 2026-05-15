@@ -22,36 +22,28 @@ function intelQueryPath(path: string, extraQuery: Record<string, string> = {}) {
   return qs ? `${path}?${qs}` : path
 }
 
-export async function getLeakageKpis(tenantId: string): Promise<LeakageKpiResponse | null> {
-  if (!tenantId.trim()) return null
+/** Tenant-wide leakage KPI — BFF injects session tenant. */
+export async function getLeakageKpis(): Promise<LeakageKpiResponse | null> {
   return fetchProdJsonGet<LeakageKpiResponse>(intelQueryPath(`${INTEL_BASE}/leakage`))
 }
 
-export async function getAmbiguityKpis(tenantId: string): Promise<AmbiguityKpiResponse | null> {
-  if (!tenantId.trim()) return null
+export async function getAmbiguityKpis(): Promise<AmbiguityKpiResponse | null> {
   return fetchProdJsonGet<AmbiguityKpiResponse>(intelQueryPath(`${INTEL_BASE}/ambiguity`))
 }
 
-export async function getDefensibilityKpis(tenantId: string): Promise<DefensibilityKpiResponse | null> {
-  if (!tenantId.trim()) return null
+export async function getDefensibilityKpis(): Promise<DefensibilityKpiResponse | null> {
   return fetchProdJsonGet<DefensibilityKpiResponse>(intelQueryPath(`${INTEL_BASE}/defensibility`))
 }
 
-export async function getPatternsKpis(
-  tenantId: string,
-  batchId?: string,
-): Promise<PatternsKpiResponse | null> {
-  if (!tenantId.trim()) return null
-  const path = batchId
-    ? intelQueryPath(`${INTEL_BASE}/patterns`, { batch_id: batchId })
+/** Patterns KPI — optional `batch_id` scopes anomaly to one batch; omit for latest tenant snapshot. */
+export async function getPatternsKpis(batchId?: string): Promise<PatternsKpiResponse | null> {
+  const path = batchId?.trim()
+    ? intelQueryPath(`${INTEL_BASE}/patterns`, { batch_id: batchId.trim() })
     : intelQueryPath(`${INTEL_BASE}/patterns`)
   return fetchProdJsonGet<PatternsKpiResponse>(path)
 }
 
-export async function getRecommendationsKpis(
-  tenantId: string,
-): Promise<RecommendationsKpiResponse | null> {
-  if (!tenantId.trim()) return null
+export async function getRecommendationsKpis(): Promise<RecommendationsKpiResponse | null> {
   return fetchProdJsonGet<RecommendationsKpiResponse>(intelQueryPath(`${INTEL_BASE}/recommendations`))
 }
 

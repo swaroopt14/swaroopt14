@@ -1,31 +1,51 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getDisbursementTrend } from './getDisbursementTrend'
 import type { DisbursementTrendRange, DisbursementTrendResponse } from './disbursementTrendTypes'
 
-export function useDisbursementTrend(tenantId: string, range: DisbursementTrendRange) {
+const DEFAULT_POLL_MS = 30_000
+
+export type UseDisbursementTrendOptions = {
+  tenantReady: boolean
+  range: DisbursementTrendRange
+  intervalMs?: number
+}
+
+/** Disbursement trend chart — session-scoped BFF; polls every 30s by default. */
+export function useDisbursementTrend(options: UseDisbursementTrendOptions) {
+  const { tenantReady, range, intervalMs = DEFAULT_POLL_MS } = options
   const [data, setData] = useState<DisbursementTrendResponse | null>(null)
   const [loading, setLoading] = useState(false)
+  const cancelledRef = useRef(false)
 
   const refresh = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid) {
+    if (!tenantReady) {
       setData(null)
       return
     }
     setLoading(true)
     try {
-      const res = await getDisbursementTrend(tid, range)
-      setData(res)
+      const res = await getDisbursementTrend(range)
+      if (!cancelledRef.current) setData(res)
     } finally {
-      setLoading(false)
+      if (!cancelledRef.current) setLoading(false)
     }
-  }, [tenantId, range])
+  }, [tenantReady, range])
 
   useEffect(() => {
+    cancelledRef.current = false
+    if (!tenantReady) {
+      setData(null)
+      return
+    }
     void refresh()
-  }, [refresh])
+    const id = window.setInterval(() => void refresh(), intervalMs)
+    return () => {
+      cancelledRef.current = true
+      window.clearInterval(id)
+    }
+  }, [tenantReady, refresh, intervalMs])
 
   return { data, loading, refresh }
 }

@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState, Fragment } from 'react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ClientChart, Glyph, LiveDataHint } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
@@ -55,8 +55,8 @@ const FINALITY_FILTERS: Array<{ value: '' | FinalityStatus; label: string }> = [
 
 export function AmbiguitySurface() {
   const pathname = usePathname()
-  const tenantId = useSessionTenantId()
-  const { ambiguity } = useIntelligenceKpis(tenantId)
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { ambiguity } = useIntelligenceKpis({ tenantReady })
   const amb = isDataAvailable(ambiguity) ? ambiguity : null
 
   const [finalityFilter, setFinalityFilter] = useState<'' | FinalityStatus>('')

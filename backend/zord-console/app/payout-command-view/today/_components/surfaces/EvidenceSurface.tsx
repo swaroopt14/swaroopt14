@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Glyph, LiveDataHint } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
@@ -125,8 +125,9 @@ export function EvidenceSurface() {
   const [packListError, setPackListError] = useState<string | null>(null)
   const [packsLoading, setPacksLoading] = useState(false)
 
-  const tenantId = useSessionTenantId().trim()
-  const { leakage, ambiguity, defensibility, patterns, recommendations } = useIntelligenceKpis(tenantId, {
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { leakage, ambiguity, defensibility, patterns, recommendations } = useIntelligenceKpis({
+    tenantReady,
     batchId: batchId || undefined,
   })
 

@@ -26,7 +26,7 @@ import {
 } from '../command-center/homeCommandCenterTokens'
 import { DashboardDeltaPercent } from '../homeDashboardTypography'
 import { ClientChart, Glyph, LiveDataHint, SurfaceEyebrow, usePromptAutoContrast } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { DisbursementTrendRange } from '@/services/payout-command/prod-api/disbursementTrendTypes'
@@ -83,14 +83,15 @@ export function HomeSurface({
   const [trendAnchorIdx, setTrendAnchorIdx] = useState(0)
   const [isPromptExpanded, setIsPromptExpanded] = useState(false)
 
-  const tenantId = useSessionTenantId()
-  const tenantReady = tenantId.trim().length > 0
+  const { tenantId, tenantReady } = useSessionTenant()
   const { mode } = useEnvironment()
   const isSandbox = mode === 'sandbox'
   const [trendRange, setTrendRange] = useState<DisbursementTrendRange>('month')
-  const { data: trendSeries, loading: trendLoading } = useDisbursementTrend(tenantId, trendRange)
+  const { data: trendSeries, loading: trendLoading } = useDisbursementTrend({ tenantReady, range: trendRange })
 
-  const { leakage, ambiguity, defensibility, patterns, recommendations, loading } = useIntelligenceKpis(tenantId)
+  const { leakage, ambiguity, defensibility, patterns, recommendations, loading } = useIntelligenceKpis({
+    tenantReady,
+  })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const ambData = isDataAvailable(ambiguity) ? ambiguity : null
   const defData = isDataAvailable(defensibility) ? defensibility : null

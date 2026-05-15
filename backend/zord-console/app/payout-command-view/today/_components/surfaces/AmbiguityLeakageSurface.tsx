@@ -3,7 +3,7 @@
 import { NavyMetricHero } from '../command-center/NavyMetricHero'
 import { Glyph, LiveDataHint } from '../shared'
 import { EntityLogo } from '../entity-logo'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 
@@ -72,8 +72,8 @@ const RECOMMENDATIONS = [
 ]
 
 export function AmbiguityLeakageSurface() {
-  const tenantId = useSessionTenantId()
-  const { leakage, ambiguity } = useIntelligenceKpis(tenantId)
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { leakage, ambiguity } = useIntelligenceKpis({ tenantReady })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const ambiguityData = isDataAvailable(ambiguity) ? ambiguity : null
 

@@ -13,7 +13,7 @@ import {
   YAxis,
 } from 'recharts'
 import { ClientChart, Glyph, LiveDataHint } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { LeakageKpiResolved, AmbiguityKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
@@ -122,8 +122,8 @@ function leakageActionNarrative(leak: LeakageKpiResolved): { headline: string; b
 
 export function LeakageSurface() {
   const pathname = usePathname()
-  const tenantId = useSessionTenantId()
-  const { leakage, ambiguity } = useIntelligenceKpis(tenantId)
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { leakage, ambiguity } = useIntelligenceKpis({ tenantReady })
   const leak = isDataAvailable(leakage) ? leakage : null
   const amb = isDataAvailable(ambiguity) ? ambiguity : null
 

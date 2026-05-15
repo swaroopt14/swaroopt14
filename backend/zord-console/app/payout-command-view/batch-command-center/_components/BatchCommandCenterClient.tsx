@@ -551,7 +551,7 @@ export default function BatchCommandCenterClient() {
     }
     let batchForQuery = debouncedBatchIdForIntelPoll.trim()
     if (!batchForQuery || batchForQuery.startsWith('LOCAL-')) batchForQuery = ''
-    const p = await getPatternsKpis(tid, batchForQuery || undefined)
+    const p = await getPatternsKpis(batchForQuery || undefined)
     setPatternsKpi(p)
   }, [debouncedBatchIdForIntelPoll, tenantId])
 

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Glyph } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
@@ -202,7 +202,7 @@ export type MerkleGraphSurfaceProps = {
 }
 
 export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_PACK }: MerkleGraphSurfaceProps = {}) {
-  const tenantId = useSessionTenantId().trim()
+  const { tenantId, tenantReady } = useSessionTenant()
   const useLive = Boolean(tenantId)
 
   const [activePackId, setActivePackId] = useState(() => initialPackId?.trim() || initialPack.packId)
@@ -212,7 +212,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   const [liveGraphs, setLiveGraphs] = useState<Record<string, EvidencePackGraph>>({})
   const [liveListError, setLiveListError] = useState<string | null>(null)
 
-  const { defensibility } = useIntelligenceKpis(tenantId, { batchId: activeBatchId })
+  const { defensibility } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId })
   const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
   const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
 

@@ -13,6 +13,7 @@ import {
   getIntelligenceBatchDetail,
   getPatternsKpis,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
 import { useIntentJournalBatchFeed } from '../intent-journal/useIntentJournalBatchFeed'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type {
@@ -95,6 +96,7 @@ type IntentRow = {
   paymentMethodDetail: string
   /** Raw intent-engine status (tooltip / audit). */
   engineStatus?: string
+  currency?: string
 }
 
 type FailureRow = {
@@ -1686,7 +1688,12 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                               <td className="px-3 py-2.5">
                                 <span className="font-mono text-[14px] text-[#475569]">{row.reference}</span>
                               </td>
-                              <td className="px-3 py-2.5">{usd(row.amount)}</td>
+                              <td className="px-3 py-2.5 tabular-nums">
+                                {formatJournalMoney(
+                                  row.amount,
+                                  row.currency ?? (journalUsesBackendFeed ? 'INR' : 'USD'),
+                                )}
+                              </td>
                               <td className="px-3 py-2.5">
                                 <div className="inline-flex items-center gap-2 rounded-lg border border-[#e6ebf2] bg-white px-2 py-1">
                                   <EntityLogo name={row.paymentPartner || '—'} kind="psp" size={18} />
@@ -1890,7 +1897,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                           <td className="px-3 py-2.5 font-medium text-[#0f172a]">{row.requestId}</td>
                           <td className="px-3 py-2.5">{row.reference}</td>
                           <td className="px-3 py-2.5 text-[15px] text-[#475569]">{row.batchId}</td>
-                          <td className="px-3 py-2.5 tabular-nums">{usd(row.amount)}</td>
+                          <td className="px-3 py-2.5 tabular-nums">
+                            {row.amount > 0
+                              ? formatJournalMoney(row.amount, journalUsesBackendFeed ? 'INR' : 'USD')
+                              : '—'}
+                          </td>
                           <td className="px-3 py-2.5">{row.method}</td>
                           <td className="px-3 py-2.5">
                             <div className="inline-flex items-center gap-2 rounded-lg border border-[#e6ebf2] bg-white px-2 py-1">

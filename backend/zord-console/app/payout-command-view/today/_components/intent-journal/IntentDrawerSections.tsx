@@ -8,18 +8,7 @@
 import type { ReactNode } from 'react'
 
 import type { IntentDetail } from '@/services/payout-command/intent-journal-types'
-
-function formatMoney(amount: number, currency: string) {
-  try {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: currency || 'INR',
-      maximumFractionDigits: 0,
-    }).format(amount)
-  } catch {
-    return `${currency} ${amount.toLocaleString('en-IN')}`
-  }
-}
+import { formatJournalMoney } from './formatJournalMoney'
 
 export function BankingInformationTokensBlock({ detail }: { detail: IntentDetail }) {
   return (
@@ -30,7 +19,7 @@ export function BankingInformationTokensBlock({ detail }: { detail: IntentDetail
       <dl className="grid gap-3 sm:grid-cols-2">
         <TokenRow label="Beneficiary" value={detail.beneficiaryFull} wide />
         <TokenRow label="Beneficiary token" value={detail.beneficiaryToken} mono />
-        <TokenRow label="Amount" value={formatMoney(detail.amount, detail.currency)} />
+        <TokenRow label="Amount" value={formatJournalMoney(detail.amount, detail.currency)} />
         <TokenRow label="Rail" value={detail.rail} />
         <TokenRow label="Connector" value={detail.connector} wide />
         <TokenRow label="Intent ref" value={detail.intentId} mono />

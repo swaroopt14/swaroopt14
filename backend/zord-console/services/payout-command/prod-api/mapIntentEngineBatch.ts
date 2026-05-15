@@ -36,6 +36,7 @@ export type JournalIntentRow = {
   bank: string
   paymentMethodDetail: string
   engineStatus?: string
+  currency?: string
 }
 
 export type JournalFailureRow = {
@@ -158,6 +159,7 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
     bank: instrument || '—',
     paymentMethodDetail,
     engineStatus: [stRaw, gov, biz].filter(Boolean).join(' · ') || undefined,
+    currency: (intent.currency ?? 'INR').trim() || 'INR',
   }
 }
 

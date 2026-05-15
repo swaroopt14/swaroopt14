@@ -12,7 +12,9 @@ package services
 
 import (
 	"encoding/json"
+	"log"
 	"math"
+	"strings"
 	"time"
 
 	"zord-outcome-engine/models"
@@ -101,8 +103,8 @@ func parseRuleProfile(profile *models.AttachmentRuleProfile) AttachmentPolicyCon
 			ToleranceMinor:     0,
 		},
 		ManualReviewThresholds: ManualReviewThresholds{
-			HighConfidenceScore:      120.0,
-			MinScoreForAutoAttach:    70.0,
+			HighConfidenceScore:      135.0,
+			MinScoreForAutoAttach:    80.0,
 			AmbiguityMarginThreshold: 15.0,
 			ExactMarginThreshold:     20.0,
 		},
@@ -133,31 +135,24 @@ func parseRuleProfile(profile *models.AttachmentRuleProfile) AttachmentPolicyCon
 
 // ScoreBreakdown is persisted as score_breakdown_json for full auditability.
 type ScoreBreakdown struct {
-	RulesetVersion         string  `json:"ruleset_version"`
-	// ZordSignatureScore     float64 `json:"zord_signature_score"`
-	// ClientRefScore         float64 `json:"client_ref_score"`
-	// ParseConfModifier      float64 `json:"parse_conf_modifier"`
-	// SourceStrengthModifier float64 `json:"source_strength_modifier"`
+	RulesetVersion string `json:"ruleset_version"`
 
-	ExactCarrierScore      float64 `json:"exact_carrier_score"`
-	BusinessReferenceScore float64 `json:"business_reference_score"`
-	QualityModifiers       float64 `json:"quality_modifiers"`
-
-	ProviderRefScore       float64 `json:"provider_ref_score"`
-	BankRefScore           float64 `json:"bank_ref_score"`
-	AmountMatchScore       float64 `json:"amount_match_score"`
-	CurrencyMatchScore     float64 `json:"currency_match_score"`
-	TimeWindowScore        float64 `json:"time_window_score"`
-	BatchMatchScore        float64 `json:"batch_match_score"`
-	SourceSystemScore      float64 `json:"source_system_score"`
-	ConflictingRefPenalty  float64 `json:"conflicting_ref_penalty"`
-	TotalScore             float64 `json:"total_score"`
+	ExactCarrierScore          float64 `json:"exact_carrier_score"`
+	BusinessReferenceScore     float64 `json:"business_reference_score"`
+	ProviderBankReferenceScore float64 `json:"provider_bank_reference_score"`
+	PartyAmountScore            float64 `json:"party_amount_score"`
+	BatchContextScore           float64 `json:"batch_context_score"`
+	TimingScore                 float64 `json:"timing_score"`
+	SourceSystemScore          float64 `json:"source_system_score"`
+	QualityModifiers           float64 `json:"quality_modifiers"`
+	ConflictPenalties          float64 `json:"conflict_penalties"`
 }
 
 // CandidateScore is the intermediate result returned by ScoreCandidate.
 type CandidateScore struct {
 	IntentID         interface{} // uuid.UUID
 	Breakdown        ScoreBreakdown
+	BreakdownJSON    []byte
 	Total            float64
 	ConfidenceBucket string
 
@@ -193,16 +188,17 @@ func ScoreCandidate(
 	// ── LAYER 1: Exact carrier matches ────────────────────────────────────
 
 	// Zord signature / prepared carrier exact match: +120
-	// if intent.ZordSignatureCarrier != nil && obs.ZordSignatureCarrier != nil &&
-	// 	*intent.ZordSignatureCarrier == *obs.ZordSignatureCarrier && *intent.ZordSignatureCarrier != "" {
-	// 	bd.ExactCarrierScore += 120
-	// 	cs.ZordSignatureMatch = true
-	// 	cs.ExactRefMatch = true
-	// }
+	if intent.ZordSignatureCarrier != nil && obs.ZordSignatureCarrier != nil &&
+		strings.EqualFold(*intent.ZordSignatureCarrier, *obs.ZordSignatureCarrier) && *intent.ZordSignatureCarrier != "" {
+		bd.ExactCarrierScore += 120
+		cs.ZordSignatureMatch = true
+		cs.ExactRefMatch = true
+	}
 
 	// Client payout reference exact match: +100
 	if intent.ClientPayoutRef != nil && obs.ClientReferenceCandidate != nil &&
-		*intent.ClientPayoutRef == *obs.ClientReferenceCandidate && *intent.ClientPayoutRef != "" {
+		strings.EqualFold(*intent.ClientPayoutRef, *obs.ClientReferenceCandidate) && *intent.ClientPayoutRef != "" {
+		log.Printf("[ScoreCandidate] Intent=%s Obs=%s MATCH: ClientPayoutRef (%s)", intent.IntentID, obs.SettlementObservationID, *intent.ClientPayoutRef)
 		bd.BusinessReferenceScore += 100
 		cs.ClientRefMatch = true
 		cs.ExactRefMatch = true
@@ -210,45 +206,43 @@ func ScoreCandidate(
 
 	// business_idempotency_key match: +95
 	if intent.BusinessIdempotencyKey != nil && obs.ClientReferenceCandidate != nil &&
-		*intent.BusinessIdempotencyKey == *obs.ClientReferenceCandidate && *intent.BusinessIdempotencyKey != "" {
+		strings.EqualFold(*intent.BusinessIdempotencyKey, *obs.ClientReferenceCandidate) && *intent.BusinessIdempotencyKey != "" {
 		bd.BusinessReferenceScore += 95
 		cs.ExactRefMatch = true
 	}
 
 	// batch_id + source_row_ref exact match: +90
 	if intent.ClientBatchRef != nil && obs.BatchReference != nil &&
-		*intent.ClientBatchRef == *obs.BatchReference && *intent.ClientBatchRef != "" {
-		bd.BatchMatchScore += 90
+		strings.EqualFold(*intent.ClientBatchRef, *obs.BatchReference) && *intent.ClientBatchRef != "" {
+		bd.BatchContextScore += 90
 		cs.BatchMatch = true
+		cs.ExactRefMatch = true
 	}
 
 	// provider reference match: +85
-	if intent.ProviderHint != nil && obs.ProviderReference != nil &&
-		*intent.ProviderHint == *obs.ProviderReference && *intent.ProviderHint != "" {
-		bd.ProviderRefScore += 85
-		cs.ProviderRefMatch = true
-		cs.ExactRefMatch = true
-	} else if obs.ProviderReference != nil && intent.ProviderHint != nil &&
-		*obs.ProviderReference != *intent.ProviderHint && *obs.ProviderReference != "" {
-		// Conflict penalty: provider/bank reference conflict: -70
-		bd.ConflictingRefPenalty -= 70
-		cs.HasHardConflict = true
-		cs.HasAnyConflict = true
+	if intent.ProviderHint != nil && obs.ProviderReference != nil && *intent.ProviderHint != "" {
+		if strings.EqualFold(*intent.ProviderHint, *obs.ProviderReference) {
+			bd.ProviderBankReferenceScore += 85
+			cs.ProviderRefMatch = true
+		} else if *obs.ProviderReference != "" {
+			bd.ConflictPenalties -= 70
+			cs.HasHardConflict = true
+			cs.HasAnyConflict = true
+		}
 	}
 
-	// bank reference deterministic link: +85
-	if obs.BankReference != nil && intent.ProviderHint != nil &&
-		*obs.BankReference == *intent.ProviderHint && *obs.BankReference != "" {
-		bd.BankRefScore += 85
+	// bank reference match: +85
+	if intent.ProviderHint != nil && obs.BankReference != nil && *intent.ProviderHint != "" &&
+		strings.EqualFold(*intent.ProviderHint, *obs.BankReference) {
+		bd.ProviderBankReferenceScore += 85
 		cs.BankRefMatch = true
-		cs.ExactRefMatch = true
 	}
 
 	// beneficiary_fingerprint match: +35
-	// if intent.BeneficiaryFingerprint != nil && obs.BeneficiaryFingerprint != nil &&
-	// 	*intent.BeneficiaryFingerprint == *obs.BeneficiaryFingerprint && *intent.BeneficiaryFingerprint != "" {
-	// 	bd.QualityModifiers += 35
-	// }
+	if intent.BeneficiaryFingerprint != nil && obs.BeneficiaryFingerprint != nil &&
+		strings.EqualFold(*intent.BeneficiaryFingerprint, *obs.BeneficiaryFingerprint) && *intent.BeneficiaryFingerprint != "" {
+		bd.QualityModifiers += 35
+	}
 
 	// ── LAYER 2: Composite / soft matching ───────────────────────────────
 
@@ -257,21 +251,19 @@ func ScoreCandidate(
 	amountTolerance := decimal.NewFromInt(policy.AmountTolerance.ToleranceMinor)
 	primaryDiff := obsAmount.Sub(intent.Amount).Abs()
 	if primaryDiff.LessThanOrEqual(amountTolerance) {
-		bd.AmountMatchScore += 30
+		bd.PartyAmountScore += 30
 		cs.AmountMatch = true
 	} else {
-		// Conflict: amount mismatch beyond tolerance: -50
-		bd.ConflictingRefPenalty -= 50
+		bd.ConflictPenalties -= 50
 		cs.HasAnyConflict = true
 	}
 
 	// Currency match: +10
-	if obs.CurrencyCode == intent.CurrencyCode && obs.CurrencyCode != "" {
-		bd.CurrencyMatchScore += 10
+	if strings.EqualFold(obs.CurrencyCode, intent.CurrencyCode) && obs.CurrencyCode != "" {
+		bd.PartyAmountScore += 10
 		cs.CurrencyMatch = true
 	} else {
-		// Conflict: currency mismatch: -100
-		bd.ConflictingRefPenalty -= 100
+		bd.ConflictPenalties -= 100
 		cs.HasHardConflict = true
 		cs.HasAnyConflict = true
 	}
@@ -281,17 +273,22 @@ func ScoreCandidate(
 		windowHours := policy.TimeWindow.MaxHoursDifference
 		diff := obs.ObservationTimestamp.Sub(*intent.IntendedExecutionAt)
 		if math.Abs(diff.Hours()) <= windowHours {
-			bd.TimeWindowScore += 20
+			bd.TimingScore += 20
 			cs.TimeWindowMatch = true
 		}
 	}
 
-	// Source system/corridor match: +10
-	if intent.ProviderHint != nil && *intent.ProviderHint == obs.SourceSystem {
+	// batch family match: +15
+	if intent.ClientBatchRef != nil && obs.ClientBatchID != "" && strings.EqualFold(*intent.ClientBatchRef, obs.ClientBatchID) {
+		bd.BatchContextScore += 15
+	}
+
+	// source system/corridor match: +10
+	if intent.ProviderHint != nil && strings.EqualFold(*intent.ProviderHint, obs.SourceSystem) {
 		bd.SourceSystemScore += 10
 		cs.SourceSystemMatch = true
 	}
-	if intent.Corridor != nil && obs.CorridorID != "" && *intent.Corridor == obs.CorridorID {
+	if intent.Corridor != nil && obs.CorridorID != "" && strings.EqualFold(*intent.Corridor, obs.CorridorID) {
 		bd.SourceSystemScore += 10
 	}
 
@@ -299,29 +296,20 @@ func ScoreCandidate(
 
 	cs.QualityAcceptable = true
 
-	// parse_confidence < 70: -20
 	if obs.ParseConfidence < 0.7 {
 		bd.QualityModifiers -= 20
 		cs.ParseConfPenalised = true
 		cs.QualityAcceptable = false
 	}
-
-	// mapping_confidence < 70: -15
 	if obs.MappingConfidence < 0.7 {
 		bd.QualityModifiers -= 15
 		cs.QualityAcceptable = false
 	}
-
-	// attachment_readiness_score < 60: -15
 	if obs.AttachmentReadinessScore < 0.6 {
 		bd.QualityModifiers -= 15
 		cs.QualityAcceptable = false
 	}
 
-	// ── SOURCE STRENGTH CLASS MODIFIERS ──────────────────────────────────
-	// Per PDF review: INTERNAL_EXPORT -10, MANUAL_UPLOAD -20.
-	// BANK_LEDGER, PSP_REPORT, UNKNOWN carry no additional modifier here
-	// (the attachment_readiness_score already reflects source strength).
 	switch obs.SourceStrengthClass {
 	case "INTERNAL_EXPORT":
 		bd.QualityModifiers -= 10
@@ -329,63 +317,70 @@ func ScoreCandidate(
 		bd.QualityModifiers -= 20
 	}
 
-	// ── TOTAL SCORE ───────────────────────────────────────────────────────
+	// ── FINAL SUMMATION ───────────────────────────────────────────────────
 
 	total := bd.ExactCarrierScore +
 		bd.BusinessReferenceScore +
-		bd.ProviderRefScore +
-		bd.BankRefScore +
-		bd.AmountMatchScore +
-		bd.CurrencyMatchScore +
-		bd.TimeWindowScore +
-		bd.BatchMatchScore +
+		bd.ProviderBankReferenceScore +
+		bd.PartyAmountScore +
+		bd.BatchContextScore +
+		bd.TimingScore +
 		bd.SourceSystemScore +
 		bd.QualityModifiers +
-		bd.ConflictingRefPenalty
+		bd.ConflictPenalties
 
 	if total < 0 {
 		total = 0
 	}
-	bd.TotalScore = total
-	cs.Breakdown = bd
 	cs.Total = total
-
-	// Composite: amount + currency qualifies.
-	cs.CompositeMatch = cs.AmountMatch && cs.CurrencyMatch
+	cs.Breakdown = bd
+	cs.BreakdownJSON, _ = json.Marshal(bd)
 
 	return cs
 }
 
 func ClassifyConfidenceContext(top CandidateScore, ranked []CandidateScore, thresholds ManualReviewThresholds) string {
-	if top.HasHardConflict {
-		return models.ConfidenceInvalid
-	}
-
 	margin := 0.0
 	if len(ranked) > 1 {
 		margin = top.Total - ranked[1].Total
 	}
 
-	// EXACT
+	// INVALID: hard conflict or impossible match
+	if top.HasHardConflict || top.Total <= 0 {
+		log.Printf("[ClassifyConfidenceContext] Intent=%s - INVALID (Conflict=%v, Score=%.2f)", top.IntentID, top.HasHardConflict, top.Total)
+		return models.ConfidenceInvalid
+	}
+
+	// EXACT: has top-tier exact carrier + amount + currency + no strong conflict + dominant margin
 	if top.ExactRefMatch && top.AmountMatch && top.CurrencyMatch && !top.HasAnyConflict {
 		if len(ranked) == 1 || margin >= thresholds.ExactMarginThreshold {
+			log.Printf("[ClassifyConfidenceContext] Intent=%s - EXACT Match (Score: %.2f, Margin: %.2f)", top.IntentID, top.Total, margin)
 			return models.ConfidenceExact
+		}
+		log.Printf("[ClassifyConfidenceContext] Intent=%s - EXACT Candidate demoted to HIGH due to margin %.2f < %.2f", top.IntentID, margin, thresholds.ExactMarginThreshold)
+	}
+
+	// HIGH: score >= threshold + margin >= threshold + quality acceptable + no hard conflict
+	if top.Total >= thresholds.HighConfidenceScore {
+		if margin >= thresholds.AmbiguityMarginThreshold {
+			if top.QualityAcceptable {
+				log.Printf("[ClassifyConfidenceContext] Intent=%s - HIGH Confidence (Score: %.2f, Margin: %.2f)", top.IntentID, top.Total, margin)
+				return models.ConfidenceHigh
+			}
+			log.Printf("[ClassifyConfidenceContext] Intent=%s - HIGH Candidate demoted to MEDIUM due to quality", top.IntentID)
+		} else {
+			log.Printf("[ClassifyConfidenceContext] Intent=%s - HIGH Candidate demoted to MEDIUM due to margin %.2f < %.2f", top.IntentID, margin, thresholds.AmbiguityMarginThreshold)
 		}
 	}
 
-	// HIGH
-	if top.Total >= thresholds.HighConfidenceScore &&
-		margin >= thresholds.AmbiguityMarginThreshold &&
-		top.QualityAcceptable && !top.HasHardConflict {
-		return models.ConfidenceHigh
-	}
-
-	// MEDIUM
+	// MEDIUM: score >= medium_threshold but margin/quality not enough for HIGH
 	if top.Total >= thresholds.MinScoreForAutoAttach {
+		log.Printf("[ClassifyConfidenceContext] Intent=%s - MEDIUM Confidence (Score: %.2f)", top.IntentID, top.Total)
 		return models.ConfidenceMedium
 	}
 
-	// LOW
+	// LOW: below medium threshold
+	log.Printf("[ClassifyConfidenceContext] Intent=%s - LOW Confidence (Score: %.2f)", top.IntentID, top.Total)
 	return models.ConfidenceLow
 }
 

@@ -14,16 +14,19 @@
 
   "carrier_priority_json": {
     "exact_ref": 100,
-    "client_ref": 90,
+    "client_ref": 100,
+    "business_idem_ref": 95,
+    "batch_row_ref": 90,
     "provider_ref": 85,
     "bank_ref": 85,
-    "zord_signature": 100,
-    "beneficiary_match": 50,
-    "amount_match": 50,
-    "currency_match": 40,
-    "batch_match": 30,
+    "zord_signature": 120,
+    "beneficiary_match": 35,
+    "amount_match": 30,
+    "currency_code_match": 10,
+    "batch_family_match": 15,
     "time_window": 20,
     "source_system": 10,
+    "corridor_match": 10,
     "parse_confidence_modifier": -20,
     "source_strength_modifier": -15,
     "conflict_penalty": -40
@@ -48,10 +51,10 @@
   },
 
   "manual_review_thresholds_json": {
-    "high_confidence_score": 80,
-    "exact_match_score": 95,
-    "ambiguity_margin_threshold": 10,
-    "min_score_for_auto_attach": 70,
+    "high_confidence_score": 135,
+    "ambiguity_margin_threshold": 15,
+    "exact_margin_threshold": 20,
+    "min_score_for_auto_attach": 80,
     "max_candidates_for_auto_attach": 1
   },
 

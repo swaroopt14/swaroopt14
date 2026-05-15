@@ -12,6 +12,10 @@ import { getProdIntentDetail } from '@/services/payout-command/prod-api/getProdI
 import { buildLiveIntentDetailFromRowAndApi } from '@/services/payout-command/liveJournalIntentDetail'
 import { getProdIntentsPage } from '@/services/payout-command/prod-api/getProdIntentsPage'
 import {
+  getProdIntentEngineBatches,
+  type IntentEngineBatchSidebarItem,
+} from '@/services/payout-command/prod-api/getProdIntentEngineBatches'
+import {
   getIntelligenceBatchDetail,
   getIntelligenceBatches,
   getPatternsKpis,
@@ -47,6 +51,8 @@ type BatchRecord = {
   unresolvedCount: number
   /** Authoritative counts from `GET /v1/intelligence/batches` when present. */
   intelligenceCounts?: Pick<IntelligenceBatchRow, 'success_count' | 'failed_count' | 'pending_count' | 'finality_status'>
+  /** Sidebar row from intent-engine `GET /api/prod/intents/batches` (fast path). */
+  engineSidebar?: boolean
 }
 
 type IntentRow = {
@@ -150,6 +156,29 @@ function inferBatchSource(batchId: string, finality?: string): string {
   if (id.includes('bulk') || id.includes('upload') || id.includes('file')) return 'Bulk ingest'
   if (finality === 'REQUIRES_REVIEW') return 'Intelligence · review'
   return 'Intelligence'
+}
+
+function mapIntentEngineSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): BatchRecord {
+  const typeUpper = (it.type ?? '').toUpperCase()
+  const batchType: BatchType = typeUpper.includes('SETTLEMENT') ? 'Settlement' : 'Disbursement'
+  const tv = Number.parseFloat(String(it.totalValue ?? '').replace(/,/g, ''))
+  const totalValue = Number.isFinite(tv) ? tv : 0
+  const hcRaw = it.highConfidenceCount
+  const highConfidenceCount =
+    typeof hcRaw === 'number' && Number.isFinite(hcRaw) ? Math.round(hcRaw) : Number.isFinite(Number(hcRaw)) ? Math.round(Number(hcRaw)) : 0
+
+  return {
+    batchId: String(it.batchId ?? '').trim() || '—',
+    type: batchType,
+    source: 'Intent engine',
+    totalValue,
+    transactions: it.transactions ?? 0,
+    confirmedCount: it.confirmedCount ?? 0,
+    highConfidenceCount,
+    mismatchCount: it.mismatchCount ?? 0,
+    unresolvedCount: it.unresolvedCount ?? 0,
+    engineSidebar: true,
+  }
 }
 
 /**
@@ -425,9 +454,9 @@ const KPI14_PATTERNS_POLL_MS = 30_000
 export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const { mode } = useEnvironment()
   const batchCommandCenterHref = payoutBatchCommandCenterHref(mode === 'sandbox')
-  /** Same `/api/prod/intelligence/*` + `/api/prod/intents` + DLQ polling as live — sandbox is not local-only. */
+  /** Same `/api/prod/intelligence/*` + `/api/prod/intents*` + DLQ polling as live — sandbox is not local-only. */
   const journalUsesBackendFeed = mode === 'live' || mode === 'sandbox'
-  /** Matches Batch Command Center / customer-test: session → env → localStorage → demo tenant. */
+  /** Session tenant from `/api/auth/me` — BFF injects tenant for all prod reads. */
   const liveTenantId = useSessionTenantId()
 
   const [liveIntentRows, setLiveIntentRows] = useState<IntentRow[]>([])
@@ -442,8 +471,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const [liveSyncAt, setLiveSyncAt] = useState<Date | null>(null)
 
   /**
-   * DLQ + intelligence batch list. Failures tab uses DLQ only (intent-engine).
-   * Batch list is for sidebar + KPI / batch-detail only — it must not gate intent rows.
+   * DLQ + batch sidebar. Failures tab uses DLQ (intent-engine). Sidebar batches prefer
+   * `GET /api/prod/intents/batches` (intent-engine DB, fast); if empty, fall back to Intelligence list.
+   * Batch list must not gate intent rows (`loadLiveIntents` runs in parallel).
    */
   const refreshDlqAndIntelligenceBatches = useCallback(async () => {
     const tid = liveTenantId.trim()
@@ -452,36 +482,39 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       setLiveBatchList([])
       return
     }
-    const dq = `tenant_id=${encodeURIComponent(tid)}`
-    try {
-      const dlqRes = await getProdDlqPage(dq)
-      setLiveFailureRows((dlqRes?.items ?? []).map(mapApiDlqToFailureRow))
-    } catch {
-      setLiveFailureRows([])
+    const dq = `page=1&page_size=100`
+    const [dlqRes, engineRes] = await Promise.all([getProdDlqPage(dq), getProdIntentEngineBatches()])
+    setLiveFailureRows((dlqRes?.items ?? []).map(mapApiDlqToFailureRow))
+
+    const engineItems = engineRes?.items ?? []
+    let batchRows: BatchRecord[] = engineItems.map(mapIntentEngineSidebarItemToBatchRecord)
+
+    if (batchRows.length === 0) {
+      let batchesRes: Awaited<ReturnType<typeof getIntelligenceBatches>> | null = null
+      try {
+        batchesRes = await getIntelligenceBatches(tid, { limit: 100 })
+      } catch {
+        batchesRes = null
+      }
+      batchRows = (batchesRes?.batches ?? []).map((b: IntelligenceBatchRow) => ({
+        batchId: b.batch_id,
+        type: 'Disbursement',
+        source: inferBatchSource(b.batch_id, b.finality_status),
+        totalValue: 0,
+        transactions: b.total_count ?? 0,
+        confirmedCount: b.success_count ?? 0,
+        highConfidenceCount: 0,
+        mismatchCount: 0,
+        unresolvedCount: 0,
+        intelligenceCounts: {
+          success_count: b.success_count ?? 0,
+          failed_count: b.failed_count ?? 0,
+          pending_count: b.pending_count ?? 0,
+          finality_status: b.finality_status,
+        },
+      }))
     }
-    let batchesRes: Awaited<ReturnType<typeof getIntelligenceBatches>> | null = null
-    try {
-      batchesRes = await getIntelligenceBatches(tid, { limit: 100 })
-    } catch {
-      batchesRes = null
-    }
-    const batchRows: BatchRecord[] = (batchesRes?.batches ?? []).map((b: IntelligenceBatchRow) => ({
-      batchId: b.batch_id,
-      type: 'Disbursement',
-      source: inferBatchSource(b.batch_id, b.finality_status),
-      totalValue: 0,
-      transactions: b.total_count ?? 0,
-      confirmedCount: b.success_count ?? 0,
-      highConfidenceCount: 0,
-      mismatchCount: 0,
-      unresolvedCount: 0,
-      intelligenceCounts: {
-        success_count: b.success_count ?? 0,
-        failed_count: b.failed_count ?? 0,
-        pending_count: b.pending_count ?? 0,
-        finality_status: b.finality_status,
-      },
-    }))
+
     setLiveBatchList(batchRows)
     setSelectedBatchId((prev) => {
       if (batchRows.length === 0) return ''
@@ -508,14 +541,14 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
   const [selectedBatchId, setSelectedBatchId] = useState<string>(() => initialBatchId ?? '')
 
-  /** Intent-engine list: always `tenant_id` only so ingest from Batch Command Center is never blocked by intelligence. Sidebar batch scopes rows in the UI only. */
+  /** Intent-engine list: BFF scopes by session tenant; batch_id in query when supported. Sidebar batch scopes rows in the UI only. */
   const loadLiveIntents = useCallback(async () => {
     const tid = liveTenantId.trim()
     if (!tid) {
       setLiveIntentRows([])
       return
     }
-    const q = `page=1&page_size=120&tenant_id=${encodeURIComponent(tid)}`
+    const q = `page=1&page_size=120`
     try {
       const res = await getProdIntentsPage(q)
       const items = res?.items ?? []
@@ -532,11 +565,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     const tick = async () => {
       if (cancelled) return
       try {
-        await refreshDlqAndIntelligenceBatches()
+        await Promise.all([refreshDlqAndIntelligenceBatches(), loadLiveIntents()])
       } catch {
-        /* DLQ / intelligence sidebar is best-effort */
+        /* DLQ / batch sidebar / intents poll is best-effort */
       }
-      if (!cancelled) await loadLiveIntents()
       if (!cancelled) {
         setLiveFeedLoaded(true)
         setLiveSyncAt(new Date())
@@ -1004,8 +1036,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           <div className="flex-1 overflow-y-auto px-2 py-2">
             {journalUsesBackendFeed && sidebarBatches.length === 0 ? (
               <p className="rounded-lg border border-dashed border-[#E5E5E5] bg-[#fafafa] px-3 py-4 text-center text-[15px] leading-relaxed text-[#94a3b8]">
-                No batches yet for this tenant. After ingest, batches appear here from intelligence (
-                <span className="font-mono text-[13px] text-[#64748b]">GET /v1/intelligence/batches</span>).
+                No batches yet for this tenant. After ingest, batches load first from the intent engine (
+                <span className="font-mono text-[13px] text-[#64748b]">GET /api/prod/intents/batches</span>
+                ); if that list is empty, the UI falls back to intelligence when available.
               </p>
             ) : null}
             {sidebarBatches.map((batch) => {
@@ -1071,7 +1104,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       className={`shrink-0 text-[15px] font-semibold tabular-nums ${tone.text}`}
                       title={
                         journalUsesBackendFeed
-                          ? 'success_count from intelligence batch (detail when selected)'
+                          ? batch.intelligenceCounts
+                            ? 'success_count from intelligence batch (detail when selected)'
+                            : batch.engineSidebar
+                              ? 'Confirmed-style count from intent-engine batch aggregates (sidebar)'
+                              : 'Batch quality score'
                           : 'Batch quality score'
                       }
                     >

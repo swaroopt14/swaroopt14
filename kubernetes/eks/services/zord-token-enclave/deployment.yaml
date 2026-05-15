@@ -18,6 +18,7 @@ spec:
       labels:
         app.kubernetes.io/name: zord-token-enclave
     spec:
+      terminationGracePeriodSeconds: 45
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -49,9 +50,15 @@ spec:
             - name: PORT
               value: "8087"
             - name: DB_HOST
-              value: zord-postgres
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: DB_HOST
             - name: DB_PORT
-              value: "5432"
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: DB_PORT
             - name: DB_USER
               value: token_user
             - name: DB_PASSWORD
@@ -62,7 +69,10 @@ spec:
             - name: DB_NAME
               value: zord_token_enclave_db
             - name: DB_SSLMODE
-              value: disable
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: DB_SSLMODE
             - name: MASTER_KEY
               valueFrom:
                 secretKeyRef:
@@ -74,7 +84,10 @@ spec:
                   name: zord-app-secrets
                   key: TOKEN_SECRET
             - name: KAFKA_BROKERS
-              value: zord-kafka:9092
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: KAFKA_BROKERS
           readinessProbe:
             httpGet:
               path: /v1/health

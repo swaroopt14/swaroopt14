@@ -117,7 +117,6 @@ func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 }
 
 func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelopeID uuid.UUID, headerRow []string, profile models.MappingProfile) ParsedRowResult {
-	confidence := 1.0
 	var warnings []string
 
 	rawCols := make(map[string]string, len(cashfreeHeaders))
@@ -142,7 +141,6 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 	
 	if tsWarning != "" {
 		warnings = append(warnings, "observation_timestamp: "+tsWarning)
-		confidence -= 0.1
 	}
 	valueDate := observationTS
 
@@ -151,15 +149,26 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 	extRef := cellStr(row, cfColOrderID)
 	batchRef := cellStr(row, cfColSettlementID)
 
+	// ── Technical Confidence Scoring ──────────────────────────────────────────
+	// Measure physical parser reliability instead of business identifier richness.
+	confidenceInputs := ParseConfidenceInputs{
+		FileFormatValid:        true, // If we're here, CSV was readable
+		RowDecodedSuccessfully: true,
+		ColumnCountConsistent:  len(row) >= len(cashfreeHeaders),
+		HeaderDetected:         true,
+		EncodingValid:          true,
+		RawLineHashCreated:     true,
+		TimestampFallbackUsed:  tsWarning != "",
+		AmountFallbackUsed:     orderAmount.IsZero() && cellStr(row, cfColOrderAmount) != "0" && cellStr(row, cfColOrderAmount) != "0.00",
+	}
+	confidence := ComputeParseConfidence(confidenceInputs)
+
 	if bankRef == "" {
-		confidence -= 0.1
 		warnings = append(warnings, "missing bank_reference (merchant_settlement_utr)")
 	}
 	if providerRef == "" {
-		confidence -= 0.1
 		warnings = append(warnings, "missing provider_reference (cf_payment_id)")
 	}
-	if confidence < 0.0 { confidence = 0.0 }
 
 	txType := strings.ToUpper(strings.TrimSpace(cellStr(row, cfColTxType)))
 	observationKind := "OUTCOME_EXPORT"
@@ -206,6 +215,21 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		CarrierCandidates:        make(map[string]interface{}),
 		PartyReferenceCandidates: make(map[string]interface{}),
 		BeneficiaryIdentityCandidates: make(map[string]interface{}),
+		MappingInputs: models.MappingConfidenceInputs{
+			AmountExisted:     true,
+			AmountMapped:      !orderAmount.IsZero() || cellStr(row, cfColOrderAmount) == "0" || cellStr(row, cfColOrderAmount) == "0.00",
+			CurrencyExisted:   true,
+			CurrencyMapped:    true, // Hardcoded to INR
+			StatusExisted:     true,
+			StatusMapped:      statusCandidate != "UNKNOWN",
+			TimestampExisted:  true,
+			TimestampMapped:   tsWarning == "",
+			ProviderRefExisted: true,
+			ProviderRefMapped: providerRef != "",
+			BankRefExisted:    true,
+			BankRefMapped:     bankRef != "",
+			ClientRefExisted:  false, // Cashfree format examined doesn't have a clear client ref column
+		},
 	}
 
 	return ParsedRowResult{

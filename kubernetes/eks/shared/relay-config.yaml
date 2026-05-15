@@ -28,17 +28,17 @@ data:
     services:
       - name: intent-engine
         base_url: http://zord-intent-engine:8083
-        auth_token: "replace-me"
+        auth_token: "dev-dummy-token-123"
         http_timeout: 15s
         default_topic: payments.intent.events.v1
       - name: edge
         base_url: http://zord-edge:8080
-        auth_token: "replace-me"
+        auth_token: "dev-dummy-token-123"
         http_timeout: 15s
         default_topic: payments.ledger.events.v1
       - name: outcome-engine
         base_url: http://zord-outcome-engine:8081
-        auth_token: "replace-me"
+        auth_token: "dev-dummy-token-123"
         http_timeout: 15s
         default_topic: payments.outcome.events.v1
 
@@ -53,12 +53,12 @@ data:
       addr: ":8082"
 
     db:
-      url: "postgres://relay_user:replace-me@zord-postgres:5432/zord_relay_db?sslmode=disable"
+      url: ""
       max_open_conns: 20
       max_idle_conns: 5
 
     psp:
-      base_url: "https://replace-me-psp.example.com"
+      base_url: ""
       timeout_seconds: 30
 
     token_enclave:

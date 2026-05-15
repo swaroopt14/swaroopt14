@@ -13,6 +13,8 @@ spec:
       labels:
         app.kubernetes.io/name: zord-kafka
     spec:
+      securityContext:
+        fsGroup: 1000
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:7.6.0
@@ -27,7 +29,7 @@ spec:
             - name: KAFKA_PROCESS_ROLES
               value: broker,controller
             - name: KAFKA_CONTROLLER_QUORUM_VOTERS
-              value: 1@zord-kafka-0.zord-kafka-headless:9093
+              value: 1@localhost:9093
             - name: KAFKA_CONTROLLER_LISTENER_NAMES
               value: CONTROLLER
             - name: KAFKA_LISTENERS
@@ -50,32 +52,30 @@ spec:
               value: "true"
             - name: CLUSTER_ID
               value: MkU3OEVBNTcwNTJENDM2Qk
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xms512m -Xmx1536m"
           volumeMounts:
             - name: data
               mountPath: /var/lib/kafka/data
           readinessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1
-            initialDelaySeconds: 20
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 60
             periodSeconds: 10
+            failureThreshold: 15
           livenessProbe:
-            exec:
-              command:
-                - sh
-                - -c
-                - kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1
-            initialDelaySeconds: 40
-            periodSeconds: 20
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            failureThreshold: 5
           resources:
             requests:
               cpu: 500m
-              memory: 1Gi
+              memory: 2Gi
             limits:
               cpu: "2"
-              memory: 2Gi
+              memory: 4Gi
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -84,4 +84,4 @@ spec:
           - ReadWriteOnce
         resources:
           requests:
-            storage: 20Gi
+            storage: 50Gi

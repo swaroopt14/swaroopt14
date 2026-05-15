@@ -21,6 +21,7 @@ import {
   type BatchTimelineStep,
 } from '@/services/payout-command/batch-model'
 import { postIntentBulkIngest } from '@/services/payout-command/batch-intake/postIntentBulkIngest'
+import { parseBulkIngestAcceptedResponse, type ParsedBulkIngestAccepted } from '@/services/payout-command/batch-intake/intakeHttpShared'
 import { postSettlementFileUpload } from '@/services/payout-command/batch-intake/postSettlementFileUpload'
 import { getProdIntentsPage } from '@/services/payout-command/prod-api/getProdIntentsPage'
 import { getIntelligenceBatchDetail } from '@/services/payout-command/prod-api/getIntelligenceKpis'
@@ -67,6 +68,17 @@ function formatInrFromMinor(minorStr: string | null | undefined): string {
   return formatInr(minor / 100)
 }
 
+/**
+ * `X-Zord-Source-Type` for bulk ingest — must match zord-edge `TransportValidation`
+ * allowlist (REST | CSV | PROMPT | WEBHOOK | FILE_UPLOAD). File format is still
+ * chosen from extension inside `BulkIntentHandler`; do not send `XLSX` here or edge returns 400.
+ */
+function bulkIngestSourceTypeFromFilename(filename: string): string {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'FILE_UPLOAD'
+  return 'CSV'
+}
+
 type StatusFilter = 'All' | BatchRowStatus
 type SortMode = 'Latest' | 'Oldest'
 
@@ -76,6 +88,8 @@ const AUTO_REFRESH_MS = 8000
 const INTENT_ENGINE_POLL_MS = 20_000
 /** Poll Intelligence batch detail for the operational snapshot card. */
 const BATCH_INTEL_POLL_MS = 15_000
+/** Avoid hitting `/v1/intelligence/batches/{id}` on every keystroke while ops type a batch id. */
+const BATCH_INTEL_ID_DEBOUNCE_MS = 450
 const PAGE_SIZE = 10
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: 'All', label: 'All' },
@@ -292,13 +306,19 @@ export default function BatchCommandCenterClient() {
   // reused from /customer/intents/create. Same component, same backend path.
   const [intakeTab, setIntakeTab] = useState<'batch' | 'single'>('batch')
   const [apiKey, setApiKey] = useState('')
-  const [sourceType, setSourceType] = useState('CSV')
   const [tenantType, setTenantType] = useState<'MERCHANT' | 'BANK' | 'NBFC' | 'VENDOR' | 'GATEWAY'>('MERCHANT')
   const [batchIdInput, setBatchIdInput] = useState('')
   /** Same resolution as Intent Journal / Home (`useSessionTenantId`) so sandbox hits `/api/prod/*` with a tenant. */
   const tenantId = useSessionTenantId()
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [intentIngestOk, setIntentIngestOk] = useState(false)
+  /** Last successful Step-1 bulk ingest HTTP body (shown in its own card). */
+  const [intentBulkIngestAck, setIntentBulkIngestAck] = useState<{
+    httpStatus: number
+    parsed: ParsedBulkIngestAccepted | null
+    rawFallback: string
+    at: Date
+  } | null>(null)
   /** Batch id used for settlement (response body, optional Step 1 field, or LOCAL-* fallback). */
   const [settlementBatchId, setSettlementBatchId] = useState<string | null>(null)
   const settlementFileInputRef = useRef<HTMLInputElement>(null)
@@ -346,6 +366,14 @@ export default function BatchCommandCenterClient() {
     () => (settlementBatchId ?? batchIdInput.trim()).trim(),
     [batchIdInput, settlementBatchId],
   )
+  const [debouncedBatchIdForIntelPoll, setDebouncedBatchIdForIntelPoll] = useState('')
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setDebouncedBatchIdForIntelPoll(settlementBatchIdResolved)
+    }, BATCH_INTEL_ID_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [settlementBatchIdResolved])
+
   const settlementCredentialsReady = useMemo(
     () => tenantId.trim().length > 0 && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
     [psp, settlementBatchIdResolved, tenantId],
@@ -354,9 +382,9 @@ export default function BatchCommandCenterClient() {
   const intelligenceBatchPollEligible = useMemo(
     () =>
       tenantId.trim().length > 0 &&
-      settlementBatchIdResolved.length > 0 &&
-      !settlementBatchIdResolved.startsWith('LOCAL-'),
-    [settlementBatchIdResolved, tenantId],
+      debouncedBatchIdForIntelPoll.length > 0 &&
+      !debouncedBatchIdForIntelPoll.startsWith('LOCAL-'),
+    [debouncedBatchIdForIntelPoll, tenantId],
   )
 
   const refreshSimulation = useCallback(() => {
@@ -390,7 +418,7 @@ export default function BatchCommandCenterClient() {
     setIntelBatchDetailLoading(true)
     setIntelBatchDetailError(null)
     try {
-      const res = await getIntelligenceBatchDetail(tenantId.trim(), settlementBatchIdResolved)
+      const res = await getIntelligenceBatchDetail(tenantId.trim(), debouncedBatchIdForIntelPoll)
       setIntelBatchDetail(res)
       setIntelBatchDetailAt(new Date())
       if (!res) {
@@ -403,7 +431,7 @@ export default function BatchCommandCenterClient() {
     } finally {
       setIntelBatchDetailLoading(false)
     }
-  }, [intelligenceBatchPollEligible, settlementBatchIdResolved, tenantId])
+  }, [debouncedBatchIdForIntelPoll, intelligenceBatchPollEligible, tenantId])
 
   useEffect(() => {
     if (!intelligenceBatchPollEligible) {
@@ -437,7 +465,7 @@ export default function BatchCommandCenterClient() {
     const tid = tenantId.trim()
     if (!tid || !intentIngestOk) return
     try {
-      const res = await getProdIntentsPage(`page=1&page_size=1&tenant_id=${encodeURIComponent(tid)}`)
+      const res = await getProdIntentsPage('page=1&page_size=1')
       const total = res?.pagination?.total
       const intentTotal =
         typeof total === 'number' ? total : (Array.isArray(res?.items) ? res.items.length : null)
@@ -465,7 +493,7 @@ export default function BatchCommandCenterClient() {
     const tid = tenantId.trim()
     if (!tid) return
     let cancelled = false
-    void getProdIntentsPage(`page=1&page_size=120&tenant_id=${encodeURIComponent(tid)}`).then((res) => {
+    void getProdIntentsPage('page=1&page_size=120').then((res) => {
       if (cancelled) return
       const items = res?.items ?? []
       if (items.length === 0) return
@@ -502,6 +530,7 @@ export default function BatchCommandCenterClient() {
       if (!file) return
       setIntentFileName(file.name)
       setIntentIngestOk(false)
+      setIntentBulkIngestAck(null)
       setSettlementBatchId(null)
       setSettlementFileName(null)
       setIntakeStep('intent_uploading')
@@ -513,13 +542,20 @@ export default function BatchCommandCenterClient() {
         const result = await postIntentBulkIngest({
           file,
           apiKeyRaw: apiKey.trim() || undefined,
-          sourceType,
+          sourceType: bulkIngestSourceTypeFromFilename(file.name),
           tenantType,
           optionalBatchId: bid || undefined,
         })
         if (!result.ok) {
           throw new Error(result.errorMessage ?? `HTTP ${result.httpStatus}`)
         }
+        const ingestAckParsed = parseBulkIngestAcceptedResponse(result.responseText)
+        setIntentBulkIngestAck({
+          httpStatus: result.httpStatus,
+          parsed: ingestAckParsed,
+          rawFallback: ingestAckParsed ? '' : result.responseText.trim().slice(0, 16_000),
+          at: new Date(),
+        })
         const effectiveBatch = result.batchIdFromBody || bid || null
         const journalBatchId = effectiveBatch ?? `LOCAL-${Date.now()}`
         // Always keep step 2 enabled after a successful ingest: server may omit batch id in the
@@ -529,7 +565,7 @@ export default function BatchCommandCenterClient() {
         setUploadRelayState('synced')
         setUploadRelayMessage(
           effectiveBatch
-            ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal loads batches from intelligence and intents from the intent engine for this tenant.`
+            ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal loads batches from intelligence and intents from the intent engine for your session tenant.`
             : `Intent batch accepted. Settlement step uses id ${journalBatchId} (enter Batch-Id above and re-run Step 1 if the settlement service requires a server-issued id).`,
         )
         setRows(parsed)
@@ -542,13 +578,14 @@ export default function BatchCommandCenterClient() {
         setIntakeStep('intent_ready')
       } catch (error) {
         setIntentIngestOk(false)
+        setIntentBulkIngestAck(null)
         setSettlementBatchId(null)
         setUploadRelayState('failed')
         setUploadRelayMessage(`Intent ingest failed (${error instanceof Error ? error.message : 'unknown error'}). Step 2 stays locked until ingest succeeds.`)
         setIntakeStep('idle')
       }
     },
-    [apiKey, batchIdInput, sourceType, tenantType],
+    [apiKey, batchIdInput, tenantType],
   )
 
   /** Step 2 — POST /api/settlement/upload (proxies settlement service). Does not replace the table with the settlement file. */
@@ -561,7 +598,7 @@ export default function BatchCommandCenterClient() {
       if (!tid || !pspVal || !bid) {
         setUploadRelayState('failed')
         setUploadRelayMessage(
-          'Settlement upload needs tenant_id, psp, and Batch-Id (complete Step 1 or enter Batch-Id in the field above).',
+          'Settlement upload needs an active session, psp, and Batch-Id (complete Step 1 or enter Batch-Id in the field above).',
         )
         return
       }
@@ -830,7 +867,7 @@ export default function BatchCommandCenterClient() {
     const b = intelBatchDetail?.batch
     const h = intelBatchDetail?.batch_health
     const batchId = settlementBatchIdResolved || '—'
-    const ingestLabel = intentFileName ? `${sourceType} upload` : '—'
+    const ingestLabel = intentFileName ? `${bulkIngestSourceTypeFromFilename(intentFileName)} upload` : '—'
     const finalityRaw = h?.finality_status ?? b?.finality_status
     const finality =
       finalityRaw && String(finalityRaw).trim() ? String(finalityRaw).replace(/_/g, ' ') : '—'
@@ -851,7 +888,7 @@ export default function BatchCommandCenterClient() {
       totalCountLabel: totalCount.toLocaleString('en-IN'),
       totalValue,
     }
-  }, [intelBatchDetail, intentFileName, rows, settlementBatchIdResolved, sourceType, summary.totalRows])
+  }, [intelBatchDetail, intentFileName, rows, settlementBatchIdResolved, summary.totalRows])
 
   const batchContextBadge = useMemo(() => {
     if (intelBatchDetailLoading && intelligenceBatchPollEligible && !intelBatchDetail) {
@@ -1205,6 +1242,7 @@ export default function BatchCommandCenterClient() {
 
         {/* ─── Batch intake — 2-step upload flow ────────────────────────── */}
         {intakeTab === 'batch' ? (
+        <>
         <Card className="p-5">
           <div className="flex items-baseline justify-between gap-2">
             <SectionLabel>Batch intake</SectionLabel>
@@ -1215,7 +1253,7 @@ export default function BatchCommandCenterClient() {
             Tenant and credentials are resolved automatically from your signed-in session.
           </p>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">
                 Tenant type
@@ -1230,19 +1268,6 @@ export default function BatchCommandCenterClient() {
                 <option value="BANK">Bank</option>
                 <option value="NBFC">NBFC</option>
                 <option value="GATEWAY">Gateway</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">
-                Source type <span className="font-normal normal-case text-[#94a3b8]">(default CSV)</span>
-              </span>
-              <select
-                value={sourceType}
-                onChange={(e) => setSourceType(e.target.value)}
-                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2 text-[13px] text-[#0f172a] outline-none focus:border-[#6366f1]/50"
-              >
-                <option value="CSV">CSV</option>
-                <option value="XLSX">XLSX</option>
               </select>
             </label>
             <label className="flex flex-col gap-1">
@@ -1293,7 +1318,7 @@ export default function BatchCommandCenterClient() {
                 ) : null}
               </div>
               <p className="mt-1.5 text-[12px] leading-relaxed text-[#64748b]">
-                CSV or XLSX exported from LMS / ERP — one row per payout intent.
+                CSV or spreadsheet (XLS / XLSX) from LMS / ERP — one row per payout intent.
               </p>
               {intentFileName ? (
                 <p className="mt-2 truncate font-mono text-[12px] text-[#0f172a]" title={intentFileName}>
@@ -1313,7 +1338,6 @@ export default function BatchCommandCenterClient() {
               </span>
               <input
                 type="file"
-                accept=".csv,.xls,.xlsx"
                 className="hidden"
                 onChange={(e) => void onIntentBatchUpload(e.target.files?.[0] ?? null)}
               />
@@ -1362,7 +1386,7 @@ export default function BatchCommandCenterClient() {
                 ) : null}
               </div>
               <p className="mt-1.5 text-[12px] leading-relaxed text-[#64748b]">
-                Bank / PSP settlement CSV — Zord matches it back to the intent batch.
+                Bank / PSP settlement file (CSV or spreadsheet) — Zord matches it back to the intent batch.
               </p>
               {settlementFileName ? (
                 <p className="mt-2 truncate font-mono text-[12px] text-[#0f172a]" title={settlementFileName}>
@@ -1371,7 +1395,7 @@ export default function BatchCommandCenterClient() {
               ) : (
                 <p className="mt-2 text-[12px] italic text-[#94a3b8]">
                   {settlementCredentialsReady
-                    ? 'Click this card or Choose file to pick a settlement CSV / XLSX — POST /api/settlement/upload.'
+                    ? 'Click this card or Choose file to pick a settlement file — POST /api/settlement/upload.'
                     : 'Enter Tenant, PSP, and Batch-Id (or complete Step 1) to enable settlement upload.'}
                 </p>
               )}
@@ -1391,7 +1415,6 @@ export default function BatchCommandCenterClient() {
               <input
                 ref={settlementFileInputRef}
                 type="file"
-                accept=".csv,.xls,.xlsx"
                 className="hidden"
                 disabled={!settlementPickerEnabled}
                 aria-label="Settlement file upload"
@@ -1400,6 +1423,95 @@ export default function BatchCommandCenterClient() {
             </div>
           </div>
         </Card>
+
+        {intentBulkIngestAck ? (
+          <Card className="border-emerald-100/80 bg-gradient-to-b from-emerald-50/40 to-white p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <SectionLabel>Bulk ingest response</SectionLabel>
+                <h3 className="mt-1 text-[15px] font-semibold tracking-tight text-[#0f172a]">
+                  Edge acknowledgment
+                </h3>
+                <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-[#64748b]">
+                  Per-row ack from the last successful intent file upload (same payload as{' '}
+                  <code className="rounded bg-black/[0.04] px-1 py-0.5 font-mono text-[12px]">POST /v1/bulk-ingest</code>
+                  ). Rows show envelope and trace ids for support and audit.
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <span
+                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[12px] font-semibold ${
+                    intentBulkIngestAck.httpStatus === 202
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                      : 'border-slate-200 bg-slate-50 text-slate-700'
+                  }`}
+                >
+                  HTTP {intentBulkIngestAck.httpStatus}
+                  {intentBulkIngestAck.httpStatus === 202 ? ' Accepted' : ''}
+                </span>
+                <time
+                  className="text-[11px] text-[#94a3b8]"
+                  dateTime={intentBulkIngestAck.at.toISOString()}
+                  title={intentBulkIngestAck.at.toISOString()}
+                >
+                  {intentBulkIngestAck.at.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' })}
+                </time>
+              </div>
+            </div>
+
+            {intentBulkIngestAck.parsed ? (
+              <>
+                <p className="mt-3 text-[13px] text-[#475569]">
+                  <span className="font-semibold text-[#334155]">{intentBulkIngestAck.parsed.total}</span> row
+                  {intentBulkIngestAck.parsed.total === 1 ? '' : 's'} in response
+                </p>
+                <div className="mt-2 max-h-[min(420px,55vh)] overflow-auto rounded-xl border border-[#e2e8f0] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+                  <table className="min-w-full border-collapse text-left text-[12px]">
+                    <thead className="sticky top-0 z-[1] border-b border-[#e2e8f0] bg-[#f8fafc]">
+                      <tr className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#64748b]">
+                        <th className="whitespace-nowrap px-3 py-2.5">Row</th>
+                        <th className="whitespace-nowrap px-3 py-2.5">Status</th>
+                        <th className="min-w-[200px] px-3 py-2.5">Envelope ID</th>
+                        <th className="min-w-[200px] px-3 py-2.5">Trace ID</th>
+                        <th className="whitespace-nowrap px-3 py-2.5">Received</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#f1f5f9] text-[#0f172a]">
+                      {intentBulkIngestAck.parsed.rows.map((r) => (
+                        <tr key={`${r.row}-${r.envelopeId || r.traceId}`} className="font-mono text-[11px]">
+                          <td className="whitespace-nowrap px-3 py-2 text-[#475569]">{r.row}</td>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            <span
+                              className={
+                                r.status.toUpperCase() === 'ACCEPTED'
+                                  ? 'rounded-md bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-800'
+                                  : r.status.toUpperCase() === 'FAILED' || r.error
+                                    ? 'rounded-md bg-red-50 px-1.5 py-0.5 font-semibold text-red-800'
+                                    : 'rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700'
+                              }
+                            >
+                              {r.error ? `${r.status} · ${r.error}` : r.status}
+                            </span>
+                          </td>
+                          <td className="max-w-[280px] break-all px-3 py-2 text-[#0f172a]">{r.envelopeId || '—'}</td>
+                          <td className="max-w-[280px] break-all px-3 py-2 text-[#0f172a]">{r.traceId || '—'}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-[#64748b]">{r.receivedAt || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : intentBulkIngestAck.rawFallback ? (
+              <pre className="mt-3 max-h-[min(360px,50vh)] overflow-auto rounded-xl border border-amber-200/80 bg-amber-50/40 p-3 font-mono text-[11px] leading-relaxed text-[#78350f]">
+                {intentBulkIngestAck.rawFallback}
+              </pre>
+            ) : (
+              <p className="mt-3 text-[13px] text-[#94a3b8]">Empty response body.</p>
+            )}
+          </Card>
+        ) : null}
+        </>
         ) : null}
 
         {/* ─── Batch context ────────────────────────────────────────────── */}

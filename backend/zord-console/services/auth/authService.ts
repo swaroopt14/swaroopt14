@@ -83,9 +83,6 @@ function storeUser(user: User) {
   localStorage.setItem(AUTH_KEY, JSON.stringify(user))
   localStorage.setItem(ROLE_KEY, user.role)
 
-  if (user.tenantId) {
-    localStorage.setItem('zord_tenant_id', user.tenantId)
-  }
   if (user.tenantName) {
     localStorage.setItem('zord_tenant_name', user.tenantName)
     localStorage.setItem('cx_tenant_name', user.tenantName)

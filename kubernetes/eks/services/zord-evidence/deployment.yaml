@@ -19,6 +19,7 @@ spec:
         app.kubernetes.io/name: zord-evidence
     spec:
       serviceAccountName: zord-aws-access
+      terminationGracePeriodSeconds: 45
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -50,15 +51,24 @@ spec:
             - name: PORT
               value: "8088"
             - name: KAFKA_BROKERS
-              value: zord-kafka:9092
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: KAFKA_BROKERS
             - name: EVIDENCE_KAFKA_TOPIC
               value: z.outcome.events.v1
             - name: EVIDENCE_KAFKA_GROUP
               value: zord-evidence-group
             - name: DB_HOST
-              value: zord-postgres
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: DB_HOST
             - name: DB_PORT
-              value: "5432"
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: DB_PORT
             - name: DB_USER
               value: evidence_user
             - name: DB_PASSWORD
@@ -69,11 +79,20 @@ spec:
             - name: DB_NAME
               value: zord_evidence_db
             - name: DB_SSLMODE
-              value: disable
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: DB_SSLMODE
             - name: AWS_REGION
-              value: ap-south-1
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: AWS_REGION
             - name: AWS_EC2_METADATA_DISABLED
-              value: "true"
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: AWS_EC2_METADATA_DISABLED
             - name: S3_BUCKET
               valueFrom:
                 secretKeyRef:
@@ -107,8 +126,8 @@ spec:
             periodSeconds: 20
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
+              cpu: 200m
+              memory: 384Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 750m
+              memory: 768Mi

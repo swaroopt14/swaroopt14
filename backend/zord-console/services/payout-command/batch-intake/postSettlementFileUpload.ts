@@ -10,7 +10,8 @@ export type PostSettlementFileUploadParams = {
   file: File
   /** Optional; server uses `ZORD_SETTLEMENT_API_KEY` or `ZORD_BULK_INGEST_API_KEY` when unset. */
   apiKeyRaw?: string
-  tenantId: string
+  /** Ignored by BFF: tenant is injected from the signed-in session. */
+  tenantId?: string
   psp: string
   batchId: string
   /** Override for tests */
@@ -29,9 +30,8 @@ export async function postSettlementFileUpload(params: PostSettlementFileUploadP
   const base = params.endpointPath ?? SETTLEMENT_UPLOAD_PROXY_PATH
   const auth = normalizeAuthorizationHeader(params.apiKeyRaw ?? '')
 
-  const tid = params.tenantId.trim()
   const psp = params.psp.trim()
-  const q = new URLSearchParams({ tenant_id: tid, psp })
+  const q = new URLSearchParams({ psp })
   const requestUrl = `${base}?${q.toString()}`
 
   const formData = new FormData()

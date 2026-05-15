@@ -17,6 +17,7 @@ export const BACKEND_SERVICES = {
       AUTH_REFRESH: '/v1/auth/refresh',
       AUTH_LOGOUT: '/v1/auth/logout',
       AUTH_ME: '/v1/auth/me',
+      AUTH_PRINCIPAL: '/v1/auth/principal',
     },
   },
 

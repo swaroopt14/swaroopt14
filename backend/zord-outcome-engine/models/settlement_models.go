@@ -101,6 +101,8 @@ type CanonicalSettlementObservation struct {
 	SourceType                 string           `json:"source_type" db:"source_type"`
 	SourceSystemID             string           `json:"source_system_id" db:"source_system_id"`
 	CorridorID                 string           `json:"corridor_id" db:"corridor_id"`
+	// BeneficiaryFingerprint     *string          `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
+	// ZordSignatureCarrier       *string          `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
 	WarningsJSON               []byte           `json:"warnings_json,omitempty" db:"warnings_json"`
 	CreatedAt                  time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt                  time.Time  `json:"updated_at" db:"updated_at"`
@@ -195,4 +197,27 @@ type UniversalSettlementShape struct {
 	PaymentMethod                 string                 `json:"payment_method"`
 	CarrierCandidates            map[string]interface{} `json:"carrier_candidates"`
 	RawEnvelopeRef               uuid.UUID              `json:"raw_envelope_ref"`
+	MappingInputs                MappingConfidenceInputs `json:"mapping_inputs"`
+}
+
+// MappingConfidenceInputs captures semantic mapping signals for scoring.
+type MappingConfidenceInputs struct {
+	AmountMapped        bool `json:"amount_mapped"`
+	CurrencyMapped      bool `json:"currency_mapped"`
+	StatusMapped        bool `json:"status_mapped"`
+	TimestampMapped     bool `json:"timestamp_mapped"`
+	ProviderRefMapped   bool `json:"provider_ref_mapped"`
+	BankRefMapped       bool `json:"bank_ref_mapped"`
+	ClientRefMapped     bool `json:"client_ref_mapped"`
+
+	AmountExisted        bool `json:"amount_existed"`
+	CurrencyExisted      bool `json:"currency_existed"`
+	StatusExisted        bool `json:"status_existed"`
+	TimestampExisted     bool `json:"timestamp_existed"`
+	ProviderRefExisted   bool `json:"provider_ref_existed"`
+	BankRefExisted       bool `json:"bank_ref_existed"`
+	ClientRefExisted     bool `json:"client_ref_existed"`
+
+	MappingProfileFallbackUsed  bool `json:"mapping_profile_fallback_used"`
+	CriticalFieldUnmapped       bool `json:"critical_field_unmapped"`
 }

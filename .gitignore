@@ -26,6 +26,7 @@ backend/zord-prompt-layer/.env
 k8s-file/production/env/*.env
 k8s-file/production/secrets/*
 jenkins/credentials.local
+docs/
 
 
 

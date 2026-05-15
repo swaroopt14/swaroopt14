@@ -7,6 +7,6 @@ export async function getDisbursementTrend(
 ): Promise<DisbursementTrendResponse | null> {
   const tid = tenantId.trim()
   if (!tid) return null
-  const params = new URLSearchParams({ tenant_id: tid, range })
+  const params = new URLSearchParams({ range })
   return fetchProdJsonGet<DisbursementTrendResponse>(`/api/prod/home/disbursement-trend?${params.toString()}`)
 }

@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { normalizeAuthorizationHeader } from '@/services/payout-command/batch-intake/intakeHttpShared'
+import { applyAuthCookies } from '@/services/auth/server'
+import {
+  applyRefreshedSessionCookies,
+  requireSessionTenantForProdProxy,
+  resolveProxyForwardAuthorization,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -9,36 +14,33 @@ function settlementBase() {
   return 'http://localhost:8081'
 }
 
-function resolveAuthHeader(req: NextRequest) {
-  const incoming = req.headers.get('authorization')
-  if (incoming) return normalizeAuthorizationHeader(incoming)
-  const accessToken = req.cookies.get('zord_access_token')?.value
-  if (accessToken) return normalizeAuthorizationHeader(accessToken)
-  const apiKey = process.env.ZORD_SETTLEMENT_API_KEY ?? process.env.ZORD_BULK_INGEST_API_KEY
-  return normalizeAuthorizationHeader(apiKey ?? '')
-}
-
 export async function POST(req: NextRequest) {
   const contentType = req.headers.get('content-type')
   if (!contentType?.toLowerCase().includes('multipart/form-data')) {
     return NextResponse.json({ error: 'Expected multipart/form-data with file.' }, { status: 400 })
   }
 
-  const tenantId = req.nextUrl.searchParams.get('tenant_id')
+  const gate = await requireSessionTenantForProdProxy(req)
+  if (!gate.ok) return gate.response
+
   const psp = req.nextUrl.searchParams.get('psp')
-  if (!tenantId?.trim() || !psp?.trim()) {
-    return NextResponse.json({ error: 'Query parameters tenant_id and psp are required.' }, { status: 400 })
+  if (!psp?.trim()) {
+    return NextResponse.json({ error: 'Query parameter psp is required.' }, { status: 400 })
   }
 
+  const authResolution = await resolveProxyForwardAuthorization(
+    req,
+    process.env.ZORD_SETTLEMENT_API_KEY ?? process.env.ZORD_BULK_INGEST_API_KEY,
+  )
+  if (!authResolution.ok) return authResolution.response
+
   const bodyBuffer = Buffer.from(await req.arrayBuffer())
-  const url = `${settlementBase()}/v1/settlement/upload?tenant_id=${encodeURIComponent(tenantId.trim())}&psp=${encodeURIComponent(psp.trim())}`
+  const url = `${settlementBase()}/v1/settlement/upload?tenant_id=${encodeURIComponent(gate.tenantId)}&psp=${encodeURIComponent(psp.trim())}`
 
   const headers: Record<string, string> = {
     'content-type': contentType,
+    authorization: authResolution.authorization,
   }
-
-  const auth = resolveAuthHeader(req)
-  if (auth) headers.authorization = auth
 
   const batchId =
     req.headers.get('batch-id') || req.headers.get('Batch-Id') || req.headers.get('batchid') || req.headers.get('BatchId')
@@ -59,18 +61,23 @@ export async function POST(req: NextRequest) {
       cache: 'no-store',
     })
     const payload = await upstream.text()
-    return new NextResponse(payload, {
+    const res = new NextResponse(payload, {
       status: upstream.status,
       headers: {
         'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
         'cache-control': 'no-store, max-age=0',
       },
     })
+    if (authResolution.refreshedPayload) {
+      applyAuthCookies(res, authResolution.refreshedPayload)
+    }
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   } catch (error) {
     lastError = error
   }
 
-  return NextResponse.json(
+  const res = NextResponse.json(
     {
       error: 'Settlement upload upstream unavailable',
       upstream: url,
@@ -78,4 +85,7 @@ export async function POST(req: NextRequest) {
     },
     { status: 502 },
   )
+  if (authResolution.refreshedPayload) applyAuthCookies(res, authResolution.refreshedPayload)
+  applyRefreshedSessionCookies(res, gate.refreshedPayload)
+  return res
 }

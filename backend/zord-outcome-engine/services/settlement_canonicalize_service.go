@@ -300,13 +300,13 @@ func buildCanonicalObservation(
 		ParseConfidence:          parseConfidence,
 		MappingConfidence:        computeMappingConfidence(shape),
 		CarrierRichnessScore:     computeCarrierRichnessScore(shape),
-		AttachmentReadinessScore: computeAttachmentReadinessScore(shape),
 		SourceType:               "API",
 		SourceSystemID:           profile.SourceSystem,
 		CorridorID:               shape.PaymentMethod,
 		CreatedAt:                time.Now().UTC(),
 		UpdatedAt:                time.Now().UTC(),
 	}
+	obs.AttachmentReadinessScore = computeAttachmentReadinessScore(shape, obs.ParseConfidence, obs.MappingConfidence)
 	obs.SourceStrength = computeSourceStrength(obs.AttachmentReadinessScore)
 	obs.CanonicalHash = computeCanonicalHash(tenantID, obs.SettlementObservationID, shape)
 	obs.WarningsJSON = computeQualityWarnings(shape, obs.ParseConfidence, obs.MappingConfidence, obs.AttachmentReadinessScore)
@@ -349,72 +349,15 @@ func computeProviderRefStatus(shape models.UniversalSettlementShape) string {
 }
 
 func computeMappingConfidence(shape models.UniversalSettlementShape) float64 {
-	score := 1.0
-	if shape.ProviderReference == nil {
-		score -= 0.15
-	}
-	if shape.BankReference == nil {
-		score -= 0.20
-	}
-	if shape.CurrencyCode == "" {
-		score -= 0.15
-	}
-	if shape.Amount.IsZero() {
-		score -= 0.10
-	}
-	if shape.ObservationKind == "" {
-		score -= 0.10
-	}
-	if score < 0 {
-		score = 0
-	}
-	return score
+	return ComputeMappingConfidence(shape.MappingInputs)
 }
 
 func computeCarrierRichnessScore(shape models.UniversalSettlementShape) float64 {
-	count := 0
-	if shape.ProviderReference != nil {
-		count++
-	}
-	if shape.BankReference != nil {
-		count++
-	}
-	if shape.ExternalReference != nil {
-		count++
-	}
-	if shape.ClientReferenceCandidate != nil {
-		count++
-	}
-	if shape.BatchReference != nil {
-		count++
-	}
-	if !shape.Amount.IsZero() {
-		count++
-	}
-	return float64(count) / 6.0
+	return ComputeCarrierRichnessScore(shape)
 }
 
-func computeAttachmentReadinessScore(shape models.UniversalSettlementShape) float64 {
-	score := 0.0
-	if shape.BankReference != nil {
-		score += 0.30
-	}
-	if shape.ProviderReference != nil {
-		score += 0.25
-	}
-	if shape.ExternalReference != nil {
-		score += 0.15
-	}
-	if !shape.Amount.IsZero() && shape.CurrencyCode != "" {
-		score += 0.15
-	}
-	if !shape.ObservationTimestamp.IsZero() {
-		score += 0.10
-	}
-	if shape.BatchReference != nil {
-		score += 0.05
-	}
-	return score
+func computeAttachmentReadinessScore(shape models.UniversalSettlementShape, parseConf, mapConf float64) float64 {
+	return ComputeAttachmentReadinessScore(shape, parseConf, mapConf)
 }
 
 func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.UniversalSettlementShape) string {
@@ -456,7 +399,7 @@ func computeQualityWarnings(shape models.UniversalSettlementShape, parseConf, ma
 	if shape.PaymentMethod == "" {
 		warnings = append(warnings, "UNKNOWN_CORRIDOR")
 	}
-	if parseConf < 0.8 {
+	if parseConf < 0.75 {
 		warnings = append(warnings, "LOW_PARSE_CONFIDENCE")
 	}
 	if mapConf < 0.8 {

@@ -185,6 +185,7 @@ func (e *AttachmentEngine) runAttachment(
 		totalIntendedAmount decimal.Decimal
 		clientBatchRef      *string
 		intentsMap          = make(map[uuid.UUID]*models.CanonicalIntent)
+		claimedIntentIDs    = make(map[uuid.UUID]bool)
 	)
 
 	counters := struct {
@@ -250,6 +251,17 @@ func (e *AttachmentEngine) runAttachment(
 			winnerIntentID = nil
 		}
 
+		// INTRA-JOB DEDUPLICATION:
+		// If the winner has already been claimed by another observation in this job,
+		// we must demote this match to prevent double-attachment.
+		if winnerIntentID != nil && claimedIntentIDs[*winnerIntentID] {
+			log.Printf("attachment.engine.double_match_detected obs=%s intent=%s - demoting to AMBIGUOUS",
+				obs.SettlementObservationID, *winnerIntentID)
+			decisionType = models.DecisionMatchAmbiguous
+			reasonCode = "INTENT_ALREADY_CLAIMED_IN_JOB"
+			winnerIntentID = nil
+		}
+
 		if len(scored) > 1 {
 			s := scored[1].Total
 			runnerUpScore = &s
@@ -269,14 +281,15 @@ func (e *AttachmentEngine) runAttachment(
 		if winnerIntentID != nil &&
 			(decisionType == models.DecisionMatchExact || decisionType == models.DecisionMatchHighConfidence) {
 			matchedIntentIDs[*winnerIntentID] = true
+			claimedIntentIDs[*winnerIntentID] = true
 		}
 
 		// Build supporting carriers summary.
 		carriers := buildSupportingCarriers(obs)
 		carriersJSON, _ := json.Marshal(carriers)
 
-		// Candidate set hash — deterministic fingerprint of the full candidate set.
-		candidateSetHash := computeCandidateSetHash(scored)
+		// Candidate set hash — deterministic fingerprint of the full candidate set for audit integrity.
+		candidateSetHash := computeCandidateSetHash(obs.SettlementObservationID, RulesetVersion, scored)
 
 		// Decision reason detail.
 		reasonDetail := map[string]interface{}{
@@ -308,6 +321,7 @@ func (e *AttachmentEngine) runAttachment(
 			AmbiguityScore:           ambiguityScore,
 			SupportingCarriersJSON:   carriersJSON,
 			CandidateSetHash:         candidateSetHash,
+			CandidateSetSnapshotRef:  fmt.Sprintf("zord://audit/candidate-snapshots/%s", candidateSetHash),
 			CandidateSetSize:         len(scored),
 			CreatedAt:                time.Now().UTC(),
 			UpdatedAt:                time.Now().UTC(),
@@ -554,8 +568,13 @@ func findCandidateIntents(
 			canonical_hash, governance_state,
 		--	beneficiary_fingerprint, zord_signature_carrier,
 			created_at
-		FROM canonical_intents
+		FROM canonical_intents ci
 		WHERE tenant_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1 FROM attachment_decisions ad 
+		      WHERE ad.intent_id = ci.intent_id 
+		        AND ad.decision_type IN ('MATCH_EXACT', 'MATCH_HIGH_CONFIDENCE')
+		  )
 		  AND (
 		    ($2 != '' AND client_payout_ref = $2)
 		    OR ($3 != '' AND client_batch_ref = $3)
@@ -746,9 +765,9 @@ func buildSupportingCarriers(obs models.CanonicalSettlementObservation) map[stri
 	if obs.BankReference != nil {
 		carriers["bank_reference"] = *obs.BankReference
 	}
-	if obs.BatchReference != nil {
-		carriers["batch_reference"] = *obs.BatchReference
-	}
+	// if obs.BatchReference != nil {
+	// 	carriers["batch_reference"] = *obs.BatchReference
+	// }
 	// if obs.BeneficiaryFingerprint != nil {
 	// 	carriers["beneficiary_fingerprint"] = *obs.BeneficiaryFingerprint
 	// }
@@ -758,13 +777,45 @@ func buildSupportingCarriers(obs models.CanonicalSettlementObservation) map[stri
 	return carriers
 }
 
-func computeCandidateSetHash(scored []CandidateScore) string {
-	ids := make([]string, len(scored))
-	for i, cs := range scored {
-		ids[i] = fmt.Sprintf("%v:%.2f", cs.IntentID, cs.Total)
+func computeCandidateSetHash(obsID uuid.UUID, rulesetVersion string, scored []CandidateScore) string {
+	// Sort by score DESC, then intentID ASC for determinism
+	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].Total != scored[j].Total {
+			return scored[i].Total > scored[j].Total
+		}
+		idI := fmt.Sprintf("%v", scored[i].IntentID)
+		idJ := fmt.Sprintf("%v", scored[j].IntentID)
+		return idI < idJ
+	})
+
+	type candidateJSON struct {
+		IntentID       string      `json:"intent_id"`
+		ScoreTotal     float64     `json:"score_total"`
+		ScoreBreakdown interface{} `json:"score_breakdown"`
 	}
-	raw := fmt.Sprintf("%v", ids)
-	h := sha256.Sum256([]byte(raw))
+
+	type fullSnapshot struct {
+		SettlementObservationID string          `json:"settlement_observation_id"`
+		MatchingRulesetVersion  string          `json:"matching_ruleset_version"`
+		Candidates              []candidateJSON `json:"candidates"`
+	}
+
+	snapshot := fullSnapshot{
+		SettlementObservationID: obsID.String(),
+		MatchingRulesetVersion:  rulesetVersion,
+		Candidates:              make([]candidateJSON, len(scored)),
+	}
+
+	for i, cs := range scored {
+		snapshot.Candidates[i] = candidateJSON{
+			IntentID:       fmt.Sprintf("%v", cs.IntentID),
+			ScoreTotal:     cs.Total,
+			ScoreBreakdown: cs.Breakdown,
+		}
+	}
+
+	data, _ := json.Marshal(snapshot)
+	h := sha256.Sum256(data)
 	return hex.EncodeToString(h[:])
 }
 
@@ -1105,11 +1156,11 @@ func loadObservationsByBatch(ctx context.Context, tenantID uuid.UUID, batchRef s
 			mapping_profile_id, mapping_profile_version,
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
-			canonical_hash, client_batch_id, corridor_id,
-		--	beneficiary_fingerprint, zord_signature_carrier,
+			canonical_hash, client_batch_id, COALESCE(corridor_id, ''),
+			beneficiary_fingerprint, zord_signature_carrier,
 			created_at, updated_at
 		FROM canonical_settlement_observations
-		WHERE tenant_id = $1 AND batch_reference = $2
+		WHERE tenant_id = $1 AND (LOWER(batch_reference) = LOWER($2) OR LOWER(client_batch_id) = LOWER($2) OR LOWER(settlement_batch_id) = LOWER($2))
 		ORDER BY observation_timestamp`,
 		tenantID, batchRef,
 	)
@@ -1137,8 +1188,8 @@ func loadObservationsByJobID(ctx context.Context, tenantID uuid.UUID, jobID stri
 			mapping_profile_id, mapping_profile_version,
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
-			canonical_hash, client_batch_id, corridor_id,
-		--	beneficiary_fingerprint, zord_signature_carrier,
+			canonical_hash, client_batch_id, COALESCE(corridor_id, ''),
+			beneficiary_fingerprint, zord_signature_carrier,
 			created_at, updated_at
 		FROM canonical_settlement_observations
 		WHERE tenant_id = $1 AND ingest_run_id = $2
@@ -1210,7 +1261,7 @@ func scanObservations(rows *sql.Rows) ([]models.CanonicalSettlementObservation, 
 			&o.ParseConfidence, &o.MappingConfidence,
 			&o.CarrierRichnessScore, &o.AttachmentReadinessScore,
 			&o.CanonicalHash, &o.ClientBatchID, &o.CorridorID,
-			// &o.BeneficiaryFingerprint, &o.ZordSignatureCarrier,
+			&o.BeneficiaryFingerprint, &o.ZordSignatureCarrier,
 			&o.CreatedAt, &o.UpdatedAt,
 		)
 		if err != nil {

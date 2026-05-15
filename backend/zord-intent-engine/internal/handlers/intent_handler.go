@@ -38,6 +38,27 @@ type IntentListResponse struct {
 type BatchSidebarResponse struct {
 	Items []models.BatchSidebarItem `json:"items"`
 }
+type TablePagination struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+	Total    int `json:"total"`
+}
+
+type PaymentIntentDetailsSection struct {
+	Items      []models.CanonicalIntent `json:"items"`
+	Pagination TablePagination          `json:"pagination"`
+}
+
+type DLQDetailsSection struct {
+	Items      []models.DLQEntry `json:"items"`
+	Pagination TablePagination   `json:"pagination"`
+}
+
+type BatchDetailsPayload struct {
+	BatchID        string                      `json:"batchId"`
+	PaymentIntents PaymentIntentDetailsSection `json:"paymentIntents"`
+	DLQItems       DLQDetailsSection           `json:"dlqItems"`
+}
 
 type ErrorResponse struct {
 	Error   string `json:"error"`
@@ -163,21 +184,86 @@ func (h *IntentHandler) ListBatchesSidebar(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Sidebar summaries (existing behavior)
 	items, err := h.queryRepo.ListBatchesForSidebar(ctx, tenantID)
 	if err != nil {
 		respondError(w, "DATABASE_ERROR", "Failed to fetch batches sidebar data", http.StatusInternalServerError, err)
 		return
 	}
-
 	if items == nil {
 		items = []models.BatchSidebarItem{}
 	}
 
+	// Mode 1: sidebar only
+	batchID := strings.TrimSpace(r.URL.Query().Get("batch_id"))
+	if batchID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(BatchSidebarResponse{Items: items})
+		return
+	}
+
+	// Mode 2: selected batch details
+	page := getIntParam(r, "page", 1)
+	pageSize := getIntParam(r, "page_size", 20)
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 200 {
+		pageSize = 200
+	}
+
+	piItems, piTotal, err := h.queryRepo.ListPaymentIntentsByBatch(ctx, tenantID, batchID, page, pageSize)
+	if err != nil {
+		respondError(w, "DATABASE_ERROR", "Failed to fetch payment intent details", http.StatusInternalServerError, err)
+		return
+	}
+	if piItems == nil {
+		piItems = []models.CanonicalIntent{}
+	}
+
+	dlqItems, dlqTotal, err := h.queryRepo.ListDLQItemsByBatch(ctx, tenantID, batchID, page, pageSize)
+	if err != nil {
+		respondError(w, "DATABASE_ERROR", "Failed to fetch DLQ details", http.StatusInternalServerError, err)
+		return
+	}
+	if dlqItems == nil {
+		dlqItems = []models.DLQEntry{}
+	}
+
+	resp := struct {
+		Items        []models.BatchSidebarItem `json:"items"`
+		BatchDetails BatchDetailsPayload       `json:"batchDetails"`
+	}{
+		Items: items,
+		BatchDetails: BatchDetailsPayload{
+			BatchID: batchID,
+			PaymentIntents: PaymentIntentDetailsSection{
+				Items: piItems,
+				Pagination: TablePagination{
+					Page:     page,
+					PageSize: pageSize,
+					Total:    piTotal,
+				},
+			},
+			DLQItems: DLQDetailsSection{
+				Items: dlqItems,
+				Pagination: TablePagination{
+					Page:     page,
+					PageSize: pageSize,
+					Total:    dlqTotal,
+				},
+			},
+		},
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(BatchSidebarResponse{Items: items})
+	_ = json.NewEncoder(w).Encode(resp)
 }
-
 func respondError(w http.ResponseWriter, code, message string, httpStatus int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(httpStatus)
@@ -187,6 +273,5 @@ func respondError(w http.ResponseWriter, code, message string, httpStatus int, e
 		Code:    code,
 		Message: message,
 	}
-
-	json.NewEncoder(w).Encode(errResp)
+	_ = json.NewEncoder(w).Encode(errResp)
 }

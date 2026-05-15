@@ -10,8 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"zord-outcome-engine/models"
+
+	"github.com/google/uuid"
 )
 
 // CashfreeParser implements SettlementParser for Cashfree settlement CSV exports.
@@ -41,11 +42,10 @@ var cashfreeHeaders = []string{
 	"settled_amount", "service_charge", "service_tax", "settlement_date", "transaction_type",
 }
 
-
 // Parse reads raw file bytes and returns one ParsedRowResult per data row.
 func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeID uuid.UUID, profile models.MappingProfile) ([]ParsedRowResult, error) {
 	reader := csv.NewReader(bytes.NewReader(fileBytes))
-	
+
 	// Read header and validate
 	header, err := reader.Read()
 	if err != nil {
@@ -78,12 +78,12 @@ func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 				break
 			}
 			rowIndex++
-			
+
 			failureReason := "CSV_PARSE_ERROR"
 			if errors.Is(err, csv.ErrFieldCount) {
 				failureReason = "ROW_COLUMN_MISMATCH"
 			}
-			
+
 			results = append(results, ParsedRowResult{
 				RowIndex:      rowIndex,
 				Failed:        true,
@@ -138,7 +138,7 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 	} else {
 		observationTS, tsWarning = parseSettlementDate(dateStr)
 	}
-	
+
 	if tsWarning != "" {
 		warnings = append(warnings, "observation_timestamp: "+tsWarning)
 	}
@@ -161,7 +161,7 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		TimestampFallbackUsed:  tsWarning != "",
 		AmountFallbackUsed:     orderAmount.IsZero() && cellStr(row, cfColOrderAmount) != "0" && cellStr(row, cfColOrderAmount) != "0.00",
 	}
-	confidence := ComputeParseConfidence(confidenceInputs)
+	confidence, parseReasons := ComputeParseConfidence(confidenceInputs)
 
 	if bankRef == "" {
 		warnings = append(warnings, "missing bank_reference (merchant_settlement_utr)")
@@ -211,6 +211,7 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		ObservationTimestamp:     observationTS,
 		ValueDate:                &valueDate,
 		ParseConfidence:          confidence,
+		ScoreReasonCodes:              parseReasons,
 		RawEnvelopeRef:           envelopeID,
 		CarrierCandidates:        make(map[string]interface{}),
 		PartyReferenceCandidates: make(map[string]interface{}),

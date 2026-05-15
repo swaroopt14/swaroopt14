@@ -142,7 +142,7 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		TimestampFallbackUsed:  tsWarning != "",
 		AmountFallbackUsed:     amount.IsZero() && cellStr(row, 2) != "0" && cellStr(row, 2) != "0.00",
 	}
-	confidence := ComputeParseConfidence(confidenceInputs)
+	confidence, parseReasons := ComputeParseConfidence(confidenceInputs)
 
 	if bankRef == "" {
 		warnings = append(warnings, "missing bank_reference (settlement_utr)")
@@ -190,6 +190,7 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		ObservationTimestamp:     observationTS,
 		ValueDate:                &valueDate,
 		ParseConfidence:          confidence,
+		ScoreReasonCodes:         parseReasons,
 		PaymentMethod:            cellStr(row, 8),
 		RawEnvelopeRef:           envelopeID,
 		CarrierCandidates:        map[string]interface{}{},

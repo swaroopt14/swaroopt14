@@ -95,6 +95,9 @@ type CanonicalSettlementObservation struct {
 	MappingConfidence          float64    `json:"mapping_confidence" db:"mapping_confidence"`
 	CarrierRichnessScore       float64    `json:"carrier_richness_score" db:"carrier_richness_score"`
 	AttachmentReadinessScore   float64    `json:"attachment_readiness_score" db:"attachment_readiness_score"`
+	ScoreBreakdownJSON         []byte     `json:"score_breakdown_json,omitempty" db:"score_breakdown_json"`
+	ScoreReasonCodesJSON       []byte     `json:"score_reason_codes_json,omitempty" db:"score_reason_codes_json"`
+	ScoreVersion               string     `json:"score_version" db:"score_version"`
 	CanonicalHash              string     `json:"canonical_hash" db:"canonical_hash"`
 	CanonicalSnapshotRef       *string    `json:"canonical_snapshot_ref,omitempty" db:"canonical_snapshot_ref"`
 	SourceStrength             string           `json:"source_strength" db:"source_strength"`
@@ -194,6 +197,7 @@ type UniversalSettlementShape struct {
 	ReversalFlag                 bool                   `json:"reversal_flag"`
 	ReturnFlag                   bool                   `json:"return_flag"`
 	ParseConfidence              float64                `json:"parse_confidence"`
+	ScoreReasonCodes             []string               `json:"score_reason_codes"`
 	PaymentMethod                 string                 `json:"payment_method"`
 	CarrierCandidates            map[string]interface{} `json:"carrier_candidates"`
 	RawEnvelopeRef               uuid.UUID              `json:"raw_envelope_ref"`

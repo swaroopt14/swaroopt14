@@ -221,6 +221,7 @@ func (s *SettlementIngestService) PersistParsedRow(
 	lineageStr := hex.EncodeToString(contentHash[:]) + rowRef + profile.ProfileVersion
 	finalHash := sha256.Sum256([]byte(lineageStr))
 	rawLineHash := hex.EncodeToString(finalHash[:])
+	parseQualityLabel := ComputeParseQualityLabel(result.Confidence)
 
 	var failureCode interface{}
 	if failureReasonCode != "" {
@@ -233,14 +234,14 @@ func (s *SettlementIngestService) PersistParsedRow(
 			tenant_id, settlement_envelope_id,
 			source_file_ref, source_row_ref, raw_line_hash,
 			raw_columns_json, parsed_candidates_json,
-			parse_confidence, mapping_profile_id, mapping_profile_version, parser_version,
+			parse_confidence, parse_quality_label, mapping_profile_id, mapping_profile_version, parser_version,
 			client_batch_id, status, failure_reason_code, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 		parsedRowID, ingestRunID, settlementBatchID,
 		tenantID, envelopeID,
 		objRef, rowRef, rawLineHash,
 		rawColsJSON, shapeJSON,
-		result.Confidence, profile.ProfileID, profile.ProfileVersion, profile.ProfileVersion,
+		result.Confidence, parseQualityLabel, profile.ProfileID, profile.ProfileVersion, profile.ProfileVersion,
 		clientBatchID, status, failureCode, time.Now().UTC(),
 	)
 	return err

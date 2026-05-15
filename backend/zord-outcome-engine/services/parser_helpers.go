@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -55,38 +56,67 @@ func strPtr(s string) *string {
 
 // ComputeParseConfidence calculates a technical reliability score on a 0.0 to 1.0 scale.
 // It penalizes technical failures like malformed dates, missing columns, or encoding issues.
-func ComputeParseConfidence(inputs ParseConfidenceInputs) float64 {
+// Returns the score and a list of reason codes indicating which penalties were applied.
+func ComputeParseConfidence(inputs ParseConfidenceInputs) (float64, []string) {
 	score := 1.0
+	var reasons []string
 
 	if !inputs.EncodingValid {
 		score -= 0.30
+		reasons = append(reasons, "ENCODING_INVALID")
 	}
 	if !inputs.ColumnCountConsistent {
 		score -= 0.15
+		reasons = append(reasons, "COLUMN_COUNT_INCONSISTENT")
 	}
 	if inputs.TimestampFallbackUsed {
 		score -= 0.10
+		reasons = append(reasons, "TIMESTAMP_PARSE_FALLBACK_USED")
 	}
 	if inputs.AmountFallbackUsed {
 		score -= 0.15
+		reasons = append(reasons, "AMOUNT_PARSE_FALLBACK_USED")
 	}
 	if inputs.StatusAmbiguous {
 		score -= 0.10
+		reasons = append(reasons, "STATUS_AMBIGUOUS")
 	}
 	if inputs.DuplicateHeaderOrFooterDetected {
 		score -= 0.10
+		reasons = append(reasons, "DUPLICATE_HEADER_FOOTER_DETECTED")
 	}
 	if inputs.PartialRowParse {
 		score -= 0.20
+		reasons = append(reasons, "PARTIAL_ROW_PARSE")
 	}
 	if !inputs.RawLineHashCreated {
 		score -= 0.10
+		reasons = append(reasons, "RAW_LINE_HASH_FAILED")
 	}
 
 	if score < 0.0 {
 		score = 0.0
 	}
-	return score
+	return score, reasons
+}
+
+// ComputeParseQualityLabel classifies a parse_confidence score into a human-readable label.
+// Labels are used downstream by Service 7 (RCA) and Service 5C (Attachment) for observability.
+//   - PARSE_STRONG:    >= 0.90 — No meaningful technical failures.
+//   - ACCEPTABLE:      >= 0.75 — Minor issues, acceptable for processing.
+//   - WEAK:            >= 0.50 — Significant issues, proceed with caution.
+//   - REVIEW_REQUIRED: < 0.50 — Critical failures; row needs human review.
+func ComputeParseQualityLabel(parseConf float64) string {
+	switch {
+	case parseConf >= 0.90:
+		return "PARSE_STRONG"
+	case parseConf >= 0.75:
+		return "ACCEPTABLE"
+	case parseConf >= 0.50:
+		return "WEAK"
+	default:
+		return "REVIEW_REQUIRED"
+	}
 }
 
 // ComputeMappingConfidence calculates semantic mapping reliability on a 0.0-1.0 scale.
@@ -193,7 +223,8 @@ func ComputeCarrierRichnessScore(shape models.UniversalSettlementShape) float64 
 
 // ComputeAttachmentReadinessScore evaluates the probability that an observation will attach cleanly in Service 5C.
 // It combines reference strength, data physical strength, timing, context, and technical trust.
-func ComputeAttachmentReadinessScore(shape models.UniversalSettlementShape, parseConf, mapConf float64) float64 {
+// Returns the overall score (0.0-1.0) and a serialized JSON breakdown of the components.
+func ComputeAttachmentReadinessScore(shape models.UniversalSettlementShape, parseConf, mapConf float64) (float64, []byte) {
 	// 1. Direct Reference Strength (25%)
 	var refScore float64
 	if shape.ClientReferenceCandidate != nil && *shape.ClientReferenceCandidate != "" {
@@ -211,18 +242,17 @@ func ComputeAttachmentReadinessScore(shape models.UniversalSettlementShape, pars
 	refStrength := refScore / 100.0
 
 	// 2. Party Amount Strength (20%)
+	// NOTE: ClientReferenceCandidate is intentionally NOT here — it is already
+	// accounted for in refStrength above. Including it here would double-count it.
 	var physicalScore float64
-	if shape.ClientReferenceCandidate != nil && *shape.ClientReferenceCandidate != "" {
-		physicalScore += 40
-	}
 	if shape.SettledAmount != nil && !shape.SettledAmount.IsZero() {
-		physicalScore += 35
+		physicalScore += 55
 	}
 	if shape.CurrencyCode != "" {
-		physicalScore += 15
+		physicalScore += 30
 	}
 	if !shape.Amount.IsZero() {
-		physicalScore += 10
+		physicalScore += 15
 	}
 	physicalStrength := physicalScore / 100.0
 
@@ -267,5 +297,27 @@ func ComputeAttachmentReadinessScore(shape models.UniversalSettlementShape, pars
 	if totalScore > 1.0 {
 		totalScore = 1.0
 	}
-	return totalScore
+
+	breakdown := AttachmentScoreBreakdown{
+		DirectReferenceStrength: refStrength,
+		PartyAmountStrength:     physicalStrength,
+		TimingStrength:          timingStrength,
+		BatchContextStrength:    batchStrength,
+		ParserMappingTrust:      trustStrength,
+		SourceStrength:          sourceStrength,
+	}
+	b, _ := json.Marshal(breakdown)
+
+	return totalScore, b
+}
+
+// AttachmentScoreBreakdown captures each sub-component of the attachment readiness score
+// for audit, RCA, and Service 5C observability. All sub-scores are on the 0.0–1.0 scale.
+type AttachmentScoreBreakdown struct {
+	DirectReferenceStrength float64 `json:"direct_reference_strength"`
+	PartyAmountStrength     float64 `json:"party_amount_strength"`
+	TimingStrength          float64 `json:"timing_strength"`
+	BatchContextStrength    float64 `json:"batch_context_strength"`
+	ParserMappingTrust      float64 `json:"parser_mapping_trust"`
+	SourceStrength          float64 `json:"source_strength"`
 }

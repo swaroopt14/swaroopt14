@@ -48,8 +48,8 @@ func EnsureTables(ctx context.Context) error {
 			matchability_score       NUMERIC(5,4) NOT NULL DEFAULT 0,
 			canonical_hash           TEXT NOT NULL,
 			governance_state         TEXT NOT NULL,
-		/*	beneficiary_fingerprint  TEXT,
-			zord_signature_carrier   TEXT, */
+			beneficiary_fingerprint  TEXT,
+			zord_signature_carrier   TEXT,
 			created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
 		`CREATE INDEX IF NOT EXISTS canonical_intents_tenant_idx
@@ -279,8 +279,8 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	source_type TEXT,
 	source_system_id TEXT,
 	corridor_id TEXT,
-	/* beneficiary_fingerprint TEXT,
-	zord_signature_carrier TEXT, */
+	beneficiary_fingerprint TEXT,
+	zord_signature_carrier TEXT,
 	warnings_json JSONB,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -443,6 +443,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ambiguity_score             NUMERIC(5,4) NOT NULL DEFAULT 0,
 			supporting_carriers_json    JSONB,
 			candidate_set_hash          TEXT NOT NULL,
+			candidate_set_snapshot_ref  TEXT,
 			candidate_set_size          INT NOT NULL DEFAULT 0,
 			created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -568,7 +569,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			amount_tolerance_policy_json  JSONB,
 			batch_boundary_policy_json    JSONB,
 			manual_review_thresholds_json JSONB,
-			ambiguity_margin_threshold    NUMERIC(5,4) NOT NULL DEFAULT 0.15,
+			ambiguity_margin_threshold    NUMERIC(10,2) NOT NULL DEFAULT 0.15,
 			requires_bank_ref_for_exact_flag BOOLEAN NOT NULL DEFAULT FALSE,
 			status                        TEXT NOT NULL DEFAULT 'ACTIVE',
 			created_at                    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -735,10 +736,10 @@ func SeedDefaultAttachmentRuleProfile(ctx context.Context, tenantID interface{})
   },
 
   "manual_review_thresholds_json": {
-    "high_confidence_score": 150,
+    "high_confidence_score": 135,
     "exact_match_score": 200,
     "ambiguity_margin_threshold": 15,
-    "min_score_for_auto_attach": 90,
+    "min_score_for_auto_attach": 80,
     "max_candidates_for_auto_attach": 1
   },
 

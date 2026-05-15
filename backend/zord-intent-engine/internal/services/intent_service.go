@@ -842,6 +842,10 @@ func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req mode
 	if req.Amount.Value == "" {
 		gov.MissingFields = append(gov.MissingFields, "amount.value")
 		gov.SemanticValid = false
+	} else if strings.HasPrefix(strings.TrimSpace(req.Amount.Value), "-") {
+		// Explicit check for negative amounts to ensure routing to DLQ
+		gov.SemanticValid = false
+		gov.SemanticErrors = append(gov.SemanticErrors, "NEGATIVE_AMOUNT_NOT_ALLOWED")
 	}
 
 	// ----------------------------------------

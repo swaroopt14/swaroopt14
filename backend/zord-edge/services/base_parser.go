@@ -26,7 +26,7 @@ func (p *baseParser) parseAmount(raw string) (float64, error) {
 
 	// Default: Strip currency symbols and commas
 	cleaned := strings.Map(func(r rune) rune {
-		if unicode.IsDigit(r) || r == '.' {
+		if unicode.IsDigit(r) || r == '.' || r == '-' {
 			return r
 		}
 		return -1

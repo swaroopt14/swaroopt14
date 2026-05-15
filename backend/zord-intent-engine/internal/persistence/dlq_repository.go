@@ -43,8 +43,8 @@ func (r *DLQPostgresRepo) Save(
 		INSERT INTO dlq_items (
 			dlq_id, tenant_id, envelope_id,
 			stage, reason_code, error_detail,
-			replayable,client_batch_ref, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+			replayable,client_batch_ref, created_at, batch_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 	`,
 		entry.DLQID,
 		entry.TenantID,
@@ -55,6 +55,7 @@ func (r *DLQPostgresRepo) Save(
 		entry.Replayable,
 		entry.ClientBatchRef,
 		entry.CreatedAt,
+		entry.BatchID,
 	)
 
 	return entry, err

@@ -40,7 +40,7 @@ spec:
               app.kubernetes.io/name: zord-console
       containers:
         - name: zord-console
-          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-console:v3
+          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-console:v4
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000
@@ -70,8 +70,12 @@ spec:
               value: http://zord-intelligence:8089
             - name: ZORD_SETTLEMENT_URL
               value: http://zord-outcome-engine:8081
+            - name: ZORD_EVIDENCE_URL
+              value: http://zord-evidence:8088
             - name: PROMPT_LAYER_URL
               value: http://zord-prompt-layer:8086
+            - name: NEXT_PUBLIC_PROMPT_LAYER_URL
+              value: /api/prompt-layer
           readinessProbe:
             httpGet:
               path: /api/health

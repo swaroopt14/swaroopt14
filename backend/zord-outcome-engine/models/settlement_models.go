@@ -101,8 +101,8 @@ type CanonicalSettlementObservation struct {
 	SourceType                 string           `json:"source_type" db:"source_type"`
 	SourceSystemID             string           `json:"source_system_id" db:"source_system_id"`
 	CorridorID                 string           `json:"corridor_id" db:"corridor_id"`
-	// BeneficiaryFingerprint     *string          `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
-	// ZordSignatureCarrier       *string          `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
+	BeneficiaryFingerprint     *string          `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
+	ZordSignatureCarrier       *string          `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
 	WarningsJSON               []byte           `json:"warnings_json,omitempty" db:"warnings_json"`
 	CreatedAt                  time.Time  `json:"created_at" db:"created_at"`
 	UpdatedAt                  time.Time  `json:"updated_at" db:"updated_at"`

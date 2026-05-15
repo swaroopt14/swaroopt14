@@ -3,6 +3,7 @@ import { BACKEND_SERVICES } from '@/config/api.endpoints'
 import {
   applyRefreshedSessionCookies,
   requireSessionTenantForProdProxy,
+  TENANT_MISMATCH_BODY,
 } from '@/services/auth/resolvePayoutTenant.server'
 
 export const dynamic = 'force-dynamic'
@@ -13,7 +14,22 @@ export async function GET(request: NextRequest) {
   if (!gate.ok) return gate.response
   const tenantId = gate.tenantId
 
-  const url = `${BACKEND_SERVICES.INTENT_ENGINE.BASE_URL}/api/prod/intents/batches?tenant_id=${encodeURIComponent(tenantId)}`
+  const queryTenant = request.nextUrl.searchParams.get('tenant_id')?.trim()
+  if (queryTenant && queryTenant !== tenantId) {
+    const res = NextResponse.json(TENANT_MISMATCH_BODY, { status: 403 })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
+  }
+
+  const upstreamParams = new URLSearchParams({ tenant_id: tenantId })
+  const batchId = request.nextUrl.searchParams.get('batch_id')?.trim()
+  const page = request.nextUrl.searchParams.get('page')?.trim()
+  const pageSize = request.nextUrl.searchParams.get('page_size')?.trim()
+  if (batchId) upstreamParams.set('batch_id', batchId)
+  if (page) upstreamParams.set('page', page)
+  if (pageSize) upstreamParams.set('page_size', pageSize)
+
+  const url = `${BACKEND_SERVICES.INTENT_ENGINE.BASE_URL}/api/prod/intents/batches?${upstreamParams.toString()}`
 
   try {
     const upstream = await fetch(url, {

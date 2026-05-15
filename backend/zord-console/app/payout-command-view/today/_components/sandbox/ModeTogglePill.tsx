@@ -54,12 +54,12 @@ export function ModeTogglePill({
           compact
             ? `flex h-11 items-center gap-1.5 rounded-xl border px-3.5 text-left shadow-sm transition ${
                 isSandbox
-                  ? 'border-amber-300/80 bg-gradient-to-b from-[#fff7ed] to-[#ffedd5] text-[#9A3412]'
+                  ? 'border-neutral-800 bg-neutral-900 text-white hover:border-neutral-700'
                   : 'border-neutral-200/90 bg-white text-neutral-900 hover:border-neutral-300 hover:shadow'
               }`
             : `flex h-11 items-center gap-2 rounded-xl border px-3.5 shadow-[0_3px_10px_-2px_rgba(15,23,42,0.08),inset_0_1px_0_rgba(255,255,255,0.85)] transition ${
                 isSandbox
-                  ? 'border-amber-400/70 bg-gradient-to-b from-[#fff7ed] to-[#ffedd5] text-[#9A3412]'
+                  ? 'border-neutral-800 bg-neutral-900 text-white shadow-[0_3px_12px_-2px_rgba(0,0,0,0.2)] hover:border-neutral-700'
                   : 'border-violet-400/75 bg-gradient-to-b from-[#f5f3ff] to-[#ede9fe] text-[#5b21b6] shadow-[0_3px_12px_-2px_rgba(91,33,182,0.12),inset_0_1px_0_rgba(255,255,255,0.9)] hover:border-violet-500/85'
               }`
         }
@@ -92,19 +92,19 @@ export function ModeTogglePill({
               setOpen(false)
             }}
             className={`flex w-full items-start gap-2.5 rounded-[8px] px-2.5 py-2 text-left transition ${
-              isSandbox ? 'bg-[#FFF7ED]' : 'hover:bg-[#fafafa]'
+              isSandbox ? 'bg-neutral-100' : 'hover:bg-[#fafafa]'
             }`}
             role="option"
             aria-selected={isSandbox}
           >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[#F59E0B] text-white">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-neutral-900 text-white">
               <Glyph name="terminal" className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5">
                 <p className="text-[13px] font-semibold text-[#0f172a]">Sandbox</p>
                 {isSandbox ? (
-                  <Glyph name="check" className="h-3 w-3 text-[#F59E0B]" />
+                  <Glyph name="check" className="h-3 w-3 text-neutral-700" />
                 ) : null}
               </div>
               <p className="mt-0.5 text-[12px] leading-relaxed text-[#64748b]">

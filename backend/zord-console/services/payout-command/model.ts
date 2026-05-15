@@ -38,8 +38,8 @@ export type DockId =
   | 'sandbox'
   | 'billing'
 
-/** Dock IDs that show in sandbox mode (same surfaces as home; no separate Sandbox rail). */
-export const SANDBOX_DOCK_IDS: DockId[] = ['home', 'grid', 'connectors', 'billing']
+/** Dock IDs in sandbox top nav: Today → Intent Journal → Billing (no Connectors). */
+export const SANDBOX_DOCK_IDS: DockId[] = ['home', 'grid', 'billing']
 export type WorkspaceTab = 'Today' | 'Routing' | 'Proof' | 'Banks'
 /** Command center time window. 'Quarter' is set by the `onQuarterChange` handler
  * in PayoutCommandViewClient when the user picks a specific quarter. */
@@ -217,8 +217,8 @@ export const dockItems = [
   },
   {
     id: 'grid',
-    label: 'Journal',
-    navLabel: 'Intent journal',
+    label: 'Intent Journal',
+    navLabel: 'Intent Journal',
     title: 'Intent Journal',
     breadcrumbLabel: 'Intent Journal',
     summary: 'One screen to explain exactly what happened to a payout end-to-end, from request to final outcome.',

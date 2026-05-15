@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useMemo, useState } from 'react'
+import { Manrope } from 'next/font/google'
 import {
   DASHBOARD_FONT_STACK,
   dockItems,
@@ -14,7 +15,7 @@ import { useHomeState } from './hooks/useHomeState'
 import { useWorkspaceState } from './hooks/useWorkspaceState'
 import { useAskZordState } from './hooks/useAskZordState'
 import { AskZordPanel } from './layout/AskZordPanel'
-import { DockNav } from './layout/DockNav'
+import { PayoutConsoleNavStack } from './layout/PayoutConsoleNavStack'
 import { PageHeader } from './layout/PageHeader'
 import ConnectorIntelligenceClient from '@/app/payout-command-view/connector-intelligence/ConnectorIntelligenceClient'
 import {
@@ -30,6 +31,17 @@ import {
   WorkspaceSurface,
 } from './surfaces'
 import { ActivateLiveWizard } from './sandbox/ActivateLiveWizard'
+import { SandboxSetupGuidePanel } from './sandbox/SandboxSetupGuidePanel'
+import {
+  PAYOUT_CONSOLE_CARD_CLASS,
+  PAYOUT_PAGE_BG_CLASS,
+} from './command-center/homeCommandCenterTokens'
+
+const manropeHome = Manrope({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700', '800'],
+  display: 'swap',
+})
 
 const WORKSPACE_LIVE_ANSWER_TITLE = 'Latest answer'
 
@@ -102,7 +114,8 @@ export default function PayoutCommandViewClient({
   const surfaceBody = useMemo(() => {
     if (activeDock === 'home') {
       return (
-        <HomeSurface
+        <div className={manropeHome.className}>
+          <HomeSurface
           scenario={home.scenario}
           snapshot={home.snapshot}
           timeframe={home.timeframe}
@@ -122,6 +135,7 @@ export default function PayoutCommandViewClient({
           commandStatus={home.commandStatus}
           onDismissCommandResponse={home.dismissCommandResponse}
         />
+        </div>
       )
     }
 
@@ -174,14 +188,15 @@ export default function PayoutCommandViewClient({
   return (
     <EnvironmentProvider routeMode={forceMode}>
       <main
-        className="payout-command-console min-h-screen bg-[#f5f5f5]"
+        className={`payout-command-console min-h-screen ${PAYOUT_PAGE_BG_CLASS}`}
         style={{ fontFamily: DASHBOARD_FONT_STACK }}
       >
-        <div className="w-full overflow-hidden border border-black/10 bg-white shadow-[0_24px_64px_rgba(0,0,0,0.12)]">
-          <DockNav
+        <div className={PAYOUT_CONSOLE_CARD_CLASS}>
+          <PayoutConsoleNavStack
             activeDock={activeDock}
             onDockChange={handleDockChange}
             onActivateClick={() => setActivateWizardOpen(true)}
+            showSandboxStrip={forceMode === 'sandbox'}
           />
 
           <section className="relative p-4 sm:p-5 lg:p-6">
@@ -209,6 +224,7 @@ export default function PayoutCommandViewClient({
       {activateWizardOpen ? (
         <ActivateLiveWizard onClose={() => setActivateWizardOpen(false)} />
       ) : null}
+      {forceMode === 'sandbox' ? <SandboxSetupGuidePanel /> : null}
     </EnvironmentProvider>
   )
 }

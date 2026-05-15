@@ -119,7 +119,19 @@ export function LightCard({ children, className = '' }: { children: ReactNode; c
   )
 }
 
-export function SurfaceEyebrow({ children }: { children: ReactNode }) {
+export function SurfaceEyebrow({
+  children,
+  variant = 'default',
+}: {
+  children: ReactNode
+  /** Stripe-style section eyebrow: 10px uppercase + letter-spacing */
+  variant?: 'default' | 'stripe'
+}) {
+  if (variant === 'stripe') {
+    return (
+      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#64748b]">{children}</div>
+    )
+  }
   return <div className="pc-section-label">{children}</div>
 }
 

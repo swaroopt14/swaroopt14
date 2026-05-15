@@ -99,7 +99,7 @@ export async function GET(request: NextRequest) {
         dlq: { items: [] },
         error: error instanceof Error ? error.message : 'Failed to load intent journal',
       },
-      { status: 200, headers: { 'cache-control': 'no-store' } },
+      { status: 502, headers: { 'cache-control': 'no-store' } },
     )
     applyRefreshedSessionCookies(res, gate.refreshedPayload)
     return res

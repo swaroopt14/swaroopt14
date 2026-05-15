@@ -5,6 +5,7 @@ export async function fetchProdJsonGet<T>(url: string): Promise<T | null> {
   try {
     const response = await fetch(url, {
       method: 'GET',
+      credentials: 'include',
       cache: 'no-store',
     })
     if (!response.ok) return null

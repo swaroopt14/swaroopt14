@@ -48,6 +48,7 @@ export async function postSettlementFileUpload(params: PostSettlementFileUploadP
     method: 'POST',
     headers: uploadHeaders,
     body: formData,
+    credentials: 'include',
   })
 
   const responseText = await response.text()

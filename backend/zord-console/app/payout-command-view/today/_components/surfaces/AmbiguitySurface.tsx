@@ -65,14 +65,13 @@ export function AmbiguitySurface() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const loadBatches = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid) {
+    if (!tenantReady) {
       setBatches([])
       return
     }
     setBatchesLoading(true)
     try {
-      const res = await getIntelligenceBatches(tid, {
+      const res = await getIntelligenceBatches({
         status: finalityFilter || undefined,
         limit: 80,
       })
@@ -82,7 +81,7 @@ export function AmbiguitySurface() {
     } finally {
       setBatchesLoading(false)
     }
-  }, [tenantId, finalityFilter])
+  }, [tenantReady, finalityFilter])
 
   useEffect(() => {
     void loadBatches()

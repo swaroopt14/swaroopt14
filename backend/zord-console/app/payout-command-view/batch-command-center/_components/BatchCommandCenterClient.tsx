@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Manrope } from 'next/font/google'
 import { CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { ClientChart, Glyph } from '../../today/_components/shared'
 import { ZordPipelineStepper } from './ZordPipelineStepper'
@@ -126,7 +126,6 @@ const manropeBatch = Manrope({
 })
 
 const PIE_COLORS = ['#39E07E', '#ef4444', '#f59e0b', '#3b82f6']
-const AUTO_REFRESH_MS = 8000
 /** After intent bulk-ingest succeeds, poll intent-engine list so ops see live connectivity (not row-level sync). */
 const INTENT_ENGINE_POLL_MS = 20_000
 /** Poll Intelligence batch detail for the operational snapshot card. */
@@ -199,22 +198,6 @@ function toCsv(rows: BatchRow[]) {
       .join(','),
   )
   return [header.join(','), ...lines].join('\n')
-}
-
-function evolveRow(row: BatchRow): BatchRow {
-  if (row.status !== 'Processing') return row
-  const n = Math.random()
-  if (n < 0.72) {
-    return {
-      ...row, status: 'Success', stage: 'Confirmed', reason: '-', actionLabel: 'Export confirmation row',
-      time: row.time === '-' ? '10:03:12' : row.time,
-      timeline: row.timeline.map((step, index) =>
-        index >= 4 ? { ...step, state: 'done', time: index === 4 ? '10:02:44' : '10:03:12' } : step,
-      ),
-    }
-  }
-  if (n < 0.88) return { ...row, status: 'Pending', stage: 'Awaiting bank confirmation', reason: '-', actionLabel: 'Inspect queue' }
-  return { ...row, status: 'Failed', stage: 'Sent to payment partner', reason: 'Bank Timeout', actionLabel: 'Retry row' }
 }
 
 function recomputeSummary(rows: BatchRow[], fallbackTotalRows: number): BatchSummary {
@@ -393,8 +376,7 @@ export default function BatchCommandCenterClient() {
   const [apiKey, setApiKey] = useState('')
   const [tenantType, setTenantType] = useState<'MERCHANT' | 'BANK' | 'NBFC' | 'VENDOR' | 'GATEWAY'>('MERCHANT')
   const [batchIdInput, setBatchIdInput] = useState('')
-  /** Same resolution as Intent Journal / Home (`useSessionTenantId`) so sandbox hits `/api/prod/*` with a tenant. */
-  const tenantId = useSessionTenantId()
+  const { tenantId, tenantReady } = useSessionTenant()
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [intentIngestOk, setIntentIngestOk] = useState(false)
   /** Last successful Step-1 bulk ingest HTTP body (shown in its own card). */
@@ -457,35 +439,13 @@ export default function BatchCommandCenterClient() {
   }, [settlementBatchIdResolved])
 
   const settlementCredentialsReady = useMemo(
-    () => tenantId.trim().length > 0 && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
-    [psp, settlementBatchIdResolved, tenantId],
+    () => tenantReady && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
+    [psp, settlementBatchIdResolved, tenantReady],
   )
   const settlementPickerEnabled = settlementCredentialsReady && intakeStep !== 'settlement_uploading'
-  /** Session tenant is enough to hit Intelligence BFF; batch id narrows scope when set (non–LOCAL-*). */
-  const intelligenceTenantPollEligible = tenantId.trim().length > 0
-  const refreshSimulation = useCallback(() => {
-    setRows((c) => c.map(evolveRow))
-    setSummary((c) => {
-      const processing = Math.max(0, c.totalRows - c.processed)
-      if (processing === 0) return c
-      const step = Math.min(processing, Math.max(60, Math.round(processing * 0.09)))
-      const successGain = Math.round(step * 0.86)
-      const failedGain = Math.round(step * 0.08)
-      const pendingGain = step - successGain - failedGain
-      return {
-        totalRows: c.totalRows,
-        processed: Math.min(c.totalRows, c.processed + step),
-        success: c.success + successGain,
-        failed: c.failed + failedGain,
-        pending: Math.max(0, c.pending + pendingGain - Math.round(c.pending * 0.06)),
-      }
-    })
-    setLastRefreshedAt(new Date())
-  }, [])
 
   const loadIntelBatchDetail = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid) {
+    if (!tenantReady) {
       setIntelBatchDetail(null)
       setIntelBatchDetailError(null)
       setIntelBatchDetailAt(null)
@@ -496,7 +456,7 @@ export default function BatchCommandCenterClient() {
     setIntelBatchDetailLoading(true)
     setIntelBatchDetailError(null)
     try {
-      const list = await getIntelligenceBatches(tid, { limit: 50 })
+      const list = await getIntelligenceBatches({ limit: 50 })
       setIntelBatchesList(list)
       let opBatch = debouncedBatchIdForIntelPoll.trim()
       if (opBatch.startsWith('LOCAL-')) opBatch = ''
@@ -513,7 +473,7 @@ export default function BatchCommandCenterClient() {
         setIntelBatchDetailAt(new Date())
         return
       }
-      const res = await getIntelligenceBatchDetail(tid, batchId)
+      const res = await getIntelligenceBatchDetail(batchId)
       setIntelBatchDetail(res)
       setIntelBatchDetailAt(new Date())
       if (!res) {
@@ -528,10 +488,10 @@ export default function BatchCommandCenterClient() {
     } finally {
       setIntelBatchDetailLoading(false)
     }
-  }, [debouncedBatchIdForIntelPoll, tenantId])
+  }, [debouncedBatchIdForIntelPoll, tenantReady])
 
   useEffect(() => {
-    if (!tenantId.trim()) {
+    if (!tenantReady) {
       setIntelBatchDetail(null)
       setIntelBatchDetailError(null)
       setIntelBatchDetailAt(null)
@@ -541,11 +501,10 @@ export default function BatchCommandCenterClient() {
     void loadIntelBatchDetail()
     const id = window.setInterval(() => void loadIntelBatchDetail(), BATCH_INTEL_POLL_MS)
     return () => window.clearInterval(id)
-  }, [tenantId, loadIntelBatchDetail])
+  }, [tenantReady, loadIntelBatchDetail])
 
   const loadPatternsKpi = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid) {
+    if (!tenantReady) {
       setPatternsKpi(null)
       return
     }
@@ -553,22 +512,21 @@ export default function BatchCommandCenterClient() {
     if (!batchForQuery || batchForQuery.startsWith('LOCAL-')) batchForQuery = ''
     const p = await getPatternsKpis(batchForQuery || undefined)
     setPatternsKpi(p)
-  }, [debouncedBatchIdForIntelPoll, tenantId])
+  }, [debouncedBatchIdForIntelPoll, tenantReady])
 
   useEffect(() => {
-    if (!tenantId.trim()) {
+    if (!tenantReady) {
       setPatternsKpi(null)
       return
     }
     void loadPatternsKpi()
     const id = window.setInterval(() => void loadPatternsKpi(), PATTERN_KPI_POLL_MS)
     return () => clearInterval(id)
-  }, [tenantId, loadPatternsKpi])
+  }, [tenantReady, loadPatternsKpi])
 
   /** Confirmed tab → GET /api/prod/intents (Success rows). Requires review → GET /api/prod/dlq. */
   const loadProdCommandTable = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid) return
+    if (!tenantReady) return
     try {
       if (statusFilter === 'Confirmed') {
         const res = await getProdIntentsPage('page=1&page_size=120')
@@ -589,31 +547,25 @@ export default function BatchCommandCenterClient() {
       setSummary(recomputeSummary([], 0))
       setLastRefreshedAt(new Date())
     }
-  }, [tenantId, statusFilter])
+  }, [tenantReady, statusFilter])
 
-  /** Header refresh — same tick as auto-refresh but surfaces confirmation for ops. */
-  const manualRefreshSnapshot = useCallback(() => {
-    refreshSimulation()
-    if (tenantId.trim()) {
-      void loadProdCommandTable()
-      void loadIntelBatchDetail()
-      void loadPatternsKpi()
+  const refreshSnapshot = useCallback(() => {
+    if (!tenantReady) {
+      showToolbarNotice('Sign in so the console can load tenant-scoped batch data.')
+      return
     }
-    showToolbarNotice(
-      tenantId.trim()
-        ? 'Progress simulation stepped; Confirmed/DLQ table, Intelligence batch, and pattern KPI refreshed.'
-        : 'Progress simulation stepped — queued disbursements moved toward bank confirmation.',
-    )
-  }, [loadIntelBatchDetail, loadPatternsKpi, loadProdCommandTable, refreshSimulation, showToolbarNotice, tenantId])
+    void loadProdCommandTable()
+    void loadIntelBatchDetail()
+    void loadPatternsKpi()
+    setLastRefreshedAt(new Date())
+    showToolbarNotice('Confirmed/DLQ table, Intelligence batch, and pattern KPI refreshed from API.')
+  }, [loadIntelBatchDetail, loadPatternsKpi, loadProdCommandTable, showToolbarNotice, tenantReady])
 
-  useEffect(() => {
-    const id = window.setInterval(() => refreshSimulation(), AUTO_REFRESH_MS)
-    return () => window.clearInterval(id)
-  }, [refreshSimulation])
+  /** Header refresh — reloads prod APIs (no local row simulation). */
+  const manualRefreshSnapshot = refreshSnapshot
 
   const pollIntentEngineTenant = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid || !intentIngestOk) return
+    if (!tenantReady || !intentIngestOk) return
     try {
       const res = await getProdIntentsPage('page=1&page_size=1')
       const total = res?.pagination?.total
@@ -624,22 +576,22 @@ export default function BatchCommandCenterClient() {
       const err = e instanceof Error ? e.message : 'Request failed'
       setIntentEnginePoll({ ok: false, intentTotal: null, at: new Date(), err })
     }
-  }, [tenantId, intentIngestOk])
+  }, [tenantReady, intentIngestOk])
 
   useEffect(() => {
-    if (!intentIngestOk || !tenantId.trim()) {
+    if (!intentIngestOk || !tenantReady) {
       setIntentEnginePoll(null)
       return
     }
     void pollIntentEngineTenant()
     const id = window.setInterval(() => void pollIntentEngineTenant(), INTENT_ENGINE_POLL_MS)
     return () => window.clearInterval(id)
-  }, [intentIngestOk, tenantId, pollIntentEngineTenant])
+  }, [intentIngestOk, tenantReady, pollIntentEngineTenant])
 
   useEffect(() => {
-    if (!tenantId.trim()) return
+    if (!tenantReady) return
     void loadProdCommandTable()
-  }, [tenantId, statusFilter, loadProdCommandTable])
+  }, [tenantReady, statusFilter, loadProdCommandTable])
 
   const applyLocalSheetFromFile = useCallback(async (file: File) => {
     setUploadState('uploading')
@@ -727,10 +679,9 @@ export default function BatchCommandCenterClient() {
   const onSettlementUpload = useCallback(
     async (file: File | null) => {
       if (!file) return
-      const tid = tenantId.trim()
       const pspVal = psp.trim()
       const bid = (settlementBatchId ?? batchIdInput.trim()).trim()
-      if (!tid || !pspVal || !bid) {
+      if (!tenantReady || !pspVal || !bid) {
         setUploadRelayState('failed')
         setUploadRelayMessage(
           'Settlement upload needs an active session, psp, and Batch-Id (complete Step 1 or enter Batch-Id in the field above).',
@@ -745,7 +696,6 @@ export default function BatchCommandCenterClient() {
         const result = await postSettlementFileUpload({
           file,
           apiKeyRaw: apiKey.trim() || undefined,
-          tenantId: tid,
           psp: pspVal,
           batchId: bid,
         })
@@ -765,7 +715,7 @@ export default function BatchCommandCenterClient() {
         if (el) el.value = ''
       }
     },
-    [apiKey, batchIdInput, psp, settlementBatchId, tenantId],
+    [apiKey, batchIdInput, psp, settlementBatchId, tenantReady],
   )
 
   const retryFailedRows = useCallback(() => {
@@ -803,12 +753,12 @@ export default function BatchCommandCenterClient() {
   }, [debouncedBatchIdForIntelPoll])
 
   const intelligenceCardSummary = useMemo((): BatchSummary | null => {
-    if (!intelBatchDetail?.batch || !tenantId.trim()) return null
+    if (!intelBatchDetail?.batch || !tenantReady) return null
     const loadedId = intelBatchDetail.batch.batch_id?.trim()
     if (!loadedId) return null
     if (operatorIntelBatchId && loadedId !== operatorIntelBatchId) return null
     return summaryFromIntelligenceBatchRow(intelBatchDetail.batch)
-  }, [intelBatchDetail, operatorIntelBatchId, tenantId])
+  }, [intelBatchDetail, operatorIntelBatchId, tenantReady])
 
   const statCardsSummary = useMemo(
     () => intelligenceCardSummary ?? summary,
@@ -895,8 +845,8 @@ export default function BatchCommandCenterClient() {
   )
 
   const showIntelBatchesTable = useMemo(
-    () => Boolean(tenantId.trim() && (intelBatchesList?.batches?.length ?? 0) > 0),
-    [intelBatchesList, tenantId],
+    () => Boolean(tenantReady && (intelBatchesList?.batches?.length ?? 0) > 0),
+    [intelBatchesList, tenantReady],
   )
 
   const intelligenceBatchesTableRows = useMemo(() => {
@@ -1136,7 +1086,7 @@ export default function BatchCommandCenterClient() {
             <button
               type="button"
               onClick={manualRefreshSnapshot}
-              title="Advance the sandbox simulation one tick (same logic as auto-refresh)"
+              title="Refresh Confirmed/DLQ table, Intelligence batch detail, and pattern KPI from API"
               aria-label="Refresh batch snapshot"
               className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e8e8e5] bg-white text-[#888888] transition hover:bg-slate-50"
             >
@@ -1598,7 +1548,7 @@ export default function BatchCommandCenterClient() {
             sub={`${statCardsSummary.pending.toLocaleString('en-IN')} transactions · ${formatInr(amountSummary.pendingAmount)}`}
             insight="Payment partner may show processed; bank confirmation still pending."
             actionLabel="Fetch settlement updates"
-            onAction={refreshSimulation}
+            onAction={refreshSnapshot}
           />
           <StatCard
             label="Requires review"

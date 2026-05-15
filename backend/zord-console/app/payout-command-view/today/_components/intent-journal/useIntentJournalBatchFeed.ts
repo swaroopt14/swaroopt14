@@ -84,7 +84,7 @@ export function useIntentJournalBatchFeed(options: {
 
     if (batchRows.length === 0 && tid) {
       try {
-        const batchesRes = await getIntelligenceBatches(tid, { limit: 100 })
+        const batchesRes = await getIntelligenceBatches({ limit: 100 })
         batchRows = (batchesRes?.batches ?? []).map(mapIntelligenceRowToBatchRecord)
       } catch {
         /* intelligence fallback optional */

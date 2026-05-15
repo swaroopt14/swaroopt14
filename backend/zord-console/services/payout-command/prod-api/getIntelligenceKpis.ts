@@ -52,23 +52,21 @@ export type BatchesListOptions = {
   limit?: number
 }
 
+/** Intelligence batch list — BFF injects session tenant (no client tenant_id). */
 export async function getIntelligenceBatches(
-  tenantId: string,
   opts: BatchesListOptions = {},
 ): Promise<BatchesListResponse | null> {
-  if (!tenantId.trim()) return null
   const extra: Record<string, string> = {}
   if (opts.status) extra.status = opts.status
   if (opts.limit) extra.limit = String(opts.limit)
   return fetchProdJsonGet<BatchesListResponse>(intelQueryPath(`${INTEL_BASE}/batches`, extra))
 }
 
-export async function getIntelligenceBatchDetail(
-  tenantId: string,
-  batchId: string,
-): Promise<BatchDetailResponse | null> {
-  if (!tenantId.trim() || !batchId.trim()) return null
+/** Per-batch intelligence snapshot — BFF injects session tenant. */
+export async function getIntelligenceBatchDetail(batchId: string): Promise<BatchDetailResponse | null> {
+  const bid = batchId.trim()
+  if (!bid) return null
   return fetchProdJsonGet<BatchDetailResponse>(
-    intelQueryPath(`${INTEL_BASE}/batches/${encodeURIComponent(batchId.trim())}`),
+    intelQueryPath(`${INTEL_BASE}/batches/${encodeURIComponent(bid)}`),
   )
 }

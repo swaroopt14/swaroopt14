@@ -518,22 +518,22 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   // Per-batch detail (intended/confirmed/variance) from /v1/intelligence/batches/{id}.
   // Re-fetched whenever the user selects a different batch (live or sandbox).
   useEffect(() => {
-    if (!journalUsesBackendFeed || !liveTenantId || !selectedBatchId.trim()) {
+    if (!journalUsesBackendFeed || !tenantReady || !selectedBatchId.trim()) {
       setLiveBatchDetail(null)
       return
     }
     let cancelled = false
-    void getIntelligenceBatchDetail(liveTenantId, selectedBatchId).then((res) => {
+    void getIntelligenceBatchDetail(selectedBatchId).then((res) => {
       if (!cancelled) setLiveBatchDetail(res)
     })
     return () => {
       cancelled = true
     }
-  }, [journalUsesBackendFeed, liveTenantId, selectedBatchId])
+  }, [journalUsesBackendFeed, tenantReady, selectedBatchId])
 
   // KPI 14 only — `GET /v1/intelligence/dashboard/patterns` (Isolation Forest). Not used for intent counts or INR health.
   useEffect(() => {
-    if (!journalUsesBackendFeed || !liveTenantId.trim() || !selectedBatchId.trim()) {
+    if (!journalUsesBackendFeed || !tenantReady || !selectedBatchId.trim()) {
       setKpi14Patterns(null)
       return
     }
@@ -549,7 +549,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       cancelled = true
       window.clearInterval(id)
     }
-  }, [journalUsesBackendFeed, liveTenantId, selectedBatchId])
+  }, [journalUsesBackendFeed, tenantReady, selectedBatchId])
 
   const batchAnomalyRaw = isDataAvailable(kpi14Patterns) ? kpi14Patterns : null
   // Only trust KPI 14 when the payload names this batch (tenant-wide patterns omit `batch_id`).

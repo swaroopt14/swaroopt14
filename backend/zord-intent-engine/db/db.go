@@ -63,7 +63,16 @@ func CreateTables() error {
 
     updated_at TIMESTAMPTZ DEFAULT now(),
     batchid TEXT,
-    aggregate_confidence_score NUMERIC(5,2) -- NEW
+    aggregate_confidence_score NUMERIC(5,2),      -- existing
+
+    -- 🆕 Scoring v2 fields
+    reference_quality_score  NUMERIC(6,2),
+    duplicate_risk_score     NUMERIC(6,2),
+    score_version            TEXT        DEFAULT 'service2_score_v2.0',
+    score_validity_status    TEXT        DEFAULT 'NOT_SCORED',
+    score_breakdown_json     JSONB       DEFAULT '{}',
+    score_reason_codes_json  JSONB       DEFAULT '[]',
+    scored_at                TIMESTAMPTZ
 
 );`
 
@@ -147,7 +156,21 @@ func CreateTables() error {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     sent_at TIMESTAMPTZ,
 	batchid TEXT,
-    aggregate_confidence_score NUMERIC(5,2), -- NEW
+    aggregate_confidence_score NUMERIC(5,2),      -- existing
+
+    -- 🆕 Scoring v2 batch fields
+    reference_quality_score  NUMERIC(6,2),
+    duplicate_risk_score     NUMERIC(6,2),
+    score_version            TEXT        DEFAULT 'service2_score_v2.0',
+    score_validity_status    TEXT        DEFAULT 'NOT_SCORED',
+    score_breakdown_json     JSONB       DEFAULT '{}',
+    score_reason_codes_json  JSONB       DEFAULT '[]',
+    scored_at                TIMESTAMPTZ,
+    batch_quality_score      NUMERIC(6,2),
+    avg_reference_quality    NUMERIC(6,2),
+    avg_duplicate_risk       NUMERIC(6,2),
+    low_matchability_count   INT         DEFAULT 0,
+    duplicate_risk_count     INT         DEFAULT 0,
 
     CONSTRAINT fk_outbox_intent
         FOREIGN KEY (aggregate_id)
@@ -199,7 +222,8 @@ func CreateTables() error {
 		error_detail TEXT,
 		replayable BOOLEAN NOT NULL,
 		client_batch_ref TEXT,
-		created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+		batch_id   TEXT
 	);`
 
 	if _, err := DB.Exec(dlqItems); err != nil {
@@ -354,6 +378,34 @@ CREATE TABLE IF NOT EXISTS etl_quality_results (
 	);`
 	if _, err := DB.Exec(tenantSynonymProfiles); err != nil {
 		log.Fatal("tenant_synonym_profiles:", err)
+	}
+
+	canonicalBatches := `
+	CREATE TABLE IF NOT EXISTS canonical_batches (
+		batch_id                        TEXT PRIMARY KEY,
+		tenant_id                       UUID,
+		source_system                   TEXT,
+		received_count                  INT NOT NULL DEFAULT 0,
+		canonicalized_count             INT NOT NULL DEFAULT 0,
+		dlq_count                       INT NOT NULL DEFAULT 0,
+		review_count                    INT NOT NULL DEFAULT 0,
+		low_matchability_count          INT NOT NULL DEFAULT 0,
+		low_proof_readiness_count       INT NOT NULL DEFAULT 0,
+		duplicate_risk_count            INT NOT NULL DEFAULT 0,
+		canonicalization_success_rate   NUMERIC(6,2) DEFAULT 0,
+		avg_schema_completeness_score   NUMERIC(6,2) DEFAULT 0,
+		avg_mapping_confidence_score    NUMERIC(6,2) DEFAULT 0,
+		avg_matchability_score          NUMERIC(6,2) DEFAULT 0,
+		avg_proof_readiness_score       NUMERIC(6,2) DEFAULT 0,
+		avg_intent_quality_score        NUMERIC(6,2) DEFAULT 0,
+		duplicate_risk_amount_minor     BIGINT DEFAULT 0,
+		batch_quality_score             NUMERIC(6,2) DEFAULT 0,
+		score_breakdown_json            JSONB DEFAULT '{}',
+		created_at                      TIMESTAMPTZ DEFAULT now(),
+		updated_at                      TIMESTAMPTZ DEFAULT now()
+	);`
+	if _, err := DB.Exec(canonicalBatches); err != nil {
+		log.Fatal("canonical_batches:", err)
 	}
 
 	return nil

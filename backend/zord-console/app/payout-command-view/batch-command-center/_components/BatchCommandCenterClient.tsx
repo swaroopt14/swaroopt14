@@ -1,12 +1,14 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Manrope } from 'next/font/google'
 import { CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { ClientChart, Glyph } from '../../today/_components/shared'
+import { SessionTenantScopeBar } from '../../today/_components/layout/SessionTenantScopeBar'
 import { ZordPipelineStepper } from './ZordPipelineStepper'
 import {
   COMMAND_CENTER_KPI_CARD,
@@ -33,6 +35,7 @@ import {
   deriveZordPipelineTimeline,
   type ZordPipelineIntake,
   formatInr,
+  formatInrPrecise,
   formatPercent,
   parseUploadedSheet,
   progressFromSummary,
@@ -102,7 +105,7 @@ function formatInrFromMinor(minorStr: string | null | undefined): string {
   if (minorStr == null || String(minorStr).trim() === '') return '—'
   const minor = Number(minorStr)
   if (!Number.isFinite(minor)) return '—'
-  return formatInr(minor / 100)
+  return formatInrPrecise(minor / 100)
 }
 
 /**
@@ -347,6 +350,8 @@ function DataTable({ head, rows, footer }: {
 /* ── Main ── */
 
 export default function BatchCommandCenterClient() {
+  const pathname = usePathname()
+  const isSandboxRoute = pathname?.startsWith('/sandbox') ?? false
   const [rows, setRows] = useState<BatchRow[]>([])
   const [summary, setSummary] = useState<BatchSummary>(() => ({
     totalRows: 0,
@@ -1061,6 +1066,12 @@ export default function BatchCommandCenterClient() {
           </div>
         ) : null}
 
+        <SessionTenantScopeBar
+          batchId={settlementBatchId?.trim() || batchIdInput}
+          onBatchIdChange={setBatchIdInput}
+          onAfterFetch={() => refreshSnapshot()}
+        />
+
         {/* ─── Page header (home command center typography) ───────────── */}
         <div className="rounded-[12px] border border-slate-200/90 bg-white/95 px-3 py-3 shadow-[0_2px_12px_rgba(15,23,42,0.04)] backdrop-blur-sm sm:px-3.5 sm:py-3">
           <h2 className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30">
@@ -1409,6 +1420,35 @@ export default function BatchCommandCenterClient() {
               </div>
             </div>
 
+            {(settlementBatchId || tenantId.trim()) ? (
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-emerald-200/70 bg-white/80 px-3 py-2.5 text-[13px]">
+                {tenantId.trim() ? (
+                  <span>
+                    <span className="text-[#888888]">Session tenant </span>
+                    <code className="font-mono text-[12px] text-[#0A0A0A]">{tenantId}</code>
+                  </span>
+                ) : null}
+                {settlementBatchId ? (
+                  <span>
+                    <span className="text-[#888888]">Batch-Id </span>
+                    <code className="font-mono text-[12px] text-[#0A0A0A]">{settlementBatchId}</code>
+                  </span>
+                ) : null}
+                {settlementBatchId && !settlementBatchId.startsWith('LOCAL-') ? (
+                  <Link
+                    href={
+                      isSandboxRoute
+                        ? `/sandbox?dock=grid&batch_id=${encodeURIComponent(settlementBatchId)}`
+                        : `/payout-command-view/today?dock=grid&batch_id=${encodeURIComponent(settlementBatchId)}`
+                    }
+                    className="font-semibold text-emerald-800 underline decoration-emerald-300/80 underline-offset-2 hover:text-emerald-900"
+                  >
+                    Open in Intent Journal
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
+
             {intentBulkIngestAck.parsed ? (
               <>
                 <p className="mt-3 text-[13px] text-[#1A1A1A]">
@@ -1517,7 +1557,7 @@ export default function BatchCommandCenterClient() {
             </p>
             <p className={`relative ${HOME_BODY_IMPERIAL_SM}`}>
               <span className={HOME_INSIGHT_PROSE_STRONG}>Impact: </span>
-              {statCardsSummary.failed.toLocaleString('en-IN')} transactions (~{formatInr(amountSummary.failedAmount)}) need clearance before the batch is operationally clean.
+              {statCardsSummary.failed.toLocaleString('en-IN')} transactions (~{formatInrPrecise(amountSummary.failedAmount)}) need clearance before the batch is operationally clean.
             </p>
             <p className={`relative ${HOME_BODY_IMPERIAL_SM}`}>
               <span className={HOME_INSIGHT_PROSE_STRONG}>Action: </span>
@@ -1537,7 +1577,7 @@ export default function BatchCommandCenterClient() {
           <StatCard
             label="Confirmed (bank)"
             value={formatPercent(progress.successPct)}
-            sub={`${statCardsSummary.success.toLocaleString('en-IN')} transactions · ${formatInr(amountSummary.settledAmount)}`}
+            sub={`${statCardsSummary.success.toLocaleString('en-IN')} transactions · ${formatInrPrecise(amountSummary.settledAmount)}`}
             insight="Bank confirmation on record for these disbursements in this workspace."
             actionLabel="Download report for audit packet"
             onAction={downloadReport}
@@ -1545,7 +1585,7 @@ export default function BatchCommandCenterClient() {
           <StatCard
             label="Pending confirmation"
             value={formatPercent(progress.pendingPct)}
-            sub={`${statCardsSummary.pending.toLocaleString('en-IN')} transactions · ${formatInr(amountSummary.pendingAmount)}`}
+            sub={`${statCardsSummary.pending.toLocaleString('en-IN')} transactions · ${formatInrPrecise(amountSummary.pendingAmount)}`}
             insight="Payment partner may show processed; bank confirmation still pending."
             actionLabel="Fetch settlement updates"
             onAction={refreshSnapshot}
@@ -1555,8 +1595,8 @@ export default function BatchCommandCenterClient() {
             value={formatPercent(progress.failedPct)}
             sub={
               intelligenceCardSummary
-                ? `${statCardsSummary.failed.toLocaleString('en-IN')} transactions · ${formatInr(amountSummary.failedAmount)}`
-                : `${reviewCount.toLocaleString('en-IN')} incl. edge cases · ${formatInr(amountSummary.failedAmount)}`
+                ? `${statCardsSummary.failed.toLocaleString('en-IN')} transactions · ${formatInrPrecise(amountSummary.failedAmount)}`
+                : `${reviewCount.toLocaleString('en-IN')} incl. edge cases · ${formatInrPrecise(amountSummary.failedAmount)}`
             }
             insight={requiresReviewStatInsight}
             actionLabel="Jump to exception breakdown"
@@ -1839,7 +1879,7 @@ export default function BatchCommandCenterClient() {
                       >
                         <td className="px-4 py-3.5 font-semibold text-[#0A0A0A] whitespace-nowrap">{row.refId}</td>
                         <td className="px-4 py-3.5 text-[#1A1A1A]">{row.beneficiary}</td>
-                        <td className="px-4 py-3.5 text-[#0A0A0A] whitespace-nowrap">{formatInr(row.amount)}</td>
+                        <td className="px-4 py-3.5 text-[#0A0A0A] whitespace-nowrap">{formatInrPrecise(row.amount)}</td>
                         <td className="px-4 py-3.5 text-[#1A1A1A]">{disbursementMethodFromProvider(row.provider)}</td>
                         <td className="px-4 py-3.5">
                           <span className="inline-flex rounded-full border border-[#e8e8e5] bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-[#1A1A1A] whitespace-nowrap">
@@ -1877,7 +1917,7 @@ export default function BatchCommandCenterClient() {
                           <td colSpan={8} className="px-4 py-4">
                             <div className="rounded-xl border border-slate-200/90 bg-white p-4">
                               <div className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[#888888]">
-                                {row.refId} - {formatInr(row.amount)}
+                                {row.refId} - {formatInrPrecise(row.amount)}
                               </div>
                               <div className="mt-3 grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">

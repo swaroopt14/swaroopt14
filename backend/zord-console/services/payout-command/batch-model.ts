@@ -110,6 +110,17 @@ export function formatInr(value: number) {
   }).format(Math.round(value))
 }
 
+/** Table / summary amounts — preserve paise (no integer rounding). */
+export function formatInrPrecise(value: number) {
+  if (!Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
 export function formatPercent(value: number) {
   return `${value.toFixed(1)}%`
 }

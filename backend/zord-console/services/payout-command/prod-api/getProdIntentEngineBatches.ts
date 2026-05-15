@@ -1,4 +1,4 @@
-import { fetchProdJsonGet } from './fetchProdJsonGet'
+import { fetchProdJsonGet, fetchProdJsonGetWithMeta, type ProdJsonGetResult } from './fetchProdJsonGet'
 import type { ApiDlqRow } from './prodApiTypes'
 
 /** Matches zord-intent-engine `models.BatchSidebarItem` JSON. */
@@ -77,21 +77,21 @@ function batchesUrl(
   return qs ? `${BATCHES_PATH}?${qs}` : BATCHES_PATH
 }
 
+export type IntentEngineBatchesFetchResult = ProdJsonGetResult<IntentEngineBatchesListResponse>
+
 /**
  * Sidebar list — BFF resolves `tenant_id` from session cookies when omitted.
  * Prefer this when the client hook has not yet resolved a tenant string.
  */
-export async function getProdIntentEngineBatchesForSession(): Promise<IntentEngineBatchesListResponse | null> {
-  return fetchProdJsonGet<IntentEngineBatchesListResponse>(batchesUrl(undefined))
+export async function getProdIntentEngineBatchesForSession(): Promise<IntentEngineBatchesFetchResult> {
+  return fetchProdJsonGetWithMeta<IntentEngineBatchesListResponse>(batchesUrl(undefined))
 }
 
 /** Sidebar list with explicit tenant (must match session on BFF). */
-export async function getProdIntentEngineBatches(
-  tenantId: string,
-): Promise<IntentEngineBatchesListResponse | null> {
+export async function getProdIntentEngineBatches(tenantId: string): Promise<IntentEngineBatchesFetchResult> {
   const tid = tenantId.trim()
   if (!tid) return getProdIntentEngineBatchesForSession()
-  return fetchProdJsonGet<IntentEngineBatchesListResponse>(batchesUrl(tid))
+  return fetchProdJsonGetWithMeta<IntentEngineBatchesListResponse>(batchesUrl(tid))
 }
 
 /** Batch drill-down — BFF session tenant when `tenantId` omitted. */

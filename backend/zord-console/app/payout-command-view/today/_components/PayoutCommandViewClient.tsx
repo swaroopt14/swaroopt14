@@ -54,11 +54,14 @@ type PayoutCommandViewClientProps = {
    * `window` / `location` only on the client for this value.
    */
   initialDock?: DockId
+  /** Deep-link from Batch Command Center → Intent Journal (`?batch_id=`). */
+  initialJournalBatchId?: string
 }
 
 export default function PayoutCommandViewClient({
   forceMode,
   initialDock = 'home',
+  initialJournalBatchId,
 }: PayoutCommandViewClientProps) {
   // ── Navigation state ───────────────────────────────────────────────────────
   const [activeDock, setActiveDock] = useState<DockId>(initialDock)
@@ -165,7 +168,7 @@ export default function PayoutCommandViewClient({
 
     if (activeDock === 'leakage') return <LeakageSurface />
     if (activeDock === 'ambiguity') return <AmbiguitySurface />
-    if (activeDock === 'grid') return <IntentJournalSurface />
+    if (activeDock === 'grid') return <IntentJournalSurface initialBatchId={initialJournalBatchId} />
     if (activeDock === 'connectors') {
       return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
     }
@@ -178,6 +181,7 @@ export default function PayoutCommandViewClient({
     activePrompt.suggestions,
     activeTab,
     forceMode,
+    initialJournalBatchId,
     handleTabChange,
     home,
     selectedSuggestion,

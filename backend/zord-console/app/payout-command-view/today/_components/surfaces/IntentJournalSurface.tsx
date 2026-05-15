@@ -14,7 +14,11 @@ import {
   getPatternsKpis,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
-import { useIntentJournalBatchFeed } from '../intent-journal/useIntentJournalBatchFeed'
+import {
+  JOURNAL_BATCHES_BFF_PATH,
+  useIntentJournalBatchFeed,
+} from '../intent-journal/useIntentJournalBatchFeed'
+import { SessionTenantScopeBar } from '../layout/SessionTenantScopeBar'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type {
   BatchDetailResponse,
@@ -474,11 +478,31 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     intentPagination,
     feedLoaded: liveFeedLoaded,
     feedError,
+    feedMeta,
     syncAt: liveSyncAt,
     selectBatch,
     setIntentPage: setServerIntentPage,
     intentPage: serverIntentPage,
+    refreshFeed,
   } = useIntentJournalBatchFeed({ enabled: journalUsesBackendFeed, initialBatchId })
+
+  const [scopeBatchId, setScopeBatchId] = useState(() => initialBatchId ?? '')
+  useEffect(() => {
+    if (selectedBatchId.trim()) setScopeBatchId(selectedBatchId)
+  }, [selectedBatchId])
+  useEffect(() => {
+    if (initialBatchId?.trim()) setScopeBatchId(initialBatchId)
+  }, [initialBatchId])
+
+  const [feedRefreshing, setFeedRefreshing] = useState(false)
+  const handleRefreshFeed = useCallback(async () => {
+    setFeedRefreshing(true)
+    try {
+      await refreshFeed()
+    } finally {
+      setFeedRefreshing(false)
+    }
+  }, [refreshFeed])
 
   // Per-batch drilldown fetched from /v1/intelligence/batches/{id} when a batch is
   // selected. Drives the right-pane KPI cards (intended/confirmed/variance/ambiguity).
@@ -1071,6 +1095,20 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               </div>
             </div>
 
+            {journalUsesBackendFeed ? (
+              <div className="mb-4">
+                <SessionTenantScopeBar
+                  batchId={scopeBatchId}
+                  onBatchIdChange={setScopeBatchId}
+                  onAfterFetch={() => {
+                    void refreshFeed()
+                    const bid = scopeBatchId.trim()
+                    if (bid) selectBatch(bid)
+                  }}
+                />
+              </div>
+            ) : null}
+
             {journalUsesBackendFeed && !tenantReady ? (
               <p className={`mb-4 rounded-xl border border-slate-200/90 bg-slate-50 px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>
                 Resolving session tenant…
@@ -1085,39 +1123,74 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
             {journalUsesBackendFeed && liveFeedLoaded ? (
               <div className={`mb-4 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>
-                <span className={`font-semibold ${HOME_TITLE_BLACK}`}>
-                  {mode === 'sandbox' ? 'Sandbox · same tenant APIs' : 'Live backend feed'}
-                </span>
-                <span className="text-[#cbd5e1]"> · </span>
-                <span className={HOME_BODY_IMPERIAL_SM}>
-                  Refreshes every {Math.round(LIVE_JOURNAL_POLL_MS / 1000)}s
-                  {liveSyncAt ? (
-                    <>
-                      <span className="text-[#cbd5e1]"> · </span>
-                      Last synced{' '}
-                      <time dateTime={liveSyncAt.toISOString()}>
-                        {liveSyncAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </time>
-                    </>
-                  ) : null}
-                </span>
-                <span className="text-[#cbd5e1]"> · </span>
-                {liveIntentRows.length > 0 ? (
-                  <span>
-                    {liveIntentRows.length} intent{liveIntentRows.length === 1 ? '' : 's'} from{' '}
-                    <code className={`rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[12px] ${HOME_TITLE_BLACK}`}>{liveTenantId}</code>
-                    {liveFailureRows.length > 0 ? (
-                      <span className={HOME_BODY_IMPERIAL_SM}>
-                        {' '}
-                        · {liveFailureRows.length} DLQ row{liveFailureRows.length === 1 ? '' : 's'}
-                      </span>
-                    ) : null}
-                  </span>
-                ) : (
-                  <span className={HOME_BODY_IMPERIAL_SM}>
-                    No intents returned (check intent-engine or tenant). Failures tab shows DLQ from the engine only.
-                  </span>
-                )}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className={`font-semibold ${HOME_TITLE_BLACK}`}>
+                      {mode === 'sandbox' ? 'Sandbox · same tenant APIs' : 'Live backend feed'}
+                    </span>
+                    <span className="text-[#cbd5e1]"> · </span>
+                    <span className={HOME_BODY_IMPERIAL_SM}>
+                      <code className="font-mono text-[12px]">{JOURNAL_BATCHES_BFF_PATH}</code>
+                      {feedMeta ? (
+                        <>
+                          {' '}
+                          · HTTP {feedMeta.status || '—'} · {feedMeta.sidebarCount} batch
+                          {feedMeta.sidebarCount === 1 ? '' : 'es'}
+                        </>
+                      ) : null}
+                    </span>
+                    <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+                      Refreshes every {Math.round(LIVE_JOURNAL_POLL_MS / 1000)}s
+                      {liveSyncAt ? (
+                        <>
+                          {' '}
+                          · Last synced{' '}
+                          <time dateTime={liveSyncAt.toISOString()}>
+                            {liveSyncAt.toLocaleTimeString('en-IN', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
+                          </time>
+                        </>
+                      ) : null}
+                      {selectedBatchId.trim() ? (
+                        <>
+                          {' '}
+                          · Selected batch <code className="font-mono text-[12px]">{selectedBatchId}</code>
+                        </>
+                      ) : null}
+                    </p>
+                    <p className="mt-1 text-[12px] text-slate-500">
+                      Data in DB? Compare <code className="font-mono">tenant_id</code> and{' '}
+                      <code className="font-mono">batch_id</code> on your rows with the session tenant and selected batch
+                      above.
+                    </p>
+                    {liveIntentRows.length > 0 || liveFailureRows.length > 0 ? (
+                      <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+                        {liveIntentRows.length} intent{liveIntentRows.length === 1 ? '' : 's'} (Intents tab)
+                        {liveFailureRows.length > 0 ? (
+                          <>
+                            {' '}
+                            · {liveFailureRows.length} DLQ row{liveFailureRows.length === 1 ? '' : 's'} (Failures tab)
+                          </>
+                        ) : null}
+                      </p>
+                    ) : (
+                      <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+                        No rows loaded for this batch — use Fetch tenant id, confirm Batch-Id, then Refresh now.
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshFeed()}
+                    disabled={feedRefreshing || !tenantReady}
+                    className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {feedRefreshing ? 'Refreshing…' : 'Refresh now'}
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -1650,6 +1723,18 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                         </span>{' '}
                         match filters
                       </p>
+                      <p className={`mt-1 max-w-3xl text-[12px] text-slate-600`}>
+                        Payment intents from the engine for this batch. Failed file rows from Batch Command Center may
+                        also appear under the <span className="font-medium">Failures</span> tab as DLQ — that is a
+                        separate list.
+                      </p>
+                      {journalUsesBackendFeed && intentTotal === 0 ? (
+                        <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>
+                          No payment intents for this batch. If you ingested via Batch Command Center, confirm the
+                          Batch-Id matches and session tenant matches DB <code className="font-mono">tenant_id</code>,
+                          then Refresh now.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="overflow-x-auto">
@@ -1845,11 +1930,17 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     </p>
                     <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>
                       This table is only{' '}
-                      <span className="font-medium text-[#475569]">intent-engine DLQ</span> (dead-lettered envelopes / ingress failures).
-                      Batch Command Center file uploads create{' '}
-                      <span className="font-medium text-[#475569]">intent</span> rows — they show under{' '}
-                      <span className="font-medium text-[#475569]">Intents</span>, including when the engine marks a row failed; that is not the same as a DLQ entry.
+                      <span className="font-medium text-[#475569]">intent-engine DLQ</span> (dead-lettered envelopes /
+                      ingress failures). One bulk upload can create both payment intents and DLQ rows in the DB — accepted
+                      rows appear under <span className="font-medium text-[#475569]">Intents</span>; dead-lettered rows
+                      appear here.
                     </p>
+                    {journalUsesBackendFeed && failureTotal === 0 ? (
+                      <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>
+                        No DLQ rows for this batch. DLQ from your upload may use a different batch id or tenant than the
+                        session scope above.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button

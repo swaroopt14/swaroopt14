@@ -21,6 +21,15 @@ import {
 
 const LIVE_JOURNAL_POLL_MS = 8_000
 
+export const JOURNAL_BATCHES_BFF_PATH = '/api/prod/intents/batches'
+
+export type JournalFeedFetchMeta = {
+  ok: boolean
+  status: number
+  sidebarCount: number
+  bffPath: string
+}
+
 export type IntentJournalBatchFeed = {
   tenantId: string
   tenantReady: boolean
@@ -34,10 +43,11 @@ export type IntentJournalBatchFeed = {
   detailLoading: boolean
   syncAt: Date | null
   feedError: string | null
+  feedMeta: JournalFeedFetchMeta | null
   intentPage: number
   selectBatch: (batchId: string) => void
   setIntentPage: (page: number) => void
-  refreshSidebar: () => Promise<void>
+  refreshFeed: () => Promise<void>
 }
 
 export function useIntentJournalBatchFeed(options: {
@@ -58,6 +68,7 @@ export function useIntentJournalBatchFeed(options: {
   const [detailLoading, setDetailLoading] = useState(false)
   const [syncAt, setSyncAt] = useState<Date | null>(null)
   const [feedError, setFeedError] = useState<string | null>(null)
+  const [feedMeta, setFeedMeta] = useState<JournalFeedFetchMeta | null>(null)
   const [intentPage, setIntentPageState] = useState(1)
 
   const selectedBatchIdRef = useRef(selectedBatchId)
@@ -67,20 +78,30 @@ export function useIntentJournalBatchFeed(options: {
 
   const refreshSidebar = useCallback(async () => {
     const tid = tenantId.trim()
-    const engineRes = tid
+    const fetchRes = tid
       ? await getProdIntentEngineBatches(tid)
       : await getProdIntentEngineBatchesForSession()
-    if (!engineRes) {
+
+    setFeedMeta({
+      ok: fetchRes.ok,
+      status: fetchRes.status,
+      sidebarCount: fetchRes.data?.items?.length ?? 0,
+      bffPath: JOURNAL_BATCHES_BFF_PATH,
+    })
+
+    if (!fetchRes.ok || !fetchRes.data) {
+      const statusHint = fetchRes.status === 401 ? ' Sign in required.' : fetchRes.status === 502 ? ' Intent-engine unreachable.' : ''
       setFeedError(
-        tid
+        (tid
           ? 'Could not load batches for this tenant (check session or intent-engine).'
-          : 'Could not load batches — sign in so the BFF can resolve your session tenant.',
+          : 'Could not load batches — sign in so the BFF can resolve your session tenant.') + statusHint,
       )
       setSidebarBatches([])
       return
     }
+
     setFeedError(null)
-    let batchRows = (engineRes.items ?? []).map(mapSidebarItemToBatchRecord)
+    let batchRows = (fetchRes.data.items ?? []).map(mapSidebarItemToBatchRecord)
 
     if (batchRows.length === 0 && tid) {
       try {
@@ -118,6 +139,11 @@ export function useIntentJournalBatchFeed(options: {
           pageSize: 20,
         })
         if (!res?.batchDetails || res.batchDetails.batchId !== bid) {
+          setFeedError(
+            res
+              ? 'Batch detail response did not match selected batch — check batch_id matches your DB rows.'
+              : 'Could not load batch details from BFF.',
+          )
           setIntentRows([])
           setFailureRows([])
           setIntentPagination(null)
@@ -144,6 +170,13 @@ export function useIntentJournalBatchFeed(options: {
     [tenantId],
   )
 
+  const refreshFeed = useCallback(async () => {
+    await refreshSidebar()
+    const bid = selectedBatchIdRef.current.trim()
+    if (bid) await loadBatchDetail(bid, intentPageRef.current)
+    setSyncAt(new Date())
+  }, [refreshSidebar, loadBatchDetail])
+
   const selectBatch = useCallback((batchId: string) => {
     setSelectedBatchId(batchId)
     setIntentPageState(1)
@@ -167,7 +200,10 @@ export function useIntentJournalBatchFeed(options: {
       if (cancelled) return
       try {
         await refreshSidebar()
-        if (!cancelled) setFeedError(null)
+        if (!cancelled) {
+          const bid = selectedBatchIdRef.current.trim()
+          if (bid) await loadBatchDetail(bid, intentPageRef.current)
+        }
       } catch {
         if (!cancelled) setFeedError('Could not refresh journal feed.')
       }
@@ -183,7 +219,7 @@ export function useIntentJournalBatchFeed(options: {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [enabled, tenantReady, tenantId, refreshSidebar, pollMs])
+  }, [enabled, tenantReady, tenantId, refreshSidebar, loadBatchDetail, pollMs])
 
   useEffect(() => {
     if (!enabled || !tenantReady || !selectedBatchId.trim()) {
@@ -213,9 +249,10 @@ export function useIntentJournalBatchFeed(options: {
     detailLoading,
     syncAt,
     feedError,
+    feedMeta,
     intentPage,
     selectBatch,
     setIntentPage: setIntentPageAndFetch,
-    refreshSidebar,
+    refreshFeed,
   }
 }

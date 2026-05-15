@@ -32,15 +32,22 @@ const PayoutCommandViewClient = dynamic(
  * dev-time ChunkLoadError (timeouts) when the main bundle is large. If you still see stale chunks
  * after `next dev` restarts, hard-refresh or run `rm -rf .next` once.
  */
+function readBatchIdParam(raw: string | string[] | undefined): string | undefined {
+  const v = Array.isArray(raw) ? raw[0] : raw
+  const tid = v?.trim()
+  return tid || undefined
+}
+
 export default function SandboxPage({
   searchParams,
 }: {
-  searchParams: { dock?: string | string[] }
+  searchParams: { dock?: string | string[]; batch_id?: string | string[] }
 }) {
   return (
     <PayoutCommandViewClient
       forceMode="sandbox"
       initialDock={resolveInitialDock(searchParams.dock, SANDBOX_DOCK_IDS)}
+      initialJournalBatchId={readBatchIdParam(searchParams.batch_id)}
     />
   )
 }

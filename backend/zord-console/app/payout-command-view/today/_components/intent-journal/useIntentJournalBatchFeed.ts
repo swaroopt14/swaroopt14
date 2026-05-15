@@ -5,6 +5,7 @@ import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
   getProdIntentEngineBatchDetail,
   getProdIntentEngineBatches,
+  getProdIntentEngineBatchesForSession,
   type IntentEnginePagination,
 } from '@/services/payout-command/prod-api/getProdIntentEngineBatches'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
@@ -66,14 +67,22 @@ export function useIntentJournalBatchFeed(options: {
 
   const refreshSidebar = useCallback(async () => {
     const tid = tenantId.trim()
-    if (!tid) {
+    const engineRes = tid
+      ? await getProdIntentEngineBatches(tid)
+      : await getProdIntentEngineBatchesForSession()
+    if (!engineRes) {
+      setFeedError(
+        tid
+          ? 'Could not load batches for this tenant (check session or intent-engine).'
+          : 'Could not load batches — sign in so the BFF can resolve your session tenant.',
+      )
       setSidebarBatches([])
       return
     }
-    const engineRes = await getProdIntentEngineBatches(tid)
-    let batchRows = (engineRes?.items ?? []).map(mapSidebarItemToBatchRecord)
+    setFeedError(null)
+    let batchRows = (engineRes.items ?? []).map(mapSidebarItemToBatchRecord)
 
-    if (batchRows.length === 0) {
+    if (batchRows.length === 0 && tid) {
       try {
         const batchesRes = await getIntelligenceBatches(tid, { limit: 100 })
         batchRows = (batchesRes?.batches ?? []).map(mapIntelligenceRowToBatchRecord)
@@ -93,9 +102,8 @@ export function useIntentJournalBatchFeed(options: {
 
   const loadBatchDetail = useCallback(
     async (batchId: string, page: number) => {
-      const tid = tenantId.trim()
       const bid = batchId.trim()
-      if (!tid || !bid) {
+      if (!bid) {
         setIntentRows([])
         setFailureRows([])
         setIntentPagination(null)
@@ -105,7 +113,10 @@ export function useIntentJournalBatchFeed(options: {
       setDetailLoading(true)
       setFeedError(null)
       try {
-        const res = await getProdIntentEngineBatchDetail(tid, bid, { page, pageSize: 20 })
+        const res = await getProdIntentEngineBatchDetail(tenantId.trim() || undefined, bid, {
+          page,
+          pageSize: 20,
+        })
         if (!res?.batchDetails || res.batchDetails.batchId !== bid) {
           setIntentRows([])
           setFailureRows([])
@@ -143,7 +154,7 @@ export function useIntentJournalBatchFeed(options: {
   }, [])
 
   useEffect(() => {
-    if (!enabled || !tenantReady || !tenantId.trim()) {
+    if (!enabled || !tenantReady) {
       setSidebarBatches([])
       setFeedLoaded(false)
       return
@@ -175,7 +186,7 @@ export function useIntentJournalBatchFeed(options: {
   }, [enabled, tenantReady, tenantId, refreshSidebar, pollMs])
 
   useEffect(() => {
-    if (!enabled || !tenantReady || !tenantId.trim() || !selectedBatchId.trim()) {
+    if (!enabled || !tenantReady || !selectedBatchId.trim()) {
       setIntentRows([])
       setFailureRows([])
       setIntentPagination(null)

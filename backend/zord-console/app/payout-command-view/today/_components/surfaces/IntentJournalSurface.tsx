@@ -471,6 +471,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     failureRows: liveFailureRows,
     intentPagination,
     feedLoaded: liveFeedLoaded,
+    feedError,
     syncAt: liveSyncAt,
     selectBatch,
     setIntentPage: setServerIntentPage,
@@ -1067,6 +1068,18 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 />
               </div>
             </div>
+
+            {journalUsesBackendFeed && !tenantReady ? (
+              <p className={`mb-4 rounded-xl border border-slate-200/90 bg-slate-50 px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>
+                Resolving session tenant…
+              </p>
+            ) : null}
+
+            {journalUsesBackendFeed && feedError ? (
+              <p className="mb-4 rounded-xl border border-amber-200/90 bg-amber-50 px-3.5 py-2.5 text-[14px] text-amber-950">
+                {feedError}
+              </p>
+            ) : null}
 
             {journalUsesBackendFeed && liveFeedLoaded ? (
               <div className={`mb-4 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>

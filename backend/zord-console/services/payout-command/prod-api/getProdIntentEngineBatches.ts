@@ -61,36 +61,50 @@ export type IntentEngineBatchesDetailResponse = {
 
 const BATCHES_PATH = '/api/prod/intents/batches'
 
-function batchesUrl(tenantId: string, extra?: Record<string, string | number | undefined>) {
-  const params = new URLSearchParams({ tenant_id: tenantId.trim() })
+function batchesUrl(
+  tenantId: string | undefined,
+  extra?: Record<string, string | number | undefined>,
+) {
+  const params = new URLSearchParams()
+  const tid = tenantId?.trim()
+  if (tid) params.set('tenant_id', tid)
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined && v !== '') params.set(k, String(v))
     }
   }
-  return `${BATCHES_PATH}?${params.toString()}`
+  const qs = params.toString()
+  return qs ? `${BATCHES_PATH}?${qs}` : BATCHES_PATH
 }
 
-/** Sidebar list — `GET /api/prod/intents/batches?tenant_id=…` (session-validated on BFF). */
+/**
+ * Sidebar list — BFF resolves `tenant_id` from session cookies when omitted.
+ * Prefer this when the client hook has not yet resolved a tenant string.
+ */
+export async function getProdIntentEngineBatchesForSession(): Promise<IntentEngineBatchesListResponse | null> {
+  return fetchProdJsonGet<IntentEngineBatchesListResponse>(batchesUrl(undefined))
+}
+
+/** Sidebar list with explicit tenant (must match session on BFF). */
 export async function getProdIntentEngineBatches(
   tenantId: string,
 ): Promise<IntentEngineBatchesListResponse | null> {
   const tid = tenantId.trim()
-  if (!tid) return null
+  if (!tid) return getProdIntentEngineBatchesForSession()
   return fetchProdJsonGet<IntentEngineBatchesListResponse>(batchesUrl(tid))
 }
 
-/** Batch drill-down — same endpoint with `batch_id`, `page`, `page_size`. */
+/** Batch drill-down — BFF session tenant when `tenantId` omitted. */
 export async function getProdIntentEngineBatchDetail(
-  tenantId: string,
+  tenantId: string | undefined,
   batchId: string,
   opts?: { page?: number; pageSize?: number },
 ): Promise<IntentEngineBatchesDetailResponse | null> {
-  const tid = tenantId.trim()
   const bid = batchId.trim()
-  if (!tid || !bid) return null
+  if (!bid) return null
+  const tid = tenantId?.trim()
   return fetchProdJsonGet<IntentEngineBatchesDetailResponse>(
-    batchesUrl(tid, {
+    batchesUrl(tid || undefined, {
       batch_id: bid,
       page: opts?.page ?? 1,
       page_size: opts?.pageSize ?? 20,

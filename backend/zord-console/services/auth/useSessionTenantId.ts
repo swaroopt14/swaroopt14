@@ -33,7 +33,10 @@ export function useSessionTenant(): { tenantId: string; tenantReady: boolean } {
           const data = (await res.json().catch(() => null)) as
             | { session?: { tenant_id?: string }; user?: { tenant_id?: string } }
             | null
-          const tid = data?.session?.tenant_id?.trim() || data?.user?.tenant_id?.trim()
+          const tid =
+            data?.session?.tenant_id?.trim() ||
+            data?.user?.tenant_id?.trim() ||
+            (data?.user as { tenantId?: string } | undefined)?.tenantId?.trim()
           if (tid) resolved = tid
         }
       } catch {

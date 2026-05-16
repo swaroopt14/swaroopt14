@@ -1181,6 +1181,19 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                         No rows loaded for this batch — use Fetch tenant id, confirm Batch-Id, then Refresh now.
                       </p>
                     )}
+                    {feedMeta?.ok &&
+                    feedMeta.sidebarCount === 0 &&
+                    !feedError &&
+                    (liveIntentRows.length === 0 && liveFailureRows.length === 0) ? (
+                      <p className={`mt-2 border-t border-slate-100 pt-2 text-[12px] leading-relaxed text-slate-600`}>
+                        BFF returned 200 with zero batches. If Batch Command Center already shows{' '}
+                        <span className="font-semibold text-slate-700">Accepted</span> rows, the gap is usually
+                        downstream: zord-edge <code className="font-mono text-[11px]">ingress_outbox</code> still{' '}
+                        <span className="font-semibold">PENDING</span> or Kafka / zord-relay is not publishing to
+                        intent-engine — fix brokers and relay, then wait for{' '}
+                        <code className="font-mono text-[11px]">payment_intents</code> to populate.
+                      </p>
+                    ) : null}
                   </div>
                   <button
                     type="button"

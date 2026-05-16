@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
   getProdIntentEngineBatchDetail,
-  getProdIntentEngineBatches,
   getProdIntentEngineBatchesForSession,
   type IntentEnginePagination,
 } from '@/services/payout-command/prod-api/getProdIntentEngineBatches'
@@ -77,10 +76,9 @@ export function useIntentJournalBatchFeed(options: {
   intentPageRef.current = intentPage
 
   const refreshSidebar = useCallback(async () => {
-    const tid = tenantId.trim()
-    const fetchRes = tid
-      ? await getProdIntentEngineBatches(tid)
-      : await getProdIntentEngineBatchesForSession()
+    // Always omit client `tenant_id` on this path. The BFF resolves tenant from cookies only;
+    // passing NEXT_PUBLIC_ZORD_TENANT_ID / localStorage that disagrees with the session returns 403 TENANT_MISMATCH.
+    const fetchRes = await getProdIntentEngineBatchesForSession()
 
     setFeedMeta({
       ok: fetchRes.ok,
@@ -90,11 +88,16 @@ export function useIntentJournalBatchFeed(options: {
     })
 
     if (!fetchRes.ok || !fetchRes.data) {
-      const statusHint = fetchRes.status === 401 ? ' Sign in required.' : fetchRes.status === 502 ? ' Intent-engine unreachable.' : ''
+      const statusHint =
+        fetchRes.status === 401
+          ? ' Sign in required.'
+          : fetchRes.status === 403
+            ? ' Tenant mismatch — clear NEXT_PUBLIC_ZORD_TENANT_ID if it differs from your signed-in workspace, or click Fetch tenant id.'
+            : fetchRes.status === 502
+              ? ' Intent-engine unreachable.'
+              : ''
       setFeedError(
-        (tid
-          ? 'Could not load batches for this tenant (check session or intent-engine).'
-          : 'Could not load batches — sign in so the BFF can resolve your session tenant.') + statusHint,
+        ('Could not load batches for your session (intent-engine BFF).') + statusHint,
       )
       setSidebarBatches([])
       return
@@ -103,7 +106,7 @@ export function useIntentJournalBatchFeed(options: {
     setFeedError(null)
     let batchRows = (fetchRes.data.items ?? []).map(mapSidebarItemToBatchRecord)
 
-    if (batchRows.length === 0 && tid) {
+    if (batchRows.length === 0 && tenantId.trim()) {
       try {
         const batchesRes = await getIntelligenceBatches({ limit: 100 })
         batchRows = (batchesRes?.batches ?? []).map(mapIntelligenceRowToBatchRecord)
@@ -134,7 +137,7 @@ export function useIntentJournalBatchFeed(options: {
       setDetailLoading(true)
       setFeedError(null)
       try {
-        const res = await getProdIntentEngineBatchDetail(tenantId.trim() || undefined, bid, {
+        const res = await getProdIntentEngineBatchDetail(undefined, bid, {
           page,
           pageSize: 20,
         })
@@ -167,7 +170,7 @@ export function useIntentJournalBatchFeed(options: {
         setDetailLoading(false)
       }
     },
-    [tenantId],
+    [],
   )
 
   const refreshFeed = useCallback(async () => {

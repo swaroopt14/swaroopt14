@@ -58,7 +58,12 @@ export async function postIntentBulkIngest(params: PostIntentBulkIngestParams): 
   const bid = params.optionalBatchId?.trim()
   if (bid) headers['Batch-Id'] = bid
 
-  const response = await fetch(path, { method: 'POST', headers, body: formData })
+  const response = await fetch(path, {
+    method: 'POST',
+    headers,
+    body: formData,
+    credentials: 'include',
+  })
   const responseText = await response.text()
   const batchIdFromBody = extractBatchIdFromBulkIngestResponse(responseText)
 

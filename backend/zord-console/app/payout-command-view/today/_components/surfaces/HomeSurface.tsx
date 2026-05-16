@@ -98,6 +98,21 @@ export function HomeSurface({
   const patternsData = isDataAvailable(patterns) ? patterns : null
   const recsData = isDataAvailable(recommendations) ? recommendations : null
 
+  /** When intelligence leakage has no snapshot yet, sum intent-engine trend buckets for headline INR. */
+  const trendTotalsMinor = useMemo(() => {
+    if (!trendSeries?.data_available || !trendSeries.buckets?.length) return null
+    let total = 0
+    let confirmed = 0
+    let intentCount = 0
+    for (const b of trendSeries.buckets) {
+      total += Number(b.total_amount) || 0
+      confirmed += Number(b.confirmed_amount) || 0
+      intentCount += b.intent_count ?? 0
+    }
+    if (total <= 0 && confirmed <= 0 && intentCount <= 0) return null
+    return { total, confirmed, intentCount }
+  }, [trendSeries])
+
   const liveTrendChart = useMemo(() => {
     if (!tenantReady || !trendSeries?.data_available || trendSeries.buckets.length < 1) return null
     const rows = trendSeries.buckets.map((b, i) => {
@@ -241,12 +256,19 @@ export function HomeSurface({
   const actionHeadline =
     exposureMinor !== null && Number.isFinite(exposureMinor) ? fmtInrCompact(exposureMinor) : loading ? '…' : '—'
 
+  const heroFromIntentTrend =
+    trendTotalsMinor && trendTotalsMinor.confirmed > 0
+      ? fmtInrCompact(trendTotalsMinor.confirmed)
+      : trendTotalsMinor && trendTotalsMinor.total > 0
+        ? fmtInrCompact(trendTotalsMinor.total)
+        : null
+
   const heroTotalDisbursementDisplay =
     observedMinor !== null && Number.isFinite(observedMinor)
       ? fmtInrCompact(observedMinor)
-      : loading
+      : loading || trendLoading
         ? '…'
-        : '₹'
+        : heroFromIntentTrend ?? '—'
 
   const trendInsight = useMemo(() => {
     if (trendSeries?.data_available && trendSeries.buckets.length >= 2) {
@@ -425,7 +447,9 @@ export function HomeSurface({
       <p className={`mt-2 text-center ${HOME_BODY_IMPERIAL_CENTERED}`}>
         {intendedMinor !== null
           ? `of ${fmtInrCompact(intendedMinor)} intended this period · settled cleanly`
-          : loading
+          : trendTotalsMinor && (trendTotalsMinor.total > 0 || trendTotalsMinor.intentCount > 0)
+            ? `${fmtInrCompact(trendTotalsMinor.total)} intent volume in ${trendRange} window (${trendTotalsMinor.intentCount} intents) · from intent-engine trend API`
+          : loading || trendLoading
             ? 'Loading workspace disbursement snapshot…'
             : 'No disbursement activity detected yet. Totals will appear after the first processed payout batch.'}
       </p>

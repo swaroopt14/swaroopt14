@@ -381,7 +381,7 @@ export default function BatchCommandCenterClient() {
   const [apiKey, setApiKey] = useState('')
   const [tenantType, setTenantType] = useState<'MERCHANT' | 'BANK' | 'NBFC' | 'VENDOR' | 'GATEWAY'>('MERCHANT')
   const [batchIdInput, setBatchIdInput] = useState('')
-  const { tenantId, tenantReady } = useSessionTenant()
+  const { tenantId, tenantReady, refreshTenant } = useSessionTenant()
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [intentIngestOk, setIntentIngestOk] = useState(false)
   /** Last successful Step-1 bulk ingest HTTP body (shown in its own card). */
@@ -653,6 +653,7 @@ export default function BatchCommandCenterClient() {
         // response body while the journal still uses a stable LOCAL-* id for sandbox preview.
         setSettlementBatchId(journalBatchId)
         setIntentIngestOk(true)
+        void refreshTenant()
         markSandboxSetupStep('intent-ingest')
         setUploadRelayState('synced')
         setUploadRelayMessage(
@@ -677,7 +678,7 @@ export default function BatchCommandCenterClient() {
         setIntakeStep('idle')
       }
     },
-    [apiKey, batchIdInput, tenantType],
+    [apiKey, batchIdInput, tenantType, refreshTenant],
   )
 
   /** Step 2 — POST /api/settlement/upload (proxies settlement service). Does not replace the table with the settlement file. */
@@ -761,7 +762,10 @@ export default function BatchCommandCenterClient() {
     if (!intelBatchDetail?.batch || !tenantReady) return null
     const loadedId = intelBatchDetail.batch.batch_id?.trim()
     if (!loadedId) return null
-    if (operatorIntelBatchId && loadedId !== operatorIntelBatchId) return null
+    // Without a real server Batch-Id, intelligence poll may load an unrelated batch (first in list).
+    // LOCAL-* previews must keep StatCards / timeline tied to the parsed file summary, not that snapshot.
+    if (!operatorIntelBatchId.trim()) return null
+    if (loadedId !== operatorIntelBatchId) return null
     return summaryFromIntelligenceBatchRow(intelBatchDetail.batch)
   }, [intelBatchDetail, operatorIntelBatchId, tenantReady])
 
@@ -787,7 +791,7 @@ export default function BatchCommandCenterClient() {
       })
     }
     return statCardsSummary
-  }, [intelBatchesList, operatorIntelBatchId, patternsKpi, statCardsSummary])
+  }, [intelBatchesList, operatorIntelBatchId, patternsKpi, settlementBatchIdResolved, statCardsSummary])
 
   const pieProgress = useMemo(() => progressFromSummary(pieDistributionSummary), [pieDistributionSummary])
 

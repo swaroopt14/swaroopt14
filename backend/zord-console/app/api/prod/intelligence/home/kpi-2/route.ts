@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BACKEND_SERVICES } from '@/config/api.endpoints'
 import type { LeakageKpiResponse } from '@/services/payout-command/prod-api/intelligenceTypes'
+import {
+  applyRefreshedSessionCookies,
+  requireSessionTenantForProdProxy,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,10 +33,9 @@ function deriveTotalObservedSettledVolumeMinor(leakage: {
 }
 
 export async function GET(request: NextRequest) {
-  const tenantId = request.nextUrl.searchParams.get('tenant_id')?.trim() ?? ''
-  if (!tenantId) {
-    return NextResponse.json({ error: 'tenant_id is required' }, { status: 400 })
-  }
+  const gate = await requireSessionTenantForProdProxy(request)
+  if (!gate.ok) return gate.response
+  const tenantId = gate.tenantId
 
   const upstreamPath = BACKEND_SERVICES.INTELLIGENCE.ENDPOINTS.LEAKAGE
   const url = `${BACKEND_SERVICES.INTELLIGENCE.BASE_URL}${upstreamPath}?tenant_id=${encodeURIComponent(tenantId)}`
@@ -48,13 +51,15 @@ export async function GET(request: NextRequest) {
       cache: 'no-store',
     })
   } catch (error) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         error: 'intelligence service unreachable',
         details: error instanceof Error ? error.message : 'unknown',
       },
       { status: 502 },
     )
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 
   const raw = await upstream.text()
@@ -62,13 +67,15 @@ export async function GET(request: NextRequest) {
   try {
     parsed = JSON.parse(raw) as unknown
   } catch {
-    return new NextResponse(raw, {
+    const res = new NextResponse(raw, {
       status: upstream.status >= 400 ? upstream.status : 502,
       headers: {
         'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
         'cache-control': 'no-store',
       },
     })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 
   const leakage = parsed as LeakageKpiResponse
@@ -91,7 +98,7 @@ export async function GET(request: NextRequest) {
   }
 
   if (!upstream.ok) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         ...baseMeta,
         data_available: false,
@@ -100,27 +107,33 @@ export async function GET(request: NextRequest) {
       },
       { status: upstream.status },
     )
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 
   if (!leakage || typeof leakage !== 'object') {
-    return NextResponse.json(
+    const res = NextResponse.json(
       { ...baseMeta, data_available: false, reason: 'invalid_upstream_json', tenant_id: tenantId },
       { status: 502 },
     )
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 
   if (leakage.data_available !== true) {
-    return NextResponse.json({
+    const res = NextResponse.json({
       ...baseMeta,
       data_available: false,
       reason: 'reason' in leakage ? leakage.reason : 'no_leakage_snapshot',
       tenant_id: tenantId,
     })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 
   const { valueMinor } = deriveTotalObservedSettledVolumeMinor(leakage)
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     ...baseMeta,
     data_available: true,
     tenant_id: leakage.tenant_id,
@@ -133,4 +146,6 @@ export async function GET(request: NextRequest) {
       under_settlement_amount_minor: leakage.under_settlement_amount_minor,
     },
   })
+  applyRefreshedSessionCookies(res, gate.refreshedPayload)
+  return res
 }

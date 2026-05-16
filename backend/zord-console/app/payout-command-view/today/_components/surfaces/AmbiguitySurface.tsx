@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState, Fragment } from 'react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ClientChart, Glyph, LiveDataHint } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
@@ -55,8 +55,8 @@ const FINALITY_FILTERS: Array<{ value: '' | FinalityStatus; label: string }> = [
 
 export function AmbiguitySurface() {
   const pathname = usePathname()
-  const tenantId = useSessionTenantId()
-  const { ambiguity } = useIntelligenceKpis(tenantId)
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { ambiguity } = useIntelligenceKpis({ tenantReady })
   const amb = isDataAvailable(ambiguity) ? ambiguity : null
 
   const [finalityFilter, setFinalityFilter] = useState<'' | FinalityStatus>('')
@@ -65,14 +65,13 @@ export function AmbiguitySurface() {
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const loadBatches = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid) {
+    if (!tenantReady) {
       setBatches([])
       return
     }
     setBatchesLoading(true)
     try {
-      const res = await getIntelligenceBatches(tid, {
+      const res = await getIntelligenceBatches({
         status: finalityFilter || undefined,
         limit: 80,
       })
@@ -82,7 +81,7 @@ export function AmbiguitySurface() {
     } finally {
       setBatchesLoading(false)
     }
-  }, [tenantId, finalityFilter])
+  }, [tenantReady, finalityFilter])
 
   useEffect(() => {
     void loadBatches()

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { NavyMetricHero } from '../today/_components/command-center/NavyMetricHero'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 
@@ -268,8 +268,8 @@ function exportComparisonCsv(rows: ComparisonRow[]) {
 export default function ConnectorIntelligenceClient() {
   const router = useRouter()
   const firePrompt = makeFirePrompt((path) => router.push(path))
-  const tenantId = useSessionTenantId()
-  const { leakage, defensibility, patterns, lastFetchedAt } = useIntelligenceKpis(tenantId)
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { leakage, defensibility, patterns, lastFetchedAt } = useIntelligenceKpis({ tenantReady })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const defData = isDataAvailable(defensibility) ? defensibility : null
   const patternsData = isDataAvailable(patterns) ? patterns : null

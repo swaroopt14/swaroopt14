@@ -1,5 +1,5 @@
 /**
- * Step 1 — Intent batch file → Next proxy → upstream POST /v1/bulk-ingest
+ * Step 1 — Intent batch file → Next proxy → zord-edge POST /v1/bulk-ingest (never intelligence)
  * Breakpoint-friendly: all request/response handling lives here.
  *
  * Product default (Arealis): failed **bulk rows** (validation / business rules after a row
@@ -23,7 +23,7 @@ export type PostIntentBulkIngestParams = {
    * Otherwise raw pasted key or full `Bearer …` / `ApiKey …` / `API-Key …` (normalized to `Bearer …` for zord-edge).
    */
   apiKeyRaw?: string
-  /** e.g. CSV, XLSX — forwarded as X-Zord-Source-Type */
+  /** e.g. CSV, FILE_UPLOAD — must match zord-edge TransportValidation allowlist */
   sourceType: string
   /** BANK / NBFC / MERCHANT / VENDOR / GATEWAY — forwarded as X-Zord-Tenant-Type (required upstream) */
   tenantType: string
@@ -58,7 +58,12 @@ export async function postIntentBulkIngest(params: PostIntentBulkIngestParams): 
   const bid = params.optionalBatchId?.trim()
   if (bid) headers['Batch-Id'] = bid
 
-  const response = await fetch(path, { method: 'POST', headers, body: formData })
+  const response = await fetch(path, {
+    method: 'POST',
+    headers,
+    body: formData,
+    credentials: 'include',
+  })
   const responseText = await response.text()
   const batchIdFromBody = extractBatchIdFromBulkIngestResponse(responseText)
 

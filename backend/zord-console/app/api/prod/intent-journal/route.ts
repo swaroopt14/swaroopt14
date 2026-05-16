@@ -3,6 +3,10 @@ import { BACKEND_SERVICES } from '@/config/api.endpoints'
 import { fetchDLQItems } from '@/services/backend/dlq'
 import type { BackendDLQItem } from '@/services/backend/dlq'
 import { fetchIntents } from '@/services/backend/intents'
+import {
+  applyRefreshedSessionCookies,
+  requireSessionTenantForProdProxy,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,14 +30,12 @@ async function fetchIntelligenceJson(url: string, tenantId: string): Promise<unk
 /**
  * Composed feed for the payout Intent Journal: intelligence batches (+ optional
  * batch detail), scoped intents from intent-engine, and DLQ rows for the tenant.
- *
- * Query: `tenant_id` (required), `batch_id` (optional — filters intent list when upstream supports it).
+ * Tenant is taken from the signed-in session only (query tenant_id is ignored).
  */
 export async function GET(request: NextRequest) {
-  const tenantId = request.nextUrl.searchParams.get('tenant_id')?.trim() || ''
-  if (!tenantId) {
-    return NextResponse.json({ error: 'tenant_id is required' }, { status: 400 })
-  }
+  const gate = await requireSessionTenantForProdProxy(request)
+  if (!gate.ok) return gate.response
+  const tenantId = gate.tenantId
 
   const batchId = request.nextUrl.searchParams.get('batch_id')?.trim() || undefined
 
@@ -80,14 +82,16 @@ export async function GET(request: NextRequest) {
       batch_id: intent.batch_id,
     }))
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       batches: batchesJson,
       batch_detail,
       intents: { items, pagination: intentsRes.pagination },
       dlq: { items: dlqItems },
     })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   } catch (error) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       {
         batches: null,
         batch_detail: null,
@@ -95,7 +99,9 @@ export async function GET(request: NextRequest) {
         dlq: { items: [] },
         error: error instanceof Error ? error.message : 'Failed to load intent journal',
       },
-      { status: 200, headers: { 'cache-control': 'no-store' } },
+      { status: 502, headers: { 'cache-control': 'no-store' } },
     )
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 }

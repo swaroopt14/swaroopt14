@@ -1,31 +1,41 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchIntentById } from '@/services/backend/intents'
+import {
+  applyRefreshedSessionCookies,
+  requireSessionTenantForProdProxy,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 // Force dynamic rendering for API routes
 export const dynamic = 'force-dynamic'
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ intent_id: string }> }
+  { params }: { params: { intent_id: string } },
 ) {
+  const gate = await requireSessionTenantForProdProxy(request)
+  if (!gate.ok) return gate.response
+
   try {
-    const { intent_id } = await params
+    const { intent_id } = params
 
     if (!intent_id) {
       return NextResponse.json({ error: 'Intent ID is required' }, { status: 400 })
     }
 
-    // Fetch from real backend (zord-intent-engine)
     const intent = await fetchIntentById(intent_id)
 
     if (!intent) {
-      return NextResponse.json(
-        { error: 'Intent not found' },
-        { status: 404 }
-      )
+      const res = NextResponse.json({ error: 'Intent not found' }, { status: 404 })
+      applyRefreshedSessionCookies(res, gate.refreshedPayload)
+      return res
     }
 
-    // Transform backend response to match frontend IntentDetail type
+    if (intent.tenant_id && intent.tenant_id !== gate.tenantId) {
+      const res = NextResponse.json({ error: 'Intent not found' }, { status: 404 })
+      applyRefreshedSessionCookies(res, gate.refreshedPayload)
+      return res
+    }
+
     const intentDetail = {
       intent_id: intent.intent_id,
       batch_id: intent.batch_id,
@@ -39,12 +49,12 @@ export async function GET(
         },
         instrument: {
           kind: intent.beneficiary_type || 'BANK',
-          account_token: '', // PII tokenized
+          account_token: '',
         },
         purpose_code: '',
         constraints: intent.constraints || {},
       },
-      lifecycle: [], // TODO: Add lifecycle events when available in backend
+      lifecycle: [],
       evidence: {
         raw_envelope_id: intent.envelope_id,
         canonical_snapshot: '',
@@ -57,11 +67,15 @@ export async function GET(
       created_at: intent.created_at,
     }
 
-    return NextResponse.json(intentDetail)
+    const res = NextResponse.json(intentDetail)
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   } catch (error) {
-    return NextResponse.json(
+    const res = NextResponse.json(
       { error: error instanceof Error ? error.message : 'Failed to fetch intent' },
-      { status: 500 }
+      { status: 500 },
     )
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 }

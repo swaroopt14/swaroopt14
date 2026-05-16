@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { chartTooltipStyle } from '@/services/payout-command/model'
 import { ClientChart, LightCard, SurfaceEyebrow } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 
@@ -62,8 +62,8 @@ export function ProofSurface() {
   // Live root-cause stats. KPI 10 (provider_ref_missing_rate) maps onto the
   // canonical "Missing reference" reason group. Pair with ambiguity_rate +
   // ambiguous_intent_count so the "Top failure reasons" card has live anchors.
-  const tenantId = useSessionTenantId()
-  const { ambiguity } = useIntelligenceKpis(tenantId)
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { ambiguity } = useIntelligenceKpis({ tenantReady })
   const ambData = isDataAvailable(ambiguity) ? ambiguity : null
 
   return (

@@ -28,6 +28,7 @@ func RegisterPublicAuthRoutes(router *gin.Engine) {
 	me.Use(middleware.Authenticate())
 	{
 		me.GET("/me", Me)
+		me.GET("/principal", Principal)
 	}
 }
 
@@ -202,6 +203,48 @@ func Logout(c *gin.Context) {
 	}
 	_ = services.RevokeRefreshToken(c.Request.Context(), db.DB, req.RefreshToken, c.ClientIP(), c.Request.UserAgent())
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// Principal returns the authenticated tenant for either a JWT (user session)
+// or a tenant API key. Used by zord-console BFF to compare session vs pasted key
+// without requiring user_id (unlike GET /v1/auth/me).
+func Principal(c *gin.Context) {
+	tidRaw, ok := c.Get("tenant_id")
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": "UNAUTHORIZED", "message": "missing tenant context"})
+		return
+	}
+	tenantID, ok := tidRaw.(uuid.UUID)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": "INTERNAL", "message": "invalid tenant context"})
+		return
+	}
+	tenantName, _ := c.Get("tenant_name")
+	tn, _ := tenantName.(string)
+
+	if uidRaw, ok := c.Get("user_id"); ok {
+		if uid, ok := uidRaw.(uuid.UUID); ok {
+			email, _ := c.Get("email")
+			role, _ := c.Get("role")
+			es, _ := email.(string)
+			rs, _ := role.(string)
+			c.JSON(http.StatusOK, gin.H{
+				"principal":   "user",
+				"tenant_id":   tenantID.String(),
+				"tenant_name": tn,
+				"user_id":     uid.String(),
+				"email":       es,
+				"role":        rs,
+			})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"principal":   "api_key",
+		"tenant_id":   tenantID.String(),
+		"tenant_name": tn,
+	})
 }
 
 func Me(c *gin.Context) {

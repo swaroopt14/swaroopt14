@@ -8,12 +8,22 @@ export const metadata: Metadata = {
 }
 
 // Live-mode entry. Sandbox lives at /sandbox.
+function readBatchIdParam(raw: string | string[] | undefined): string | undefined {
+  const v = Array.isArray(raw) ? raw[0] : raw
+  const tid = v?.trim()
+  return tid || undefined
+}
+
 export default function PayoutCommandViewTodayPage({
   searchParams,
 }: {
-  searchParams: { dock?: string | string[] }
+  searchParams: { dock?: string | string[]; batch_id?: string | string[] }
 }) {
   return (
-    <PayoutCommandViewClient forceMode="live" initialDock={resolveInitialDock(searchParams.dock)} />
+    <PayoutCommandViewClient
+      forceMode="live"
+      initialDock={resolveInitialDock(searchParams.dock)}
+      initialJournalBatchId={readBatchIdParam(searchParams.batch_id)}
+    />
   )
 }

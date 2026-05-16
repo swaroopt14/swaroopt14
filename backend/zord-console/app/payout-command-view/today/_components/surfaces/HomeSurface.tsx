@@ -1,12 +1,10 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bar, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   clamp,
   dockItems,
-  formatPercentBadge,
   HOME_CHART_DOMAIN_MAX,
   HOME_QUARTERS,
   HOME_YEAR_OPTIONS,
@@ -17,14 +15,27 @@ import {
   type HomeSimulation,
   type HomeTimeframe,
 } from '@/services/payout-command/model'
-import { HomeCommandCenterKpiCard } from '../command-center/HomeCommandCenterKpiCard'
-import { HomeHeroInsightCard } from '../command-center/OutcomeInsightCardGroup'
+import { buildZordInsightCards } from '../insights/buildZordInsightCards'
+import { ZordInsightCarousel } from '../insights/ZordInsightCarousel'
+import { HomeCommandCenterLightBand } from '../command-center/HomeCommandCenterLightBand'
+import {
+  HOME_BODY_IMPERIAL,
+  HOME_BODY_IMPERIAL_CENTERED,
+  HOME_BODY_IMPERIAL_SM,
+  HOME_TITLE_BLACK,
+} from '../command-center/homeCommandCenterTokens'
+import { DashboardDeltaPercent } from '../homeDashboardTypography'
 import { ClientChart, Glyph, LiveDataHint, SurfaceEyebrow, usePromptAutoContrast } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { DisbursementTrendRange } from '@/services/payout-command/prod-api/disbursementTrendTypes'
 import { useDisbursementTrend } from '@/services/payout-command/prod-api/useDisbursementTrend'
+import { useEnvironment } from '@/services/auth/EnvironmentProvider'
+import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCard'
+
+const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
+  'No live trend or intelligence KPI payload yet for this tenant — numbers above appear when leakage, patterns, or disbursement-trend APIs return data.'
 
 export function HomeSurface({
   scenario,
@@ -42,7 +53,6 @@ export function HomeSurface({
   commandResponse,
   commandStatus,
   onDismissCommandResponse,
-  onOpenProblemWorkspace,
 }: {
   scenario: HomeSimulation
   snapshot: HomeOverviewSnapshot
@@ -59,7 +69,6 @@ export function HomeSurface({
   commandResponse: HomeCommandResponse | null
   commandStatus: HomeCommandStatus
   onDismissCommandResponse: () => void
-  onOpenProblemWorkspace?: () => void
 }) {
   const TREND_RANGE_FILTERS: readonly { id: DisbursementTrendRange; label: string }[] = [
     { id: 'week', label: 'Week' },
@@ -74,17 +83,35 @@ export function HomeSurface({
   const [trendAnchorIdx, setTrendAnchorIdx] = useState(0)
   const [isPromptExpanded, setIsPromptExpanded] = useState(false)
 
-  const tenantId = useSessionTenantId()
-  const tenantReady = tenantId.trim().length > 0
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { mode } = useEnvironment()
+  const isSandbox = mode === 'sandbox'
   const [trendRange, setTrendRange] = useState<DisbursementTrendRange>('month')
-  const { data: trendSeries, loading: trendLoading } = useDisbursementTrend(tenantId, trendRange)
+  const { data: trendSeries, loading: trendLoading } = useDisbursementTrend({ tenantReady, range: trendRange })
 
-  const { leakage, ambiguity, defensibility, patterns, recommendations, loading } = useIntelligenceKpis(tenantId)
+  const { leakage, ambiguity, defensibility, patterns, recommendations, loading } = useIntelligenceKpis({
+    tenantReady,
+  })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const ambData = isDataAvailable(ambiguity) ? ambiguity : null
   const defData = isDataAvailable(defensibility) ? defensibility : null
   const patternsData = isDataAvailable(patterns) ? patterns : null
   const recsData = isDataAvailable(recommendations) ? recommendations : null
+
+  /** When intelligence leakage has no snapshot yet, sum intent-engine trend buckets for headline INR. */
+  const trendTotalsMinor = useMemo(() => {
+    if (!trendSeries?.data_available || !trendSeries.buckets?.length) return null
+    let total = 0
+    let confirmed = 0
+    let intentCount = 0
+    for (const b of trendSeries.buckets) {
+      total += Number(b.total_amount) || 0
+      confirmed += Number(b.confirmed_amount) || 0
+      intentCount += b.intent_count ?? 0
+    }
+    if (total <= 0 && confirmed <= 0 && intentCount <= 0) return null
+    return { total, confirmed, intentCount }
+  }, [trendSeries])
 
   const liveTrendChart = useMemo(() => {
     if (!tenantReady || !trendSeries?.data_available || trendSeries.buckets.length < 1) return null
@@ -155,7 +182,6 @@ export function HomeSurface({
     activeChartDatum.lineValue > 0.002
       ? ((activeChartDatum.barValue - activeChartDatum.lineValue) / activeChartDatum.lineValue) * 100
       : 0
-  const activeDelta = formatPercentBadge(deltaFromTrend)
 
   const fmtInrCompact = (minor: number | null): string => {
     if (minor === null || !Number.isFinite(minor)) return '—'
@@ -229,19 +255,20 @@ export function HomeSurface({
 
   const actionHeadline =
     exposureMinor !== null && Number.isFinite(exposureMinor) ? fmtInrCompact(exposureMinor) : loading ? '…' : '—'
-  const actionSub =
-    patternsData != null
-      ? `${patternsData.pending_count} intents pending · ${patternsData.finality_status.replace(/_/g, ' ').toLowerCase()}`
-      : leakageData
-        ? `${leakageData.risk_tier} leakage posture · review unmatched + under-settlement`
-        : 'Awaiting intelligence snapshot for this workspace'
+
+  const heroFromIntentTrend =
+    trendTotalsMinor && trendTotalsMinor.confirmed > 0
+      ? fmtInrCompact(trendTotalsMinor.confirmed)
+      : trendTotalsMinor && trendTotalsMinor.total > 0
+        ? fmtInrCompact(trendTotalsMinor.total)
+        : null
 
   const heroTotalDisbursementDisplay =
     observedMinor !== null && Number.isFinite(observedMinor)
       ? fmtInrCompact(observedMinor)
-      : loading
+      : loading || trendLoading
         ? '…'
-        : '—'
+        : heroFromIntentTrend ?? '—'
 
   const trendInsight = useMemo(() => {
     if (trendSeries?.data_available && trendSeries.buckets.length >= 2) {
@@ -260,203 +287,249 @@ export function HomeSurface({
     if (patternsData) {
       return `Latest batch anomaly ${(patternsData.batch_anomaly_score * 100).toFixed(0)}% (${patternsData.anomaly_level}) with ${patternsData.success_count}/${patternsData.total_count} successes.`
     }
-    return 'No live trend or intelligence KPI payload yet for this tenant — numbers above appear when leakage, patterns, or disbursement-trend APIs return data.'
+    return TENANT_KPI_EMPTY_CAROUSEL_INSIGHT
   }, [trendSeries, trendRange, leakageData, patternsData])
 
-  /** 2×2 grid: row1 Leakage | Batch anomaly · row2 Defensibility | Action contracts — each tile is its own Insight-style card. */
-  const commandCenterKpiCards = useMemo(
-    () => [
-      {
-        key: 'leakage',
-        title: 'Leakage',
-        value: leakageData ? `${(leakageData.leakage_percentage * 100).toFixed(1)}%` : loading ? '…' : '—',
-        detail: leakageData ? `${leakageData.risk_tier} risk tier` : 'Open the Leakage dock for full rupee view and drivers.',
-        dockHref: '/payout-command-view/today?dock=leakage',
-        dockEyebrow: 'Leakage',
-        dockLine: 'Open Leakage dock for full ₹ view',
-      },
-      {
-        key: 'batch',
-        title: 'Batch anomaly',
-        value: patternsData ? `${(patternsData.batch_anomaly_score * 100).toFixed(0)}%` : loading ? '…' : '—',
-        detail: patternsData
-          ? `${patternsData.anomaly_level} · ${patternsData.finality_status.replace(/_/g, ' ')}`
-          : 'Patterns and latest batch health from intelligence.',
-        dockHref: '/payout-command-view/today?dock=grid',
-        dockEyebrow: 'Intent journal',
-        dockLine: 'Patterns / latest batch',
-      },
-      {
-        key: 'defensibility',
-        title: 'Defensibility',
-        value: defData ? defData.defensibility_score.toFixed(1) : loading ? '…' : '—',
-        detail: defData ? `${defData.defensibility_tier} tier · proof posture` : 'Open Evidence for defensibility and packs.',
-        dockHref: '/payout-command-view/today?dock=proof',
-        dockEyebrow: 'Evidence',
-        dockLine: 'Open Evidence dock for proof posture',
-      },
-      {
-        key: 'actions',
-        title: 'Action contracts',
-        value: recsData ? `${(recsData.action_acceptance_rate * 100).toFixed(1)}%` : loading ? '…' : '—',
-        detail: recsData
-          ? `${recsData.accepted_actions} accepted · ${recsData.total_actions} total`
-          : 'Recommendation acceptance from intelligence.',
-        dockHref: '/payout-command-view/today?dock=grid',
-        dockEyebrow: 'Intent journal',
-        dockLine: 'Recommendations & batch',
-      },
+  const exposureInsightMetric =
+    leakageData != null
+      ? fmtInrCompact(unmatchedMinor + underSettlementMinor)
+      : heroTotalDisbursementDisplay
+  const exposureInsightMetricSub =
+    patternsData != null
+      ? `${patternsData.pending_count} intents pending in latest batch signal`
+      : 'Value in active mismatch / settlement review'
+
+  const insightCarouselCards = useMemo(
+    () =>
+      buildZordInsightCards({
+        tenantReady,
+        kpiLoading: loading || trendLoading,
+        emptyInsightParagraph: TENANT_KPI_EMPTY_CAROUSEL_INSIGHT,
+        mismatchHeadline: exposureInsightMetric,
+        mismatchSubtext: exposureInsightMetricSub,
+        mismatchPendingCount: patternsData?.pending_count ?? 0,
+        trendInsight,
+        trendSeries,
+        trendChartReady,
+        leakageData,
+        patternsData,
+        unmatchedMinor,
+        underSettlementMinor,
+      }),
+    [
+      tenantReady,
+      loading,
+      trendLoading,
+      trendInsight,
+      trendSeries,
+      trendChartReady,
+      leakageData,
+      patternsData,
+      unmatchedMinor,
+      underSettlementMinor,
+      exposureInsightMetric,
+      exposureInsightMetricSub,
     ],
-    [leakageData, defData, patternsData, recsData, loading],
   )
 
-  return (
-    <div className="mt-0 w-full min-w-0 text-[18px]">
-        {/* Primary metric */}
-        <div className="px-4 pt-2 text-center sm:px-6 lg:px-8">
-          <div className="text-[4.51rem] font-light tracking-[-0.03em] text-[#111111] md:text-[5.59rem] lg:text-[5.91rem]">
-            {heroTotalDisbursementDisplay}
-          </div>
-          <div className="mt-2 text-[1.45rem] font-normal text-[#111111]">Total Disbursement Value</div>
-          <p className="mx-auto mt-2 max-w-2xl text-[18px] leading-7 text-[#6f716d]">
-            {intendedMinor !== null
-              ? `of ${fmtInrCompact(intendedMinor)} intended this period · settled cleanly`
-              : loading
-                ? 'Loading workspace disbursement snapshot…'
-                : 'No disbursement volume for this workspace yet — totals appear once intelligence has batch data.'}
-          </p>
-        </div>
+  const insightCarouselLoading = Boolean(
+    tenantReady && insightCarouselCards.length === 0 && (loading || trendLoading),
+  )
 
-        <div className="mt-6 flex w-full min-h-[48px] items-stretch border-y border-[#e8e8e5] bg-white">
-          <div className="flex w-1/2 min-w-0 items-center border-r border-[#ecece9] px-4 py-3 text-left text-[16px] font-medium text-[#6f716d] sm:px-6 lg:px-8">
-            <span className="truncate">{snapshot.timeframeLabel}</span>
-          </div>
-          <div className="flex w-1/2 min-w-0 items-center justify-end gap-2 px-4 py-3 sm:px-6 lg:px-8">
-            {HOME_YEAR_OPTIONS.map((year) => (
+  const sparkBarsForCommandCenter = useMemo(() => {
+    if (!trendSeries?.buckets?.length) return [] as number[]
+    const vals = trendSeries.buckets.map((b) => Math.max(0, Number(b.total_amount) || 0))
+    const tail = vals.length > 14 ? vals.slice(-14) : vals
+    return tail
+  }, [trendSeries])
+
+  const liveWindowBandLabel = useMemo(() => {
+    const tail = axisLabelsForChart[axisLabelsForChart.length - 1]
+    if (tail) return `LIVE WINDOW: ${String(tail).toUpperCase()}`
+    return `LIVE WINDOW: ${trendRange.toUpperCase()}`
+  }, [axisLabelsForChart, trendRange])
+
+  const liftRupeesMinor =
+    intendedMinor !== null && exposureMinor !== null ? Math.max(0, intendedMinor - exposureMinor) : null
+  const liftIntensity =
+    intendedMinor !== null && intendedMinor > 0 && liftRupeesMinor !== null
+      ? Math.min(1, liftRupeesMinor / intendedMinor)
+      : 0.45
+
+  const insightRingPct = useMemo(() => {
+    if (trendSeries?.data_available && trendSeries.buckets.length) {
+      const intents = trendSeries.buckets.reduce((s, b) => s + b.intent_count, 0)
+      const confirmed = trendSeries.buckets.reduce((s, b) => s + b.confirmed_count, 0)
+      if (intents > 0) return Math.round((confirmed / intents) * 100)
+    }
+    if (patternsData?.total_count && patternsData.total_count > 0) {
+      return Math.round(((patternsData.success_count ?? 0) / patternsData.total_count) * 100)
+    }
+    return leakageData ? Math.round((1 - leakageData.leakage_percentage) * 100) : 0
+  }, [trendSeries, patternsData, leakageData])
+
+  const recoveryProgressPct = useMemo(() => {
+    if (intendedMinor === null || observedMinor === null || intendedMinor <= 0) return 0
+    return Math.min(100, (observedMinor / intendedMinor) * 100)
+  }, [intendedMinor, observedMinor])
+
+  const recoveryStatPair = useMemo(() => {
+    const peak =
+      sparkBarsForCommandCenter.length > 0 ? Math.max(...sparkBarsForCommandCenter) : null
+    return {
+      leftValue: peak !== null ? fmtInrCompact(peak) : '—',
+      leftLabel: 'Peak bucket (this range)',
+      rightValue: patternsData != null ? String(patternsData.pending_count) : '—',
+      rightLabel: 'Pending check',
+    }
+  }, [sparkBarsForCommandCenter, patternsData])
+
+  const exceptionSharePct = useMemo(() => {
+    if (leakageData === null || intendedMinor === null || intendedMinor <= 0 || exposureMinor === null) return null
+    return Math.min(100, (exposureMinor / intendedMinor) * 100)
+  }, [leakageData, intendedMinor, exposureMinor])
+
+  const exceptionRiskPct = exceptionSharePct ?? 0
+  const exceptionHeroPct = exceptionSharePct
+
+  const exceptionStatPair = useMemo(
+    () => ({
+      leftValue: leakageData != null ? fmtInrCompact(unmatchedMinor) : '—',
+      leftLabel: 'Unmatched',
+      rightValue: leakageData != null ? fmtInrCompact(underSettlementMinor) : '—',
+      rightLabel: 'Under settlement',
+    }),
+    [leakageData, unmatchedMinor, underSettlementMinor],
+  )
+
+  const liftStatPair = useMemo(
+    () => ({
+      leftValue: intendedMinor !== null ? fmtInrCompact(intendedMinor) : '—',
+      leftLabel: 'Intended (baseline)',
+      rightValue: observedMinor !== null ? fmtInrCompact(observedMinor) : '—',
+      rightLabel: 'Observed (clean)',
+    }),
+    [intendedMinor, observedMinor],
+  )
+
+  const liftPct = useMemo(() => {
+    if (liftRupeesMinor === null || intendedMinor === null || intendedMinor <= 0) return null
+    return Math.min(100, (liftRupeesMinor / intendedMinor) * 100)
+  }, [liftRupeesMinor, intendedMinor])
+
+  const exceptionLegendRows: Array<{ dot: string; label: string }> = [
+    { dot: '#4ade80', label: 'Unmatched' },
+    { dot: '#a78bfa', label: 'Under settlement' },
+    { dot: '#94a3b8', label: 'Reversal exposure' },
+  ]
+
+  const exceptionFooterText =
+    leakageData != null
+      ? `Roughly ${fmtInrCompact(unmatchedMinor + underSettlementMinor + reversalMinor)} sits in unmatched, under-settlement, and reversal exposure for this workspace — triage in Leakage.`
+      : 'When leakage KPIs load, unmatched and under-settlement drivers appear here with rupee context.'
+
+  const recoveryFooterText =
+    'Recovered value is the portion of intended disbursement that clears without unmatched or under-settlement drag — use Leakage for the full rupee breakdown.'
+
+  const liftFooterText =
+    liftRupeesMinor !== null && intendedMinor !== null
+      ? 'Incremental value retained versus the at-risk exposure implied by unmatched and under-settlement balances on the same intended base.'
+      : 'When intelligence leakage and intended totals are available, lift compares cleared value to the at-risk pool.'
+
+  const disbursementHeroInner = (
+    <>
+      <div className={`text-[42px] font-extrabold leading-none tracking-[-0.03em] tabular-nums sm:text-[42px] ${HOME_TITLE_BLACK}`}>
+        {heroTotalDisbursementDisplay}
+      </div>
+      <div className={`mt-2 text-[18px] font-bold leading-snug tracking-[-0.02em] sm:text-[20px] ${HOME_TITLE_BLACK}`}>
+        Total Disbursement Value
+      </div>
+      <p className={`mt-2 text-center ${HOME_BODY_IMPERIAL_CENTERED}`}>
+        {intendedMinor !== null
+          ? `of ${fmtInrCompact(intendedMinor)} intended this period · settled cleanly`
+          : trendTotalsMinor && (trendTotalsMinor.total > 0 || trendTotalsMinor.intentCount > 0)
+            ? `${fmtInrCompact(trendTotalsMinor.total)} intent volume in ${trendRange} window (${trendTotalsMinor.intentCount} intents) · from intent-engine trend API`
+          : loading || trendLoading
+            ? 'Loading workspace disbursement snapshot…'
+            : 'No disbursement activity detected yet. Totals will appear after the first processed payout batch.'}
+      </p>
+    </>
+  )
+
+  const trendPanelInner = (
+    <>
+        <div className="min-w-0">
+          <SurfaceEyebrow variant="stripe">Trend</SurfaceEyebrow>
+          <h2 className={`mt-1 text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
+            Disbursement &amp; confirmation trend
+          </h2>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            {TREND_RANGE_FILTERS.map((f) => (
               <button
-                key={year}
+                key={f.id}
                 type="button"
-                onClick={() => onYearChange(year)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-[15px] font-medium transition ${
-                  snapshot.selectedYear === year ? 'bg-[#111111] text-white' : 'border border-[#E5E5E5] bg-white text-[#6f716d] hover:bg-[#f5f5f5]'
+                onClick={() => setTrendRange(f.id)}
+                className={`rounded-full px-3 py-1 text-[14px] font-medium tracking-[0] transition ${
+                  trendRange === f.id
+                    ? 'bg-[#39E07E] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/40'
+                    : `border border-[#e5e5e5] bg-white hover:bg-[#fafafa] ${HOME_TITLE_BLACK}`
                 }`}
               >
-                {year}
+                {f.label}
               </button>
             ))}
+            <LiveDataHint
+              isLive={trendChartReady}
+              source={tenantReady ? 'intents · trend' : 'workspace'}
+            />
+            {trendLoading ? <span className="text-[11px] font-normal text-[#888888]">Updating…</span> : null}
           </div>
-        </div>
-
-        {timeframe === 'Week' && snapshot.holidayLabels.length > 0 ? (
-          <div className="mt-3 px-4 sm:px-6 lg:px-8">
-            <div className="rounded-[0.95rem] border border-[#E5E5E5] bg-white px-3 py-2 text-[15px] text-[#6f716d]">
-              Holidays included: {snapshot.holidayLabels.join(' • ')}
-            </div>
-          </div>
-        ) : null}
-
-        {timeframe === 'Custom' ? (
-          <div className="mt-3 px-4 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-[1rem] border border-[#E5E5E5] bg-white text-[15px] text-[#6f716d]">
-          <div className="grid grid-cols-[1.1fr_2fr_0.8fr] bg-[#f8f8f7] px-3 py-2 font-medium text-[#5f605b]">
-            <div>Range</div>
-            <div>Months included</div>
-            <div>Total</div>
-          </div>
-          {HOME_QUARTERS.map((quarter, index) => (
-            <button
-              key={quarter.name}
-              type="button"
-              onClick={() => onQuarterChange(index)}
-              className={`grid w-full grid-cols-[1.1fr_2fr_0.8fr] px-3 py-2 text-left transition ${
-                quarter.name === snapshot.quarterName ? 'bg-[#eef2f7] text-[#111111]' : 'hover:bg-[#fafafa]'
-              }`}
-            >
-              <span>{quarter.name}</span>
-              <span>{quarter.months.join(', ')}</span>
-              <span>3</span>
-            </button>
-          ))}
-        </div>
-          </div>
-        ) : null}
-
-        {/* Trend chart — full width directly under period controls */}
-      <div className="relative mt-0 w-full border-b border-[#e5e5e5] bg-white px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div className="min-w-0">
-            <SurfaceEyebrow>Trend</SurfaceEyebrow>
-            <h2 className="mt-1 text-[1.45rem] font-medium tracking-[-0.03em] text-[#111111]">Disbursement &amp; confirmation trend</h2>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {TREND_RANGE_FILTERS.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setTrendRange(f.id)}
-                  className={`rounded-full px-3 py-1 text-[14px] font-semibold transition ${
-                    trendRange === f.id ? 'bg-[#111111] text-white' : 'border border-[#e5e5e5] bg-white text-[#64748b] hover:bg-[#fafafa]'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-              <LiveDataHint
-                isLive={trendChartReady}
-                source={tenantReady ? 'intents · trend' : 'workspace'}
-              />
-              {trendLoading ? <span className="text-[13px] text-[#94a3b8]">Updating…</span> : null}
-            </div>
-            <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-[15px] text-[#6f716d]">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[#888888]" /> Total disbursement
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[#111111]" /> Bank-confirmed
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[#d0d0d0]" /> Lower bound
-              </span>
-            </p>
-          </div>
-          <p className="max-w-md shrink-0 rounded-xl border border-[#eef2f7] bg-[#f8fafc] px-3 py-2 text-[15px] leading-snug text-[#475569]">
-            <span className="font-semibold text-[#111111]">Insight: </span>
-            {trendInsight}
+          <p className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 ${HOME_BODY_IMPERIAL}`}>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-[#4ade80]" /> Total disbursement
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-[#a78bfa]" /> Bank-confirmed
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-[#94a3b8]" /> Lower bound
+            </span>
           </p>
         </div>
-        {trendChartReady ? (
-        <div
-          className="pointer-events-none absolute bottom-[5.25rem] top-[7.5rem] z-0 bg-white/70 md:bottom-[5.5rem] md:top-[8rem]"
-          style={{ left: `${rangeLeftPercent}%`, width: `${rangeWidthPercent}%`, opacity: 0.08 }}
-        />
-        ) : null}
-
-        {trendChartReady ? (
-        <div
-          className="pointer-events-auto absolute top-[min(52%,18rem)] z-20 w-[15rem] max-w-[calc(100%-2rem)] -translate-y-1/2 rounded-lg border-[0.5px] border-[#E0E0DE] bg-white px-3.5 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.08)] sm:w-[16.5rem]"
-          style={{ left: `clamp(0.5rem, ${tooltipLeftPercent}%, calc(100% - 17rem))` }}
-        >
-          <button
-            type="button"
-            className="absolute right-2 top-2 text-[15px] leading-none text-[#999999] hover:text-[#111111]"
-            aria-label="Dismiss chart note"
-          >
-            ×
-          </button>
-          <div className="text-[13px] font-medium uppercase tracking-[0.12em] text-[#8b8a86]">{monthLabel}</div>
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <div className="text-[19px] font-semibold text-[#111111]">
-              {fmtTrendTooltipInr(activeChartDatum.barValue)}
-            </div>
-            <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-[#4ADE80] px-2.5 text-[13px] font-semibold text-[#111111] shadow-[0_2px_10px_rgba(74,222,128,0.45)]">
-              {activeDelta}
-            </span>
-          </div>
-          <div className="mt-2 text-[14px] font-normal leading-4 text-[#8b8a86]">{liveTooltipNote}</div>
-        </div>
-        ) : null}
-
         <div className="relative z-[1] mt-6 min-w-0" onMouseLeave={() => setHoverIndex(null)}>
           {trendChartReady ? (
+          <>
+            <div
+              className="pointer-events-none absolute inset-y-0 z-[8] bg-white/70"
+              style={{
+                left: `${rangeLeftPercent}%`,
+                width: `${rangeWidthPercent}%`,
+                opacity: 0.08,
+              }}
+              aria-hidden
+            />
+            <div
+              className="pointer-events-auto absolute top-1/2 z-20 w-[15rem] max-w-[calc(100%-2rem)] -translate-y-1/2 rounded-lg border-[0.5px] border-[#E0E0DE] bg-white px-3.5 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.08)] sm:w-[16.5rem]"
+              style={{ left: `clamp(0.5rem, ${tooltipLeftPercent}%, calc(100% - 17rem))` }}
+            >
+              <button
+                type="button"
+                className="absolute right-2 top-2 text-[15px] leading-none text-[#888888] hover:text-[#000000]"
+                aria-label="Dismiss chart note"
+              >
+                ×
+              </button>
+              <div className="text-[11px] font-normal uppercase tracking-[0.06em] text-[#888888]">{monthLabel}</div>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <div className={`text-[16px] font-semibold tabular-nums tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
+                  {fmtTrendTooltipInr(activeChartDatum.barValue)}
+                </div>
+                <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-[#39E07E] px-2.5 font-semibold text-[#000000] shadow-[0_2px_10px_rgba(57,224,126,0.35)]">
+                  <DashboardDeltaPercent value={deltaFromTrend} />
+                </span>
+              </div>
+              <div className={`mt-2 ${HOME_BODY_IMPERIAL_SM}`}>{liveTooltipNote}</div>
+            </div>
           <ClientChart className="h-[21rem] w-full md:h-[23rem]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
               <ComposedChart
@@ -485,21 +558,21 @@ export function HomeSurface({
                   domain={[0, yDomainMax]}
                   ticks={yTicks}
                   tickFormatter={(value: number) => (value === 0 ? '0' : `₹${value.toFixed(0)}k`)}
-                  tick={{ fill: '#999999', fontSize: 13, fontWeight: 400 }}
+                  tick={{ fill: '#000000', fontSize: 11, fontWeight: 500 }}
                 />
                 <Bar dataKey="barValue" barSize={4} radius={[0, 0, 0, 0]} isAnimationActive>
                   {chartData.map((entry) => (
                     <Cell
                       key={`home-bar-${entry.point}`}
-                      fill={entry.selected ? '#1A1A1A' : entry.isHoliday ? '#9fa2a7' : '#888888'}
-                      opacity={entry.point === activeChartDatum.point ? 1 : 0.84}
+                      fill={entry.selected ? '#16a34a' : entry.isHoliday ? '#94a3b8' : '#4ade80'}
+                      opacity={entry.point === activeChartDatum.point ? 1 : 0.78}
                     />
                   ))}
                 </Bar>
                 <Line
                   type="monotone"
                   dataKey="lowerLineValue"
-                  stroke="#D0D0D0"
+                  stroke="#94a3b8"
                   strokeWidth={1.1}
                   dot={false}
                   activeDot={false}
@@ -510,7 +583,7 @@ export function HomeSurface({
                 <Line
                   type="monotone"
                   dataKey="lineValue"
-                  stroke="#111111"
+                  stroke="#a78bfa"
                   strokeWidth={1.35}
                   dot={false}
                   activeDot={false}
@@ -521,19 +594,27 @@ export function HomeSurface({
               </ComposedChart>
             </ResponsiveContainer>
           </ClientChart>
+          </>
           ) : tenantReady && trendLoading ? (
             <div className="h-[21rem] w-full animate-pulse rounded-lg bg-slate-100 md:h-[23rem]" aria-busy="true" />
           ) : (
-            <div className="flex h-[21rem] flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 text-center text-[16px] leading-snug text-slate-600 md:h-[23rem]">
+            <div className="flex h-[21rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-white px-4 text-center md:h-[23rem]">
+              <Glyph name="chart" className="h-10 w-10 shrink-0 text-[#4ade80]/90" aria-hidden />
               {tenantReady ? (
                 <>
-                  <span className="font-medium text-slate-800">No trend data in this range</span>
-                  <span className="max-w-md text-[15px] text-slate-500">Try Week / Month / Quarter / Year, or wait until intents exist in the selected window.</span>
+                  <span className={`font-semibold ${HOME_TITLE_BLACK}`}>No trend data in this range</span>
+                  <span className={`max-w-md ${HOME_BODY_IMPERIAL}`}>
+                    Try Week, Month, Quarter, or Year — or wait until intents exist in the selected window. The chart
+                    will populate automatically once disbursements appear.
+                  </span>
                 </>
               ) : (
                 <>
-                  <span className="font-medium text-slate-800">Workspace required</span>
-                  <span className="max-w-md text-[15px] text-slate-500">Sign in and select a tenant to plot disbursement and confirmation from the intent ledger.</span>
+                  <span className={`font-semibold ${HOME_TITLE_BLACK}`}>Workspace required</span>
+                  <span className={`max-w-md ${HOME_BODY_IMPERIAL}`}>
+                    Sign in and select a tenant to plot disbursement and confirmation from the intent ledger. This
+                    preview stays empty until a workspace is active.
+                  </span>
                 </>
               )}
             </div>
@@ -553,7 +634,7 @@ export function HomeSurface({
         </div>
 
         <div
-          className="mt-4 grid min-w-0 text-[14px] text-[#999999]"
+          className="mt-4 grid min-w-0 text-[14px] font-medium tracking-[0] text-[#000000]"
           style={{ gridTemplateColumns: `repeat(${axisLabelsForChart.length}, minmax(0, 1fr))` }}
         >
           {axisLabelsForChart.map((month, i) => (
@@ -567,7 +648,7 @@ export function HomeSurface({
           {chartTags.map((tag) => (
             <span
               key={tag.key}
-              className="rounded-full border border-black/10 bg-[#fafafa] px-3 py-1.5 text-[14px] font-semibold text-[#111111]"
+              className={`rounded-full border border-black/10 bg-[#fafafa] px-3 py-1.5 text-[14px] font-medium tracking-[0] ${HOME_TITLE_BLACK}`}
             >
               {tag.label}
             </span>
@@ -575,7 +656,83 @@ export function HomeSurface({
         </div>
           </>
         ) : null}
-      </div>
+    </>
+  )
+
+  return (
+    <div className="mt-0 w-full min-w-0">
+        {isSandbox ? (
+          <div className="px-4 pt-2 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between lg:gap-8">
+              <div className="min-w-0 flex-1 text-center">{disbursementHeroInner}</div>
+              <div className="flex w-full shrink-0 justify-center lg:w-auto lg:justify-end lg:self-start lg:pt-1">
+                <SandboxHomeCredentialsCard />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="px-4 pt-2 text-center sm:px-6 lg:px-8">{disbursementHeroInner}</div>
+        )}
+
+        <div className="mt-6 flex w-full min-h-[48px] items-stretch border-y border-[#e8e8e5] bg-white">
+          <div className={`flex w-1/2 min-w-0 items-center border-r border-[#ecece9] px-4 py-3 text-left text-[14px] font-medium tracking-[0] sm:px-6 lg:px-8 ${HOME_TITLE_BLACK}`}>
+            <span className="truncate">{snapshot.timeframeLabel}</span>
+          </div>
+          <div className="flex w-1/2 min-w-0 items-center justify-end gap-2 px-4 py-3 sm:px-6 lg:px-8">
+            {HOME_YEAR_OPTIONS.map((year) => (
+              <button
+                key={year}
+                type="button"
+                onClick={() => onYearChange(year)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-[14px] font-medium tracking-[0] transition ${
+                  snapshot.selectedYear === year
+                    ? 'bg-[#39E07E] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/35'
+                    : `border border-[#E5E5E5] bg-white hover:bg-[#f5f5f5] ${HOME_TITLE_BLACK}`
+                }`}
+              >
+                {year}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {timeframe === 'Week' && snapshot.holidayLabels.length > 0 ? (
+          <div className="mt-3 px-4 sm:px-6 lg:px-8">
+            <div className={`rounded-[0.95rem] border border-[#E5E5E5] bg-white px-3 py-2 ${HOME_BODY_IMPERIAL}`}>
+              Holidays included: {snapshot.holidayLabels.join(' • ')}
+            </div>
+          </div>
+        ) : null}
+
+        {timeframe === 'Custom' ? (
+          <div className="mt-3 px-4 sm:px-6 lg:px-8">
+        <div className="overflow-hidden rounded-[1rem] border border-[#E5E5E5] bg-white text-[13px] font-normal tracking-[0]">
+          <div className={`grid grid-cols-[1.1fr_2fr_0.8fr] bg-[#f8f8f7] px-3 py-2 text-[14px] font-medium ${HOME_TITLE_BLACK}`}>
+            <div>Range</div>
+            <div className={HOME_BODY_IMPERIAL_SM}>Months included</div>
+            <div>Total</div>
+          </div>
+          {HOME_QUARTERS.map((quarter, index) => (
+            <button
+              key={quarter.name}
+              type="button"
+              onClick={() => onQuarterChange(index)}
+              className={`grid w-full grid-cols-[1.1fr_2fr_0.8fr] px-3 py-2 text-left text-[13px] transition ${
+                quarter.name === snapshot.quarterName ? `bg-[#eef2f7]` : 'hover:bg-[#fafafa]'
+              }`}
+            >
+              <span className={HOME_TITLE_BLACK}>{quarter.name}</span>
+              <span className={HOME_BODY_IMPERIAL_SM}>{quarter.months.join(', ')}</span>
+              <span className={HOME_TITLE_BLACK}>3</span>
+            </button>
+          ))}
+        </div>
+          </div>
+        ) : null}
+
+        <div className="relative mt-0 w-full border-b border-[#e5e5e5] bg-white px-4 py-6 sm:px-6 lg:px-8">
+          {trendPanelInner}
+        </div>
 
         <section
           className="mt-8 space-y-3 bg-[#f4f4f1] px-2 pb-3 pt-1.5 sm:px-3 lg:px-4"
@@ -583,10 +740,13 @@ export function HomeSurface({
         >
           <div className="w-full max-w-none space-y-3">
             <div className="rounded-[12px] border border-slate-200/90 bg-white/95 px-3 py-2.5 shadow-[0_2px_12px_rgba(15,23,42,0.04)] sm:px-3.5 sm:py-2.5">
-              <h2 id="home-today-command-center-title" className="text-[16px] font-bold tracking-[-0.02em] text-[#0f172a]">
+              <h2
+                id="home-today-command-center-title"
+                className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30"
+              >
                 Today · command center
               </h2>
-              <p className="mt-0.5 text-[14px] leading-snug text-slate-600">{homePageSummary}</p>
+              <p className={`mt-0.5 max-w-2xl ${HOME_BODY_IMPERIAL}`}>{homePageSummary}</p>
               <div className="mt-1.5 flex flex-wrap items-center gap-2">
                 <LiveDataHint
                   isLive={Boolean(loading || leakageData || defData || patternsData || recsData || ambData)}
@@ -595,105 +755,65 @@ export function HomeSurface({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
-              {commandCenterKpiCards.map((card) => (
-                <HomeCommandCenterKpiCard
-                  key={card.key}
-                  title={card.title}
-                  value={card.value}
-                  detail={card.detail}
-                  dockHref={card.dockHref}
-                  dockEyebrow={card.dockEyebrow}
-                  dockLine={card.dockLine}
+            <HomeCommandCenterLightBand
+              recoveryValue={heroTotalDisbursementDisplay}
+              recoverySub="Recovered value (settled cleanly)"
+              liveWindowLabel={liveWindowBandLabel}
+              sparkBars={sparkBarsForCommandCenter}
+              recoveryFooter={recoveryFooterText}
+              trendRange={trendRange}
+              onTrendRangeChange={setTrendRange}
+              recoveryStatPair={recoveryStatPair}
+              recoveryProgressPct={recoveryProgressPct}
+              exceptionValue={actionHeadline}
+              exceptionSub="At-risk & exception exposure"
+              exceptionLegend={exceptionLegendRows}
+              exceptionFooter={exceptionFooterText}
+              exceptionStatPair={exceptionStatPair}
+              exceptionRiskPct={exceptionRiskPct}
+              exceptionHeroPct={exceptionHeroPct}
+              liftValue={liftRupeesMinor !== null ? fmtInrCompact(liftRupeesMinor) : loading ? '…' : '—'}
+              liftSub="Lift over at-risk exposure"
+              liftIntensity={liftIntensity}
+              liftFooter={liftFooterText}
+              liftStatPair={liftStatPair}
+              liftPct={liftPct}
+              insightBody={trendInsight}
+              insightMetric={
+                leakageData != null
+                  ? fmtInrCompact(unmatchedMinor + underSettlementMinor)
+                  : heroTotalDisbursementDisplay
+              }
+              insightMetricSub={
+                patternsData != null
+                  ? `${patternsData.pending_count} intents pending in latest batch signal`
+                  : 'Value in active mismatch / settlement review'
+              }
+              insightRingPct={insightRingPct}
+              insightCarousel={
+                <ZordInsightCarousel
+                  key={tenantId || 'no-tenant'}
+                  tenantReady={tenantReady}
+                  autoplay
+                  interval={4000}
+                  loading={insightCarouselLoading}
+                  cards={insightCarouselCards}
                 />
-              ))}
-            </div>
-          </div>
-
-          <div className="w-full max-w-none pt-0.5">
-            <HomeHeroInsightCard fullWidth />
+              }
+            />
           </div>
         </section>
 
-        {/* Action Required — glass on deep red */}
-        <article
-          id="home-action-panel"
-          className="scroll-mt-28 group relative mx-4 mt-8 overflow-hidden rounded-[22px] border border-red-400/25 shadow-[0_16px_48px_rgba(127,29,29,0.45)] ring-1 ring-red-950/30 sm:mx-6 lg:mx-8"
-          aria-labelledby="home-action-required-title"
-        >
-          <div className="absolute inset-0 bg-gradient-to-br from-red-950 via-[#7f1d1d] to-[#b91c1c]" aria-hidden />
-          <div
-            className="pointer-events-none absolute inset-0 opacity-[0.35]"
-            style={{
-              backgroundImage: `radial-gradient(circle at 1px 1px, rgba(255,255,255,0.22) 1.5px, transparent 0)`,
-              backgroundSize: '12px 12px',
-            }}
-            aria-hidden
-          />
-          <div className="absolute inset-0 bg-gradient-to-b from-white/20 via-transparent to-red-950/20 backdrop-blur-[1px]" aria-hidden />
-          <div className="relative z-[1] p-6 text-white sm:p-7">
-            <div className="relative mb-4 h-1 w-12 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.5)]" />
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0 flex-1">
-                <h2 id="home-action-required-title" className="text-[18px] font-bold tracking-[-0.02em] text-white drop-shadow-sm">
-                  Action Required
-                </h2>
-                <p className="mt-2 text-[32px] font-bold tracking-[-0.04em] text-white drop-shadow-sm sm:text-[36px]">
-                  {actionHeadline}
-                </p>
-                <p className="mt-2 text-[16px] leading-relaxed text-white/90">{actionSub}</p>
-                <p className="mt-3 text-[18px] font-semibold text-white">
-                  {ambData
-                    ? `${ambData.ambiguous_intent_count} ambiguous intents · ambiguity ${(ambData.ambiguity_rate * 100).toFixed(1)}%`
-                    : patternsData
-                      ? `${patternsData.failed_count} failed · ${patternsData.success_count} succeeded (latest batch signal)`
-                      : 'Open Recovery or Leakage docks to triage'}
-                </p>
-              </div>
-              {onOpenProblemWorkspace ? (
-                <button
-                  type="button"
-                  onClick={onOpenProblemWorkspace}
-                  className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/35 bg-white/15 px-4 py-3 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.15)] backdrop-blur-md transition hover:bg-white/25 hover:border-white/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white sm:w-auto"
-                >
-                  Open problem workspace
-                  <Glyph name="arrow-up-right" className="h-4 w-4 opacity-90" />
-                </button>
-              ) : (
-                <Link
-                  href="/payout-command-view/today?dock=leakage"
-                  className="inline-flex w-full shrink-0 items-center justify-center gap-2 rounded-2xl border border-white/35 bg-white/15 px-4 py-3 text-[16px] font-semibold text-white shadow-[0_8px_24px_rgba(0,0,0,0.15)] backdrop-blur-md transition hover:bg-white/25 sm:w-auto"
-                >
-                  Open problem workspace
-                  <Glyph name="arrow-up-right" className="h-4 w-4 opacity-90" />
-                </Link>
-              )}
-            </div>
-            <div className="mt-6 rounded-[20px] border border-white/30 bg-white/15 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] backdrop-blur-md">
-              <span className="text-[13px] font-bold uppercase tracking-[0.12em] text-white/85">Recommended Action:</span>
-              <p className="mt-2 text-[16px] font-medium leading-snug text-white/95">
-                {patternsData && leakageData
-                  ? `Review ${patternsData.pending_count} pending intents and ${(leakageData.leakage_percentage * 100).toFixed(1)}% leakage — triage in Leakage / Journal docks.`
-                  : leakageData
-                    ? `${leakageData.risk_tier} leakage tier — open Leakage dock for unmatched and under-settlement amounts.`
-                    : patternsData
-                      ? `Batch anomaly ${patternsData.anomaly_level} on latest patterns signal — cross-check Intent Journal.`
-                      : 'When intelligence KPIs load for this tenant, recommended follow-ups appear here.'}
-              </p>
-            </div>
-          </div>
-        </article>
-
-        <div className="relative z-10 mt-10 w-full px-4 sm:px-6 lg:px-8">
+        <div className="relative z-10 mt-8 w-full px-4 sm:px-6 lg:px-8">
         {commandResponse ? (
           <div className="mx-auto mb-3 w-full max-w-[30rem] rounded-[1.2rem] border border-black/10 bg-white px-4 py-3 shadow-[0_12px_24px_rgba(0,0,0,0.08)]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-[14px] font-medium uppercase tracking-[0.14em] text-[#179a4c]">
+                <div className="text-[11px] font-normal uppercase tracking-[0.06em] text-[#888888]">
                   {commandStatus === 'loading' ? 'Analyzing prompt' : commandStatus === 'typing' ? 'Drafting response' : 'Scope summary'}
                 </div>
-                <div className="mt-1 text-[18px] font-medium text-[#111111]">{commandResponse.title}</div>
-                <div className="mt-2 min-h-[3.25rem] text-[16px] leading-6 text-[#6f716d]">
+                <div className={`mt-1 text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>{commandResponse.title}</div>
+                <div className={`mt-2 min-h-[3.25rem] ${HOME_BODY_IMPERIAL_SM}`}>
                   {commandResponse.body}
                   {commandStatus === 'typing' ? <span className="ml-0.5 inline-block h-4 w-px animate-pulse bg-[#179a4c] align-middle" /> : null}
                 </div>
@@ -711,7 +831,7 @@ export function HomeSurface({
             className="mx-auto flex w-full max-w-[24rem] items-center gap-3 rounded-[1rem] bg-[#1F1F1F] px-4 py-3 text-left text-white shadow-[0_8px_32px_rgba(0,0,0,0.10)]"
             aria-label="Open Ask Zord prompt"
           >
-            <span className="flex h-9 w-9 items-center justify-center rounded-[0.7rem] bg-[#4ADE80] text-[#111111]">
+            <span className="flex h-9 w-9 items-center justify-center rounded-[0.7rem] bg-[#4ADE80] text-[#000000]">
               <Glyph name="zap" className="h-4 w-4" />
             </span>
             <span className="text-[17px] font-medium">Ask Zord</span>
@@ -747,7 +867,7 @@ export function HomeSurface({
             </div>
 
             <div ref={promptRowRef} className="flex items-center gap-3 rounded-[1rem] border border-white/8 bg-[#232323] p-3">
-              <div className={`flex h-14 w-14 items-center justify-center rounded-[0.85rem] bg-[#4ADE80] text-[#111111] ${commandStatus === 'loading' || commandStatus === 'typing' ? 'animate-pulse' : ''}`}>
+              <div className={`flex h-14 w-14 items-center justify-center rounded-[0.85rem] bg-[#4ADE80] text-[#000000] ${commandStatus === 'loading' || commandStatus === 'typing' ? 'animate-pulse' : ''}`}>
                 <Glyph name="zap" className="h-5 w-5" />
               </div>
               <div className="flex-1">

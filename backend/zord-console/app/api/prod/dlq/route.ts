@@ -1,19 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchDLQItems } from '@/services/backend/dlq'
+import {
+  applyRefreshedSessionCookies,
+  requireSessionTenantForProdProxy,
+} from '@/services/auth/resolvePayoutTenant.server'
 
 // Force dynamic rendering for API routes
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
-  try {
-    const searchParams = request.nextUrl.searchParams
-    const tenantId = searchParams.get('tenant_id') || undefined
+  const gate = await requireSessionTenantForProdProxy(request)
+  if (!gate.ok) return gate.response
+  const tenantId = gate.tenantId
 
-    // Fetch from real backend (zord-intent-engine)
+  try {
     const items = await fetchDLQItems({ tenant_id: tenantId })
     const list = Array.isArray(items) ? items : []
 
-    // Transform backend response to match frontend DLQItem type
     const transformedItems = list.map((item) => ({
       dlq_id: item.dlq_id,
       envelope_id: item.envelope_id,
@@ -26,7 +29,7 @@ export async function GET(request: NextRequest) {
       tenant_id: item.tenant_id,
     }))
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       items: transformedItems,
       pagination: {
         page: 1,
@@ -34,9 +37,10 @@ export async function GET(request: NextRequest) {
         total: transformedItems.length,
       },
     })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   } catch (error) {
-    // Return empty response on error (no mock data)
-    return NextResponse.json({
+    const res = NextResponse.json({
       items: [],
       pagination: {
         page: 1,
@@ -45,5 +49,7 @@ export async function GET(request: NextRequest) {
       },
       error: error instanceof Error ? error.message : 'Failed to fetch DLQ items',
     })
+    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    return res
   }
 }

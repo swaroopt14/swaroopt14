@@ -86,9 +86,9 @@ export function PageHeader({
               role="switch"
               aria-checked={homeSystemKnowledgeFlow.enabled}
               onClick={() => homeSystemKnowledgeFlow.onChange(!homeSystemKnowledgeFlow.enabled)}
-              className={`relative flex h-7 w-[3rem] shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4ADE80] ${
+              className={`relative flex h-7 w-[3rem] shrink-0 items-center rounded-full p-0.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 ${
                 homeSystemKnowledgeFlow.enabled
-                  ? 'justify-end bg-[#4ADE80] shadow-[0_0_18px_rgba(74,222,128,0.4)]'
+                  ? 'justify-end bg-neutral-900 shadow-[0_0_12px_rgba(0,0,0,0.12)]'
                   : 'justify-start bg-[#d4d4d0]'
               }`}
             >
@@ -136,7 +136,7 @@ export function PageHeader({
           onClick={onAskZordToggle}
           className="flex h-9 items-center gap-1.5 rounded-[8px] border border-[#111111] bg-[#111111] px-2.5 text-[14px] font-semibold text-white"
         >
-          <span className="h-2 w-2 rounded-full bg-[#4ADE80]" />
+          <span className="h-2 w-2 rounded-full bg-white/90" />
           Ask Zord
         </button>
 

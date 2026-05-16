@@ -1,19 +1,45 @@
 'use client'
 
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { DASHBOARD_FONT_STACK } from '@/services/payout-command/model'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { Manrope } from 'next/font/google'
+import { CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
+import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { ClientChart, Glyph } from '../../today/_components/shared'
+import { SessionTenantScopeBar } from '../../today/_components/layout/SessionTenantScopeBar'
+import { ZordPipelineStepper } from './ZordPipelineStepper'
+import {
+  COMMAND_CENTER_KPI_CARD,
+  COMMAND_CENTER_LABEL_GREEN,
+  HOME_BODY_IMPERIAL,
+  HOME_BODY_IMPERIAL_MD,
+  HOME_BODY_IMPERIAL_SM,
+  HOME_INSIGHT_PROSE,
+  HOME_INSIGHT_PROSE_STRONG,
+  HOME_TITLE_BLACK,
+} from '../../today/_components/command-center/homeCommandCenterTokens'
+import {
+  dismissNotice,
+  noticeDismissed,
+  HydrationSafeLocaleTime,
+  RecommendedBlackCard,
+  reopenNotice,
+} from '../../today/_components/command-center/RecommendedBlackCard'
+
+const BATCH_ALL_CLEAR_DISMISS_KEY = 'zord:batch-command-center-all-clear-notice'
 import {
   computeFailureCounts,
+  aggregateIntelligenceBatches,
   deriveZordPipelineTimeline,
   type ZordPipelineIntake,
   formatInr,
+  formatInrPrecise,
   formatPercent,
   parseUploadedSheet,
   progressFromSummary,
+  summaryFromIntelligenceBatchRow,
   sortRowsByLatest,
   type BatchRow,
   type BatchRowStatus,
@@ -21,18 +47,14 @@ import {
   type BatchTimelineStep,
 } from '@/services/payout-command/batch-model'
 import { postIntentBulkIngest } from '@/services/payout-command/batch-intake/postIntentBulkIngest'
+import { parseBulkIngestAcceptedResponse, type ParsedBulkIngestAccepted } from '@/services/payout-command/batch-intake/intakeHttpShared'
 import { postSettlementFileUpload } from '@/services/payout-command/batch-intake/postSettlementFileUpload'
+import { getProdDlqPage } from '@/services/payout-command/prod-api/getProdDlqPage'
 import { getProdIntentsPage } from '@/services/payout-command/prod-api/getProdIntentsPage'
-import { getIntelligenceBatchDetail } from '@/services/payout-command/prod-api/getIntelligenceKpis'
-import type { ApiIntentRow } from '@/services/payout-command/prod-api/prodApiTypes'
-import type { BatchDetailResponse } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { getIntelligenceBatchDetail, getIntelligenceBatches, getPatternsKpis } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import type { ApiDlqRow, ApiIntentRow } from '@/services/payout-command/prod-api/prodApiTypes'
+import { isDataAvailable, type BatchDetailResponse, type BatchesListResponse, type PatternsKpiResponse } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { CreatePaymentRequestForm } from '../../../customer/intents/create/page'
-import {
-  postLoanSystemBatchPull,
-  postMandateNachPull,
-  postSettlementFeedPull,
-} from '@/services/payout-command/external-batch-sync/client'
-import type { ExternalBatchSyncResponse } from '@/services/payout-command/external-batch-sync/types'
 
 // Map an intent-engine row → BatchCommandCenter's row shape so the table can render
 // real tenant data on initial load (before any CSV upload). Missing fields are
@@ -60,36 +82,72 @@ function mapIntentRowToBatchRow(intent: ApiIntentRow): BatchRow {
   }
 }
 
+function mapDlqRowToBatchRow(row: ApiDlqRow): BatchRow {
+  const reason = [row.reason_code, row.error_detail].filter(Boolean).join(' — ') || 'DLQ'
+  const stage = (row.stage ?? '').trim() || 'Dead letter'
+  return {
+    refId: row.dlq_id,
+    amount: 0,
+    beneficiary: row.envelope_id ? `env_${row.envelope_id.slice(0, 8)}` : '—',
+    status: 'Failed',
+    stage,
+    reason,
+    time: row.created_at ?? '—',
+    actionLabel: row.replayable ? 'Replay' : 'Review',
+    provider: 'RazorpayX',
+    dispatchId: row.envelope_id ?? '',
+    bankReference: (row.client_batch_ref ?? '').trim(),
+    timeline: [],
+  }
+}
+
 function formatInrFromMinor(minorStr: string | null | undefined): string {
   if (minorStr == null || String(minorStr).trim() === '') return '—'
   const minor = Number(minorStr)
   if (!Number.isFinite(minor)) return '—'
-  return formatInr(minor / 100)
+  return formatInrPrecise(minor / 100)
 }
 
-type StatusFilter = 'All' | BatchRowStatus
+/**
+ * `X-Zord-Source-Type` for bulk ingest — must match zord-edge `TransportValidation`
+ * allowlist (REST | CSV | PROMPT | WEBHOOK | FILE_UPLOAD). File format is still
+ * chosen from extension inside `BulkIntentHandler`; do not send `XLSX` here or edge returns 400.
+ */
+function bulkIngestSourceTypeFromFilename(filename: string): string {
+  const lower = filename.toLowerCase()
+  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'FILE_UPLOAD'
+  return 'CSV'
+}
+
+type StatusFilter = 'Confirmed' | 'Requires review'
 type SortMode = 'Latest' | 'Oldest'
 
-const PIE_COLORS = ['#22c55e', '#ef4444', '#f59e0b', '#3b82f6']
-const AUTO_REFRESH_MS = 8000
+const manropeBatch = Manrope({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700', '800'],
+  display: 'swap',
+})
+
+const PIE_COLORS = ['#39E07E', '#ef4444', '#f59e0b', '#3b82f6']
 /** After intent bulk-ingest succeeds, poll intent-engine list so ops see live connectivity (not row-level sync). */
 const INTENT_ENGINE_POLL_MS = 20_000
 /** Poll Intelligence batch detail for the operational snapshot card. */
 const BATCH_INTEL_POLL_MS = 15_000
+/** Poll KPI 14 (pattern anomaly) for the same batch id as batch detail. */
+const PATTERN_KPI_POLL_MS = 20_000
+/** Avoid hitting `/v1/intelligence/batches/{id}` on every keystroke while ops type a batch id. */
+const BATCH_INTEL_ID_DEBOUNCE_MS = 450
 const PAGE_SIZE = 10
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
-  { value: 'All', label: 'All' },
-  { value: 'Success', label: 'Confirmed' },
-  { value: 'Pending', label: 'Pending' },
-  { value: 'Failed', label: 'Requires review' },
-  { value: 'Processing', label: 'Processing' },
+  { value: 'Confirmed', label: 'Confirmed' },
+  { value: 'Requires review', label: 'Requires review' },
 ]
 
 function statusBadgeClass(status: BatchRowStatus) {
   if (status === 'Success') return 'bg-[#f0fdf4] text-[#15803d] border-[#bbf7d0]'
-  if (status === 'Failed') return 'bg-[#fff1f2] text-[#b91c1c] border-[#fecdd3]'
-  if (status === 'Pending') return 'bg-[#fffbeb] text-[#b45309] border-[#fde68a]'
-  return 'bg-[#eff6ff] text-[#1d4ed8] border-[#bfdbfe]'
+  if (status === 'Failed') return 'bg-[#ecfdf5] text-[#166534] border-[#86efac]'
+  if (status === 'Pending') return 'bg-[#f0fdf9] text-[#047857] border-[#a7f3d0]'
+  return 'bg-[#f0fdf4] text-[#16a34a] border-[#d1fae5]'
 }
 
 function statusLabel(status: BatchRowStatus) {
@@ -118,11 +176,11 @@ function timelineStateClass(state: BatchTimelineStep['state']) {
   if (state === 'active')
     return 'bg-[#eff6ff] border-[#6366f1] text-[#1d4ed8] shadow-[0_0_0_1px_rgba(99,102,241,0.18)] motion-safe:animate-pulse'
   if (state === 'warning') return 'bg-[#fffbeb] border-[#f59e0b] text-[#b45309]'
-  return 'bg-[#fafaf8] border-[#e5e5e2] text-[#8a8a86]'
+  return 'bg-slate-50 border-[#e5e5e2] text-[#888888]'
 }
 
 function timelineDotColor(state: BatchTimelineStep['state']) {
-  if (state === 'done') return '#22c55e'
+  if (state === 'done') return '#39E07E'
   if (state === 'active') return '#3b82f6'
   if (state === 'warning') return '#f59e0b'
   return '#d4d4d0'
@@ -145,22 +203,6 @@ function toCsv(rows: BatchRow[]) {
   return [header.join(','), ...lines].join('\n')
 }
 
-function evolveRow(row: BatchRow): BatchRow {
-  if (row.status !== 'Processing') return row
-  const n = Math.random()
-  if (n < 0.72) {
-    return {
-      ...row, status: 'Success', stage: 'Confirmed', reason: '-', actionLabel: 'Export confirmation row',
-      time: row.time === '-' ? '10:03:12' : row.time,
-      timeline: row.timeline.map((step, index) =>
-        index >= 4 ? { ...step, state: 'done', time: index === 4 ? '10:02:44' : '10:03:12' } : step,
-      ),
-    }
-  }
-  if (n < 0.88) return { ...row, status: 'Pending', stage: 'Awaiting bank confirmation', reason: '-', actionLabel: 'Inspect queue' }
-  return { ...row, status: 'Failed', stage: 'Sent to payment partner', reason: 'Bank Timeout', actionLabel: 'Retry row' }
-}
-
 function recomputeSummary(rows: BatchRow[], fallbackTotalRows: number): BatchSummary {
   const statusCounts = rows.reduce(
     (acc, row) => { acc[row.status] += 1; return acc },
@@ -174,22 +216,65 @@ function recomputeSummary(rows: BatchRow[], fallbackTotalRows: number): BatchSum
 /* ── Primitives ── */
 
 function SectionLabel({ children }: { children: ReactNode }) {
+  return <div className={COMMAND_CENTER_LABEL_GREEN}>{children}</div>
+}
+
+function CommandCenterCardGlow() {
   return (
-    <div className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[#9a9a96]">
-      {children}
-    </div>
+    <div
+      className="pointer-events-none absolute -right-20 -top-24 h-52 w-52 rounded-full blur-3xl"
+      style={{ background: 'radial-gradient(circle, rgba(61,255,130,0.2) 0%, transparent 72%)' }}
+      aria-hidden
+    />
+  )
+}
+
+function BatchSectionTitle({ children }: { children: ReactNode }) {
+  return (
+    <h2 className={`mt-2 text-[1.34rem] font-semibold tracking-[-0.03em] ${HOME_TITLE_BLACK}`}>{children}</h2>
+  )
+}
+
+function ExceptionIssueCard({
+  problem,
+  impact,
+  action,
+}: {
+  problem: string
+  impact: string
+  action: string
+}) {
+  return (
+    <article className={`${COMMAND_CENTER_KPI_CARD} min-h-[200px]`}>
+      <CommandCenterCardGlow />
+      <span className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Requires attention</span>
+      <h3 className={`relative mt-2 text-[18px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
+        {problem}
+      </h3>
+      <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
+        <span className={HOME_INSIGHT_PROSE_STRONG}>Impact: </span>
+        {impact}
+      </p>
+      <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
+        <span className={HOME_INSIGHT_PROSE_STRONG}>Action: </span>
+        {action}
+      </p>
+    </article>
   )
 }
 
 function Card({ children, className = '', id }: { children: ReactNode; className?: string; id?: string }) {
   return (
-    <div id={id} className={`rounded-2xl border border-[#ebebea] bg-white ${className}`}>
+    <div
+      id={id}
+      className={`rounded-2xl border border-[#E5E5E5] bg-white shadow-[0_2px_12px_rgba(15,23,42,0.04)] ${className}`}
+    >
       {children}
     </div>
   )
 }
 
-function StatCard({ label, value, sub, deltaPct, insight, actionLabel, onAction, color = 'text-[#111111]' }: {
+function StatCard({ label, value, sub, deltaPct, insight, actionLabel, onAction }: {
   label: string
   value: string
   sub?: string
@@ -197,19 +282,19 @@ function StatCard({ label, value, sub, deltaPct, insight, actionLabel, onAction,
   insight?: string
   actionLabel?: string
   onAction?: () => void
-  color?: string
 }) {
   return (
-    <Card className="flex h-full flex-col p-5">
+    <article className={`${COMMAND_CENTER_KPI_CARD} h-full`}>
+      <CommandCenterCardGlow />
       <SectionLabel>{label}</SectionLabel>
-      <div className="mt-3 flex flex-wrap items-baseline gap-2">
-        <div className={`text-[2.26rem] font-light tracking-[-0.04em] leading-none ${color}`}>{value}</div>
-        {deltaPct ? <span className="text-[13px] font-medium text-[#6f6f6b]">{deltaPct}</span> : null}
+      <div className="relative mt-3 flex flex-wrap items-baseline gap-2">
+        <div className={`text-[42px] font-extrabold tabular-nums tracking-[-0.03em] leading-none ${HOME_TITLE_BLACK}`}>{value}</div>
+        {deltaPct ? <span className={`text-[13px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>{deltaPct}</span> : null}
       </div>
-      {sub ? <div className="mt-2 text-[14px] text-[#8a8a86]">{sub}</div> : null}
+      {sub ? <div className={`mt-2 tracking-[0] ${HOME_BODY_IMPERIAL_MD}`}>{sub}</div> : null}
       {insight ? (
-        <p className="mt-3 border-t border-[#efefec] pt-3 text-[13px] leading-snug text-[#5a5a56]">
-          <span className="font-semibold text-[#4f4f4b]">Insight: </span>
+        <p className={`mt-3 border-t border-slate-200/90 pt-3 ${HOME_INSIGHT_PROSE}`}>
+          <span className={HOME_INSIGHT_PROSE_STRONG}>Insight: </span>
           {insight}
         </p>
       ) : null}
@@ -217,16 +302,16 @@ function StatCard({ label, value, sub, deltaPct, insight, actionLabel, onAction,
         <button
           type="button"
           onClick={onAction}
-          className="mt-auto pt-4 text-left text-[13px] font-medium text-[#111111] underline decoration-[#d0d0cc] underline-offset-2 hover:decoration-[#111111]"
+          className={`mt-auto pt-4 text-left text-[13px] font-medium underline decoration-[#d0d0cc] underline-offset-2 hover:decoration-[#000000] ${HOME_TITLE_BLACK}`}
         >
           {actionLabel}
         </button>
       ) : actionLabel ? (
-        <p className="mt-auto pt-4 text-[13px] font-medium text-[#111111]">
+        <p className={`mt-auto pt-4 text-[13px] font-medium ${HOME_TITLE_BLACK}`}>
           Action: {actionLabel}
         </p>
       ) : null}
-    </Card>
+    </article>
   )
 }
 
@@ -237,27 +322,27 @@ function DataTable({ head, rows, footer }: {
 }) {
   return (
     <div>
-      <div className="overflow-x-auto rounded-xl border border-[#efefec]">
+      <div className="overflow-x-auto rounded-xl border border-[#E5E5E5]">
         <table className="min-w-full text-left text-[14px]">
           <thead>
-            <tr className="border-b border-[#efefec] bg-[#fafaf8]">
+            <tr className="border-b border-[#E5E5E5] bg-slate-50">
               {head.map((h) => (
-                <th key={h} className="px-4 py-2.5 text-[12px] font-semibold uppercase tracking-[0.08em] text-[#9a9a96]">{h}</th>
+                <th key={h} className={`px-4 py-2.5 ${COMMAND_CENTER_LABEL_GREEN}`}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((row, i) => (
-              <tr key={i} className={i < rows.length - 1 ? 'border-b border-[#f3f3f0]' : ''}>
+              <tr key={i} className={i < rows.length - 1 ? 'border-b border-slate-100' : ''}>
                 {row.map((cell, j) => (
-                  <td key={j} className={`px-4 py-3 ${j === 0 ? 'font-medium text-[#111111]' : 'text-[#5a5a56]'}`}>{cell}</td>
+                  <td key={j} className={`px-4 py-3 ${j === 0 ? `font-medium ${HOME_TITLE_BLACK}` : HOME_BODY_IMPERIAL_SM}`}>{cell}</td>
                 ))}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {footer ? <p className="mt-3 text-[13px] leading-relaxed text-[#8a8a86]">{footer}</p> : null}
+      {footer ? <p className={`mt-3 ${HOME_INSIGHT_PROSE}`}>{footer}</p> : null}
     </div>
   )
 }
@@ -265,6 +350,8 @@ function DataTable({ head, rows, footer }: {
 /* ── Main ── */
 
 export default function BatchCommandCenterClient() {
+  const pathname = usePathname()
+  const isSandboxRoute = pathname?.startsWith('/sandbox') ?? false
   const [rows, setRows] = useState<BatchRow[]>([])
   const [summary, setSummary] = useState<BatchSummary>(() => ({
     totalRows: 0,
@@ -274,7 +361,7 @@ export default function BatchCommandCenterClient() {
     pending: 0,
   }))
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('All')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('Confirmed')
   const [sortMode, setSortMode] = useState<SortMode>('Latest')
   const [selectedFailureReason, setSelectedFailureReason] = useState<string | null>(null)
   const [expandedRef, setExpandedRef] = useState<string | null>(null)
@@ -292,32 +379,32 @@ export default function BatchCommandCenterClient() {
   // reused from /customer/intents/create. Same component, same backend path.
   const [intakeTab, setIntakeTab] = useState<'batch' | 'single'>('batch')
   const [apiKey, setApiKey] = useState('')
-  const [sourceType, setSourceType] = useState('CSV')
   const [tenantType, setTenantType] = useState<'MERCHANT' | 'BANK' | 'NBFC' | 'VENDOR' | 'GATEWAY'>('MERCHANT')
   const [batchIdInput, setBatchIdInput] = useState('')
-  /** Same resolution as Intent Journal / Home (`useSessionTenantId`) so sandbox hits `/api/prod/*` with a tenant. */
-  const tenantId = useSessionTenantId()
+  const { tenantId, tenantReady, refreshTenant } = useSessionTenant()
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [intentIngestOk, setIntentIngestOk] = useState(false)
+  /** Last successful Step-1 bulk ingest HTTP body (shown in its own card). */
+  const [intentBulkIngestAck, setIntentBulkIngestAck] = useState<{
+    httpStatus: number
+    parsed: ParsedBulkIngestAccepted | null
+    rawFallback: string
+    at: Date
+  } | null>(null)
   /** Batch id used for settlement (response body, optional Step 1 field, or LOCAL-* fallback). */
   const [settlementBatchId, setSettlementBatchId] = useState<string | null>(null)
   const settlementFileInputRef = useRef<HTMLInputElement>(null)
-  const toolbarNoticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const toolbarNoticeTimerRef = useRef<number | null>(null)
   const [toolbarNotice, setToolbarNotice] = useState<string | null>(null)
-  const [shareBusy, setShareBusy] = useState(false)
-  const [externalSyncBusy, setExternalSyncBusy] = useState<'loan' | 'settlement' | 'mandate' | null>(null)
-  const [externalSyncLast, setExternalSyncLast] = useState<{
-    operation: string
-    message: string
-    hint?: string
-    at: Date
-    requestId?: string
-    httpOk: boolean
-  } | null>(null)
+  const [allClearNoticeDismissed, setAllClearNoticeDismissed] = useState(false)
 
+  useEffect(() => {
+    setAllClearNoticeDismissed(noticeDismissed(BATCH_ALL_CLEAR_DISMISS_KEY))
+  }, [])
+  const [shareBusy, setShareBusy] = useState(false)
   const showToolbarNotice = useCallback((message: string) => {
     setToolbarNotice(message)
-    if (toolbarNoticeTimerRef.current) clearTimeout(toolbarNoticeTimerRef.current)
+    if (toolbarNoticeTimerRef.current) window.clearTimeout(toolbarNoticeTimerRef.current)
     toolbarNoticeTimerRef.current = window.setTimeout(() => {
       setToolbarNotice(null)
       toolbarNoticeTimerRef.current = null
@@ -326,7 +413,7 @@ export default function BatchCommandCenterClient() {
 
   useEffect(() => {
     return () => {
-      if (toolbarNoticeTimerRef.current) clearTimeout(toolbarNoticeTimerRef.current)
+      if (toolbarNoticeTimerRef.current) window.clearTimeout(toolbarNoticeTimerRef.current)
     }
   }, [])
 
@@ -341,60 +428,63 @@ export default function BatchCommandCenterClient() {
   const [intelBatchDetailLoading, setIntelBatchDetailLoading] = useState(false)
   const [intelBatchDetailError, setIntelBatchDetailError] = useState<string | null>(null)
   const [intelBatchDetailAt, setIntelBatchDetailAt] = useState<Date | null>(null)
+  const [intelBatchesList, setIntelBatchesList] = useState<BatchesListResponse | null>(null)
+  const [patternsKpi, setPatternsKpi] = useState<PatternsKpiResponse | null>(null)
 
   const settlementBatchIdResolved = useMemo(
     () => (settlementBatchId ?? batchIdInput.trim()).trim(),
     [batchIdInput, settlementBatchId],
   )
+  const [debouncedBatchIdForIntelPoll, setDebouncedBatchIdForIntelPoll] = useState('')
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      setDebouncedBatchIdForIntelPoll(settlementBatchIdResolved)
+    }, BATCH_INTEL_ID_DEBOUNCE_MS)
+    return () => window.clearTimeout(id)
+  }, [settlementBatchIdResolved])
+
   const settlementCredentialsReady = useMemo(
-    () => tenantId.trim().length > 0 && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
-    [psp, settlementBatchIdResolved, tenantId],
+    () => tenantReady && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
+    [psp, settlementBatchIdResolved, tenantReady],
   )
   const settlementPickerEnabled = settlementCredentialsReady && intakeStep !== 'settlement_uploading'
-  const intelligenceBatchPollEligible = useMemo(
-    () =>
-      tenantId.trim().length > 0 &&
-      settlementBatchIdResolved.length > 0 &&
-      !settlementBatchIdResolved.startsWith('LOCAL-'),
-    [settlementBatchIdResolved, tenantId],
-  )
-
-  const refreshSimulation = useCallback(() => {
-    setRows((c) => c.map(evolveRow))
-    setSummary((c) => {
-      const processing = Math.max(0, c.totalRows - c.processed)
-      if (processing === 0) return c
-      const step = Math.min(processing, Math.max(60, Math.round(processing * 0.09)))
-      const successGain = Math.round(step * 0.86)
-      const failedGain = Math.round(step * 0.08)
-      const pendingGain = step - successGain - failedGain
-      return {
-        totalRows: c.totalRows,
-        processed: Math.min(c.totalRows, c.processed + step),
-        success: c.success + successGain,
-        failed: c.failed + failedGain,
-        pending: Math.max(0, c.pending + pendingGain - Math.round(c.pending * 0.06)),
-      }
-    })
-    setLastRefreshedAt(new Date())
-  }, [])
 
   const loadIntelBatchDetail = useCallback(async () => {
-    if (!intelligenceBatchPollEligible) {
+    if (!tenantReady) {
       setIntelBatchDetail(null)
       setIntelBatchDetailError(null)
       setIntelBatchDetailAt(null)
       setIntelBatchDetailLoading(false)
+      setIntelBatchesList(null)
       return
     }
     setIntelBatchDetailLoading(true)
     setIntelBatchDetailError(null)
     try {
-      const res = await getIntelligenceBatchDetail(tenantId.trim(), settlementBatchIdResolved)
+      const list = await getIntelligenceBatches({ limit: 50 })
+      setIntelBatchesList(list)
+      let opBatch = debouncedBatchIdForIntelPoll.trim()
+      if (opBatch.startsWith('LOCAL-')) opBatch = ''
+      let batchId = opBatch
+      if (!batchId) {
+        batchId = list?.batches?.[0]?.batch_id?.trim() ?? ''
+      } else {
+        }
+      if (!batchId) {
+        setIntelBatchDetail(null)
+        setIntelBatchDetailError(
+          opBatch ? 'Intelligence has no record for this batch id yet (or the request was denied).' : null,
+        )
+        setIntelBatchDetailAt(new Date())
+        return
+      }
+      const res = await getIntelligenceBatchDetail(batchId)
       setIntelBatchDetail(res)
       setIntelBatchDetailAt(new Date())
       if (!res) {
-        setIntelBatchDetailError('Intelligence has no record for this batch id yet (or the request was denied).')
+        setIntelBatchDetailError(
+          opBatch ? 'Intelligence has no record for this batch id yet (or the request was denied).' : null,
+        )
       }
     } catch (e) {
       setIntelBatchDetail(null)
@@ -403,81 +493,110 @@ export default function BatchCommandCenterClient() {
     } finally {
       setIntelBatchDetailLoading(false)
     }
-  }, [intelligenceBatchPollEligible, settlementBatchIdResolved, tenantId])
+  }, [debouncedBatchIdForIntelPoll, tenantReady])
 
   useEffect(() => {
-    if (!intelligenceBatchPollEligible) {
+    if (!tenantReady) {
       setIntelBatchDetail(null)
       setIntelBatchDetailError(null)
       setIntelBatchDetailAt(null)
+      setIntelBatchesList(null)
       return
     }
     void loadIntelBatchDetail()
     const id = window.setInterval(() => void loadIntelBatchDetail(), BATCH_INTEL_POLL_MS)
     return () => window.clearInterval(id)
-  }, [intelligenceBatchPollEligible, loadIntelBatchDetail])
+  }, [tenantReady, loadIntelBatchDetail])
 
-  /** Header refresh — same tick as auto-refresh but surfaces confirmation for ops. */
-  const manualRefreshSnapshot = useCallback(() => {
-    refreshSimulation()
-    if (intelligenceBatchPollEligible) void loadIntelBatchDetail()
-    showToolbarNotice(
-      intelligenceBatchPollEligible
-        ? 'Progress simulation stepped and intelligence batch snapshot refreshed.'
-        : 'Progress simulation stepped — queued disbursements moved toward bank confirmation.',
-    )
-  }, [intelligenceBatchPollEligible, loadIntelBatchDetail, refreshSimulation, showToolbarNotice])
+  const loadPatternsKpi = useCallback(async () => {
+    if (!tenantReady) {
+      setPatternsKpi(null)
+      return
+    }
+    let batchForQuery = debouncedBatchIdForIntelPoll.trim()
+    if (!batchForQuery || batchForQuery.startsWith('LOCAL-')) batchForQuery = ''
+    const p = await getPatternsKpis(batchForQuery || undefined)
+    setPatternsKpi(p)
+  }, [debouncedBatchIdForIntelPoll, tenantReady])
 
   useEffect(() => {
-    const id = window.setInterval(() => refreshSimulation(), AUTO_REFRESH_MS)
-    return () => window.clearInterval(id)
-  }, [refreshSimulation])
+    if (!tenantReady) {
+      setPatternsKpi(null)
+      return
+    }
+    void loadPatternsKpi()
+    const id = window.setInterval(() => void loadPatternsKpi(), PATTERN_KPI_POLL_MS)
+    return () => clearInterval(id)
+  }, [tenantReady, loadPatternsKpi])
+
+  /** Confirmed tab → GET /api/prod/intents (Success rows). Requires review → GET /api/prod/dlq. */
+  const loadProdCommandTable = useCallback(async () => {
+    if (!tenantReady) return
+    try {
+      if (statusFilter === 'Confirmed') {
+        const res = await getProdIntentsPage('page=1&page_size=120')
+        const items = res?.items ?? []
+        const mapped = items.map(mapIntentRowToBatchRow).filter((r) => r.status === 'Success')
+        setRows(mapped)
+        setSummary(recomputeSummary(mapped, mapped.length))
+      } else {
+        const res = await getProdDlqPage()
+        const items = res?.items ?? []
+        const mapped = items.map(mapDlqRowToBatchRow)
+        setRows(mapped)
+        setSummary(recomputeSummary(mapped, mapped.length))
+      }
+      setLastRefreshedAt(new Date())
+    } catch {
+      setRows([])
+      setSummary(recomputeSummary([], 0))
+      setLastRefreshedAt(new Date())
+    }
+  }, [tenantReady, statusFilter])
+
+  const refreshSnapshot = useCallback(() => {
+    if (!tenantReady) {
+      showToolbarNotice('Sign in so the console can load tenant-scoped batch data.')
+      return
+    }
+    void loadProdCommandTable()
+    void loadIntelBatchDetail()
+    void loadPatternsKpi()
+    setLastRefreshedAt(new Date())
+    showToolbarNotice('Confirmed/DLQ table, Intelligence batch, and pattern KPI refreshed from API.')
+  }, [loadIntelBatchDetail, loadPatternsKpi, loadProdCommandTable, showToolbarNotice, tenantReady])
+
+  /** Header refresh — reloads prod APIs (no local row simulation). */
+  const manualRefreshSnapshot = refreshSnapshot
 
   const pollIntentEngineTenant = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid || !intentIngestOk) return
+    if (!tenantReady || !intentIngestOk) return
     try {
-      const res = await getProdIntentsPage(`page=1&page_size=1&tenant_id=${encodeURIComponent(tid)}`)
+      const res = await getProdIntentsPage('page=1&page_size=1')
       const total = res?.pagination?.total
-      const intentTotal =
-        typeof total === 'number' ? total : (Array.isArray(res?.items) ? res.items.length : null)
+      const items = res?.items
+      const intentTotal = typeof total === 'number' ? total : Array.isArray(items) ? items.length : null
       setIntentEnginePoll({ ok: true, intentTotal, at: new Date() })
     } catch (e) {
       const err = e instanceof Error ? e.message : 'Request failed'
       setIntentEnginePoll({ ok: false, intentTotal: null, at: new Date(), err })
     }
-  }, [tenantId, intentIngestOk])
+  }, [tenantReady, intentIngestOk])
 
   useEffect(() => {
-    if (!intentIngestOk || !tenantId.trim()) {
+    if (!intentIngestOk || !tenantReady) {
       setIntentEnginePoll(null)
       return
     }
     void pollIntentEngineTenant()
     const id = window.setInterval(() => void pollIntentEngineTenant(), INTENT_ENGINE_POLL_MS)
     return () => window.clearInterval(id)
-  }, [intentIngestOk, tenantId, pollIntentEngineTenant])
+  }, [intentIngestOk, tenantReady, pollIntentEngineTenant])
 
-  // Pull a real page of intents on mount and on tenant change — replaces the
-  // 180-row canned seed with live data when the tenant has any. Falls back to
-  // canned rows so the empty/demo state still renders.
   useEffect(() => {
-    const tid = tenantId.trim()
-    if (!tid) return
-    let cancelled = false
-    void getProdIntentsPage(`page=1&page_size=120&tenant_id=${encodeURIComponent(tid)}`).then((res) => {
-      if (cancelled) return
-      const items = res?.items ?? []
-      if (items.length === 0) return
-      const mapped = items.map(mapIntentRowToBatchRow)
-      setRows(mapped)
-      setSummary(recomputeSummary(mapped, mapped.length))
-      setLastRefreshedAt(new Date())
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [tenantId])
+    if (!tenantReady) return
+    void loadProdCommandTable()
+  }, [tenantReady, statusFilter, loadProdCommandTable])
 
   const applyLocalSheetFromFile = useCallback(async (file: File) => {
     setUploadState('uploading')
@@ -502,6 +621,7 @@ export default function BatchCommandCenterClient() {
       if (!file) return
       setIntentFileName(file.name)
       setIntentIngestOk(false)
+      setIntentBulkIngestAck(null)
       setSettlementBatchId(null)
       setSettlementFileName(null)
       setIntakeStep('intent_uploading')
@@ -513,23 +633,32 @@ export default function BatchCommandCenterClient() {
         const result = await postIntentBulkIngest({
           file,
           apiKeyRaw: apiKey.trim() || undefined,
-          sourceType,
+          sourceType: bulkIngestSourceTypeFromFilename(file.name),
           tenantType,
           optionalBatchId: bid || undefined,
         })
         if (!result.ok) {
           throw new Error(result.errorMessage ?? `HTTP ${result.httpStatus}`)
         }
+        const ingestAckParsed = parseBulkIngestAcceptedResponse(result.responseText)
+        setIntentBulkIngestAck({
+          httpStatus: result.httpStatus,
+          parsed: ingestAckParsed,
+          rawFallback: ingestAckParsed ? '' : result.responseText.trim().slice(0, 16_000),
+          at: new Date(),
+        })
         const effectiveBatch = result.batchIdFromBody || bid || null
         const journalBatchId = effectiveBatch ?? `LOCAL-${Date.now()}`
         // Always keep step 2 enabled after a successful ingest: server may omit batch id in the
         // response body while the journal still uses a stable LOCAL-* id for sandbox preview.
         setSettlementBatchId(journalBatchId)
         setIntentIngestOk(true)
+        void refreshTenant()
+        markSandboxSetupStep('intent-ingest')
         setUploadRelayState('synced')
         setUploadRelayMessage(
           effectiveBatch
-            ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal loads batches from intelligence and intents from the intent engine for this tenant.`
+            ? `Intent batch accepted. Batch-Id for settlement: ${effectiveBatch}. Table below reflects parsed file (preview). Intent Journal loads batches from intelligence and intents from the intent engine for your session tenant.`
             : `Intent batch accepted. Settlement step uses id ${journalBatchId} (enter Batch-Id above and re-run Step 1 if the settlement service requires a server-issued id).`,
         )
         setRows(parsed)
@@ -542,26 +671,26 @@ export default function BatchCommandCenterClient() {
         setIntakeStep('intent_ready')
       } catch (error) {
         setIntentIngestOk(false)
+        setIntentBulkIngestAck(null)
         setSettlementBatchId(null)
         setUploadRelayState('failed')
         setUploadRelayMessage(`Intent ingest failed (${error instanceof Error ? error.message : 'unknown error'}). Step 2 stays locked until ingest succeeds.`)
         setIntakeStep('idle')
       }
     },
-    [apiKey, batchIdInput, sourceType, tenantType],
+    [apiKey, batchIdInput, tenantType, refreshTenant],
   )
 
   /** Step 2 — POST /api/settlement/upload (proxies settlement service). Does not replace the table with the settlement file. */
   const onSettlementUpload = useCallback(
     async (file: File | null) => {
       if (!file) return
-      const tid = tenantId.trim()
       const pspVal = psp.trim()
       const bid = (settlementBatchId ?? batchIdInput.trim()).trim()
-      if (!tid || !pspVal || !bid) {
+      if (!tenantReady || !pspVal || !bid) {
         setUploadRelayState('failed')
         setUploadRelayMessage(
-          'Settlement upload needs tenant_id, psp, and Batch-Id (complete Step 1 or enter Batch-Id in the field above).',
+          'Settlement upload needs an active session, psp, and Batch-Id (complete Step 1 or enter Batch-Id in the field above).',
         )
         return
       }
@@ -573,7 +702,6 @@ export default function BatchCommandCenterClient() {
         const result = await postSettlementFileUpload({
           file,
           apiKeyRaw: apiKey.trim() || undefined,
-          tenantId: tid,
           psp: pspVal,
           batchId: bid,
         })
@@ -582,6 +710,7 @@ export default function BatchCommandCenterClient() {
         }
         setUploadRelayState('synced')
         setUploadRelayMessage('Settlement file accepted. Matching runs against the intent batch on the server.')
+        markSandboxSetupStep('settlement')
         setIntakeStep('closed')
       } catch (error) {
         setUploadRelayState('failed')
@@ -592,7 +721,7 @@ export default function BatchCommandCenterClient() {
         if (el) el.value = ''
       }
     },
-    [apiKey, batchIdInput, psp, settlementBatchId, tenantId],
+    [apiKey, batchIdInput, psp, settlementBatchId, tenantReady],
   )
 
   const retryFailedRows = useCallback(() => {
@@ -612,7 +741,7 @@ export default function BatchCommandCenterClient() {
       return next
     })
     setSelectedFailureReason(null)
-    setStatusFilter('All')
+    setStatusFilter('Requires review')
     setPage(1)
     setLastRefreshedAt(new Date())
     showToolbarNotice(
@@ -621,7 +750,53 @@ export default function BatchCommandCenterClient() {
   }, [showToolbarNotice])
 
   const failureCounts = useMemo(() => computeFailureCounts(rows), [rows])
-  const progress = useMemo(() => progressFromSummary(summary), [summary])
+
+  /** Non-empty only when ops entered a real server batch id (not LOCAL-* preview). */
+  const operatorIntelBatchId = useMemo(() => {
+    const b = debouncedBatchIdForIntelPoll.trim()
+    if (!b || b.startsWith('LOCAL-')) return ''
+    return b
+  }, [debouncedBatchIdForIntelPoll])
+
+  const intelligenceCardSummary = useMemo((): BatchSummary | null => {
+    if (!intelBatchDetail?.batch || !tenantReady) return null
+    const loadedId = intelBatchDetail.batch.batch_id?.trim()
+    if (!loadedId) return null
+    // Without a real server Batch-Id, intelligence poll may load an unrelated batch (first in list).
+    // LOCAL-* previews must keep StatCards / timeline tied to the parsed file summary, not that snapshot.
+    if (!operatorIntelBatchId.trim()) return null
+    if (loadedId !== operatorIntelBatchId) return null
+    return summaryFromIntelligenceBatchRow(intelBatchDetail.batch)
+  }, [intelBatchDetail, operatorIntelBatchId, tenantReady])
+
+  const statCardsSummary = useMemo(
+    () => intelligenceCardSummary ?? summary,
+    [intelligenceCardSummary, summary],
+  )
+
+  /** Pie + tenant rollups: scoped batch when Batch-Id set; else summed batches or pattern KPI counts. */
+  const pieDistributionSummary = useMemo(() => {
+    if (operatorIntelBatchId) return statCardsSummary
+    const batches = intelBatchesList?.batches ?? []
+    if (batches.length > 0) {
+      const agg = aggregateIntelligenceBatches(batches)
+      if (agg.totalRows > 0) return agg
+    }
+    if (isDataAvailable(patternsKpi) && patternsKpi.total_count > 0) {
+      return summaryFromIntelligenceBatchRow({
+        total_count: patternsKpi.total_count,
+        success_count: patternsKpi.success_count,
+        failed_count: patternsKpi.failed_count,
+        pending_count: patternsKpi.pending_count,
+      })
+    }
+    return statCardsSummary
+  }, [intelBatchesList, operatorIntelBatchId, patternsKpi, settlementBatchIdResolved, statCardsSummary])
+
+  const pieProgress = useMemo(() => progressFromSummary(pieDistributionSummary), [pieDistributionSummary])
+
+  const progress = useMemo(() => progressFromSummary(statCardsSummary), [statCardsSummary])
+
   const pipelineIntake = useMemo<ZordPipelineIntake>(
     () => ({
       intakeStep,
@@ -634,7 +809,10 @@ export default function BatchCommandCenterClient() {
     [intakeStep, intentFileName, intentIngestOk, settlementFileName, uploadedFileName, uploadState],
   )
 
-  const timeline = useMemo(() => deriveZordPipelineTimeline(summary, pipelineIntake), [pipelineIntake, summary])
+  const timeline = useMemo(
+    () => deriveZordPipelineTimeline(statCardsSummary, pipelineIntake),
+    [pipelineIntake, statCardsSummary],
+  )
 
   const pipelineBusy = useMemo(() => timeline.some((s) => s.state === 'active'), [timeline])
 
@@ -644,8 +822,8 @@ export default function BatchCommandCenterClient() {
     const bump = timeline.some((s) => s.state === 'active') ? 0.45 : timeline.some((s) => s.state === 'warning') ? 0.25 : 0
     return Math.min(100, ((done + bump) / Math.max(n, 1)) * 100)
   }, [timeline])
-  const processingCount = Math.max(0, summary.totalRows - summary.processed)
-  const failureRate = summary.totalRows ? (summary.failed / summary.totalRows) * 100 : 0
+  const processingCount = Math.max(0, statCardsSummary.totalRows - statCardsSummary.processed)
+  const failureRate = statCardsSummary.totalRows ? (statCardsSummary.failed / statCardsSummary.totalRows) * 100 : 0
 
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -655,10 +833,9 @@ export default function BatchCommandCenterClient() {
         r.refId.toLowerCase().includes(query) || r.beneficiary.toLowerCase().includes(query),
       )
     }
-    if (statusFilter !== 'All') next = next.filter((r) => r.status === statusFilter)
     if (selectedFailureReason) next = next.filter((r) => r.reason === selectedFailureReason)
     return sortRowsByLatest(next, sortMode)
-  }, [rows, search, statusFilter, selectedFailureReason, sortMode])
+  }, [rows, search, selectedFailureReason, sortMode])
 
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE))
   const currentPage = Math.min(page, totalPages)
@@ -668,55 +845,94 @@ export default function BatchCommandCenterClient() {
 
   const pieData = useMemo(
     () => [
-      { name: 'Confirmed', value: progress.successPct },
-      { name: 'Requires review', value: progress.failedPct },
-      { name: 'Pending confirmation', value: progress.pendingPct },
-      { name: 'Processing', value: progress.processingPct },
+      { name: 'Confirmed', value: pieProgress.successPct },
+      { name: 'Requires review', value: pieProgress.failedPct },
+      { name: 'Pending confirmation', value: pieProgress.pendingPct },
+      { name: 'Processing', value: pieProgress.processingPct },
     ],
-    [progress.failedPct, progress.pendingPct, progress.processingPct, progress.successPct],
+    [pieProgress.failedPct, pieProgress.pendingPct, pieProgress.processingPct, pieProgress.successPct],
   )
+
+  const showIntelBatchesTable = useMemo(
+    () => Boolean(tenantReady && (intelBatchesList?.batches?.length ?? 0) > 0),
+    [intelBatchesList, tenantReady],
+  )
+
+  const intelligenceBatchesTableRows = useMemo(() => {
+    const list = intelBatchesList?.batches ?? []
+    return list.map((row) => {
+      const id = row.batch_id ?? ''
+      const idShort = id.length > 38 ? `${id.slice(0, 36)}…` : id
+      return [
+        <span key={`bid-${id}`} title={id} className="font-mono text-[12px] text-[#0A0A0A]">
+          {idShort}
+        </span>,
+        String(row.finality_status ?? '').replace(/_/g, ' ') || '—',
+        row.total_count.toLocaleString('en-IN'),
+        row.success_count.toLocaleString('en-IN'),
+        row.failed_count.toLocaleString('en-IN'),
+        row.pending_count.toLocaleString('en-IN'),
+      ]
+    })
+  }, [intelBatchesList])
 
   const averageAmount = useMemo(() => {
     if (!rows.length) return 0
     return rows.reduce((sum, r) => sum + r.amount, 0) / rows.length
   }, [rows])
 
-  const amountSummary = useMemo(() => {
-    const totalAmount = averageAmount * summary.totalRows
-    const settledAmount = totalAmount * (summary.success / Math.max(summary.totalRows, 1))
-    const failedAmount = totalAmount * (summary.failed / Math.max(summary.totalRows, 1))
-    const pendingAmount = totalAmount * ((summary.pending + processingCount) / Math.max(summary.totalRows, 1))
+  const rowModelAmountSummary = useMemo(() => {
+    const totalRows = Math.max(statCardsSummary.totalRows, 1)
+    const totalAmount = averageAmount * statCardsSummary.totalRows
+    const settledAmount = totalAmount * (statCardsSummary.success / totalRows)
+    const failedAmount = totalAmount * (statCardsSummary.failed / totalRows)
+    const pendingAmount = totalAmount * ((statCardsSummary.pending + processingCount) / totalRows)
     return { totalAmount, settledAmount, failedAmount, pendingAmount }
-  }, [averageAmount, processingCount, summary.failed, summary.success, summary.totalRows, summary.pending])
+  }, [averageAmount, processingCount, statCardsSummary])
 
-  const settlementSummary = useMemo(() => {
-    const confirmed = amountSummary.settledAmount
-    const processedButUnconfirmed = amountSummary.pendingAmount * 0.68
-    const notFound = Math.max(0, amountSummary.pendingAmount * 0.32 + amountSummary.failedAmount * 0.55)
-    return { confirmed, processedButUnconfirmed, notFound }
-  }, [amountSummary.failedAmount, amountSummary.pendingAmount, amountSummary.settledAmount])
+  const intelRupeeSummary = useMemo(() => {
+    if (!intelligenceCardSummary || !intelBatchDetail?.batch_health || !intelBatchDetail?.batch) return null
+    const h = intelBatchDetail.batch_health
+    const b = intelBatchDetail.batch
+    const intendedMinor = Number(h.total_intended_amount_minor)
+    const confirmedMinor = Number(h.total_confirmed_amount_minor)
+    if (!Number.isFinite(intendedMinor) || !Number.isFinite(confirmedMinor)) return null
+    const totalAmount = intendedMinor / 100
+    const settledAmount = confirmedMinor / 100
+    const unresolvedInr = Math.max(0, totalAmount - settledAmount)
+    const p = Math.max(0, b.pending_count)
+    const f = Math.max(0, b.failed_count)
+    const denom = p + f
+    const w = denom > 0 ? p / denom : 0.5
+    const pendingAmount = unresolvedInr * w
+    const failedAmount = unresolvedInr * (1 - w)
+    return { totalAmount, settledAmount, failedAmount, pendingAmount }
+  }, [intelBatchDetail, intelligenceCardSummary])
 
-  const mandateSummary = useMemo(() => {
-    const active = Math.round(summary.totalRows * 0.88)
-    const pending = Math.round(summary.totalRows * 0.07)
-    const failed = Math.max(0, summary.totalRows - active - pending)
-    return { active, pending, failed }
-  }, [summary.totalRows])
+  const amountSummary = intelRupeeSummary ?? rowModelAmountSummary
 
   const trendSeries = useMemo(() => {
-    const n = 10
-    const targetConfirmed = summary.success / Math.max(summary.totalRows, 1)
-    const targetPending = (summary.pending + processingCount) / Math.max(summary.totalRows, 1)
+    const n = 12
+    const targetConfirmed = statCardsSummary.success / Math.max(statCardsSummary.totalRows, 1)
+    const targetPending = (statCardsSummary.pending + processingCount) / Math.max(statCardsSummary.totalRows, 1)
+    const periodLabels = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     return Array.from({ length: n }, (_, i) => {
       const t = i / Math.max(n - 1, 1)
-      const noise = 0.04 * Math.sin(i * 1.1)
+      const noise = 0.035 * Math.sin(i * 1.15)
+      const confirmed = Math.max(0, Math.min(100, Math.round(100 * (targetConfirmed * (0.58 + 0.42 * t) + noise))))
+      const pending = Math.max(0, Math.min(100, Math.round(100 * (targetPending * (1 - 0.4 * t) - noise * 0.45))))
+      const confirmedPrior = Math.max(
+        0,
+        Math.min(100, Math.round(100 * (targetConfirmed * (0.52 + 0.28 * t) - noise * 0.3))),
+      )
       return {
-        label: `${i + 1}`,
-        confirmed: Math.max(0, Math.round(100 * (targetConfirmed * (0.62 + 0.38 * t) + noise))),
-        pending: Math.max(0, Math.round(100 * (targetPending * (1 - 0.45 * t) - noise * 0.5))),
+        label: periodLabels[i] ?? `${i + 1}`,
+        confirmed,
+        pending,
+        confirmedPrior,
       }
     })
-  }, [processingCount, summary.pending, summary.success, summary.totalRows])
+  }, [processingCount, statCardsSummary.pending, statCardsSummary.success, statCardsSummary.totalRows])
 
   const trendInsight = useMemo(() => {
     if (progress.pendingPct > progress.failedPct && progress.pendingPct > 8) {
@@ -728,27 +944,9 @@ export default function BatchCommandCenterClient() {
     return 'Confirmed share is trending stable; keep polling bank confirmation until pending confirmation clears.'
   }, [progress.failedPct, progress.pendingPct])
 
-  const mandateAmounts = useMemo(() => {
-    const total = amountSummary.totalAmount
-    const frac = (n: number) => (summary.totalRows ? (n / summary.totalRows) * total : 0)
-    return {
-      active: frac(mandateSummary.active),
-      pending: frac(mandateSummary.pending),
-      failed: frac(mandateSummary.failed),
-    }
-  }, [amountSummary.totalAmount, mandateSummary.active, mandateSummary.failed, mandateSummary.pending, summary.totalRows])
-
-  const settlementCounts = useMemo(() => {
-    const t = Math.max(summary.totalRows, 1)
-    const confirmedN = summary.success
-    const processedUnconfirmedN = Math.max(0, Math.round(summary.pending + processingCount * 0.55))
-    const notFoundN = Math.max(0, t - confirmedN - processedUnconfirmedN)
-    return { confirmedN, processedUnconfirmedN, notFoundN }
-  }, [processingCount, summary.pending, summary.success, summary.totalRows])
-
   const exceptionHighlights = useMemo(() => {
     const top = [...failureCounts].sort((a, b) => b.count - a.count).slice(0, 3)
-    const valuePerFailure = summary.failed ? amountSummary.failedAmount / summary.failed : 0
+    const valuePerFailure = statCardsSummary.failed ? amountSummary.failedAmount / statCardsSummary.failed : 0
     return top.map((item) => ({
       ...item,
       value: item.count * valuePerFailure,
@@ -763,26 +961,27 @@ export default function BatchCommandCenterClient() {
               ? 'Validate beneficiary details in the loan system, then resubmit.'
               : 'Open the filtered table, verify source records, and retry or escalate.',
     }))
-  }, [amountSummary.failedAmount, failureCounts, summary.failed])
+  }, [amountSummary.failedAmount, failureCounts, statCardsSummary.failed])
 
-  const reviewCount = summary.failed + Math.round(summary.pending * 0.35)
+  const reviewCount = useMemo(() => {
+    if (intelligenceCardSummary) return statCardsSummary.failed
+    return summary.failed + Math.round(summary.pending * 0.35)
+  }, [intelligenceCardSummary, statCardsSummary.failed, summary.failed, summary.pending])
 
-  const methodBreakdown = useMemo(() => {
-    const base: Record<string, { method: string; confirmed: number; pending: number; review: number }> = {
-      'Bank Transfer': { method: 'Bank Transfer', confirmed: 0, pending: 0, review: 0 },
-      LSM: { method: 'LSM', confirmed: 0, pending: 0, review: 0 },
-      NACH: { method: 'NACH', confirmed: 0, pending: 0, review: 0 },
-      Other: { method: 'Other', confirmed: 0, pending: 0, review: 0 },
-    }
-    rows.forEach((row) => {
-      const m = disbursementMethodFromProvider(row.provider)
-      const b = base[m] ?? (base[m] = { method: m, confirmed: 0, pending: 0, review: 0 })
-      if (row.status === 'Success') b.confirmed += 1
-      else if (row.status === 'Pending') b.pending += 1
-      else b.review += 1
-    })
-    return Object.values(base)
-  }, [rows])
+  const requiresReviewStatInsight = useMemo(() => {
+    const base = 'These items block a clean operational close until retried or corrected.'
+    if (!isDataAvailable(patternsKpi)) return base
+    const sc = patternsKpi.batch_anomaly_score
+    const level = patternsKpi.anomaly_level.replace(/_/g, ' ')
+    const shown =
+      Number.isFinite(sc) && sc >= 0 && sc <= 1 ? `${(sc * 100).toFixed(1)}%` : `${Number(sc).toFixed(3)}`
+    return `${base} Pattern KPI (Isolation Forest): anomaly ${shown} · ${level}.`
+  }, [patternsKpi])
+
+  const intelligenceFootnoteBatchId = useMemo(
+    () => intelBatchDetail?.batch?.batch_id?.trim() ?? '',
+    [intelBatchDetail],
+  )
 
   const downloadReport = useCallback(() => {
     const exportRows = filteredRows.length ? filteredRows : rows
@@ -801,14 +1000,14 @@ export default function BatchCommandCenterClient() {
     const url = typeof window !== 'undefined' ? window.location.href : ''
     const batchLabel = (settlementBatchId ?? batchIdInput.trim()) || '—'
     const tid = tenantId.trim() || '—'
-    const stillProcessing = Math.max(0, summary.totalRows - summary.processed)
+    const stillProcessing = Math.max(0, statCardsSummary.totalRows - statCardsSummary.processed)
     const text = [
       'Zord — Batch Command Center snapshot',
       '',
       `Tenant: ${tid}`,
       `Batch / correlation id: ${batchLabel}`,
-      `Total rows: ${summary.totalRows}`,
-      `Confirmed: ${summary.success} · Pending: ${summary.pending} · Failed (needs review): ${summary.failed} · Still processing: ${stillProcessing}`,
+      `Total rows: ${statCardsSummary.totalRows}`,
+      `Confirmed: ${statCardsSummary.success} · Pending: ${statCardsSummary.pending} · Failed (needs review): ${statCardsSummary.failed} · Still processing: ${stillProcessing}`,
       '',
       `Open in console: ${url}`,
     ].join('\n')
@@ -824,230 +1023,21 @@ export default function BatchCommandCenterClient() {
     }
     window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`
     showToolbarNotice('Opened your email client with a pre-filled batch summary — add recipients and send.')
-  }, [batchIdInput, settlementBatchId, showToolbarNotice, summary, tenantId])
-
-  const batchContextSnapshot = useMemo(() => {
-    const b = intelBatchDetail?.batch
-    const h = intelBatchDetail?.batch_health
-    const batchId = settlementBatchIdResolved || '—'
-    const ingestLabel = intentFileName ? `${sourceType} upload` : '—'
-    const finalityRaw = h?.finality_status ?? b?.finality_status
-    const finality =
-      finalityRaw && String(finalityRaw).trim() ? String(finalityRaw).replace(/_/g, ' ') : '—'
-    // Totals must match the batch currently shown in the grid (parsed upload / ingested sheet),
-    // not Intelligence aggregates (which can be tenant-wide or a different scope).
-    const totalCount = summary.totalRows
-    const sheetValueTotal = rows.reduce((s, r) => s + (Number.isFinite(r.amount) ? r.amount : Number(r.amount) || 0), 0)
-    const totalValue = formatInr(sheetValueTotal)
-    const intelligenceMode =
-      intelBatchDetail?.intelligence_mode && intelBatchDetail.intelligence_mode.trim()
-        ? intelBatchDetail.intelligence_mode.replace(/_/g, ' ')
-        : null
-    return {
-      batchId,
-      ingestLabel,
-      finality,
-      intelligenceMode,
-      totalCountLabel: totalCount.toLocaleString('en-IN'),
-      totalValue,
-    }
-  }, [intelBatchDetail, intentFileName, rows, settlementBatchIdResolved, sourceType, summary.totalRows])
-
-  const batchContextBadge = useMemo(() => {
-    if (intelBatchDetailLoading && intelligenceBatchPollEligible && !intelBatchDetail) {
-      return {
-        wrap: 'border-slate-200/90 bg-slate-50/90 text-[#475569]',
-        dot: 'bg-slate-400 animate-pulse',
-        label: 'Loading Intelligence…',
-      }
-    }
-    if (intelBatchDetail) {
-      return {
-        wrap: 'border-emerald-200/90 bg-emerald-50/90 text-[#15803d]',
-        dot: 'bg-[#16a34a]',
-        label: 'Intelligence linked',
-      }
-    }
-    if (intelligenceBatchPollEligible && intelBatchDetailError) {
-      return {
-        wrap: 'border-amber-200/90 bg-amber-50/90 text-[#b45309]',
-        dot: 'bg-amber-500',
-        label: 'Intelligence unavailable',
-      }
-    }
-    if (settlementBatchIdResolved.startsWith('LOCAL-')) {
-      return {
-        wrap: 'border-slate-200/90 bg-slate-50/90 text-[#64748b]',
-        dot: 'bg-slate-400',
-        label: 'Local preview',
-      }
-    }
-    if (!settlementBatchIdResolved) {
-      return {
-        wrap: 'border-slate-200/90 bg-slate-50/90 text-[#64748b]',
-        dot: 'bg-slate-400',
-        label: 'Awaiting Batch-Id',
-      }
-    }
-    return {
-      wrap: 'border-slate-200/90 bg-slate-50/90 text-[#64748b]',
-      dot: 'bg-slate-400',
-      label: 'Grid simulation',
-    }
-  }, [
-    intelBatchDetail,
-    intelBatchDetailError,
-    intelBatchDetailLoading,
-    intelligenceBatchPollEligible,
-    settlementBatchIdResolved,
-  ])
-
-  const refreshLoanSystemStrip = useCallback(() => {
-    void (async () => {
-      const tid = tenantId.trim()
-      if (!tid) {
-        showToolbarNotice('Enter tenant id before calling customer-system sync.')
-        return
-      }
-      const bid = settlementBatchIdResolved || null
-      setExternalSyncBusy('loan')
-      try {
-        const data: ExternalBatchSyncResponse = await postLoanSystemBatchPull({
-          tenant_id: tid,
-          batch_id: bid ?? '',
-          psp: psp.trim() || undefined,
-        })
-        setExternalSyncLast({
-          operation: data.operation ?? 'loan_system_pull',
-          message: data.message ?? 'No response message',
-          hint: data.hint,
-          at: new Date(),
-          requestId: data.request_id,
-          httpOk: true,
-        })
-        const banner = [data.message, data.hint].filter(Boolean).join(' ')
-        showToolbarNotice(banner.length > 320 ? `${banner.slice(0, 317)}…` : banner)
-        refreshSimulation()
-        if (intelligenceBatchPollEligible) void loadIntelBatchDetail()
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Request failed'
-        setExternalSyncLast({
-          operation: 'loan_system_pull',
-          message: msg,
-          at: new Date(),
-          httpOk: false,
-        })
-        showToolbarNotice(`Loan system sync failed: ${msg}`)
-      } finally {
-        setExternalSyncBusy(null)
-      }
-    })()
-  }, [
-    intelligenceBatchPollEligible,
-    loadIntelBatchDetail,
-    psp,
-    refreshSimulation,
-    settlementBatchIdResolved,
-    showToolbarNotice,
-    tenantId,
-  ])
-
-  const refreshSettlementIntelStrip = useCallback(() => {
-    void (async () => {
-      const tid = tenantId.trim()
-      if (!tid) {
-        showToolbarNotice('Enter tenant id before calling customer-system sync.')
-        return
-      }
-      const bid = settlementBatchIdResolved || null
-      setExternalSyncBusy('settlement')
-      try {
-        const data: ExternalBatchSyncResponse = await postSettlementFeedPull({
-          tenant_id: tid,
-          batch_id: bid ?? '',
-          psp: psp.trim() || undefined,
-        })
-        setExternalSyncLast({
-          operation: data.operation ?? 'settlement_feed_pull',
-          message: data.message ?? 'No response message',
-          hint: data.hint,
-          at: new Date(),
-          requestId: data.request_id,
-          httpOk: true,
-        })
-        const banner = [data.message, data.hint].filter(Boolean).join(' ')
-        showToolbarNotice(banner.length > 320 ? `${banner.slice(0, 317)}…` : banner)
-        if (intelligenceBatchPollEligible) void loadIntelBatchDetail()
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Request failed'
-        setExternalSyncLast({
-          operation: 'settlement_feed_pull',
-          message: msg,
-          at: new Date(),
-          httpOk: false,
-        })
-        showToolbarNotice(`Settlement sync failed: ${msg}`)
-      } finally {
-        setExternalSyncBusy(null)
-      }
-    })()
-  }, [intelligenceBatchPollEligible, loadIntelBatchDetail, psp, settlementBatchIdResolved, showToolbarNotice, tenantId])
-
-  const refreshMandateStripSimOnly = useCallback(() => {
-    void (async () => {
-      const tid = tenantId.trim()
-      if (!tid) {
-        showToolbarNotice('Enter tenant id before calling customer-system sync.')
-        return
-      }
-      const bid = settlementBatchIdResolved || null
-      setExternalSyncBusy('mandate')
-      try {
-        const data: ExternalBatchSyncResponse = await postMandateNachPull({
-          tenant_id: tid,
-          batch_id: bid ?? '',
-          psp: psp.trim() || undefined,
-        })
-        setExternalSyncLast({
-          operation: data.operation ?? 'mandate_nach_pull',
-          message: data.message ?? 'No response message',
-          hint: data.hint,
-          at: new Date(),
-          requestId: data.request_id,
-          httpOk: true,
-        })
-        const banner = [data.message, data.hint].filter(Boolean).join(' ')
-        showToolbarNotice(banner.length > 320 ? `${banner.slice(0, 317)}…` : banner)
-        refreshSimulation()
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'Request failed'
-        setExternalSyncLast({
-          operation: 'mandate_nach_pull',
-          message: msg,
-          at: new Date(),
-          httpOk: false,
-        })
-        showToolbarNotice(`Mandate / NACH sync failed: ${msg}`)
-      } finally {
-        setExternalSyncBusy(null)
-      }
-    })()
-  }, [psp, refreshSimulation, settlementBatchIdResolved, showToolbarNotice, tenantId])
+  }, [batchIdInput, settlementBatchId, showToolbarNotice, statCardsSummary, tenantId])
 
   const scrollToExceptions = useCallback(() => {
     document.getElementById('exceptions-top')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
   return (
-    <main
-      className="payout-command-console min-h-screen bg-[#f2f1ed] text-[15px] leading-[1.55] antialiased"
-      style={{ fontFamily: DASHBOARD_FONT_STACK }}
+    <div
+      className={`${manropeBatch.className} payout-command-console text-[13px] font-normal leading-relaxed tracking-[0] text-[#1A1A1A] antialiased`}
     >
-      <div className="mx-auto max-w-[1440px] space-y-5 p-6">
-        {/* In-page toolbar — global chrome is `BatchTopNav` only (no duplicate sticky rails). */}
-        <div className="flex flex-col gap-3 rounded-2xl border border-[#e8e8e5] bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <div className="mx-auto max-w-[1440px] space-y-5">
+        {/* In-page toolbar — aligned with home command shell (slate border + soft lift). */}
+        <div className="flex flex-col gap-3 rounded-[12px] border border-slate-200/90 bg-white/95 px-4 py-3 shadow-[0_2px_12px_rgba(15,23,42,0.04)] backdrop-blur-sm sm:flex-row sm:items-center sm:justify-between">
           <label className="relative flex min-h-10 w-full min-w-0 flex-1 items-center sm:max-w-xl">
-            <span className="pointer-events-none absolute left-3 flex text-[#9a9a96]">
+            <span className="pointer-events-none absolute left-3 flex text-[#888888]">
               <Glyph name="search" className="h-3.5 w-3.5 shrink-0" aria-hidden />
             </span>
             <input
@@ -1059,14 +1049,14 @@ export default function BatchCommandCenterClient() {
               }}
               placeholder="Search Request ID or borrower…"
               autoComplete="off"
-              className="h-10 w-full rounded-xl border border-[#e8e8e5] bg-[#fafaf8] py-2 pl-9 pr-3 text-[14px] text-[#111111] outline-none transition placeholder:text-[#9a9a96] focus:border-[#111111]/25 focus:bg-white focus:ring-2 focus:ring-black/5"
+              className="h-10 w-full rounded-xl border border-slate-200/90 bg-slate-50 py-2 pl-9 pr-3 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-400/55 focus:bg-white focus:ring-2 focus:ring-sky-400/15"
             />
           </label>
-          <div className="flex shrink-0 items-center gap-2.5 rounded-xl border border-[#e8e8e5] bg-[#fafaf8] px-3 py-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#111111] text-[12px] font-semibold text-white">OS</div>
+          <div className="flex shrink-0 items-center gap-2.5 rounded-xl border border-[#E5E5E5] bg-slate-50 px-3 py-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#000000] text-[12px] font-semibold text-white">OS</div>
             <div className="min-w-0">
-              <div className="text-[14px] font-medium leading-tight text-[#111111]">Operations lead</div>
-              <div className="text-[12px] leading-tight text-[#9a9a96]">Disbursement operations</div>
+              <div className={`text-[14px] font-medium leading-tight ${HOME_TITLE_BLACK}`}>Operations lead</div>
+              <div className="text-[12px] leading-tight text-[#888888]">Disbursement operations</div>
             </div>
           </div>
         </div>
@@ -1074,26 +1064,36 @@ export default function BatchCommandCenterClient() {
         {toolbarNotice ? (
           <div
             role="status"
-            className="rounded-xl border border-emerald-200/90 bg-emerald-50 px-4 py-2.5 text-[13px] font-medium text-emerald-950 shadow-sm"
+            className="rounded-xl border border-slate-200/90 bg-slate-100 px-4 py-2.5 text-[13px] font-medium text-slate-800 shadow-sm"
           >
             {toolbarNotice}
           </div>
         ) : null}
 
-        {/* ─── Page header ──────────────────────────────────────────────── */}
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <SessionTenantScopeBar
+          batchId={settlementBatchId?.trim() || batchIdInput}
+          onBatchIdChange={setBatchIdInput}
+          onAfterFetch={() => refreshSnapshot()}
+        />
+
+        {/* ─── Page header (home command center typography) ───────────── */}
+        <div className="rounded-[12px] border border-slate-200/90 bg-white/95 px-3 py-3 shadow-[0_2px_12px_rgba(15,23,42,0.04)] backdrop-blur-sm sm:px-3.5 sm:py-3">
+          <h2 className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30">
+            Batch · command center
+          </h2>
+          <div className="mt-2 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <div className="flex items-center gap-1.5 text-[13px] text-[#9a9a96]">
+            <div className="flex items-center gap-1.5 text-[13px] text-[#888888]">
               <span>Workspaces</span>
               <span className="text-[#d0d0cc]">/</span>
               <span>Overview</span>
               <span className="text-[#d0d0cc]">/</span>
-              <span className="text-[#4f4f4b]">Batch operations</span>
+              <span className={HOME_TITLE_BLACK}>Batch operations</span>
             </div>
-            <h1 className="mt-1 text-[19px] font-semibold tracking-[-0.02em] text-[#111111]">
+            <h1 className={`mt-1 text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
               Batch Disbursement &amp; Settlement Overview
             </h1>
-            <p className="mt-0.5 max-w-2xl text-[13px] leading-relaxed text-[#6f716d]">
+            <p className={`mt-0.5 max-w-2xl ${HOME_BODY_IMPERIAL}`}>
               Track disbursement status, mandate readiness, and settlement confirmation for this batch.
             </p>
           </div>
@@ -1101,9 +1101,9 @@ export default function BatchCommandCenterClient() {
             <button
               type="button"
               onClick={manualRefreshSnapshot}
-              title="Advance the sandbox simulation one tick (same logic as auto-refresh)"
+              title="Refresh Confirmed/DLQ table, Intelligence batch detail, and pattern KPI from API"
               aria-label="Refresh batch snapshot"
-              className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e8e8e5] bg-white text-[#6f6f6b] transition hover:bg-[#fafaf8]"
+              className="flex h-9 w-9 items-center justify-center rounded-xl border border-[#e8e8e5] bg-white text-[#888888] transition hover:bg-slate-50"
             >
               <Glyph name="refresh" className="h-[15px] w-[15px]" />
             </button>
@@ -1113,6 +1113,7 @@ export default function BatchCommandCenterClient() {
                   label: 'Download report',
                   title: 'Download CSV of the current table view (search and status filters apply).',
                   action: downloadReport,
+                  disabled: false,
                 },
                 {
                   label: 'Retry failed',
@@ -1129,7 +1130,7 @@ export default function BatchCommandCenterClient() {
                 title={title}
                 onClick={action}
                 disabled={disabled}
-                className="h-9 rounded-xl border border-[#e8e8e5] bg-white px-3.5 text-[14px] font-medium text-[#111111] transition hover:bg-[#fafaf8] disabled:cursor-not-allowed disabled:opacity-40"
+                className="h-9 rounded-xl border border-[#E5E5E5] bg-white px-3.5 text-[14px] font-medium text-[#000000] transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {label}
               </button>
@@ -1137,7 +1138,7 @@ export default function BatchCommandCenterClient() {
             <Link
               href="/payout-command-view/today?dock=grid"
               title="Open payout command view on Intent Journal"
-              className="flex h-9 items-center rounded-xl border border-[#e8e8e5] bg-white px-3.5 text-[14px] font-medium text-[#111111] transition hover:bg-[#fafaf8]"
+              className="flex h-9 items-center rounded-xl border border-[#E5E5E5] bg-white px-3.5 text-[14px] font-medium text-[#000000] transition hover:bg-slate-50"
             >
               Command view
             </Link>
@@ -1155,17 +1156,18 @@ export default function BatchCommandCenterClient() {
                   }
                 })()
               }}
-              className="flex h-9 items-center gap-2.5 rounded-xl bg-[#111111] px-4 text-[14px] font-medium text-white transition hover:bg-[#2a2a2a] disabled:cursor-wait disabled:opacity-70"
+              className="flex h-9 items-center gap-2.5 rounded-xl bg-[#000000] px-4 text-[14px] font-medium text-white transition hover:bg-[#2a2a2a] disabled:cursor-wait disabled:opacity-70"
             >
               <div className="flex -space-x-1.5">
                 {(['#d8e6ff', '#dbf7dd', '#edd8f4'] as const).map((bg, i) => (
-                  <span key={i} className="flex h-5 w-5 items-center justify-center rounded-full border border-white/50 text-[10px] font-semibold text-[#111111]" style={{ background: bg }}>
+                  <span key={i} className="flex h-5 w-5 items-center justify-center rounded-full border border-white/50 text-[10px] font-semibold text-[#0A0A0A]" style={{ background: bg }}>
                     {['A', 'F', 'E'][i]}
                   </span>
                 ))}
               </div>
               {shareBusy ? 'Opening…' : 'Share'}
             </button>
+          </div>
           </div>
         </div>
 
@@ -1185,8 +1187,8 @@ export default function BatchCommandCenterClient() {
                 onClick={() => setIntakeTab(tab.id)}
                 className={`rounded-[8px] px-3.5 py-1.5 text-[13px] font-semibold transition ${
                   active
-                    ? 'bg-[#0f172a] text-white shadow-[0_2px_6px_rgba(15,23,42,0.18)]'
-                    : 'text-[#475569] hover:bg-[#f5f5f5] hover:text-[#0f172a]'
+                    ? 'bg-[#000000] text-white shadow-[0_2px_6px_rgba(15,23,42,0.18)]'
+                    : 'text-[#00239C] hover:bg-[#f5f5f5] hover:text-[#000000]'
                 }`}
               >
                 {tab.label}
@@ -1205,25 +1207,26 @@ export default function BatchCommandCenterClient() {
 
         {/* ─── Batch intake — 2-step upload flow ────────────────────────── */}
         {intakeTab === 'batch' ? (
+        <>
         <Card className="p-5">
           <div className="flex items-baseline justify-between gap-2">
             <SectionLabel>Batch intake</SectionLabel>
-            <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#94a3b8]">Step 1 → Step 2</span>
+            <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#888888]">Step 1 → Step 2</span>
           </div>
-          <p className="mt-1 text-[13px] text-[#64748b]">
+          <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
             Upload the intent batch file first. Once dispatched, upload the settlement file when received from the PSP / bank.
             Tenant and credentials are resolved automatically from your signed-in session.
           </p>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">
                 Tenant type
               </span>
               <select
                 value={tenantType}
                 onChange={(e) => setTenantType(e.target.value as typeof tenantType)}
-                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2 text-[13px] text-[#0f172a] outline-none focus:border-[#6366f1]/50"
+                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2 text-[13px] text-[#0A0A0A] outline-none focus:border-[#6366f1]/50"
               >
                 <option value="MERCHANT">Merchant</option>
                 <option value="VENDOR">Vendor</option>
@@ -1233,41 +1236,28 @@ export default function BatchCommandCenterClient() {
               </select>
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">
-                Source type <span className="font-normal normal-case text-[#94a3b8]">(default CSV)</span>
-              </span>
-              <select
-                value={sourceType}
-                onChange={(e) => setSourceType(e.target.value)}
-                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2 text-[13px] text-[#0f172a] outline-none focus:border-[#6366f1]/50"
-              >
-                <option value="CSV">CSV</option>
-                <option value="XLSX">XLSX</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">Batch-Id (optional)</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">Batch-Id (optional)</span>
               <input
                 value={batchIdInput}
                 onChange={(e) => setBatchIdInput(e.target.value)}
                 placeholder="Auto-assigned if empty"
-                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0f172a] outline-none focus:border-[#6366f1]/50"
+                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0A0A0A] outline-none focus:border-[#6366f1]/50"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">PSP</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">PSP</span>
               <input
                 value={psp}
                 onChange={(e) => setPsp(e.target.value)}
                 placeholder="razorpay"
-                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0f172a] outline-none focus:border-[#6366f1]/50"
+                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0A0A0A] outline-none focus:border-[#6366f1]/50"
               />
             </label>
           </div>
           {settlementBatchIdResolved ? (
-            <p className="mt-2 text-[12px] text-[#475569]">
+            <p className="mt-2 text-[12px] text-[#1A1A1A]">
               <span className="font-semibold text-[#334155]">Active Batch-Id: </span>
-              <span className="font-mono text-[#0f172a]">{settlementBatchIdResolved}</span>
+              <span className="font-mono text-[#0A0A0A]">{settlementBatchIdResolved}</span>
             </p>
           ) : null}
 
@@ -1277,12 +1267,12 @@ export default function BatchCommandCenterClient() {
               className={`group relative flex cursor-pointer flex-col rounded-[14px] border bg-white p-4 transition ${
                 intentFileName
                   ? 'border-emerald-200 bg-emerald-50/30'
-                  : 'border-[#E5E5E5] hover:border-[#111111]/30'
+                  : 'border-[#E5E5E5] hover:border-[#0A0A0A]/30'
               }`}
             >
               <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#111111] text-[12px] font-bold text-white">1</span>
-                <span className="text-[14px] font-semibold text-[#0f172a]">Upload intent batch</span>
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0A0A0A] text-[12px] font-bold text-white">1</span>
+                <span className="text-[14px] font-semibold text-[#0A0A0A]">Upload intent batch</span>
                 {intentFileName ? (
                   <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                     <svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
@@ -1292,28 +1282,27 @@ export default function BatchCommandCenterClient() {
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-[#64748b]">
-                CSV or XLSX exported from LMS / ERP — one row per payout intent.
+              <p className="mt-1.5 text-[12px] leading-relaxed text-[#888888]">
+                CSV or spreadsheet (XLS / XLSX) from LMS / ERP — one row per payout intent.
               </p>
               {intentFileName ? (
-                <p className="mt-2 truncate font-mono text-[12px] text-[#0f172a]" title={intentFileName}>
+                <p className="mt-2 truncate font-mono text-[12px] text-[#0A0A0A]" title={intentFileName}>
                   {intentFileName}
                 </p>
               ) : null}
               <span
                 className={`mt-3 inline-flex h-8 w-fit items-center rounded-[8px] px-3 text-[12px] font-medium transition ${
                   intakeStep === 'intent_uploading'
-                    ? 'bg-[#0f172a] text-white opacity-70'
+                    ? 'bg-[#0A0A0A] text-white opacity-70'
                     : intentFileName
-                      ? 'border border-[#E5E5E5] bg-white text-[#0f172a] group-hover:bg-[#fafafa]'
-                      : 'bg-[#0f172a] text-white group-hover:bg-black'
+                      ? 'border border-[#E5E5E5] bg-white text-[#0A0A0A] group-hover:bg-slate-100'
+                      : 'bg-[#0A0A0A] text-white group-hover:bg-[#0A0A0A]'
                 }`}
               >
                 {intakeStep === 'intent_uploading' ? 'Uploading…' : intentFileName ? 'Replace file' : 'Choose file'}
               </span>
               <input
                 type="file"
-                accept=".csv,.xls,.xlsx"
                 className="hidden"
                 onChange={(e) => void onIntentBatchUpload(e.target.files?.[0] ?? null)}
               />
@@ -1329,7 +1318,7 @@ export default function BatchCommandCenterClient() {
                   ? 'cursor-not-allowed border-dashed border-[#E5E5E5] opacity-50'
                   : settlementFileName
                     ? 'cursor-pointer border-emerald-200 bg-emerald-50/30'
-                    : 'cursor-pointer border-[#E5E5E5] hover:border-[#111111]/30'
+                    : 'cursor-pointer border-[#E5E5E5] hover:border-[#0A0A0A]/30'
               }`}
               onKeyDown={(e) => {
                 if (!settlementPickerEnabled) return
@@ -1346,12 +1335,12 @@ export default function BatchCommandCenterClient() {
               <div className="flex items-center gap-2">
                 <span
                   className={`flex h-6 w-6 items-center justify-center rounded-full text-[12px] font-bold text-white ${
-                    settlementCredentialsReady ? 'bg-[#111111]' : 'bg-[#94a3b8]'
+                    settlementCredentialsReady ? 'bg-[#0A0A0A]' : 'bg-[#94a3b8]'
                   }`}
                 >
                   2
                 </span>
-                <span className="text-[14px] font-semibold text-[#0f172a]">Upload settlement file</span>
+                <span className="text-[14px] font-semibold text-[#0A0A0A]">Upload settlement file</span>
                 {settlementFileName ? (
                   <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                     <svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
@@ -1361,28 +1350,28 @@ export default function BatchCommandCenterClient() {
                   </span>
                 ) : null}
               </div>
-              <p className="mt-1.5 text-[12px] leading-relaxed text-[#64748b]">
-                Bank / PSP settlement CSV — Zord matches it back to the intent batch.
+              <p className="mt-1.5 text-[12px] leading-relaxed text-[#888888]">
+                Bank / PSP settlement file (CSV or spreadsheet) — Zord matches it back to the intent batch.
               </p>
               {settlementFileName ? (
-                <p className="mt-2 truncate font-mono text-[12px] text-[#0f172a]" title={settlementFileName}>
+                <p className="mt-2 truncate font-mono text-[12px] text-[#0A0A0A]" title={settlementFileName}>
                   {settlementFileName}
                 </p>
               ) : (
-                <p className="mt-2 text-[12px] italic text-[#94a3b8]">
+                <p className="mt-2 text-[12px] italic text-[#888888]">
                   {settlementCredentialsReady
-                    ? 'Click this card or Choose file to pick a settlement CSV / XLSX — POST /api/settlement/upload.'
+                    ? 'Click this card or Choose file to pick a settlement file — POST /api/settlement/upload.'
                     : 'Enter Tenant, PSP, and Batch-Id (or complete Step 1) to enable settlement upload.'}
                 </p>
               )}
               <span
                 className={`mt-3 inline-flex h-8 w-fit items-center rounded-[8px] px-3 text-[12px] font-medium transition ${
                   intakeStep === 'settlement_uploading'
-                    ? 'bg-[#0f172a] text-white opacity-70'
+                    ? 'bg-[#0A0A0A] text-white opacity-70'
                     : settlementFileName
-                      ? 'border border-[#E5E5E5] bg-white text-[#0f172a] group-hover:bg-[#fafafa]'
+                      ? 'border border-[#E5E5E5] bg-white text-[#0A0A0A] group-hover:bg-slate-100'
                       : intentIngestOk && settlementBatchId
-                        ? 'bg-[#0f172a] text-white group-hover:bg-black'
+                        ? 'bg-[#0A0A0A] text-white group-hover:bg-[#0A0A0A]'
                         : 'bg-[#94a3b8] text-white'
                 }`}
               >
@@ -1391,7 +1380,6 @@ export default function BatchCommandCenterClient() {
               <input
                 ref={settlementFileInputRef}
                 type="file"
-                accept=".csv,.xls,.xlsx"
                 className="hidden"
                 disabled={!settlementPickerEnabled}
                 aria-label="Settlement file upload"
@@ -1400,304 +1388,200 @@ export default function BatchCommandCenterClient() {
             </div>
           </div>
         </Card>
-        ) : null}
 
-        {/* ─── Batch context ────────────────────────────────────────────── */}
-        <Card className="border-slate-200/90 p-6 shadow-[0_1px_3px_rgba(15,23,42,0.06)]">
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0">
-                <SectionLabel>Operational snapshot</SectionLabel>
-                <h2 className="mt-1.5 text-xl font-semibold tracking-tight text-[#111827] md:text-[1.45rem]">Batch context</h2>
-                <p className="mt-1.5 max-w-2xl text-[14px] leading-relaxed text-[#64748b]">
-                  Intelligence batch health when a server batch id is present; the disbursement grid below stays a local
-                  simulation unless rows are loaded from the intent engine.
+        {intentBulkIngestAck ? (
+          <Card className="border-emerald-100/80 bg-gradient-to-b from-emerald-50/40 to-white p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <SectionLabel>Bulk ingest response</SectionLabel>
+                <h3 className="mt-1 text-[15px] font-semibold tracking-tight text-[#0A0A0A]">
+                  Edge acknowledgment
+                </h3>
+                <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-[#888888]">
+                  Per-row ack from the last successful intent file upload (same payload as{' '}
+                  <code className="rounded bg-black/[0.04] px-1 py-0.5 font-mono text-[12px]">POST /v1/bulk-ingest</code>
+                  ). Rows show envelope and trace ids for support and audit.
                 </p>
               </div>
-              <span
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-semibold ${batchContextBadge.wrap}`}
-              >
-                <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${batchContextBadge.dot}`} aria-hidden />
-                {batchContextBadge.label}
-              </span>
-            </div>
-
-            <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {[
-                ['Batch ID', batchContextSnapshot.batchId],
-                ['Bulk ingest', batchContextSnapshot.ingestLabel],
-                ['Intelligence mode', batchContextSnapshot.intelligenceMode ?? '—'],
-                ['Finality', batchContextSnapshot.finality],
-                ['Total disbursements', batchContextSnapshot.totalCountLabel],
-                ['Total value (upload)', batchContextSnapshot.totalValue],
-              ].map(([label, value]) => (
-                <div key={label} className="rounded-xl border border-black/10 bg-[#fafaf9] px-3 py-2.5">
-                  <dt className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">{label}</dt>
-                  <dd className="mt-1 break-words text-[14px] font-semibold leading-snug text-[#111827]">{value}</dd>
-                </div>
-              ))}
-            </dl>
-
-            <div className="rounded-xl border border-black/10 bg-gradient-to-br from-[#f8fafc] via-white to-[#f4f4f1] px-4 py-4 md:px-5 md:py-5">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[13px] font-semibold text-[#111827]">Data sync</span>
-                    <span className="rounded-md border border-slate-200/90 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">
-                      {psp.trim() || 'PSP'}
-                    </span>
-                    <span className="rounded-md border border-slate-200/90 bg-white px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[#64748b]">
-                      Intelligence + grid
-                    </span>
-                  </div>
-                  <div className="mt-2 text-[13px] leading-relaxed text-[#64748b]">
-                    <span className="text-[#475569]">Intelligence snapshot</span>{' '}
-                    {intelBatchDetailAt ? (
-                      <time dateTime={intelBatchDetailAt.toISOString()}>
-                        {intelBatchDetailAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
-                      </time>
-                    ) : (
-                      <span>—</span>
-                    )}
-                    <span className="text-[#cbd5e1]"> · </span>
-                    <span className="text-[#475569]">Grid simulation</span>{' '}
-                    <time dateTime={lastRefreshedAt.toISOString()}>
-                      {lastRefreshedAt.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
-                    </time>
-                    <span className="text-[#cbd5e1]"> · </span>
-                    Polls every {Math.round(BATCH_INTEL_POLL_MS / 1000)}s when batch id is server-backed
-                  </div>
-                  {intelBatchDetail?.batch_health?.total_confirmed_amount_minor &&
-                  String(intelBatchDetail.batch_health.total_confirmed_amount_minor).trim() !== '' ? (
-                    <p className="mt-2 text-[12px] text-[#475569]">
-                      <span className="font-semibold text-[#334155]">Confirmed (Intelligence health)</span>{' '}
-                      {formatInrFromMinor(intelBatchDetail.batch_health.total_confirmed_amount_minor)}
-                    </p>
-                  ) : null}
-                  <p className="mt-2 border-l-2 border-amber-200/90 pl-3 text-[12px] leading-relaxed text-[#78716c]">
-                    Data from different sources may update at different times.
-                  </p>
-                  {intelBatchDetailError && intelligenceBatchPollEligible ? (
-                    <p className="mt-2 text-[12px] font-medium text-[#b45309]">{intelBatchDetailError}</p>
-                  ) : null}
-                  {externalSyncLast ? (
-                    <div
-                      className={`mt-3 rounded-lg border px-3 py-2.5 text-[12px] leading-relaxed ${
-                        externalSyncLast.httpOk
-                          ? 'border-sky-200/90 bg-sky-50/90 text-[#0c4a6e]'
-                          : 'border-red-200/90 bg-red-50/90 text-[#991b1b]'
-                      }`}
-                      role="status"
-                    >
-                      <div className="font-semibold text-[13px]">
-                        Customer systems · {externalSyncLast.operation}
-                        {externalSyncLast.requestId ? (
-                          <span className="ml-2 font-mono text-[11px] font-normal text-[#64748b]">
-                            req {externalSyncLast.requestId.slice(0, 8)}…
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-1">{externalSyncLast.message}</p>
-                      {externalSyncLast.hint ? (
-                        <p className="mt-1.5 text-[11px] leading-snug text-[#0369a1]">{externalSyncLast.hint}</p>
-                      ) : null}
-                      <p className="mt-1.5 text-[11px] text-[#64748b]">
-                        <time dateTime={externalSyncLast.at.toISOString()}>
-                          {externalSyncLast.at.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' })}
-                        </time>
-                      </p>
-                    </div>
-                  ) : null}
-                  {uploadedFileName ? (
-                    <div className="mt-2 text-[13px] text-[#475569]">
-                      <span className="text-[#94a3b8]">Source file</span>{' '}
-                      <span className="font-medium text-[#111827]">{uploadedFileName}</span>
-                    </div>
-                  ) : null}
-                  {uploadRelayMessage ? (
-                    <div
-                      className={`mt-1.5 text-[13px] font-medium ${
-                        uploadRelayState === 'synced'
-                          ? 'text-[#15803d]'
-                          : uploadRelayState === 'failed'
-                            ? 'text-[#b91c1c]'
-                            : 'text-[#64748b]'
-                      }`}
-                    >
-                      {uploadRelayMessage}
-                    </div>
-                  ) : null}
-                  {intentEnginePoll && intentIngestOk ? (
-                    <p
-                      className={`mt-2 text-[12px] leading-relaxed ${
-                        intentEnginePoll.ok ? 'text-[#15803d]' : 'text-[#b45309]'
-                      }`}
-                    >
-                      <span className="font-semibold text-[#475569]">Intent engine (live)</span>
-                      {' · '}
-                      {intentEnginePoll.ok ? (
-                        <>
-                          Reachable — tenant intent total{' '}
-                          {intentEnginePoll.intentTotal != null
-                            ? intentEnginePoll.intentTotal.toLocaleString('en-IN')
-                            : '—'}
-                          . Polled every {Math.round(INTENT_ENGINE_POLL_MS / 1000)}s; last check{' '}
-                          <time dateTime={intentEnginePoll.at.toISOString()}>
-                            {intentEnginePoll.at.toLocaleTimeString('en-IN', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit',
-                            })}
-                          </time>
-                          . Grid progression below remains a local simulation until a batch-status API is wired.
-                        </>
-                      ) : (
-                        <>
-                          Poll failed ({intentEnginePoll.err ?? 'unknown'}). Last attempt{' '}
-                          <time dateTime={intentEnginePoll.at.toISOString()}>
-                            {intentEnginePoll.at.toLocaleTimeString('en-IN', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit',
-                            })}
-                          </time>
-                          .
-                        </>
-                      )}
-                    </p>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 flex-wrap items-center gap-2 lg:justify-end">
-                  <button
-                    type="button"
-                    disabled={externalSyncBusy !== null}
-                    onClick={refreshLoanSystemStrip}
-                    className="h-9 rounded-lg border border-black/10 bg-white px-3.5 text-[13px] font-medium text-[#475569] shadow-sm transition hover:border-[#6366f1]/35 hover:bg-[#f8fafc] hover:text-[#111827] focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#6366f1]/20 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {externalSyncBusy === 'loan' ? 'Calling loan system…' : 'Refresh from loan system'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={externalSyncBusy !== null}
-                    onClick={refreshSettlementIntelStrip}
-                    className="h-9 rounded-lg border border-black/10 bg-white px-3.5 text-[13px] font-medium text-[#475569] shadow-sm transition hover:border-[#6366f1]/35 hover:bg-[#f8fafc] hover:text-[#111827] focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#6366f1]/20 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {externalSyncBusy === 'settlement' ? 'Calling settlement feed…' : 'Fetch settlement updates'}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={externalSyncBusy !== null}
-                    onClick={refreshMandateStripSimOnly}
-                    className="h-9 rounded-lg border border-black/10 bg-white px-3.5 text-[13px] font-medium text-[#475569] shadow-sm transition hover:border-[#6366f1]/35 hover:bg-[#f8fafc] hover:text-[#111827] focus-visible:outline focus-visible:ring-2 focus-visible:ring-[#6366f1]/20 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {externalSyncBusy === 'mandate' ? 'Calling mandate / NACH…' : 'Check mandate status (NACH)'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {/* ─── Pipeline timeline (Zord intake + grid simulation) ───────── */}
-        <div className="rounded-2xl border border-[#e8e8e5] bg-white/80 px-5 py-4 shadow-sm">
-          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#ebebea] pb-3">
-            <div className="min-w-0">
-              <SectionLabel>Zord pipeline</SectionLabel>
-              <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-[#64748b]">
-                Batch received → file processed → disbursement queue → payment partner → bank confirmation → batch
-                closed. Upload intent or settlement to advance stages; the grid timer continues disbursement simulation.
-              </p>
-            </div>
-            {pipelineBusy ? (
-              <span className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-sky-800 motion-safe:animate-pulse">
-                In progress
-              </span>
-            ) : null}
-          </div>
-          <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-[#e8e8e5]">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-[#6366f1] via-[#3b82f6] to-[#22c55e] transition-[width] duration-700 ease-out"
-              style={{ width: `${timelineProgressPct}%` }}
-              aria-valuenow={Math.round(timelineProgressPct)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              role="progressbar"
-            />
-          </div>
-          <div className="mt-3.5 flex flex-wrap items-center gap-2">
-            {timeline.map((step, i) => (
-              <div key={step.label} className="flex items-center gap-2">
-                <div
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[12px] font-medium ${timelineStateClass(step.state)}`}
+              <div className="flex shrink-0 flex-col items-end gap-1">
+                <span
+                  className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[12px] font-semibold ${
+                    intentBulkIngestAck.httpStatus === 202
+                      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                      : 'border-slate-200 bg-slate-50 text-slate-700'
+                  }`}
                 >
-                  {step.state === 'active' ? (
-                    <span className="relative flex h-2 w-2 shrink-0 items-center justify-center">
-                      <span
-                        className="absolute inline-flex h-full w-full rounded-full bg-[#3b82f6] opacity-40 motion-safe:animate-ping"
-                        aria-hidden
-                      />
-                      <span className="relative h-1.5 w-1.5 rounded-full bg-[#2563eb]" aria-hidden />
-                    </span>
-                  ) : (
-                    <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: timelineDotColor(step.state) }} />
-                  )}
-                  {step.label}
-                </div>
-                {i < timeline.length - 1 && <span className="select-none text-[#d8d8d4]">──</span>}
+                  HTTP {intentBulkIngestAck.httpStatus}
+                  {intentBulkIngestAck.httpStatus === 202 ? ' Accepted' : ''}
+                </span>
+                <time
+                  className="text-[11px] text-[#888888]"
+                  dateTime={intentBulkIngestAck.at.toISOString()}
+                  title={intentBulkIngestAck.at.toISOString()}
+                >
+                  {intentBulkIngestAck.at.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' })}
+                </time>
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+
+            {(settlementBatchId || tenantId.trim()) ? (
+              <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-emerald-200/70 bg-white/80 px-3 py-2.5 text-[13px]">
+                {tenantId.trim() ? (
+                  <span>
+                    <span className="text-[#888888]">Session tenant </span>
+                    <code className="font-mono text-[12px] text-[#0A0A0A]">{tenantId}</code>
+                  </span>
+                ) : null}
+                {settlementBatchId ? (
+                  <span>
+                    <span className="text-[#888888]">Batch-Id </span>
+                    <code className="font-mono text-[12px] text-[#0A0A0A]">{settlementBatchId}</code>
+                  </span>
+                ) : null}
+                {settlementBatchId && !settlementBatchId.startsWith('LOCAL-') ? (
+                  <Link
+                    href={
+                      isSandboxRoute
+                        ? `/sandbox?dock=grid&batch_id=${encodeURIComponent(settlementBatchId)}`
+                        : `/payout-command-view/today?dock=grid&batch_id=${encodeURIComponent(settlementBatchId)}`
+                    }
+                    className="font-semibold text-emerald-800 underline decoration-emerald-300/80 underline-offset-2 hover:text-emerald-900"
+                  >
+                    Open in Intent Journal
+                  </Link>
+                ) : null}
+              </div>
+            ) : null}
+
+            {intentBulkIngestAck.parsed ? (
+              <>
+                <p className="mt-3 text-[13px] text-[#1A1A1A]">
+                  <span className="font-semibold text-[#334155]">{intentBulkIngestAck.parsed.total}</span> row
+                  {intentBulkIngestAck.parsed.total === 1 ? '' : 's'} in response
+                </p>
+                <div className="mt-2 max-h-[min(420px,55vh)] overflow-auto rounded-xl border border-[#e2e8f0] bg-white shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+                  <table className="min-w-full border-collapse text-left text-[12px]">
+                    <thead className="sticky top-0 z-[1] border-b border-[#e2e8f0] bg-[#f8fafc]">
+                      <tr className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#888888]">
+                        <th className="whitespace-nowrap px-3 py-2.5">Row</th>
+                        <th className="whitespace-nowrap px-3 py-2.5">Status</th>
+                        <th className="min-w-[200px] px-3 py-2.5">Envelope ID</th>
+                        <th className="min-w-[200px] px-3 py-2.5">Trace ID</th>
+                        <th className="whitespace-nowrap px-3 py-2.5">Received</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#f1f5f9] text-[#0A0A0A]">
+                      {intentBulkIngestAck.parsed.rows.map((r) => (
+                        <tr key={`${r.row}-${r.envelopeId || r.traceId}`} className="font-mono text-[11px]">
+                          <td className="whitespace-nowrap px-3 py-2 text-[#1A1A1A]">{r.row}</td>
+                          <td className="whitespace-nowrap px-3 py-2">
+                            <span
+                              className={
+                                r.status.toUpperCase() === 'ACCEPTED'
+                                  ? 'rounded-md bg-emerald-50 px-1.5 py-0.5 font-semibold text-emerald-800'
+                                  : r.status.toUpperCase() === 'FAILED' || r.error
+                                    ? 'rounded-md bg-red-50 px-1.5 py-0.5 font-semibold text-red-800'
+                                    : 'rounded-md bg-slate-100 px-1.5 py-0.5 font-medium text-slate-700'
+                              }
+                            >
+                              {r.error ? `${r.status} · ${r.error}` : r.status}
+                            </span>
+                          </td>
+                          <td className="max-w-[280px] break-all px-3 py-2 text-[#0A0A0A]">{r.envelopeId || '—'}</td>
+                          <td className="max-w-[280px] break-all px-3 py-2 text-[#0A0A0A]">{r.traceId || '—'}</td>
+                          <td className="whitespace-nowrap px-3 py-2 text-[#888888]">{r.receivedAt || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : intentBulkIngestAck.rawFallback ? (
+              <pre className="mt-3 max-h-[min(360px,50vh)] overflow-auto rounded-xl border border-amber-200/80 bg-amber-50/40 p-3 font-mono text-[11px] leading-relaxed text-[#78350f]">
+                {intentBulkIngestAck.rawFallback}
+              </pre>
+            ) : (
+              <p className="mt-3 text-[13px] text-[#888888]">Empty response body.</p>
+            )}
+          </Card>
+        ) : null}
+        </>
+        ) : null}
+
+        <ZordPipelineStepper steps={timeline} progressPct={timelineProgressPct} busy={pipelineBusy} />
 
         {/* ─── Alert banners ────────────────────────────────────────────── */}
         {uploadState === 'uploading' && (
-          <div className="rounded-2xl border border-sky-300/70 bg-sky-50 px-5 py-3.5 text-[14px] text-[#1d4ed8] shadow-[0_0_22px_rgba(56,189,248,0.28)] ring-1 ring-sky-200/50">
+          <div className="rounded-xl border border-slate-300/80 bg-slate-100 px-5 py-3.5 text-[14px] font-medium text-slate-800 shadow-sm ring-1 ring-slate-200/60">
             Uploading… Batch received. Processing will begin shortly.
           </div>
         )}
-        {processingCount === 0 && summary.pending === 0 && summary.failed === 0 && (
-          <div className="rounded-2xl border border-[#4ADE80]/45 bg-[#f0fdf4] px-5 py-3.5 text-[14px] text-[#15803d] shadow-[0_0_26px_rgba(74,222,128,0.32)] ring-1 ring-[#4ADE80]/25">
-            No pending confirmations or review items in this batch view. Spot-check bank references for material amounts before sign-off.
-          </div>
-        )}
+        {processingCount === 0 &&
+        statCardsSummary.pending === 0 &&
+        statCardsSummary.failed === 0 &&
+        allClearNoticeDismissed ? (
+          <button
+            type="button"
+            onClick={() => {
+              reopenNotice(BATCH_ALL_CLEAR_DISMISS_KEY)
+              setAllClearNoticeDismissed(false)
+            }}
+            className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-200/90 bg-white px-3 py-2 text-[13px] font-medium text-slate-900 shadow-sm transition hover:bg-slate-50"
+          >
+            Show all-clear notice
+          </button>
+        ) : null}
+        {processingCount === 0 &&
+        statCardsSummary.pending === 0 &&
+        statCardsSummary.failed === 0 &&
+        !allClearNoticeDismissed ? (
+          <RecommendedBlackCard
+            eyebrow="Batch health"
+            title="No pending confirmations or review items in this batch view."
+            bodyBold
+            body="Spot-check bank references for material amounts before sign-off."
+            footer={
+              <>
+                Last updated ·{' '}
+                <HydrationSafeLocaleTime date={intelBatchDetailAt ?? lastRefreshedAt} />
+              </>
+            }
+            onDismiss={() => {
+              dismissNotice(BATCH_ALL_CLEAR_DISMISS_KEY)
+              setAllClearNoticeDismissed(true)
+            }}
+          />
+        ) : null}
         {failureRate >= 15 && (
-          <div className="rounded-2xl border border-red-300/70 bg-[#fef2f2] px-5 py-4 space-y-1.5 shadow-[0_0_26px_rgba(248,113,113,0.35)] ring-1 ring-red-300/40">
-            <div className="text-[13px] font-semibold uppercase tracking-[0.06em] text-[#b91c1c]">Exception</div>
-            <div className="text-[14px] font-semibold text-[#991b1b]">Requires-review rate is {failureRate.toFixed(1)}% for this batch.</div>
-            <div className="text-[14px] text-[#991b1b]"><span className="font-medium text-[#7f1d1d]">Impact: </span>{summary.failed.toLocaleString('en-IN')} transactions (~{formatInr(amountSummary.failedAmount)}) need clearance before the batch is operationally clean.</div>
-            <div className="text-[14px] text-[#991b1b]"><span className="font-medium text-[#7f1d1d]">Action: </span>Use the exception list below, filter by reason, and retry or escalate with the payment partner.</div>
+          <div className={`${COMMAND_CENTER_KPI_CARD} space-y-2`}>
+            <CommandCenterCardGlow />
+            <div className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Exception</div>
+            <p className={`relative text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>
+              Requires-review rate is {failureRate.toFixed(1)}% for this batch.
+            </p>
+            <p className={`relative ${HOME_BODY_IMPERIAL_SM}`}>
+              <span className={HOME_INSIGHT_PROSE_STRONG}>Impact: </span>
+              {statCardsSummary.failed.toLocaleString('en-IN')} transactions (~{formatInrPrecise(amountSummary.failedAmount)}) need clearance before the batch is operationally clean.
+            </p>
+            <p className={`relative ${HOME_BODY_IMPERIAL_SM}`}>
+              <span className={HOME_INSIGHT_PROSE_STRONG}>Action: </span>
+              Use the exception list below, filter by reason, and retry or escalate with the payment partner.
+            </p>
           </div>
         )}
-
-        {/* ─── Disbursement status ──────────────────────────────────────── */}
-        <Card className="p-5">
-          <SectionLabel>Disbursement status</SectionLabel>
-          <div className="mt-4">
-            <DataTable
-              head={['Status', 'Count', 'Value']}
-              rows={[
-                ['Confirmed', summary.success.toLocaleString('en-IN'), formatInr(amountSummary.settledAmount)],
-                ['Pending Confirmation', summary.pending.toLocaleString('en-IN'), formatInr(amountSummary.pendingAmount)],
-                ['Requires Review', reviewCount.toLocaleString('en-IN'), formatInr(amountSummary.failedAmount)],
-              ]}
-              footer="Confirmed means bank-level confirmation is on record for this view. Pending confirmation is still with the bank or payment partner; requires review needs operator action."
-            />
-          </div>
-        </Card>
 
         {/* ─── Insight cards (disbursement mix) ─────────────────────────── */}
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Records processed"
             value={formatPercent(progress.processedPct)}
-            sub={`${summary.processed.toLocaleString('en-IN')} / ${summary.totalRows.toLocaleString('en-IN')} transactions`}
+            sub={`${statCardsSummary.processed.toLocaleString('en-IN')} / ${statCardsSummary.totalRows.toLocaleString('en-IN')} transactions`}
             insight="Shows how much of the batch has left the processing queue—not bank confirmation."
           />
           <StatCard
             label="Confirmed (bank)"
             value={formatPercent(progress.successPct)}
-            sub={`${summary.success.toLocaleString('en-IN')} transactions · ${formatInr(amountSummary.settledAmount)}`}
-            color="text-[#16a34a]"
+            sub={`${statCardsSummary.success.toLocaleString('en-IN')} transactions · ${formatInrPrecise(amountSummary.settledAmount)}`}
             insight="Bank confirmation on record for these disbursements in this workspace."
             actionLabel="Download report for audit packet"
             onAction={downloadReport}
@@ -1705,131 +1589,146 @@ export default function BatchCommandCenterClient() {
           <StatCard
             label="Pending confirmation"
             value={formatPercent(progress.pendingPct)}
-            sub={`${summary.pending.toLocaleString('en-IN')} transactions · ${formatInr(amountSummary.pendingAmount)}`}
-            color="text-[#d97706]"
+            sub={`${statCardsSummary.pending.toLocaleString('en-IN')} transactions · ${formatInrPrecise(amountSummary.pendingAmount)}`}
             insight="Payment partner may show processed; bank confirmation still pending."
             actionLabel="Fetch settlement updates"
-            onAction={refreshSimulation}
+            onAction={refreshSnapshot}
           />
           <StatCard
             label="Requires review"
             value={formatPercent(progress.failedPct)}
-            sub={`${reviewCount.toLocaleString('en-IN')} incl. edge cases · ${formatInr(amountSummary.failedAmount)}`}
-            color="text-[#dc2626]"
-            insight="These items block a clean operational close until retried or corrected."
+            sub={
+              intelligenceCardSummary
+                ? `${statCardsSummary.failed.toLocaleString('en-IN')} transactions · ${formatInrPrecise(amountSummary.failedAmount)}`
+                : `${reviewCount.toLocaleString('en-IN')} incl. edge cases · ${formatInrPrecise(amountSummary.failedAmount)}`
+            }
+            insight={requiresReviewStatInsight}
             actionLabel="Jump to exception breakdown"
             onAction={scrollToExceptions}
           />
         </div>
-
-        {/* ─── Mandate + Settlement ─────────────────────────────────────── */}
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="p-5">
-            <SectionLabel>Mandate readiness (NACH)</SectionLabel>
-            <div className="mt-4">
-              <DataTable
-                head={['NACH mandate status', 'Count', 'Est. value']}
-                rows={[
-                  ['Active', mandateSummary.active.toLocaleString('en-IN'), formatInr(mandateAmounts.active)],
-                  ['Pending Authorization', mandateSummary.pending.toLocaleString('en-IN'), formatInr(mandateAmounts.pending)],
-                  ['Failed', mandateSummary.failed.toLocaleString('en-IN'), formatInr(mandateAmounts.failed)],
-                ]}
-                footer="Mandates affect EMI collection readiness; failed or pending mandate rows should be cleared before collection cycles."
-              />
-            </div>
-          </Card>
-          <Card className="p-5">
-            <SectionLabel>Settlement confirmation</SectionLabel>
-            <div className="mt-4">
-              <DataTable
-                head={['Settlement status', 'Count', 'Value']}
-                rows={[
-                  ['Confirmed', settlementCounts.confirmedN.toLocaleString('en-IN'), formatInr(settlementSummary.confirmed)],
-                  ['Processed but Unconfirmed', settlementCounts.processedUnconfirmedN.toLocaleString('en-IN'), formatInr(settlementSummary.processedButUnconfirmed)],
-                  ['Not Found', settlementCounts.notFoundN.toLocaleString('en-IN'), formatInr(settlementSummary.notFound)],
-                ]}
-                footer="Processed by a payment partner is not confirmed until bank-level confirmation exists. Not found may mean timing lag across sources."
-              />
-            </div>
-          </Card>
-        </div>
+        {intelligenceCardSummary ? (
+          <p className={`mt-2 text-center text-[12px] font-medium leading-relaxed ${HOME_BODY_IMPERIAL_SM}`}>
+            Counts and percentages follow batch{' '}
+            <code className="rounded bg-slate-200/70 px-1 font-mono text-[11px]">{intelligenceFootnoteBatchId}</code> via{' '}
+            <code className="rounded bg-slate-200/70 px-1 font-mono text-[11px]">
+              GET /api/prod/intelligence/batches/{intelligenceFootnoteBatchId}
+            </code>
+            {operatorIntelBatchId ? ' (scoped to Batch-Id above).' : ' (tenant default: latest row from GET /api/prod/intelligence/batches?limit=1 when Batch-Id is empty).'}
+            Rupee split uses <code className="rounded bg-slate-200/70 px-1 font-mono text-[11px]">batch_health</code> when
+            <code className="mx-0.5 rounded bg-slate-200/70 px-1 font-mono text-[11px]">batch.summary.updated</code> has
+            populated it; otherwise amounts are estimated from the grid. KPI 14:{' '}
+            <code className="rounded bg-slate-200/70 px-1 font-mono text-[11px]">
+              {operatorIntelBatchId
+                ? `GET /api/prod/intelligence/patterns?batch_id=${operatorIntelBatchId}`
+                : 'GET /api/prod/intelligence/patterns (no batch_id — latest scored batch for tenant)'}
+            </code>
+            .
+          </p>
+        ) : null}
 
         {/* ─── Exceptions (summary) ─────────────────────────────────────── */}
         <Card id="exceptions-top" className="scroll-mt-24 p-5">
           <SectionLabel>Exceptions</SectionLabel>
-          <h2 className="mt-2 text-[1.34rem] font-medium tracking-[-0.03em] text-[#111111]">Top issues</h2>
-          <p className="mt-1 text-[14px] text-[#8a8a86]">Each row states problem, impact, and the recommended operator action.</p>
-          <div className="mt-5 grid gap-3 lg:grid-cols-3">
+          <BatchSectionTitle>Top issues</BatchSectionTitle>
+          <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+            Each row states problem, impact, and the recommended operator action.
+          </p>
+          <div className="mt-5 grid gap-4 lg:grid-cols-3">
             {exceptionHighlights.map((ex) => (
-              <div key={ex.problem} className="rounded-xl border border-[#efefec] bg-[#fafaf8] p-4">
-                <div className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#b45309]">Requires attention</div>
-                <div className="mt-2 text-[15px] font-semibold text-[#111111]">{ex.problem}</div>
-                <div className="mt-2 text-[14px] text-[#5a5a56]"><span className="font-medium text-[#4f4f4b]">Impact: </span>{ex.impact}</div>
-                <div className="mt-2 text-[14px] text-[#5a5a56]"><span className="font-medium text-[#4f4f4b]">Action: </span>{ex.action}</div>
-              </div>
+              <ExceptionIssueCard key={ex.problem} problem={ex.problem} impact={ex.impact} action={ex.action} />
             ))}
           </div>
-          <p className="mt-4 text-[13px] text-[#9a9a96]">
+          <p className={`mt-4 ${HOME_INSIGHT_PROSE}`}>
             If the loan system updated but settlement did not: treat as disbursement recorded but confirmation pending. If settlement shows a transaction outside this batch: transaction found in settlement but not linked to batch—verify linkage.
           </p>
         </Card>
 
-        {/* ─── Trend: confirmed vs pending ──────────────────────────────── */}
+        {/* ─── Trend: confirmed vs pending (Stripe-style line chart) ───── */}
         <Card className="p-5">
           <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
             <div>
               <SectionLabel>Trend</SectionLabel>
-              <h2 className="mt-2 text-[1.34rem] font-medium tracking-[-0.03em] text-[#111111]">Confirmed vs pending confirmation</h2>
-              <p className="mt-1 text-[14px] text-[#8a8a86]">Illustrative series for this workspace (normalized scale).</p>
+              <BatchSectionTitle>Confirmed vs pending confirmation</BatchSectionTitle>
+              <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>Illustrative series for this workspace (normalized scale).</p>
             </div>
-            <p className="max-w-md rounded-xl border border-[#efefec] bg-[#fafaf8] px-3 py-2 text-[13px] leading-snug text-[#5a5a56]">
-              <span className="font-semibold text-[#4f4f4b]">Insight: </span>
+            <p className="max-w-md rounded-xl border border-slate-100 bg-white px-3 py-2 text-[13px] leading-snug text-[#16a34a]">
+              <span className="font-semibold text-[#16a34a]">Insight: </span>
               {trendInsight}
             </p>
           </div>
+
           <div className="mt-5 h-[220px]">
             <ClientChart className="h-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendSeries} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="fillConfirmed" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#22c55e" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#22c55e" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="fillPending" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.35} />
-                      <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="4 6" stroke="#ebebea" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9a9a96' }} axisLine={false} tickLine={false} />
-                  <YAxis hide domain={[0, 'auto']} />
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={220}>
+                <LineChart data={trendSeries} margin={{ top: 12, right: 16, left: 4, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval="preserveStartEnd"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11, fill: '#64748b' }}
+                    axisLine={false}
+                    tickLine={false}
+                    tickFormatter={(v) => `${v}%`}
+                    domain={[0, 100]}
+                    width={36}
+                  />
                   <Tooltip
                     formatter={(value, name) => {
                       const n = typeof value === 'number' ? value : Number(value)
                       const key = String(name)
-                      return [String(Math.round(n)), key === 'confirmed' ? 'Confirmed (index)' : 'Pending confirmation (index)']
+                      const label =
+                        key === 'confirmed'
+                          ? 'Confirmed (current)'
+                          : key === 'pending'
+                            ? 'Pending confirmation'
+                            : 'Confirmed (prior period)'
+                      return [`${Math.round(n)}%`, label]
                     }}
-                    labelFormatter={(label) => `Period ${label}`}
-                    contentStyle={{ border: '0.5px solid #e8e8e5', borderRadius: 10, fontSize: 12, boxShadow: 'none' }}
+                    labelFormatter={(label) => String(label)}
+                    contentStyle={{
+                      borderRadius: 10,
+                      border: '1px solid #e2e8f0',
+                      fontSize: 12,
+                      boxShadow: '0 4px 12px rgba(15,23,42,0.08)',
+                    }}
                   />
-                  <Area type="monotone" dataKey="confirmed" name="confirmed" stroke="#16a34a" strokeWidth={2} fill="url(#fillConfirmed)" />
-                  <Area type="monotone" dataKey="pending" name="pending" stroke="#d97706" strokeWidth={2} fill="url(#fillPending)" />
-                </AreaChart>
+                  <Line
+                    type="monotone"
+                    dataKey="confirmed"
+                    name="confirmed"
+                    stroke="#2563eb"
+                    strokeWidth={2.5}
+                    dot={false}
+                    activeDot={{ r: 4, fill: '#2563eb', stroke: '#fff', strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="pending"
+                    name="pending"
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                    strokeDasharray="6 4"
+                    dot={false}
+                    activeDot={{ r: 4, fill: '#38bdf8', stroke: '#fff', strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="confirmedPrior"
+                    name="confirmedPrior"
+                    stroke="#94a3b8"
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    dot={false}
+                  />
+                </LineChart>
               </ResponsiveContainer>
             </ClientChart>
-          </div>
-        </Card>
-
-        {/* ─── By payment method ─────────────────────────────────────────── */}
-        <Card className="p-5">
-          <SectionLabel>By payment method</SectionLabel>
-          <div className="mt-4">
-            <DataTable
-              head={['Method', 'Confirmed', 'Pending confirmation', 'Requires review']}
-              rows={methodBreakdown.map((m) => [m.method, m.confirmed, m.pending, m.review])}
-              footer="Counts reflect disbursement status in this batch only. Method mix is informational for operations review."
-            />
           </div>
         </Card>
 
@@ -1837,6 +1736,11 @@ export default function BatchCommandCenterClient() {
         <div className="grid gap-4 xl:grid-cols-2">
           <Card className="p-5">
             <SectionLabel>Status distribution</SectionLabel>
+            <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+              {operatorIntelBatchId
+                ? 'Percentages follow the scoped Batch-Id snapshot in Intelligence.'
+                : 'Without Batch-Id: shares are summed across recent batches (GET /api/prod/intelligence/batches?limit=50), or from pattern KPI totals when the list has no volume yet.'}
+            </p>
             <div className="mt-4 grid gap-5 md:grid-cols-[1fr_0.9fr]">
               <ClientChart className="h-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1858,12 +1762,12 @@ export default function BatchCommandCenterClient() {
               </ClientChart>
               <div className="space-y-2">
                 {pieData.map((entry, i) => (
-                  <div key={entry.name} className="flex items-center justify-between rounded-xl border border-[#efefec] bg-[#fafaf8] px-3 py-2.5">
-                    <div className="flex items-center gap-2 text-[14px] text-[#4f4f4b]">
+                  <div key={entry.name} className="flex items-center justify-between rounded-xl border border-slate-200/90 bg-slate-50 px-3 py-2.5">
+                    <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
-                      {entry.name}
+                      <span className={COMMAND_CENTER_LABEL_GREEN}>{entry.name}</span>
                     </div>
-                    <span className="text-[14px] font-semibold text-[#111111]">{entry.value.toFixed(1)}%</span>
+                    <span className="text-[14px] font-semibold text-[#0A0A0A]">{entry.value.toFixed(1)}%</span>
                   </div>
                 ))}
               </div>
@@ -1871,48 +1775,62 @@ export default function BatchCommandCenterClient() {
           </Card>
 
           <Card className="p-5">
-            <div className="flex items-center justify-between">
-              <SectionLabel>Exception reasons</SectionLabel>
-              {selectedFailureReason && (
+            <div className="flex items-center justify-between gap-2">
+              <SectionLabel>{showIntelBatchesTable ? 'Intelligence batches' : 'Exception reasons'}</SectionLabel>
+              {!showIntelBatchesTable && selectedFailureReason ? (
                 <button
                   type="button"
                   onClick={() => setSelectedFailureReason(null)}
-                  className="rounded-full border border-[#e8e8e5] bg-[#fafaf8] px-3 py-1 text-[12px] text-[#6f6f6b] transition hover:bg-[#f0f0ed]"
+                  className="rounded-full border border-[#e8e8e5] bg-slate-50 px-3 py-1 text-[12px] text-[#888888] transition hover:bg-slate-100"
                 >
                   Clear filter
                 </button>
+              ) : null}
+            </div>
+            <div className="mt-4">
+              {showIntelBatchesTable ? (
+                <DataTable
+                  head={['Batch ID', 'Finality', 'Total', 'Success', 'Failed', 'Pending']}
+                  rows={intelligenceBatchesTableRows}
+                  footer="Session tenant — GET /api/prod/intelligence/batches?limit=50 (newest first). Use Batch-Id above to scope detail cards to one batch."
+                />
+              ) : (
+                <div className="space-y-2.5">
+                  {failureCounts.map((item) => {
+                    const max = Math.max(1, ...failureCounts.map((r) => r.count))
+                    const pct = (item.count / max) * 100
+                    const active = selectedFailureReason === item.reason
+                    return (
+                      <button
+                        key={item.reason}
+                        type="button"
+                        onClick={() => {
+                          setSelectedFailureReason(active ? null : item.reason)
+                          setStatusFilter('Requires review')
+                          setPage(1)
+                        }}
+                        className={`w-full rounded-xl border px-3.5 py-3 text-left transition ${
+                          active ? 'border-[#0A0A0A] bg-slate-100' : 'border-slate-200/90 bg-slate-50 hover:border-[#ddddd9]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-[14px]">
+                          <span className="text-[#1A1A1A]">{item.reason}</span>
+                          <span className="font-semibold text-[#0A0A0A]">{item.count}</span>
+                        </div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200/80">
+                          <div className="h-1.5 rounded-full bg-[#0A0A0A] transition-all" style={{ width: `${Math.max(4, pct)}%` }} />
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
               )}
             </div>
-            <div className="mt-4 space-y-2.5">
-              {failureCounts.map((item) => {
-                const max = Math.max(1, ...failureCounts.map((r) => r.count))
-                const pct = (item.count / max) * 100
-                const active = selectedFailureReason === item.reason
-                return (
-                  <button
-                    key={item.reason}
-                    type="button"
-                    onClick={() => {
-                      setSelectedFailureReason(active ? null : item.reason)
-                      setStatusFilter('Failed')
-                      setPage(1)
-                    }}
-                    className={`w-full rounded-xl border px-3.5 py-3 text-left transition ${
-                      active ? 'border-[#111111] bg-[#f5f5f3]' : 'border-[#efefec] bg-[#fafaf8] hover:border-[#ddddd9]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between text-[14px]">
-                      <span className="text-[#4f4f4b]">{item.reason}</span>
-                      <span className="font-semibold text-[#111111]">{item.count}</span>
-                    </div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[#ebebea]">
-                      <div className="h-1.5 rounded-full bg-[#111111] transition-all" style={{ width: `${Math.max(4, pct)}%` }} />
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-            <p className="mt-4 text-[13px] text-[#9a9a96]">Typical drivers: bank confirmation delay, mandate not authorized, settlement timing vs loan system.</p>
+            {!showIntelBatchesTable ? (
+              <p className={`mt-4 ${HOME_INSIGHT_PROSE}`}>
+                Typical drivers: bank confirmation delay, mandate not authorized, settlement timing vs loan system.
+              </p>
+            ) : null}
           </Card>
         </div>
 
@@ -1920,14 +1838,14 @@ export default function BatchCommandCenterClient() {
         <Card className="p-5">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex flex-1 flex-wrap items-center gap-2">
-              <div className="inline-flex rounded-xl border border-[#e8e8e5] bg-[#fafaf8] p-1">
+              <div className="inline-flex rounded-xl border border-[#e8e8e5] bg-slate-50 p-1">
                 {STATUS_FILTER_OPTIONS.map((opt) => (
                   <button
                     key={opt.value}
                     type="button"
                     onClick={() => { setStatusFilter(opt.value); setPage(1) }}
                     className={`rounded-lg px-3 py-1.5 text-[13px] font-medium transition ${
-                      statusFilter === opt.value ? 'bg-[#111111] text-white' : 'text-[#6f6f6b] hover:text-[#111111]'
+                      statusFilter === opt.value ? 'bg-[#000000] text-white' : 'text-[#00239C] hover:text-[#000000]'
                     }`}
                   >
                     {opt.label}
@@ -1938,19 +1856,19 @@ export default function BatchCommandCenterClient() {
             <select
               value={sortMode}
               onChange={(e) => setSortMode(e.target.value as SortMode)}
-              className="h-9 rounded-xl border border-[#e8e8e5] bg-[#fafaf8] px-3 text-[14px] outline-none"
+              className="h-9 rounded-xl border border-[#e8e8e5] bg-slate-50 px-3 text-[14px] outline-none"
             >
               <option value="Latest">Sort: Latest</option>
               <option value="Oldest">Sort: Oldest</option>
             </select>
           </div>
 
-          <div className="mt-4 overflow-x-auto rounded-xl border border-[#ebebea]">
+          <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200/90">
             <table className="min-w-full text-left">
               <thead>
-                <tr className="border-b border-[#ebebea] bg-[#fafaf8]">
+                <tr className="border-b border-slate-200/90 bg-slate-50">
                   {['Request ID', 'Borrower', 'Amount', 'Method', 'Status', 'Mandate status', 'Last updated', 'Action'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.07em] text-[#9a9a96] whitespace-nowrap">{h}</th>
+                    <th key={h} className="px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.07em] text-[#888888] whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1960,15 +1878,15 @@ export default function BatchCommandCenterClient() {
                   return (
                     <Fragment key={row.refId}>
                       <tr
-                        className="cursor-pointer border-b border-[#f3f3f0] text-[14px] transition-colors hover:bg-[#fafaf8]"
+                        className="cursor-pointer border-b border-slate-100 text-[14px] transition-colors hover:bg-slate-50"
                         onClick={() => setExpandedRef((c) => (c === row.refId ? null : row.refId))}
                       >
-                        <td className="px-4 py-3.5 font-semibold text-[#111111] whitespace-nowrap">{row.refId}</td>
-                        <td className="px-4 py-3.5 text-[#5a5a56]">{row.beneficiary}</td>
-                        <td className="px-4 py-3.5 text-[#111111] whitespace-nowrap">{formatInr(row.amount)}</td>
-                        <td className="px-4 py-3.5 text-[#5a5a56]">{disbursementMethodFromProvider(row.provider)}</td>
+                        <td className="px-4 py-3.5 font-semibold text-[#0A0A0A] whitespace-nowrap">{row.refId}</td>
+                        <td className="px-4 py-3.5 text-[#1A1A1A]">{row.beneficiary}</td>
+                        <td className="px-4 py-3.5 text-[#0A0A0A] whitespace-nowrap">{formatInrPrecise(row.amount)}</td>
+                        <td className="px-4 py-3.5 text-[#1A1A1A]">{disbursementMethodFromProvider(row.provider)}</td>
                         <td className="px-4 py-3.5">
-                          <span className="inline-flex rounded-full border border-[#e8e8e5] bg-[#fafaf8] px-2.5 py-1 text-[12px] font-medium text-[#5a5a56] whitespace-nowrap">
+                          <span className="inline-flex rounded-full border border-[#e8e8e5] bg-slate-50 px-2.5 py-1 text-[12px] font-medium text-[#1A1A1A] whitespace-nowrap">
                             {mandateStatusFromRow(row)}
                           </span>
                         </td>
@@ -1977,12 +1895,12 @@ export default function BatchCommandCenterClient() {
                             {statusLabel(row.status)}
                           </span>
                         </td>
-                        <td className="px-4 py-3.5 text-[#8a8a86] whitespace-nowrap">{row.time}</td>
+                        <td className="px-4 py-3.5 text-[#888888] whitespace-nowrap">{row.time}</td>
                         <td className="px-4 py-3.5">
                           <button
                             type="button"
                             disabled={row.status !== 'Failed' && row.actionLabel === 'Retry row'}
-                            className="whitespace-nowrap rounded-lg border border-[#e8e8e5] bg-white px-3 py-1.5 text-[13px] font-medium text-[#111111] transition hover:bg-[#fafaf8] disabled:opacity-40"
+                            className="whitespace-nowrap rounded-lg border border-[#e8e8e5] bg-white px-3 py-1.5 text-[13px] font-medium text-[#0A0A0A] transition hover:bg-slate-50 disabled:opacity-40"
                             onClick={(e) => {
                               e.stopPropagation()
                               if (row.status === 'Failed') {
@@ -1999,11 +1917,11 @@ export default function BatchCommandCenterClient() {
                         </td>
                       </tr>
                       {expanded && (
-                        <tr className="bg-[#fafaf8]">
+                        <tr className="bg-slate-50">
                           <td colSpan={8} className="px-4 py-4">
-                            <div className="rounded-xl border border-[#ebebea] bg-white p-4">
-                              <div className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[#9a9a96]">
-                                {row.refId} - {formatInr(row.amount)}
+                            <div className="rounded-xl border border-slate-200/90 bg-white p-4">
+                              <div className="text-[12px] font-semibold uppercase tracking-[0.1em] text-[#888888]">
+                                {row.refId} - {formatInrPrecise(row.amount)}
                               </div>
                               <div className="mt-3 grid gap-4 md:grid-cols-2">
                                 <div className="space-y-2">
@@ -2012,22 +1930,22 @@ export default function BatchCommandCenterClient() {
                                       <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
                                         step.state === 'done' ? 'bg-[#dcfce7] text-[#15803d]'
                                           : step.state === 'active' ? 'bg-[#dbeafe] text-[#1d4ed8]'
-                                          : 'bg-[#f5f5f3] text-[#9a9a96]'
+                                          : 'bg-slate-100 text-[#888888]'
                                       }`}>
                                         {step.state === 'done' ? '✓' : step.state === 'active' ? '⚡' : '·'}
                                       </span>
-                                      <span className="min-w-[160px] text-[#111111]">{step.label}</span>
-                                      <span className="text-[#8a8a86]">{step.time}</span>
+                                      <span className="min-w-[160px] text-[#0A0A0A]">{step.label}</span>
+                                      <span className="text-[#888888]">{step.time}</span>
                                     </div>
                                   ))}
                                 </div>
-                                <details className="rounded-xl border border-[#ebebea] bg-[#fafaf8] p-3 text-[13px] text-[#6f6f6b]">
-                                  <summary className="cursor-pointer font-medium text-[#4f4f4b]">Transaction detail</summary>
+                                <details className="rounded-xl border border-slate-200/90 bg-slate-50 p-3 text-[13px] font-normal leading-relaxed text-[#1A1A1A]">
+                                  <summary className="cursor-pointer font-medium text-[#1A1A1A]">Transaction detail</summary>
                                   <div className="mt-2 space-y-1.5">
                                     <div>Payment partner reference: {row.dispatchId}</div>
                                     <div>Bank reference: {row.bankReference}</div>
                                     <div className="mt-1 inline-flex items-center gap-2 rounded-full border border-[#e8e8e5] bg-white px-2.5 py-1">
-                                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#111111] text-[11px] text-white">{providerGlyph(row.provider)}</span>
+                                      <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#0A0A0A] text-[11px] text-white">{providerGlyph(row.provider)}</span>
                                       <span>Payment partner: {row.provider}</span>
                                     </div>
                                   </div>
@@ -2045,7 +1963,7 @@ export default function BatchCommandCenterClient() {
           </div>
 
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-            <span className="text-[14px] text-[#9a9a96]">
+            <span className="text-[14px] text-[#888888]">
               Showing {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, filteredRows.length)} of {filteredRows.length} rows
             </span>
             <div className="flex items-center gap-2">
@@ -2053,41 +1971,23 @@ export default function BatchCommandCenterClient() {
                 type="button"
                 onClick={() => setPage((c) => Math.max(1, c - 1))}
                 disabled={currentPage === 1}
-                className="h-9 rounded-xl border border-[#e8e8e5] bg-white px-4 text-[14px] font-medium text-[#111111] transition hover:bg-[#fafaf8] disabled:opacity-40"
+                className="h-9 rounded-xl border border-[#e8e8e5] bg-white px-4 text-[14px] font-medium text-[#0A0A0A] transition hover:bg-slate-50 disabled:opacity-40"
               >
                 Prev
               </button>
-              <span className="text-[14px] text-[#5a5a56]">Page {currentPage} / {totalPages}</span>
+              <span className="text-[14px] text-[#1A1A1A]">Page {currentPage} / {totalPages}</span>
               <button
                 type="button"
                 onClick={() => setPage((c) => Math.min(totalPages, c + 1))}
                 disabled={currentPage === totalPages}
-                className="h-9 rounded-xl border border-[#e8e8e5] bg-white px-4 text-[14px] font-medium text-[#111111] transition hover:bg-[#fafaf8] disabled:opacity-40"
+                className="h-9 rounded-xl border border-[#e8e8e5] bg-white px-4 text-[14px] font-medium text-[#0A0A0A] transition hover:bg-slate-50 disabled:opacity-40"
               >
                 Next
               </button>
             </div>
           </div>
         </Card>
-
-        {/* ─── Batch summary ────────────────────────────────────────────── */}
-        <Card className="p-5">
-          <SectionLabel>Batch summary</SectionLabel>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              { label: 'Total disbursement value', value: formatInr(amountSummary.totalAmount), color: 'text-[#111111]' },
-              { label: 'Confirmed value (bank)', value: formatInr(amountSummary.settledAmount), color: 'text-[#16a34a]' },
-              { label: 'Requires-review value', value: formatInr(amountSummary.failedAmount), color: 'text-[#dc2626]' },
-              { label: 'Pending confirmation value', value: formatInr(amountSummary.pendingAmount), color: 'text-[#d97706]' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="rounded-xl border border-[#efefec] bg-[#fafaf8] px-4 py-4">
-                <div className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#9a9a96]">{label}</div>
-                <div className={`mt-2 text-[18px] font-semibold ${color}`}>{value}</div>
-              </div>
-            ))}
-          </div>
-        </Card>
       </div>
-    </main>
+    </div>
   )
 }

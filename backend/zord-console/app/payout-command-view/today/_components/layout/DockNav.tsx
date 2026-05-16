@@ -58,7 +58,7 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
   }, [])
 
   return (
-    <header className="payout-command-nav sticky top-0 z-40">
+    <header className="payout-command-nav relative z-40 !bg-white">
       <div className="mx-auto grid w-full max-w-[1920px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 px-3 py-2.5 sm:gap-x-3 sm:px-5 sm:py-3 lg:gap-x-4 lg:px-8">
         {/* Column 1 — brand + mode (never shrinks) */}
         <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-2.5">
@@ -89,9 +89,9 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
                   title={`${item.navLabel} — ${item.title}`}
                   aria-label={`${item.navLabel}. ${item.title}`}
                   aria-current={active ? 'page' : undefined}
-                  className={`group relative flex h-9 shrink-0 items-center overflow-hidden rounded-xl border text-left outline-none transition-[max-width] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-neutral-900/35 focus-visible:ring-offset-1 sm:h-10 ${
+                  className={`group relative flex h-9 shrink-0 items-center overflow-hidden rounded-xl border text-left outline-none transition-[max-width] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-neutral-900/20 focus-visible:ring-offset-1 sm:h-10 ${
                     active
-                      ? 'max-w-[9rem] border-neutral-900 bg-neutral-900 text-white shadow-md ring-1 ring-black/20 sm:max-w-[10rem]'
+                      ? 'max-w-[9rem] border-neutral-900 bg-neutral-900 text-white shadow-md ring-1 ring-black/15 sm:max-w-[10rem]'
                       : 'max-w-[9rem] border-neutral-200/90 bg-white text-neutral-800 shadow-sm md:max-w-[2.5rem] md:hover:max-w-[9rem] md:focus-visible:max-w-[9rem] md:hover:border-neutral-300 md:hover:bg-neutral-50'
                   }`}
                 >

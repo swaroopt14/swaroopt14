@@ -16,12 +16,6 @@ import type {
   RecommendationsKpiResponse,
 } from './intelligenceTypes'
 
-/**
- * Single hook that fans out the 5 KPI dashboard endpoints for the current tenant
- * and polls every `intervalMs` (default 30s). Surfaces consume the slice they care
- * about — null while loading, a typed envelope (with `data_available: false`) once
- * the network returns. Cached across surfaces via React's per-tree memoization.
- */
 export type IntelligenceKpis = {
   leakage: LeakageKpiResponse | null
   ambiguity: AmbiguityKpiResponse | null
@@ -35,11 +29,20 @@ export type IntelligenceKpis = {
 
 const DEFAULT_POLL_MS = 30_000
 
-export function useIntelligenceKpis(
-  tenantId: string,
-  options: { batchId?: string; intervalMs?: number } = {},
-): IntelligenceKpis {
-  const { batchId, intervalMs = DEFAULT_POLL_MS } = options
+export type UseIntelligenceKpisOptions = {
+  /** When true, polls BFF routes (tenant from session cookies). */
+  tenantReady: boolean
+  /** Optional — scopes patterns KPI to a batch; other KPIs are tenant-wide. */
+  batchId?: string
+  intervalMs?: number
+}
+
+/**
+ * Fans out intelligence dashboard KPIs and polls every `intervalMs` (default 30s).
+ * Does not require client `tenant_id` — BFF resolves tenant from session.
+ */
+export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): IntelligenceKpis {
+  const { tenantReady, batchId, intervalMs = DEFAULT_POLL_MS } = options
 
   const [leakage, setLeakage] = useState<LeakageKpiResponse | null>(null)
   const [ambiguity, setAmbiguity] = useState<AmbiguityKpiResponse | null>(null)
@@ -52,16 +55,15 @@ export function useIntelligenceKpis(
   const cancelledRef = useRef(false)
 
   const refresh = useCallback(async () => {
-    const tid = tenantId.trim()
-    if (!tid) return
+    if (!tenantReady) return
     setLoading(true)
     try {
       const [lk, am, df, pt, rc] = await Promise.all([
-        getLeakageKpis(tid),
-        getAmbiguityKpis(tid),
-        getDefensibilityKpis(tid),
-        getPatternsKpis(tid, batchId?.trim() || undefined),
-        getRecommendationsKpis(tid),
+        getLeakageKpis(),
+        getAmbiguityKpis(),
+        getDefensibilityKpis(),
+        getPatternsKpis(batchId?.trim() || undefined),
+        getRecommendationsKpis(),
       ])
       if (cancelledRef.current) return
       setLeakage(lk)
@@ -73,11 +75,11 @@ export function useIntelligenceKpis(
     } finally {
       if (!cancelledRef.current) setLoading(false)
     }
-  }, [tenantId, batchId])
+  }, [tenantReady, batchId])
 
   useEffect(() => {
     cancelledRef.current = false
-    if (!tenantId.trim()) {
+    if (!tenantReady) {
       setLeakage(null)
       setAmbiguity(null)
       setDefensibility(null)
@@ -93,7 +95,7 @@ export function useIntelligenceKpis(
       cancelledRef.current = true
       window.clearInterval(id)
     }
-  }, [tenantId, refresh, intervalMs])
+  }, [tenantReady, refresh, intervalMs])
 
   return { leakage, ambiguity, defensibility, patterns, recommendations, loading, lastFetchedAt, refresh }
 }

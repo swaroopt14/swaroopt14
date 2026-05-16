@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
-import BatchCommandCenterClient from './_components/BatchCommandCenterClient'
-import { BatchTopNav } from './_components/BatchTopNav'
+import { BatchCommandCenterShell } from './_components/BatchCommandCenterShell'
 
 export const metadata: Metadata = {
   title: 'Batch Command Center | Zord',
@@ -8,11 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function BatchCommandCenterPage() {
-  return (
-    <>
-      <BatchTopNav shell="live" />
-      <BatchCommandCenterClient />
-    </>
-  )
+  return <BatchCommandCenterShell />
 }
-

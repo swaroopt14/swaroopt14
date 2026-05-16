@@ -1,31 +1,62 @@
 'use client'
 
 import Link from 'next/link'
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EntityLogo } from '../entity-logo'
 import {
   BankingInformationTokensBlock,
 } from '../intent-journal/IntentDrawerSections'
 import type { IntentDetail } from '@/services/payout-command/intent-journal-types'
-import { getProdDlqPage } from '@/services/payout-command/prod-api/getProdDlqPage'
 import { getProdIntentDetail } from '@/services/payout-command/prod-api/getProdIntentDetail'
 import { buildLiveIntentDetailFromRowAndApi } from '@/services/payout-command/liveJournalIntentDetail'
-import { getProdIntentsPage } from '@/services/payout-command/prod-api/getProdIntentsPage'
 import {
   getIntelligenceBatchDetail,
-  getIntelligenceBatches,
   getPatternsKpis,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
+import {
+  JOURNAL_BATCHES_BFF_PATH,
+  useIntentJournalBatchFeed,
+} from '../intent-journal/useIntentJournalBatchFeed'
+import { SessionTenantScopeBar } from '../layout/SessionTenantScopeBar'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type {
   BatchDetailResponse,
   IntelligenceBatchRow,
   PatternsKpiResponse,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type { ApiDlqRow, ApiIntentRow, ApiProdIntentDetailPayload } from '@/services/payout-command/prod-api/prodApiTypes'
+import type { ApiProdIntentDetailPayload } from '@/services/payout-command/prod-api/prodApiTypes'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
+import { markSandboxSetupStep, openSandboxSetupPanel } from '@/services/payout-command/sandbox-setup-guide'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { dockItems } from '@/services/payout-command/model'
+import {
+  COMMAND_CENTER_KPI_CARD,
+  COMMAND_CENTER_LABEL_GREEN,
+  HOME_BODY_IMPERIAL,
+  HOME_BODY_IMPERIAL_SM,
+  HOME_INSIGHT_PROSE,
+  HOME_INSIGHT_PROSE_STRONG,
+  HOME_TITLE_BLACK,
+} from '../command-center/homeCommandCenterTokens'
+import { LiveDataHint } from '../shared'
+
+const JOURNAL_PAGE_SUMMARY = dockItems.find((d) => d.id === 'grid')?.summary ?? ''
+
+const JOURNAL_SHELL_CARD =
+  'rounded-[12px] border border-slate-200/90 bg-white/95 shadow-[0_2px_12px_rgba(15,23,42,0.04)]'
+
+const JOURNAL_PILL =
+  'inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30'
+
+const JOURNAL_FILTER_LABEL =
+  'mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]'
+
+/** Cool blue-grey shell (replaces warm beige #f4f4f1 family). */
+const JOURNAL_PAGE_BG = 'bg-[#e8eef5]'
+const JOURNAL_PANEL_BG = 'bg-[#f1f5f9]'
+const JOURNAL_SUBTLE_BG = 'bg-slate-50'
+const JOURNAL_BORDER = 'border-slate-200/90'
 
 type BatchType = 'Disbursement' | 'Settlement'
 type BatchStatus = 'Strong' | 'Stable' | 'Risk' | 'Critical'
@@ -43,10 +74,14 @@ type BatchRecord = {
   transactions: number
   confirmedCount: number
   highConfidenceCount: number
+  /** Avg aggregate confidence 0–1 from intent-engine sidebar (`highConfidenceCount` in API). */
+  avgConfidenceScore?: number
   mismatchCount: number
   unresolvedCount: number
   /** Authoritative counts from `GET /v1/intelligence/batches` when present. */
   intelligenceCounts?: Pick<IntelligenceBatchRow, 'success_count' | 'failed_count' | 'pending_count' | 'finality_status'>
+  /** Sidebar row from intent-engine `GET /api/prod/intents/batches` (fast path). */
+  engineSidebar?: boolean
 }
 
 type IntentRow = {
@@ -65,6 +100,7 @@ type IntentRow = {
   paymentMethodDetail: string
   /** Raw intent-engine status (tooltip / audit). */
   engineStatus?: string
+  currency?: string
 }
 
 type FailureRow = {
@@ -109,10 +145,10 @@ const AMOUNT_RANGE_OPTIONS = ['All', 'Under $1,500', '$1,500 – $2,000', 'Over 
 type AmountRangeFilter = (typeof AMOUNT_RANGE_OPTIONS)[number]
 
 const filterSelectClass =
-  'h-9 w-full min-w-[7.5rem] rounded-lg border border-black/10 bg-[#f7fbff] px-2.5 text-[15px] text-[#111827] shadow-sm outline-none transition focus:border-[#6366f1]/50 focus:bg-white focus:ring-2 focus:ring-[#6366f1]/20'
+  'h-9 w-full min-w-[7.5rem] rounded-xl border border-slate-200/90 bg-slate-50 px-2.5 text-[14px] text-slate-900 outline-none transition focus:border-sky-400/55 focus:bg-white focus:ring-2 focus:ring-sky-400/15'
 
 const filterInputClass =
-  'h-9 w-full rounded-lg border border-black/10 bg-[#f7fbff] px-3 text-[15px] text-[#111827] shadow-sm outline-none transition placeholder:text-[#94a3b8] focus:border-[#6366f1]/50 focus:bg-white focus:ring-2 focus:ring-[#6366f1]/20'
+  'h-9 w-full rounded-xl border border-slate-200/90 bg-slate-50 px-3 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-sky-400/55 focus:bg-white focus:ring-2 focus:ring-sky-400/15'
 
 const TAB_ITEMS: { key: TabKey; label: string }[] = [
   { key: 'transactions', label: 'Intents' },
@@ -143,13 +179,6 @@ function formatInrRupees(rupees: number): string {
   if (r >= 1e5) return `₹${(rupees / 1e5).toFixed(2)} L`
   if (r >= 1e3) return `₹${(rupees / 1e3).toFixed(1)} K`
   return `₹${Math.round(rupees).toLocaleString('en-IN')}`
-}
-
-function inferBatchSource(batchId: string, finality?: string): string {
-  const id = batchId.toLowerCase()
-  if (id.includes('bulk') || id.includes('upload') || id.includes('file')) return 'Bulk ingest'
-  if (finality === 'REQUIRES_REVIEW') return 'Intelligence · review'
-  return 'Intelligence'
 }
 
 /**
@@ -192,8 +221,13 @@ function batchQualityScore(batch: BatchRecord, intents?: IntentDetail[]): number
       (s / total) * 100 - (f / total) * 28 - (p / total) * 12 - (remainder / total) * 18
     return Math.max(0, Math.min(100, Math.round(score)))
   }
-  // Fallback proxy when per-intent scores aren't available (sidebar canned rows).
+  // Intent-engine sidebar: `highConfidenceCount` in API is avg confidence 0–1.
   const total = Math.max(batch.transactions, 1)
+  if (batch.engineSidebar && typeof batch.avgConfidenceScore === 'number') {
+    const confPct = batch.avgConfidenceScore * 100
+    const penalty = ((batch.mismatchCount + batch.unresolvedCount) / total) * 30
+    return Math.max(0, Math.min(100, Math.round(confPct - penalty)))
+  }
   const base = ((batch.confirmedCount + batch.highConfidenceCount) / total) * 100
   const penalty = ((batch.mismatchCount + batch.unresolvedCount) / total) * 30
   return Math.max(0, Math.min(100, Math.round(base - penalty)))
@@ -234,10 +268,86 @@ function intentStatusLabel(status: IntentStatus) {
   return status
 }
 
-const SANDBOX_JOURNAL_ONBOARDING_DISMISSED_KEY = 'zord:sandbox-intent-journal-onboarding-dismissed'
+const JOURNAL_NO_BATCHES_DISMISS_KEY = 'zord:intent-journal-no-batches-notice'
+const JOURNAL_SANDBOX_SETUP_DISMISS_KEY = 'zord:intent-journal-sandbox-setup-notice'
+
+function journalNoticeDismissed(storageKey: string): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    return sessionStorage.getItem(storageKey) === '1'
+  } catch {
+    return false
+  }
+}
+
+function dismissJournalNotice(storageKey: string) {
+  try {
+    sessionStorage.setItem(storageKey, '1')
+  } catch {
+    /* ignore */
+  }
+}
+
+function reopenJournalNotice(storageKey: string) {
+  try {
+    sessionStorage.removeItem(storageKey)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Stripe-style dismissible notice — black shell + green Recommended chip (home / dispatch parity). */
+function JournalRecommendedBlackCard({
+  eyebrow,
+  title,
+  body,
+  bodyBold = false,
+  onDismiss,
+  children,
+}: {
+  eyebrow?: string
+  title: string
+  body: ReactNode
+  /** White bold body copy (sandbox setup card). */
+  bodyBold?: boolean
+  onDismiss: () => void
+  children?: ReactNode
+}) {
+  return (
+    <aside className="mb-4 overflow-hidden rounded-xl border border-white/12 bg-[#0A0A0A] shadow-[0_14px_44px_rgba(0,0,0,0.32)] ring-1 ring-white/10">
+      <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#39E07E] px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#000000]">
+            Recommended
+          </span>
+          {eyebrow ? <span className="text-[12px] font-medium text-white/50">{eyebrow}</span> : null}
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="shrink-0 rounded-md px-1.5 py-0.5 text-[20px] font-light leading-none text-white/55 transition hover:bg-white/10 hover:text-white"
+          aria-label="Dismiss"
+        >
+          ×
+        </button>
+      </div>
+      <div className="px-4 py-3.5">
+        <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-white">{title}</h3>
+        <div
+          className={`mt-1.5 text-[13px] leading-relaxed ${
+            bodyBold ? 'font-bold text-white' : 'font-medium text-white/72'
+          }`}
+        >
+          {body}
+        </div>
+        {children ? <div className="mt-4 flex flex-wrap gap-2">{children}</div> : null}
+      </div>
+    </aside>
+  )
+}
 
 function HeaderIcon({ kind }: { kind: 'request' | 'reference' | 'amount' | 'payment' | 'status' | 'updated' }) {
-  const cls = 'h-3.5 w-3.5 text-[#64748b]'
+  const cls = 'h-3.5 w-3.5 text-[#888888]'
   if (kind === 'request')
     return (
       <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -348,76 +458,6 @@ function failureHaystack(row: FailureRow) {
     .toLowerCase()
 }
 
-function mapApiIntentToIntentRow(intent: ApiIntentRow, batchFallback: string): IntentRow {
-  const raw = intent.amount
-  const amount = typeof raw === 'string' ? parseFloat(raw) : Number(raw ?? 0)
-  const safe = Number.isFinite(amount) ? amount : 0
-  const stRaw = String(intent.status ?? '').trim()
-  const st = stRaw.toUpperCase()
-  let status: IntentStatus = 'Pending'
-  if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') status = 'Confirmed'
-  else if (st.includes('FAIL') || st.includes('REJECT') || st.includes('ERROR')) status = 'Needs Review'
-  else if (st.includes('PROCESS') || st.includes('DISPAT') || st === 'IN_FLIGHT') status = 'In Progress'
-  const match: IntentMatch =
-    status === 'Confirmed' ? 'Matched' : status === 'Needs Review' ? 'Not Found' : 'Awaiting'
-  const created = intent.created_at ? new Date(intent.created_at) : new Date()
-
-  const instrument = String(intent.instrument ?? '').trim()
-  const source = String(intent.source ?? '').trim()
-  let method: IntentRow['method'] = 'Bank Transfer'
-  const iu = instrument.toUpperCase()
-  if (iu.includes('NACH')) method = 'NACH'
-  else if (iu.includes('IMPS') || iu.includes('UPI') || iu.includes('LSM') || iu.includes('INSTA')) method = 'LSM'
-
-  const paymentMethodDetail = [instrument || null, source || null].filter(Boolean).join(' · ') || '—'
-  const paymentPartner = source || instrument || '—'
-  const bank = instrument || '—'
-
-  return {
-    batchId: intent.batch_id ?? batchFallback,
-    requestId: intent.intent_id,
-    reference: intent.envelope_id
-      ? `env_${String(intent.envelope_id).slice(-8)}`
-      : `ref_${String(intent.intent_id).slice(-8)}`,
-    amount: safe,
-    method,
-    status,
-    match,
-    lastUpdated: created.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-    paymentPartner,
-    bank,
-    paymentMethodDetail,
-    engineStatus: stRaw || undefined,
-  }
-}
-
-function mapApiDlqToFailureRow(row: ApiDlqRow): FailureRow {
-  const batchFromIngest = (row.client_batch_ref ?? '').trim()
-  const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
-  const stageRaw = (row.stage ?? '').toLowerCase()
-  let failureStage: FailureRow['failureStage'] = 'Processing'
-  if (stageRaw.includes('valid')) failureStage = 'Validation'
-  else if (stageRaw.includes('dispatch')) failureStage = 'Dispatch'
-  else if (stageRaw.includes('settle')) failureStage = 'Settlement'
-  const lastUpdated = row.created_at
-    ? new Date(row.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-    : '—'
-  const connectorSubtitle = [row.stage, row.reason_code].filter(Boolean).join(' · ') || '—'
-  return {
-    batchId,
-    requestId: row.dlq_id,
-    reference: row.envelope_id ?? row.dlq_id,
-    amount: 0,
-    method: 'Bank Transfer',
-    paymentPartner: '',
-    connectorSubtitle,
-    failureReason: row.error_detail || row.reason_code || '—',
-    failureStage,
-    lastUpdated,
-    action: row.replayable ? 'Retry' : 'Investigate',
-  }
-}
-
 const LIVE_JOURNAL_POLL_MS = 8_000
 /** KPI 14 — `GET /v1/intelligence/dashboard/patterns?tenant_id&batch_id` (snapshots), not batch list/detail. */
 const KPI14_PATTERNS_POLL_MS = 30_000
@@ -425,184 +465,105 @@ const KPI14_PATTERNS_POLL_MS = 30_000
 export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const { mode } = useEnvironment()
   const batchCommandCenterHref = payoutBatchCommandCenterHref(mode === 'sandbox')
-  /** Same `/api/prod/intelligence/*` + `/api/prod/intents` + DLQ polling as live — sandbox is not local-only. */
+  /** Same `/api/prod/intelligence/*` + `/api/prod/intents*` + DLQ polling as live — sandbox is not local-only. */
   const journalUsesBackendFeed = mode === 'live' || mode === 'sandbox'
-  /** Matches Batch Command Center / customer-test: session → env → localStorage → demo tenant. */
-  const liveTenantId = useSessionTenantId()
 
-  const [liveIntentRows, setLiveIntentRows] = useState<IntentRow[]>([])
-  const [liveFailureRows, setLiveFailureRows] = useState<FailureRow[]>([])
-  const [liveBatchList, setLiveBatchList] = useState<BatchRecord[]>([])
+  const {
+    tenantId: liveTenantId,
+    tenantReady,
+    sidebarBatches: liveBatchList,
+    selectedBatchId,
+    intentRows: liveIntentRows,
+    failureRows: liveFailureRows,
+    intentPagination,
+    feedLoaded: liveFeedLoaded,
+    feedError,
+    feedMeta,
+    syncAt: liveSyncAt,
+    selectBatch,
+    setIntentPage: setServerIntentPage,
+    intentPage: serverIntentPage,
+    refreshFeed,
+  } = useIntentJournalBatchFeed({ enabled: journalUsesBackendFeed, initialBatchId })
+
+  const [scopeBatchId, setScopeBatchId] = useState(() => initialBatchId ?? '')
+  useEffect(() => {
+    if (selectedBatchId.trim()) setScopeBatchId(selectedBatchId)
+  }, [selectedBatchId])
+  useEffect(() => {
+    if (initialBatchId?.trim()) setScopeBatchId(initialBatchId)
+  }, [initialBatchId])
+
+  const [feedRefreshing, setFeedRefreshing] = useState(false)
+  const handleRefreshFeed = useCallback(async () => {
+    setFeedRefreshing(true)
+    try {
+      await refreshFeed()
+    } finally {
+      setFeedRefreshing(false)
+    }
+  }, [refreshFeed])
+
   // Per-batch drilldown fetched from /v1/intelligence/batches/{id} when a batch is
   // selected. Drives the right-pane KPI cards (intended/confirmed/variance/ambiguity).
   const [liveBatchDetail, setLiveBatchDetail] = useState<BatchDetailResponse | null>(null)
   /** Raw patterns response; overview uses this only for KPI 14 after `batch_id` matches selection. */
   const [kpi14Patterns, setKpi14Patterns] = useState<PatternsKpiResponse | null>(null)
-  const [liveFeedLoaded, setLiveFeedLoaded] = useState(false)
-  const [liveSyncAt, setLiveSyncAt] = useState<Date | null>(null)
-
-  /**
-   * DLQ + intelligence batch list. Failures tab uses DLQ only (intent-engine).
-   * Batch list is for sidebar + KPI / batch-detail only — it must not gate intent rows.
-   */
-  const refreshDlqAndIntelligenceBatches = useCallback(async () => {
-    const tid = liveTenantId.trim()
-    if (!tid) {
-      setLiveFailureRows([])
-      setLiveBatchList([])
-      return
-    }
-    const dq = `tenant_id=${encodeURIComponent(tid)}`
-    try {
-      const dlqRes = await getProdDlqPage(dq)
-      setLiveFailureRows((dlqRes?.items ?? []).map(mapApiDlqToFailureRow))
-    } catch {
-      setLiveFailureRows([])
-    }
-    let batchesRes: Awaited<ReturnType<typeof getIntelligenceBatches>> | null = null
-    try {
-      batchesRes = await getIntelligenceBatches(tid, { limit: 100 })
-    } catch {
-      batchesRes = null
-    }
-    const batchRows: BatchRecord[] = (batchesRes?.batches ?? []).map((b: IntelligenceBatchRow) => ({
-      batchId: b.batch_id,
-      type: 'Disbursement',
-      source: inferBatchSource(b.batch_id, b.finality_status),
-      totalValue: 0,
-      transactions: b.total_count ?? 0,
-      confirmedCount: b.success_count ?? 0,
-      highConfidenceCount: 0,
-      mismatchCount: 0,
-      unresolvedCount: 0,
-      intelligenceCounts: {
-        success_count: b.success_count ?? 0,
-        failed_count: b.failed_count ?? 0,
-        pending_count: b.pending_count ?? 0,
-        finality_status: b.finality_status,
-      },
-    }))
-    setLiveBatchList(batchRows)
-    setSelectedBatchId((prev) => {
-      if (batchRows.length === 0) return ''
-      if (initialBatchId && batchRows.some((b) => b.batchId === initialBatchId)) return initialBatchId
-      if (prev && batchRows.some((b) => b.batchId === prev)) return prev
-      return batchRows[0]!.batchId
-    })
-  }, [liveTenantId, initialBatchId])
 
   const batches = useMemo(() => {
     if (!journalUsesBackendFeed) return []
-    return liveBatchList
+    return liveBatchList as BatchRecord[]
   }, [journalUsesBackendFeed, liveBatchList])
 
   const intents = useMemo(() => {
     if (!journalUsesBackendFeed) return []
-    return liveIntentRows
+    return liveIntentRows as IntentRow[]
   }, [journalUsesBackendFeed, liveIntentRows])
 
   const failures = useMemo(() => {
     if (!journalUsesBackendFeed) return []
-    return liveFailureRows
+    return liveFailureRows as FailureRow[]
   }, [journalUsesBackendFeed, liveFailureRows])
 
-  const [selectedBatchId, setSelectedBatchId] = useState<string>(() => initialBatchId ?? '')
-
-  /** Intent-engine list: always `tenant_id` only so ingest from Batch Command Center is never blocked by intelligence. Sidebar batch scopes rows in the UI only. */
-  const loadLiveIntents = useCallback(async () => {
-    const tid = liveTenantId.trim()
-    if (!tid) {
-      setLiveIntentRows([])
-      return
-    }
-    const q = `page=1&page_size=120&tenant_id=${encodeURIComponent(tid)}`
-    try {
-      const res = await getProdIntentsPage(q)
-      const items = res?.items ?? []
-      setLiveIntentRows(items.map((it) => mapApiIntentToIntentRow(it, it.batch_id ?? '—')))
-    } catch {
-      setLiveIntentRows([])
-    }
-  }, [liveTenantId])
+  const [noBatchesNoticeDismissed, setNoBatchesNoticeDismissed] = useState(false)
+  const [sandboxSetupNoticeDismissed, setSandboxSetupNoticeDismissed] = useState(false)
 
   useEffect(() => {
-    if (!journalUsesBackendFeed) return
-    let cancelled = false
-    setLiveFeedLoaded(false)
-    const tick = async () => {
-      if (cancelled) return
-      try {
-        await refreshDlqAndIntelligenceBatches()
-      } catch {
-        /* DLQ / intelligence sidebar is best-effort */
-      }
-      if (!cancelled) await loadLiveIntents()
-      if (!cancelled) {
-        setLiveFeedLoaded(true)
-        setLiveSyncAt(new Date())
-      }
-    }
-    void tick()
-    const id = window.setInterval(() => {
-      void tick()
-    }, LIVE_JOURNAL_POLL_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [journalUsesBackendFeed, refreshDlqAndIntelligenceBatches, loadLiveIntents, liveTenantId])
-
-  const [sandboxOnboardingOpen, setSandboxOnboardingOpen] = useState(false)
+    setNoBatchesNoticeDismissed(journalNoticeDismissed(JOURNAL_NO_BATCHES_DISMISS_KEY))
+    setSandboxSetupNoticeDismissed(journalNoticeDismissed(JOURNAL_SANDBOX_SETUP_DISMISS_KEY))
+  }, [])
 
   useEffect(() => {
-    if (mode !== 'sandbox') {
-      setSandboxOnboardingOpen(false)
-      return
+    if (mode === 'sandbox' && liveBatchList.length > 0) {
+      markSandboxSetupStep('journal')
     }
-    if (liveBatchList.length > 0) {
-      setSandboxOnboardingOpen(false)
-      return
-    }
-    if (!liveFeedLoaded) {
-      setSandboxOnboardingOpen(false)
-      return
-    }
-    if (typeof window === 'undefined') return
-    const dismissed = window.localStorage.getItem(SANDBOX_JOURNAL_ONBOARDING_DISMISSED_KEY) === '1'
-    setSandboxOnboardingOpen(!dismissed)
-  }, [mode, liveBatchList.length, liveFeedLoaded])
-
-  useEffect(() => {
-    if (!journalUsesBackendFeed) return
-    if (selectedBatchId) return
-    if (liveBatchList[0]) setSelectedBatchId(liveBatchList[0].batchId)
-  }, [journalUsesBackendFeed, selectedBatchId, liveBatchList])
+  }, [mode, liveBatchList.length])
 
   // Per-batch detail (intended/confirmed/variance) from /v1/intelligence/batches/{id}.
   // Re-fetched whenever the user selects a different batch (live or sandbox).
   useEffect(() => {
-    if (!journalUsesBackendFeed || !liveTenantId || !selectedBatchId.trim()) {
+    if (!journalUsesBackendFeed || !tenantReady || !selectedBatchId.trim()) {
       setLiveBatchDetail(null)
       return
     }
     let cancelled = false
-    void getIntelligenceBatchDetail(liveTenantId, selectedBatchId).then((res) => {
+    void getIntelligenceBatchDetail(selectedBatchId).then((res) => {
       if (!cancelled) setLiveBatchDetail(res)
     })
     return () => {
       cancelled = true
     }
-  }, [journalUsesBackendFeed, liveTenantId, selectedBatchId])
+  }, [journalUsesBackendFeed, tenantReady, selectedBatchId])
 
   // KPI 14 only — `GET /v1/intelligence/dashboard/patterns` (Isolation Forest). Not used for intent counts or INR health.
   useEffect(() => {
-    if (!journalUsesBackendFeed || !liveTenantId.trim() || !selectedBatchId.trim()) {
+    if (!journalUsesBackendFeed || !tenantReady || !selectedBatchId.trim()) {
       setKpi14Patterns(null)
       return
     }
     let cancelled = false
     const run = () => {
-      void getPatternsKpis(liveTenantId, selectedBatchId).then((res) => {
+      void getPatternsKpis(selectedBatchId).then((res) => {
         if (!cancelled) setKpi14Patterns(res)
       })
     }
@@ -612,7 +573,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       cancelled = true
       window.clearInterval(id)
     }
-  }, [journalUsesBackendFeed, liveTenantId, selectedBatchId])
+  }, [journalUsesBackendFeed, tenantReady, selectedBatchId])
 
   const batchAnomalyRaw = isDataAvailable(kpi14Patterns) ? kpi14Patterns : null
   // Only trust KPI 14 when the payload names this batch (tenant-wide patterns omit `batch_id`).
@@ -624,13 +585,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       ? batchAnomalyRaw
       : null
 
-  // If parent passes an initialBatchId after mount (e.g. URL syncs late), pick it up.
-  useEffect(() => {
-    if (!initialBatchId || initialBatchId === selectedBatchId) return
-    if (liveBatchList.some((b) => b.batchId === initialBatchId)) {
-      setSelectedBatchId(initialBatchId)
-    }
-  }, [initialBatchId, selectedBatchId, liveBatchList])
   const [batchFilter, setBatchFilter] = useState<BatchFilter>('All Batches')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('listed')
   const [sidebarPage, setSidebarPage] = useState(1)
@@ -714,20 +668,24 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           batches.find((b) => b.batchId === selectedBatchId) ??
           null)
 
-  const sandboxJournalEmpty = mode === 'sandbox' && liveFeedLoaded && liveBatchList.length === 0
+  const sandboxJournalEmpty =
+    mode === 'sandbox' && tenantReady && liveFeedLoaded && liveBatchList.length === 0
 
-  const dismissSandboxOnboarding = (remember: boolean) => {
-    setSandboxOnboardingOpen(false)
-    if (remember && typeof window !== 'undefined') {
-      window.localStorage.setItem(SANDBOX_JOURNAL_ONBOARDING_DISMISSED_KEY, '1')
-    }
-  }
+  const showNoBatchesNotice =
+    journalUsesBackendFeed &&
+    tenantReady &&
+    liveFeedLoaded &&
+    liveBatchList.length === 0 &&
+    !noBatchesNoticeDismissed &&
+    mode !== 'sandbox'
+
+  const showSandboxSetupNotice = sandboxJournalEmpty && !sandboxSetupNoticeDismissed
 
   const needsAttentionCount = batches.filter((b) => batchQualityScore(b) < 80).length
   const sourceCount = new Set(batches.map((b) => b.source)).size
   const sidebarTotalPages = Math.max(1, Math.ceil(filteredBatches.length / SIDEBAR_PAGE_SIZE))
   const safeSidebarPage = Math.min(sidebarPage, sidebarTotalPages)
-  const sidebarBatches = filteredBatches.slice((safeSidebarPage - 1) * SIDEBAR_PAGE_SIZE, safeSidebarPage * SIDEBAR_PAGE_SIZE)
+  const sidebarPageRows = filteredBatches.slice((safeSidebarPage - 1) * SIDEBAR_PAGE_SIZE, safeSidebarPage * SIDEBAR_PAGE_SIZE)
 
   const filteredIntents = useMemo(() => {
     const sidebarBid = journalUsesBackendFeed && selectedBatch ? selectedBatch.batchId : ''
@@ -796,7 +754,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     setJumpPage('1')
     setFailurePage(1)
     setFailureJumpPage('1')
+    if (journalUsesBackendFeed) setServerIntentPage(1)
   }, [
+    journalUsesBackendFeed,
+    setServerIntentPage,
     tableSearch,
     dateRange,
     filterBatchId,
@@ -809,10 +770,16 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     selectedBatchId,
   ])
 
-  const intentTotal = filteredIntents.length
-  const totalPages = Math.max(1, Math.ceil(intentTotal / rowsPerPage))
-  const safePage = Math.min(page, totalPages)
-  const pageRows = filteredIntents.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage)
+  const backendIntentTotal = intentPagination?.total ?? filteredIntents.length
+  const backendPageSize = intentPagination?.page_size ?? 20
+  const intentTotal = journalUsesBackendFeed ? backendIntentTotal : filteredIntents.length
+  const totalPages = journalUsesBackendFeed
+    ? Math.max(1, Math.ceil(backendIntentTotal / backendPageSize))
+    : Math.max(1, Math.ceil(filteredIntents.length / rowsPerPage))
+  const safePage = journalUsesBackendFeed ? Math.min(serverIntentPage, totalPages) : Math.min(page, totalPages)
+  const pageRows = journalUsesBackendFeed
+    ? filteredIntents
+    : filteredIntents.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage)
 
   const failureTotal = filteredFailures.length
   const failureTotalPages = Math.max(1, Math.ceil(failureTotal / rowsPerPage))
@@ -909,63 +876,17 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
   return (
     <>
-      {sandboxOnboardingOpen ? (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="sandbox-journal-onboard-title"
-        >
-          <div className="max-w-md rounded-2xl border border-amber-200/80 bg-white p-6 shadow-2xl">
-            <h2 id="sandbox-journal-onboard-title" className="text-lg font-semibold text-[#0f172a]">
-              Load your first batch
-            </h2>
-            <p className="mt-2 text-[18px] leading-relaxed text-[#64748b]">
-              Sandbox Intent Journal starts empty — no demo rows. Open <strong className="text-[#0f172a]">Batch Command Center</strong>,
-              upload your <strong>intent</strong> file (step 1), then your <strong>settlement</strong> file (step 2). Batches and intents
-              here load only from <strong className="text-[#0f172a]">intelligence</strong> and the <strong className="text-[#0f172a]">intent engine</strong> for your tenant (same as live).
-            </p>
-            <ol className="mt-3 list-decimal space-y-1.5 pl-5 text-[15px] text-[#475569]">
-              <li>Batch Center → Step 1: intent batch + API key → ingest</li>
-              <li>Step 2: settlement file (tenant + PSP) → upload</li>
-              <li>Return here — batches appear when intelligence lists them; intents load per batch from the intent API</li>
-            </ol>
-            <div className="mt-5 flex flex-wrap gap-2">
-              <Link
-                href={batchCommandCenterHref}
-                className="inline-flex min-w-[10rem] flex-1 items-center justify-center rounded-xl bg-[#111111] px-4 py-2.5 text-[18px] font-semibold text-white transition hover:bg-black/90"
-                onClick={() => dismissSandboxOnboarding(false)}
-              >
-                Go to Batch Command Center
-              </Link>
-              <button
-                type="button"
-                className="rounded-xl border border-[#E5E5E5] px-4 py-2.5 text-[18px] font-medium text-[#64748b] transition hover:bg-[#fafafa]"
-                onClick={() => dismissSandboxOnboarding(false)}
-              >
-                Close
-              </button>
-            </div>
-            <button
-              type="button"
-              className="mt-3 text-[14px] text-[#94a3b8] underline underline-offset-2 transition hover:text-[#64748b]"
-              onClick={() => dismissSandboxOnboarding(true)}
-            >
-              Don&apos;t show again
-            </button>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="h-[calc(100vh-8rem)] overflow-hidden bg-[#f4f4f1] text-[18px] text-[#111827]">
+      <div
+        className={`h-[calc(100vh-8rem)] overflow-hidden ${JOURNAL_PAGE_BG} text-[13px] font-normal leading-relaxed tracking-[0] text-slate-900 antialiased`}
+      >
       <div className="grid h-full grid-cols-[272px,minmax(0,1fr)]">
-        <aside className="flex h-full flex-col overflow-hidden border-r border-[#E5E5E5] bg-white text-[#0f172a]">
+        <aside className={`flex h-full flex-col overflow-hidden border-r ${JOURNAL_BORDER} bg-white`}>
           <div className="border-b border-[#E5E5E5] px-4 pb-3 pt-4">
-            <h2 className="text-[19px] font-semibold text-[#0f172a]">Batches</h2>
-            <p className="mt-1 text-[15px] text-[#64748b]">
+            <h2 className={`text-[14px] font-medium ${HOME_TITLE_BLACK}`}>Batches</h2>
+            <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
               {batches.length} listed · {sourceCount} sources
             </p>
-            <div className="mt-3 rounded-[10px] border border-[#E5E5E5] bg-[#f7f7f4] p-1">
+            <div className={`mt-3 rounded-[10px] border ${JOURNAL_BORDER} ${JOURNAL_PANEL_BG} p-1`}>
               <div className="grid grid-cols-2 gap-1">
                 <button
                   type="button"
@@ -1002,13 +923,14 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           </div>
 
           <div className="flex-1 overflow-y-auto px-2 py-2">
-            {journalUsesBackendFeed && sidebarBatches.length === 0 ? (
-              <p className="rounded-lg border border-dashed border-[#E5E5E5] bg-[#fafafa] px-3 py-4 text-center text-[15px] leading-relaxed text-[#94a3b8]">
-                No batches yet for this tenant. After ingest, batches appear here from intelligence (
-                <span className="font-mono text-[13px] text-[#64748b]">GET /v1/intelligence/batches</span>).
+            {journalUsesBackendFeed && sidebarPageRows.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-[#E5E5E5] bg-slate-50 px-3 py-4 text-center text-[15px] leading-relaxed text-[#94a3b8]">
+                No batches yet for this tenant. After ingest, batches load first from the intent engine (
+                <span className="font-mono text-[13px] text-[#64748b]">GET /api/prod/intents/batches</span>
+                ); if that list is empty, the UI falls back to intelligence when available.
               </p>
             ) : null}
-            {sidebarBatches.map((batch) => {
+            {sidebarPageRows.map((batch) => {
               const selected = batch.batchId === selectedBatchId
               const score = batchQualityScore(batch)
               const detailRow =
@@ -1054,24 +976,28 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 <button
                   key={batch.batchId}
                   type="button"
-                  onClick={() => setSelectedBatchId(batch.batchId)}
+                  onClick={() => selectBatch(batch.batchId)}
                   className={`mb-1.5 w-full rounded-[10px] border px-3 py-2 text-left transition ${
                     selected
-                      ? 'border-[#111111] bg-[#f7f7f4]'
-                      : 'border-transparent hover:border-[#E5E5E5] hover:bg-[#fafafa]'
+                      ? 'border-[#111111] bg-slate-100'
+                      : 'border-transparent hover:border-[#E5E5E5] hover:bg-slate-50'
                   }`}
                 >
                   {/* Line 1: status dot + batch ID + success count (live) or quality score (sandbox) */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className={`h-2 w-2 shrink-0 rounded-full ${dotColor}`} aria-hidden />
-                      <span className="truncate text-[18px] font-medium text-[#0f172a]">{batch.batchId}</span>
+                      <span className={`truncate text-[14px] font-medium ${HOME_TITLE_BLACK}`}>{batch.batchId}</span>
                     </div>
                     <span
                       className={`shrink-0 text-[15px] font-semibold tabular-nums ${tone.text}`}
                       title={
                         journalUsesBackendFeed
-                          ? 'success_count from intelligence batch (detail when selected)'
+                          ? batch.intelligenceCounts
+                            ? 'success_count from intelligence batch (detail when selected)'
+                            : batch.engineSidebar
+                              ? 'Confirmed-style count from intent-engine batch aggregates (sidebar)'
+                              : 'Batch quality score'
                           : 'Batch quality score'
                       }
                     >
@@ -1128,7 +1054,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               )
             })}
           </div>
-          <div className="border-t border-[#E5E5E5] bg-[#fafafa] px-3 py-2 text-[15px] text-[#64748b]">
+          <div className="border-t border-[#E5E5E5] bg-slate-50 px-3 py-2 text-[15px] text-[#64748b]">
             <div className="flex items-center justify-between">
               <button
                 type="button"
@@ -1157,76 +1083,205 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
         </aside>
 
         <main className="flex h-full min-w-0 flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+            <div className={`mb-4 ${JOURNAL_SHELL_CARD} px-3 py-2.5 backdrop-blur-sm sm:px-3.5`}>
+              <h2 className={JOURNAL_PILL}>Intent journal · command center</h2>
+              <p className={`mt-0.5 max-w-2xl ${HOME_BODY_IMPERIAL}`}>{JOURNAL_PAGE_SUMMARY}</p>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <LiveDataHint
+                  isLive={Boolean(journalUsesBackendFeed && liveFeedLoaded)}
+                  source="intelligence"
+                />
+              </div>
+            </div>
+
+            {journalUsesBackendFeed ? (
+              <div className="mb-4">
+                <SessionTenantScopeBar
+                  batchId={scopeBatchId}
+                  onBatchIdChange={setScopeBatchId}
+                  onAfterFetch={() => {
+                    void refreshFeed()
+                    const bid = scopeBatchId.trim()
+                    if (bid) selectBatch(bid)
+                  }}
+                />
+              </div>
+            ) : null}
+
+            {journalUsesBackendFeed && !tenantReady ? (
+              <p className={`mb-4 rounded-xl border border-slate-200/90 bg-slate-50 px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>
+                Resolving session tenant…
+              </p>
+            ) : null}
+
+            {journalUsesBackendFeed && feedError ? (
+              <p className="mb-4 rounded-xl border border-amber-200/90 bg-amber-50 px-3.5 py-2.5 text-[14px] text-amber-950">
+                {feedError}
+              </p>
+            ) : null}
+
             {journalUsesBackendFeed && liveFeedLoaded ? (
-              <div className="mb-4 rounded-[10px] border border-slate-200 bg-slate-50 px-3.5 py-2 text-[15px] text-slate-700">
-                <span className="font-semibold text-slate-900">
-                  {mode === 'sandbox' ? 'Sandbox · same tenant APIs' : 'Live backend feed'}
-                </span>
-                <span className="text-slate-500"> · </span>
-                <span className="text-slate-600">
-                  Refreshes every {Math.round(LIVE_JOURNAL_POLL_MS / 1000)}s
-                  {liveSyncAt ? (
-                    <>
-                      <span className="text-slate-400"> · </span>
-                      Last synced{' '}
-                      <time dateTime={liveSyncAt.toISOString()}>
-                        {liveSyncAt.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </time>
-                    </>
-                  ) : null}
-                </span>
-                <span className="text-slate-500"> · </span>
-                {liveIntentRows.length > 0 ? (
-                  <span>
-                    {liveIntentRows.length} intent{liveIntentRows.length === 1 ? '' : 's'} from{' '}
-                    <code className="rounded bg-white px-1 py-0.5 font-mono text-[14px] text-slate-800">{liveTenantId}</code>
-                    {liveFailureRows.length > 0 ? (
-                      <span className="text-slate-600">
-                        {' '}
-                        · {liveFailureRows.length} DLQ row{liveFailureRows.length === 1 ? '' : 's'}
-                      </span>
+              <div className={`mb-4 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <span className={`font-semibold ${HOME_TITLE_BLACK}`}>
+                      {mode === 'sandbox' ? 'Sandbox · same tenant APIs' : 'Live backend feed'}
+                    </span>
+                    <span className="text-[#cbd5e1]"> · </span>
+                    <span className={HOME_BODY_IMPERIAL_SM}>
+                      <code className="font-mono text-[12px]">{JOURNAL_BATCHES_BFF_PATH}</code>
+                      {feedMeta ? (
+                        <>
+                          {' '}
+                          · HTTP {feedMeta.status || '—'} · {feedMeta.sidebarCount} batch
+                          {feedMeta.sidebarCount === 1 ? '' : 'es'}
+                        </>
+                      ) : null}
+                    </span>
+                    <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+                      Refreshes every {Math.round(LIVE_JOURNAL_POLL_MS / 1000)}s
+                      {liveSyncAt ? (
+                        <>
+                          {' '}
+                          · Last synced{' '}
+                          <time dateTime={liveSyncAt.toISOString()}>
+                            {liveSyncAt.toLocaleTimeString('en-IN', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })}
+                          </time>
+                        </>
+                      ) : null}
+                      {selectedBatchId.trim() ? (
+                        <>
+                          {' '}
+                          · Selected batch <code className="font-mono text-[12px]">{selectedBatchId}</code>
+                        </>
+                      ) : null}
+                    </p>
+                    <p className="mt-1 text-[12px] text-slate-500">
+                      Data in DB? Compare <code className="font-mono">tenant_id</code> and{' '}
+                      <code className="font-mono">batch_id</code> on your rows with the session tenant and selected batch
+                      above.
+                    </p>
+                    {liveIntentRows.length > 0 || liveFailureRows.length > 0 ? (
+                      <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+                        {liveIntentRows.length} intent{liveIntentRows.length === 1 ? '' : 's'} (Intents tab)
+                        {liveFailureRows.length > 0 ? (
+                          <>
+                            {' '}
+                            · {liveFailureRows.length} DLQ row{liveFailureRows.length === 1 ? '' : 's'} (Failures tab)
+                          </>
+                        ) : null}
+                      </p>
+                    ) : (
+                      <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+                        No rows loaded for this batch — use Fetch tenant id, confirm Batch-Id, then Refresh now.
+                      </p>
+                    )}
+                    {feedMeta?.ok &&
+                    feedMeta.sidebarCount === 0 &&
+                    !feedError &&
+                    (liveIntentRows.length === 0 && liveFailureRows.length === 0) ? (
+                      <p className={`mt-2 border-t border-slate-100 pt-2 text-[12px] leading-relaxed text-slate-600`}>
+                        BFF returned 200 with zero batches. If Batch Command Center already shows{' '}
+                        <span className="font-semibold text-slate-700">Accepted</span> rows, the gap is usually
+                        downstream: zord-edge <code className="font-mono text-[11px]">ingress_outbox</code> still{' '}
+                        <span className="font-semibold">PENDING</span> or Kafka / zord-relay is not publishing to
+                        intent-engine — fix brokers and relay, then wait for{' '}
+                        <code className="font-mono text-[11px]">payment_intents</code> to populate.
+                      </p>
                     ) : null}
-                  </span>
-                ) : (
-                  <span className="text-slate-600">
-                    No intents returned (check intent-engine or tenant). Failures tab shows DLQ from the engine only.
-                  </span>
-                )}
-              </div>
-            ) : null}
-
-            {journalUsesBackendFeed && liveFeedLoaded && liveBatchList.length === 0 ? (
-              <div className="mb-4 rounded-xl border border-amber-200/80 bg-amber-50 px-4 py-3 text-[18px] text-amber-950">
-                <span className="font-semibold">No batches in intelligence.</span>{' '}
-                Create or ingest a batch for this tenant, then this list will populate from{' '}
-                <code className="rounded bg-white px-1 font-mono text-[15px]">GET /v1/intelligence/batches</code>.
-              </div>
-            ) : null}
-
-            {sandboxJournalEmpty ? (
-              <div className="mb-5 rounded-2xl border border-amber-200/70 bg-gradient-to-br from-amber-50/90 to-white px-5 py-5 shadow-sm ring-1 ring-amber-100">
-                <p className="text-[13px] font-semibold uppercase tracking-[0.12em] text-amber-800">Sandbox · no data yet</p>
-                <p className="mt-2 text-[17px] font-semibold text-[#0f172a]">Upload intent + settlement in Batch Command Center</p>
-                <p className="mt-1.5 max-w-2xl text-[18px] leading-relaxed text-[#64748b]">
-                  Batches and intents load only from APIs (intelligence + intent engine + DLQ). Complete ingest in Batch Command Center, then batches appear here when intelligence lists them for this tenant.
-                </p>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Link
-                    href={batchCommandCenterHref}
-                    className="inline-flex items-center justify-center rounded-xl bg-[#111111] px-4 py-2.5 text-[18px] font-semibold text-white transition hover:bg-black/90"
-                  >
-                    Open Batch Command Center
-                  </Link>
+                  </div>
                   <button
                     type="button"
-                    className="rounded-xl border border-[#E5E5E5] bg-white px-4 py-2.5 text-[18px] font-medium text-[#64748b] transition hover:bg-[#fafafa]"
-                    onClick={() => setSandboxOnboardingOpen(true)}
+                    onClick={() => void handleRefreshFeed()}
+                    disabled={feedRefreshing || !tenantReady}
+                    className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Show setup steps
+                    {feedRefreshing ? 'Refreshing…' : 'Refresh now'}
                   </button>
                 </div>
               </div>
+            ) : null}
+
+            {journalUsesBackendFeed &&
+            liveFeedLoaded &&
+            liveBatchList.length === 0 &&
+            noBatchesNoticeDismissed &&
+            mode !== 'sandbox' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  reopenJournalNotice(JOURNAL_NO_BATCHES_DISMISS_KEY)
+                  setNoBatchesNoticeDismissed(false)
+                }}
+                className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-[13px] font-medium text-[#000000] shadow-sm transition hover:bg-slate-50"
+              >
+                Show batch ingest tip
+              </button>
+            ) : null}
+
+            {showNoBatchesNotice ? (
+              <JournalRecommendedBlackCard
+                eyebrow="Intelligence"
+                title="No batches in intelligence yet"
+                body={
+                  <>
+                    Create or ingest a batch for this tenant. The sidebar populates from{' '}
+                    <code className="rounded bg-white/10 px-1 font-mono text-[12px] text-white/90">
+                      GET /v1/intelligence/batches
+                    </code>
+                    .
+                  </>
+                }
+                onDismiss={() => {
+                  dismissJournalNotice(JOURNAL_NO_BATCHES_DISMISS_KEY)
+                  setNoBatchesNoticeDismissed(true)
+                }}
+              />
+            ) : null}
+
+            {sandboxJournalEmpty && sandboxSetupNoticeDismissed ? (
+              <button
+                type="button"
+                onClick={() => {
+                  reopenJournalNotice(JOURNAL_SANDBOX_SETUP_DISMISS_KEY)
+                  setSandboxSetupNoticeDismissed(false)
+                }}
+                className="mb-4 inline-flex items-center gap-1.5 rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-[13px] font-medium text-[#000000] shadow-sm transition hover:bg-slate-50"
+              >
+                Show sandbox setup
+              </button>
+            ) : null}
+
+            {showSandboxSetupNotice ? (
+              <JournalRecommendedBlackCard
+                eyebrow="Sandbox"
+                title="Upload intent + settlement in Batch Command Center"
+                bodyBold
+                body="Step 1: intent file → POST /api/bulk-ingest. Step 2: settlement file (PSP + Batch-Id) → POST /api/settlement/upload. This journal then loads batches from the intent engine and intelligence — no demo rows."
+                onDismiss={() => {
+                  dismissJournalNotice(JOURNAL_SANDBOX_SETUP_DISMISS_KEY)
+                  setSandboxSetupNoticeDismissed(true)
+                }}
+              >
+                <Link
+                  href={batchCommandCenterHref}
+                  className="inline-flex items-center justify-center rounded-xl bg-white px-4 py-2.5 text-[14px] font-semibold text-[#0A0A0A] transition hover:bg-white/90"
+                >
+                  Open Batch Command Center
+                </Link>
+                <button
+                  type="button"
+                  className="rounded-xl border border-white/25 bg-transparent px-4 py-2.5 text-[14px] font-medium text-white/90 transition hover:bg-white/10"
+                  onClick={() => openSandboxSetupPanel()}
+                >
+                  Setup steps
+                </button>
+              </JournalRecommendedBlackCard>
             ) : null}
 
             {/* ── Persistent dispatch success banner ─────────────────────── */}
@@ -1268,16 +1323,19 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             ) : null}
             {selectedBatch ? (
               <>
-            <section className="mb-4 overflow-hidden rounded-[20px] border border-slate-200/80 bg-white shadow-[0_4px_16px_rgba(15,23,42,0.04)]">
-              <div className="flex flex-col gap-3 border-b border-slate-200/80 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
+            <section className={`mb-4 overflow-hidden ${COMMAND_CENTER_KPI_CARD}`}>
+              <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
-                  <h2 className="text-[18px] font-semibold tracking-tight text-[#0f172a]">Overview — {selectedBatch.batchId}</h2>
-                  <div className="mt-2 grid gap-1 text-[15px] text-[#64748b] sm:grid-cols-2">
-                    <p><span className="font-semibold text-[#0f172a]">Type:</span> {selectedBatch.type}</p>
-                    <p className="sm:text-right"><span className="font-semibold text-[#0f172a]">Source:</span> {selectedBatch.source}</p>
-                    <p><span className="font-semibold text-[#0f172a]">Total Intents:</span> {overviewIntentTotal.toLocaleString('en-US')}</p>
+                  <p className={COMMAND_CENTER_LABEL_GREEN}>Batch overview</p>
+                  <h2 className={`mt-1 text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
+                    {selectedBatch.batchId}
+                  </h2>
+                  <div className={`mt-2 grid gap-1 sm:grid-cols-2 ${HOME_BODY_IMPERIAL_SM}`}>
+                    <p><span className={HOME_INSIGHT_PROSE_STRONG}>Type:</span> {selectedBatch.type}</p>
+                    <p className="sm:text-right"><span className={HOME_INSIGHT_PROSE_STRONG}>Source:</span> {selectedBatch.source}</p>
+                    <p><span className={HOME_INSIGHT_PROSE_STRONG}>Total intents:</span> {overviewIntentTotal.toLocaleString('en-US')}</p>
                     <p className="sm:text-right">
-                      <span className="font-semibold text-emerald-700">Dispatch confidence:</span>{' '}
+                      <span className="font-semibold text-[#16a34a]">Dispatch confidence:</span>{' '}
                       {dispatchConfidencePct.toFixed(1)}% ({batchStatus(selectedBatchScore)})
                       {batchAnomaly ? (
                         <span className="text-[14px] text-slate-500">
@@ -1295,7 +1353,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 <button
                   type="button"
                   onClick={() => setDispatchModalOpen(true)}
-                  className="inline-flex h-9 shrink-0 items-center gap-2 rounded-[10px] bg-[#0f172a] px-3.5 text-[15px] font-semibold text-white shadow-[0_4px_12px_rgba(15,23,42,0.18)] transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#94a3b8] disabled:shadow-none"
+                  className="inline-flex h-9 shrink-0 items-center gap-2 rounded-xl bg-[#000000] px-3.5 text-[14px] font-medium text-white transition hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
                     <path d="m3 8 4 4 6-9" strokeLinecap="round" strokeLinejoin="round" />
@@ -1348,7 +1406,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 ).map((kpi, idx) => (
                   <article
                     key={kpi.label}
-                    className={`group relative flex flex-col overflow-hidden rounded-[16px] border border-slate-200 bg-white p-3 text-[#0f172a] shadow-[0_2px_8px_rgba(15,23,42,0.04)] ${
+                    className={`group relative flex flex-col overflow-hidden ${COMMAND_CENTER_KPI_CARD} p-3 ${
                       idx === 0 ? 'xl:col-start-1 xl:row-start-1' : ''
                     } ${idx === 1 ? 'xl:col-start-2 xl:row-start-1' : ''} ${idx === 2 ? 'xl:col-start-1 xl:row-start-2' : ''} ${
                       idx === 3 ? 'xl:col-start-2 xl:row-start-2' : ''
@@ -1362,12 +1420,12 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                         >
                           <KpiGlyph variant={kpi.variant} />
                         </div>
-                        <h3 className="text-[14px] font-semibold leading-snug text-[#0f172a]">{kpi.label}</h3>
+                        <h3 className={`text-[14px] font-medium leading-snug ${HOME_TITLE_BLACK}`}>{kpi.label}</h3>
                       </div>
                       <span className="text-[#94a3b8]">↗</span>
                     </div>
                     <div className="mt-2">
-                      <p className="mt-1 text-[30px] font-semibold leading-none tracking-tight text-[#0f172a] tabular-nums">{kpi.value}</p>
+                      <p className={`mt-1 text-[30px] font-semibold leading-none tracking-tight tabular-nums ${HOME_TITLE_BLACK}`}>{kpi.value}</p>
                     </div>
                     <p className={`mt-2 text-[15px] font-medium ${kpi.trendTone}`}>
                       {journalUsesBackendFeed ? kpi.trend : `↑ ${kpi.trend}`}
@@ -1379,13 +1437,13 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   </article>
                 ))}
 
-                <section className="rounded-[20px] border border-slate-200/80 bg-gradient-to-br from-white to-slate-50/90 p-5 shadow-[0_8px_28px_rgba(15,23,42,0.06)] sm:col-span-2 xl:col-start-3 xl:row-start-1 xl:row-end-3">
+                <section className={`${COMMAND_CENTER_KPI_CARD} sm:col-span-2 xl:col-start-3 xl:row-start-1 xl:row-end-3`}>
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-[18px] font-semibold text-[#111827]">Intent Activity</p>
-                      <p className="text-[14px] text-[#64748b]">Distribution by state</p>
+                      <p className={`text-[14px] font-medium ${HOME_TITLE_BLACK}`}>Intent activity</p>
+                      <p className={HOME_BODY_IMPERIAL_SM}>Distribution by state</p>
                       {journalUsesBackendFeed ? (
-                        <p className="mt-1 max-w-[22rem] text-[13px] leading-snug text-slate-500">
+                        <p className={`mt-1 max-w-[22rem] ${HOME_INSIGHT_PROSE}`}>
                           Segment counts from batch detail{' '}
                           <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
                             GET /v1/intelligence/batches/{'{batch_id}'}?tenant_id=…
@@ -1409,8 +1467,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                               key={label}
                               type="button"
                               onClick={() => setDateRange(value)}
-                              className={`rounded-[7px] border px-2.5 py-1 ${
-                                dateRange === value ? 'border-[#111827] bg-[#111827] text-white' : 'border-[#e5e7eb] bg-white text-[#6b7280]'
+                              className={`rounded-full px-3 py-1.5 text-[14px] font-medium transition ${
+                                dateRange === value
+                                  ? 'bg-[#39E07E] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/35'
+                                  : `border border-[#E5E5E5] bg-white hover:bg-[#f5f5f5] ${HOME_TITLE_BLACK}`
                               }`}
                             >
                               {label}
@@ -1525,18 +1585,27 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               </section>
             )}
 
-            <nav className="mb-4 flex items-center gap-0.5 border-b border-[#e5e7eb]">
+            <nav className="mb-4 flex items-center gap-0.5 border-b border-[#E5E5E5]">
               {TAB_ITEMS.map((tab) => (
-                <button key={tab.key} type="button" onClick={() => setActiveTab(tab.key)} className={`-mb-px border-b-2 px-4 py-2 text-[18px] ${activeTab === tab.key ? 'border-[#111111] font-medium text-[#111111]' : 'border-transparent text-[#6b7280] hover:text-[#111111]'}`}>
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`-mb-px border-b-2 px-4 py-2 text-[14px] font-medium tracking-[0] transition ${
+                    activeTab === tab.key
+                      ? 'border-[#39E07E] text-[#000000]'
+                      : 'border-transparent text-[#888888] hover:text-[#000000]'
+                  }`}
+                >
                   {tab.label}
                 </button>
               ))}
             </nav>
 
-            <div className="mb-4 rounded-[20px] border border-slate-200/80 bg-gradient-to-br from-white via-[#f8fbff] to-slate-50 p-4 shadow-[0_8px_28px_rgba(15,23,42,0.06)]">
+            <div className={`mb-4 ${COMMAND_CENTER_KPI_CARD} p-4`}>
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div className="min-w-0 flex-1">
-                  <label htmlFor="journal-table-search" className="mb-1.5 block text-[13px] font-semibold uppercase tracking-wider text-[#64748b]">
+                  <label htmlFor="journal-table-search" className={JOURNAL_FILTER_LABEL}>
                     Search
                   </label>
                   <div className="relative">
@@ -1581,7 +1650,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
               <div className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
                 <div>
-                  <label className="mb-1 block text-[13px] font-semibold uppercase tracking-wider text-[#64748b]">Date range</label>
+                  <label className={JOURNAL_FILTER_LABEL}>Date range</label>
                   <select value={dateRange} onChange={(e) => setDateRange(e.target.value as DateRangePreset)} className={filterSelectClass}>
                     {DATE_RANGE_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -1591,7 +1660,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-[13px] font-semibold uppercase tracking-wider text-[#64748b]">Batch ID</label>
+                  <label className={JOURNAL_FILTER_LABEL}>Batch ID</label>
                   <input
                     value={filterBatchId}
                     onChange={(e) => setFilterBatchId(e.target.value)}
@@ -1600,7 +1669,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   />
                 </div>
                 <div>
-                  <label className="mb-1 block text-[13px] font-semibold uppercase tracking-wider text-[#64748b]">Connector</label>
+                  <label className={JOURNAL_FILTER_LABEL}>Connector</label>
                   <select value={connectorFilter} onChange={(e) => setConnectorFilter(e.target.value as (typeof CONNECTOR_OPTIONS)[number])} className={filterSelectClass}>
                     {CONNECTOR_OPTIONS.map((c) => (
                       <option key={c} value={c}>
@@ -1610,7 +1679,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-[13px] font-semibold uppercase tracking-wider text-[#64748b]">Status</label>
+                  <label className={JOURNAL_FILTER_LABEL}>Status</label>
                   {activeTab === 'transactions' ? (
                     <select value={intentStatusFilter} onChange={(e) => setIntentStatusFilter(e.target.value as 'All' | IntentStatus)} className={filterSelectClass}>
                       <option value="All">All statuses</option>
@@ -1634,7 +1703,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   )}
                 </div>
                 <div>
-                  <label className="mb-1 block text-[13px] font-semibold uppercase tracking-wider text-[#64748b]">Dispatch mode</label>
+                  <label className={JOURNAL_FILTER_LABEL}>Dispatch mode</label>
                   <select value={dispatchModeFilter} onChange={(e) => setDispatchModeFilter(e.target.value as (typeof DISPATCH_OPTIONS)[number])} className={filterSelectClass}>
                     {DISPATCH_OPTIONS.map((m) => (
                       <option key={m} value={m}>
@@ -1644,7 +1713,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   </select>
                 </div>
                 <div>
-                  <label className="mb-1 block text-[13px] font-semibold uppercase tracking-wider text-[#64748b]">Amount range</label>
+                  <label className={JOURNAL_FILTER_LABEL}>Amount range</label>
                   <select value={amountRangeFilter} onChange={(e) => setAmountRangeFilter(e.target.value as AmountRangeFilter)} className={filterSelectClass}>
                     {AMOUNT_RANGE_OPTIONS.map((a) => (
                       <option key={a} value={a}>
@@ -1657,16 +1726,33 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             </div>
 
             {activeTab === 'transactions' ? (
-              <section className="overflow-hidden rounded-[20px] border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.06)]">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-gradient-to-r from-[#f2f6fc] to-[#eef4fb] px-4 py-3">
+              <section className={`overflow-hidden ${COMMAND_CENTER_KPI_CARD}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
                     <div>
-                      <p className="text-[17px] font-semibold text-[#0f172a]">Intent Table — Selected Batch</p>
-                      <p className="text-[15px] text-[#64748b]"><span className="rounded-full bg-sky-100 px-2 py-0.5 text-sky-700">{intentTotal.toLocaleString('en-US')} rows</span> match filters</p>
+                      <p className={`text-[14px] font-medium ${HOME_TITLE_BLACK}`}>Intent table — selected batch</p>
+                      <p className={HOME_BODY_IMPERIAL_SM}>
+                        <span className="rounded-full border border-[#4ADE80]/45 bg-[#f0fdf4] px-2 py-0.5 text-[12px] font-semibold text-[#166534]">
+                          {intentTotal.toLocaleString('en-US')} rows
+                        </span>{' '}
+                        match filters
+                      </p>
+                      <p className={`mt-1 max-w-3xl text-[12px] text-slate-600`}>
+                        Payment intents from the engine for this batch. Failed file rows from Batch Command Center may
+                        also appear under the <span className="font-medium">Failures</span> tab as DLQ — that is a
+                        separate list.
+                      </p>
+                      {journalUsesBackendFeed && intentTotal === 0 ? (
+                        <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>
+                          No payment intents for this batch. If you ingested via Batch Command Center, confirm the
+                          Batch-Id matches and session tenant matches DB <code className="font-mono">tenant_id</code>,
+                          then Refresh now.
+                        </p>
+                      ) : null}
                     </div>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-[18px]">
-                      <thead className="bg-[#eef4fb] text-[#64748b]">
+                    <table className={`w-full border-collapse text-[14px] ${HOME_TITLE_BLACK}`}>
+                      <thead className="bg-[#f8fafc]">
                         <tr>
                           {[
                             { key: 'request', label: 'Request ID', icon: 'request' as const },
@@ -1676,7 +1762,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                             { key: 'status', label: 'Status', icon: 'status' as const },
                             { key: 'updated', label: 'Last Updated', icon: 'updated' as const },
                           ].map((h) => (
-                            <th key={h.key} className="px-3 py-2.5 text-left text-[14px] font-semibold uppercase tracking-wide">
+                            <th key={h.key} className={`px-3 py-2.5 text-left ${COMMAND_CENTER_LABEL_GREEN}`}>
                               <span className="inline-flex items-center gap-1.5">
                                 <HeaderIcon kind={h.icon} />
                                 {h.label}
@@ -1700,7 +1786,12 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                               <td className="px-3 py-2.5">
                                 <span className="font-mono text-[14px] text-[#475569]">{row.reference}</span>
                               </td>
-                              <td className="px-3 py-2.5">{usd(row.amount)}</td>
+                              <td className="px-3 py-2.5 tabular-nums">
+                                {formatJournalMoney(
+                                  row.amount,
+                                  row.currency ?? (journalUsesBackendFeed ? 'INR' : 'USD'),
+                                )}
+                              </td>
                               <td className="px-3 py-2.5">
                                 <div className="inline-flex items-center gap-2 rounded-lg border border-[#e6ebf2] bg-white px-2 py-1">
                                   <EntityLogo name={row.paymentPartner || '—'} kind="psp" size={18} />
@@ -1716,7 +1807,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                               <td className="px-3 py-2.5">{row.lastUpdated}</td>
                             </tr>
                             {expandedId === row.requestId ? (
-                              <tr className="bg-[#fafafa]">
+                              <tr className="bg-slate-50">
                                 <td colSpan={6} className="px-3 pb-4 pt-3">
                                   {(() => {
                                     const detail: IntentDetail = buildLiveIntentDetailFromRowAndApi(
@@ -1758,7 +1849,19 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   <div className="border-t border-slate-200/80 bg-[#f8fbff] px-3 py-2 text-[15px] text-[#64748b]">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>
-                        Showing range {intentTotal === 0 ? 0 : (safePage - 1) * rowsPerPage + 1}-{Math.min(safePage * rowsPerPage, intentTotal)} of {intentTotal.toLocaleString('en-US')} intents
+                        Showing range{' '}
+                        {intentTotal === 0
+                          ? 0
+                          : journalUsesBackendFeed
+                            ? (safePage - 1) * backendPageSize + 1
+                            : (safePage - 1) * rowsPerPage + 1}
+                        -
+                        {intentTotal === 0
+                          ? 0
+                          : journalUsesBackendFeed
+                            ? Math.min(safePage * backendPageSize, intentTotal)
+                            : Math.min(safePage * rowsPerPage, intentTotal)}{' '}
+                        of {intentTotal.toLocaleString('en-US')} intents
                       </span>
                       <div className="flex items-center gap-2">
                         <span>Rows per page:</span>
@@ -1782,13 +1885,29 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       </div>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-                      <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} className="rounded border border-[#e5e7eb] bg-white px-2 py-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.max(1, safePage - 1)
+                          if (journalUsesBackendFeed) setServerIntentPage(next)
+                          else setPage(next)
+                        }}
+                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                      >
                         Prev
                       </button>
                       <span>
                         Page {safePage} / {totalPages}
                       </span>
-                      <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="rounded border border-[#e5e7eb] bg-white px-2 py-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.min(totalPages, safePage + 1)
+                          if (journalUsesBackendFeed) setServerIntentPage(next)
+                          else setPage((p) => Math.min(totalPages, p + 1))
+                        }}
+                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                      >
                         Next
                       </button>
                       <span className="ml-2">Go to page</span>
@@ -1798,7 +1917,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                         className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
                         onClick={() => {
                           const target = Number(jumpPage)
-                          if (Number.isFinite(target) && target >= 1) setPage(Math.min(totalPages, target))
+                          if (!Number.isFinite(target) || target < 1) return
+                          const next = Math.min(totalPages, target)
+                          if (journalUsesBackendFeed) setServerIntentPage(next)
+                          else setPage(next)
                         }}
                       >
                         Go
@@ -1809,18 +1931,29 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             ) : null}
 
             {activeTab === 'failures' ? (
-              <section className="overflow-hidden rounded-[20px] border border-slate-200/80 bg-white shadow-[0_8px_28px_rgba(15,23,42,0.06)]">
-                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 bg-gradient-to-r from-[#f2f6fc] to-[#eef4fb] px-4 py-3">
+              <section className={`overflow-hidden ${COMMAND_CENTER_KPI_CARD}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-4 py-3">
                   <div>
-                    <p className="text-[17px] font-semibold text-[#0f172a]">Failed intents (DLQ)</p>
-                    <p className="text-[15px] text-[#64748b]"><span className="rounded-full bg-rose-100 px-2 py-0.5 text-rose-700">{failureTotal.toLocaleString('en-US')} rows</span> match filters</p>
-                    <p className="mt-1 max-w-3xl text-[14px] leading-snug text-[#64748b]">
-                      This table is only{' '}
-                      <span className="font-medium text-[#475569]">intent-engine DLQ</span> (dead-lettered envelopes / ingress failures).
-                      Batch Command Center file uploads create{' '}
-                      <span className="font-medium text-[#475569]">intent</span> rows — they show under{' '}
-                      <span className="font-medium text-[#475569]">Intents</span>, including when the engine marks a row failed; that is not the same as a DLQ entry.
+                    <p className={`text-[14px] font-medium ${HOME_TITLE_BLACK}`}>Failed intents (DLQ)</p>
+                    <p className={HOME_BODY_IMPERIAL_SM}>
+                      <span className="rounded-full border border-red-200/80 bg-red-50 px-2 py-0.5 text-[12px] font-semibold text-red-800">
+                        {failureTotal.toLocaleString('en-US')} rows
+                      </span>{' '}
+                      match filters
                     </p>
+                    <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>
+                      This table is only{' '}
+                      <span className="font-medium text-[#475569]">intent-engine DLQ</span> (dead-lettered envelopes /
+                      ingress failures). One bulk upload can create both payment intents and DLQ rows in the DB — accepted
+                      rows appear under <span className="font-medium text-[#475569]">Intents</span>; dead-lettered rows
+                      appear here.
+                    </p>
+                    {journalUsesBackendFeed && failureTotal === 0 ? (
+                      <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>
+                        No DLQ rows for this batch. DLQ from your upload may use a different batch id or tenant than the
+                        session scope above.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -1838,8 +1971,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   </div>
                 </div>
                 <div className="overflow-x-auto">
-                  <table className="w-full border-collapse text-[18px]">
-                    <thead className="bg-[#eef4fb] text-[#64748b]">
+                  <table className={`w-full border-collapse text-[14px] ${HOME_TITLE_BLACK}`}>
+                    <thead className="bg-[#f8fafc]">
                       <tr>
                         {[
                           { key: 'request', label: 'Request ID', icon: 'request' as const },
@@ -1853,7 +1986,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                           { key: 'updated', label: 'Updated', icon: 'updated' as const },
                           { key: 'action', label: 'Action', icon: 'status' as const },
                         ].map((h) => (
-                          <th key={h.key} className="px-3 py-2.5 text-left text-[14px] font-semibold uppercase tracking-wide">
+                          <th key={h.key} className={`px-3 py-2.5 text-left ${COMMAND_CENTER_LABEL_GREEN}`}>
                             <span className="inline-flex items-center gap-1.5">
                               <HeaderIcon kind={h.icon} />
                               {h.label}
@@ -1868,7 +2001,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                           <td className="px-3 py-2.5 font-medium text-[#0f172a]">{row.requestId}</td>
                           <td className="px-3 py-2.5">{row.reference}</td>
                           <td className="px-3 py-2.5 text-[15px] text-[#475569]">{row.batchId}</td>
-                          <td className="px-3 py-2.5 tabular-nums">{usd(row.amount)}</td>
+                          <td className="px-3 py-2.5 tabular-nums">
+                            {row.amount > 0
+                              ? formatJournalMoney(row.amount, journalUsesBackendFeed ? 'INR' : 'USD')
+                              : '—'}
+                          </td>
                           <td className="px-3 py-2.5">{row.method}</td>
                           <td className="px-3 py-2.5">
                             <div className="inline-flex items-center gap-2 rounded-lg border border-[#e6ebf2] bg-white px-2 py-1">
@@ -2135,7 +2272,7 @@ function DispatchRoutingModal({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-md border border-[#E5E5E5] bg-white px-2 py-1 text-[15px] text-[#475569] transition hover:bg-[#fafafa]"
+                className="rounded-md border border-[#E5E5E5] bg-white px-2 py-1 text-[15px] text-[#475569] transition hover:bg-slate-50"
               >
                 Close
               </button>
@@ -2151,7 +2288,7 @@ function DispatchRoutingModal({
                     type="button"
                     onClick={() => onUseCaseChange(uc.id)}
                     className={`rounded-[10px] border px-3 py-2 text-left transition ${
-                      useCase === uc.id ? 'border-[#0f172a] bg-[#f7f7f4]' : 'border-[#E5E5E5] bg-white hover:border-[#0f172a]/30'
+                      useCase === uc.id ? 'border-[#0f172a] bg-slate-100' : 'border-[#E5E5E5] bg-white hover:border-[#0f172a]/30'
                     }`}
                   >
                     <p className="text-[15px] font-semibold text-[#0f172a]">{uc.label}</p>
@@ -2201,7 +2338,7 @@ function DispatchRoutingModal({
               </ul>
             </div>
 
-            <footer className="flex items-center justify-between gap-3 border-t border-[#E5E5E5] bg-[#fafafa] px-5 py-3">
+            <footer className="flex items-center justify-between gap-3 border-t border-[#E5E5E5] bg-slate-50 px-5 py-3">
               <div className="flex min-w-0 items-center gap-2 text-[14px] text-[#64748b]">
                 <EntityLogo name={selected.name} kind={selected.type} size={20} />
                 <span>
@@ -2343,7 +2480,7 @@ function DispatchOption({
         type="button"
         onClick={onPick}
         className={`flex w-full items-start gap-3 rounded-[10px] border p-3 text-left transition ${
-          isSelected ? 'border-[#0f172a] bg-[#f7f7f4]' : 'border-[#E5E5E5] bg-white hover:border-[#0f172a]/30'
+          isSelected ? 'border-[#0f172a] bg-slate-100' : 'border-[#E5E5E5] bg-white hover:border-[#0f172a]/30'
         }`}
       >
         <div className="flex flex-col items-center gap-0.5 pt-0.5">
@@ -2371,7 +2508,7 @@ function DispatchOption({
                 <span
                   key={c}
                   title={REASON_CODE_DESCRIPTIONS[c] ?? c}
-                  className="inline-flex items-center rounded-full border border-[#E5E5E5] bg-[#fafafa] px-1.5 py-0.5 font-mono text-[12px] font-semibold text-[#475569]"
+                  className="inline-flex items-center rounded-full border border-[#E5E5E5] bg-slate-50 px-1.5 py-0.5 font-mono text-[12px] font-semibold text-[#475569]"
                 >
                   {c}
                 </span>

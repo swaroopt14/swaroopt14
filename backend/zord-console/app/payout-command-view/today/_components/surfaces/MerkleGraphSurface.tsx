@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Glyph } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
@@ -202,8 +202,8 @@ export type MerkleGraphSurfaceProps = {
 }
 
 export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_PACK }: MerkleGraphSurfaceProps = {}) {
-  const tenantId = useSessionTenantId().trim()
-  const useLive = Boolean(tenantId)
+  const { tenantReady } = useSessionTenant()
+  const useLive = tenantReady
 
   const [activePackId, setActivePackId] = useState(() => initialPackId?.trim() || initialPack.packId)
   const [activeBatchId, setActiveBatchId] = useState(initialPack.batchId)
@@ -212,14 +212,14 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   const [liveGraphs, setLiveGraphs] = useState<Record<string, EvidencePackGraph>>({})
   const [liveListError, setLiveListError] = useState<string | null>(null)
 
-  const { defensibility } = useIntelligenceKpis(tenantId, { batchId: activeBatchId })
+  const { defensibility } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId })
   const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
   const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
 
   useEffect(() => {
     if (!useLive) return
     let cancelled = false
-    void getIntelligenceBatches(tenantId, { limit: 80 }).then((res) => {
+    void getIntelligenceBatches({ limit: 80 }).then((res) => {
       if (cancelled || !res?.batches?.length) return
       setIntelBatches(res.batches)
       setActiveBatchId((prev) => {
@@ -230,7 +230,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     return () => {
       cancelled = true
     }
-  }, [tenantId, useLive])
+  }, [useLive])
 
   useEffect(() => {
     if (!useLive || !activeBatchId) {
@@ -240,7 +240,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     }
     let cancelled = false
     setLiveListError(null)
-    void listEvidencePacks(tenantId, { batchId: activeBatchId }).then((list) => {
+    void listEvidencePacks({ batchId: activeBatchId }).then((list) => {
       if (cancelled) return
       if (!list) {
         setLiveListError('Evidence list unavailable. Confirm zord-evidence is up and list filters match your deployment.')
@@ -252,7 +252,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     return () => {
       cancelled = true
     }
-  }, [tenantId, useLive, activeBatchId])
+  }, [useLive, activeBatchId])
 
   useEffect(() => {
     if (!useLive || packSummaries.length === 0) return
@@ -260,7 +260,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     const ids = packSummaries.map((s) => s.evidence_pack_id).slice(0, 24)
     void Promise.all(
       ids.map(async (id) => {
-        const full = await getEvidencePackFull(tenantId, id)
+        const full = await getEvidencePackFull(id)
         if (!full) return
         const g = buildEvidencePackGraphFromApi(full, {
           batchId: activeBatchId,
@@ -279,12 +279,12 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     return () => {
       cancelled = true
     }
-  }, [tenantId, useLive, packSummaries, activeBatchId, defensibilityScore])
+  }, [useLive, packSummaries, activeBatchId, defensibilityScore])
 
   useEffect(() => {
     if (!useLive || !initialPackId?.trim()) return
     let cancelled = false
-    void getEvidencePackFull(tenantId, initialPackId.trim()).then((full) => {
+    void getEvidencePackFull(initialPackId.trim()).then((full) => {
       if (cancelled || !full) return
       const g = buildEvidencePackGraphFromApi(full, {
         batchId: activeBatchId || 'batch',
@@ -296,7 +296,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     return () => {
       cancelled = true
     }
-  }, [tenantId, useLive, initialPackId, activeBatchId, defensibilityScore])
+  }, [useLive, initialPackId, activeBatchId, defensibilityScore])
 
   const demoPack = SAMPLE_PACKS[activePackId] ?? initialPack
   const demoBatchPacks = useMemo(() => packsForBatch(activeBatchId), [activeBatchId])

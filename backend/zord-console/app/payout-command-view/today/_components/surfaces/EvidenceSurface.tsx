@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Glyph, LiveDataHint } from '../shared'
-import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
@@ -125,8 +125,9 @@ export function EvidenceSurface() {
   const [packListError, setPackListError] = useState<string | null>(null)
   const [packsLoading, setPacksLoading] = useState(false)
 
-  const tenantId = useSessionTenantId().trim()
-  const { leakage, ambiguity, defensibility, patterns, recommendations } = useIntelligenceKpis(tenantId, {
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { leakage, ambiguity, defensibility, patterns, recommendations } = useIntelligenceKpis({
+    tenantReady,
     batchId: batchId || undefined,
   })
 
@@ -141,13 +142,13 @@ export function EvidenceSurface() {
   )
 
   useEffect(() => {
-    if (!tenantId) {
+    if (!tenantReady) {
       setBatches([])
       setBatchId('')
       return
     }
     let cancelled = false
-    void getIntelligenceBatches(tenantId, { limit: 80 }).then((res) => {
+    void getIntelligenceBatches({ limit: 80 }).then((res) => {
       if (cancelled) return
       if (!res?.batches?.length) {
         setBatches([])
@@ -160,10 +161,10 @@ export function EvidenceSurface() {
     return () => {
       cancelled = true
     }
-  }, [tenantId])
+  }, [tenantReady])
 
   useEffect(() => {
-    if (!tenantId || !batchId) {
+    if (!tenantReady || !batchId) {
       setPackRows([])
       setPackListError(null)
       setPacksLoading(false)
@@ -172,7 +173,7 @@ export function EvidenceSurface() {
     let cancelled = false
     setPacksLoading(true)
     setPackListError(null)
-    void listEvidencePacks(tenantId, { batchId }).then(async (list) => {
+    void listEvidencePacks({ batchId }).then(async (list) => {
       if (cancelled) return
       if (!list) {
         setPackListError(
@@ -187,7 +188,7 @@ export function EvidenceSurface() {
       const sliced = summaries.slice(0, 16)
       const enriched = await Promise.all(
         sliced.map(async (s) => {
-          const full = await getEvidencePackFull(tenantId, s.evidence_pack_id)
+          const full = await getEvidencePackFull(s.evidence_pack_id)
           return { id: s.evidence_pack_id, itemCount: full?.items?.length }
         }),
       )
@@ -204,7 +205,7 @@ export function EvidenceSurface() {
     return () => {
       cancelled = true
     }
-  }, [tenantId, batchId])
+  }, [tenantReady, batchId])
 
   // KPIs 11–13 → hero numbers. defensibility_score is already 0–100 (e.g. 82.4).
   const defScore = defensibilityData ? `${defensibilityData.defensibility_score.toFixed(1)}%` : '—'
@@ -360,11 +361,11 @@ export function EvidenceSurface() {
                 Intelligence batch
                 <select
                   value={batchId}
-                  disabled={!tenantId || batches.length === 0}
+                  disabled={!tenantReady || batches.length === 0}
                   onChange={(e) => setBatchId(e.target.value)}
                   className={`h-10 w-full rounded-[0.85rem] border ${ASK.border} ${ASK.field} px-3 font-mono text-[14px] font-semibold text-[#111111] outline-none lg:max-w-[20rem]`}
                 >
-                  {!tenantId ? (
+                  {!tenantReady ? (
                     <option value="">Sign in (tenant)</option>
                   ) : batches.length === 0 ? (
                     <option value="">No batches from /v1/intelligence/batches</option>

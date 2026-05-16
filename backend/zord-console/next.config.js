@@ -20,6 +20,8 @@ const nextConfig = {
   // Auth-guarded HTML must not be stored by shared CDNs (stale shell / wrong session after deploy).
   async headers() {
     const privateHtml = [
+      '/sandbox',
+      '/sandbox/:path*',
       '/payout-command-view',
       '/payout-command-view/:path*',
       '/console/:path*',

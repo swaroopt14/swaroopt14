@@ -110,6 +110,17 @@ export function formatInr(value: number) {
   }).format(Math.round(value))
 }
 
+/** Table / summary amounts — preserve paise (no integer rounding). */
+export function formatInrPrecise(value: number) {
+  if (!Number.isFinite(value)) return '—'
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
 export function formatPercent(value: number) {
   return `${value.toFixed(1)}%`
 }
@@ -308,6 +319,51 @@ export function progressFromSummary(summary: BatchSummary) {
     processedPct,
     processingPct,
   }
+}
+
+/**
+ * Maps zord-intelligence batch_contracts counts into the same `BatchSummary` shape
+ * so StatCards / pie / percentages match Intelligence when a batch snapshot is linked.
+ * Rows still in the internal processing queue are inferred as `total_count - success - failed - pending`.
+ */
+export function summaryFromIntelligenceBatchRow(batch: {
+  total_count: number
+  success_count: number
+  failed_count: number
+  pending_count: number
+}): BatchSummary {
+  const totalRows = Math.max(0, Math.floor(Number(batch.total_count) || 0))
+  if (totalRows <= 0) {
+    return { totalRows: 0, processed: 0, success: 0, failed: 0, pending: 0 }
+  }
+  const success = Math.min(totalRows, Math.max(0, Math.floor(Number(batch.success_count) || 0)))
+  const failed = Math.min(totalRows, Math.max(0, Math.floor(Number(batch.failed_count) || 0)))
+  const pending = Math.min(totalRows, Math.max(0, Math.floor(Number(batch.pending_count) || 0)))
+  const accounted = success + failed + pending
+  const clampedAccounted = Math.min(accounted, totalRows)
+  const processed = clampedAccounted
+  return { totalRows, processed, success, failed, pending }
+}
+
+/** Sum per-batch `BatchSummary` values for a tenant-wide status mix (pie / rollups). */
+export function aggregateIntelligenceBatches(
+  batches: Array<{
+    total_count: number
+    success_count: number
+    failed_count: number
+    pending_count: number
+  }>,
+): BatchSummary {
+  const out: BatchSummary = { totalRows: 0, processed: 0, success: 0, failed: 0, pending: 0 }
+  for (const b of batches) {
+    const s = summaryFromIntelligenceBatchRow(b)
+    out.totalRows += s.totalRows
+    out.processed += s.processed
+    out.success += s.success
+    out.failed += s.failed
+    out.pending += s.pending
+  }
+  return out
 }
 
 export function sortRowsByLatest(rows: BatchRow[], sortMode: 'Latest' | 'Oldest') {

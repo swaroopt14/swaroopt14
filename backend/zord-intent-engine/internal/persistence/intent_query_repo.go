@@ -260,135 +260,110 @@ func (r *IntentQueryRepo) ListBatchesForSidebar(
 	ctx context.Context,
 	tenantID string,
 ) ([]models.BatchSidebarItem, error) {
-	const primaryQuery = `
-		SELECT
-			pi.batchid,
-			pi.intent_type,
-			COALESCE(SUM(pi.amount), 0)::text AS total_value,
-			COUNT(*) AS transactions,
-			COUNT(*) AS confirmed_count,
-			MAX(pi.aggregate_confidence_score) AS high_confidence_count,
-			SUM(CASE WHEN pi.duplicate_risk_flag = true THEN 1 ELSE 0 END) AS mismatch_count,
-			(
-				SELECT COUNT(*)
-				FROM dlq_items d
-				WHERE d.tenant_id = $1
-				  AND d.client_batch_ref = pi.batchid
-			) AS unresolved_count
-		FROM payment_intents pi
-		WHERE pi.tenant_id = $1
-		  AND pi.batchid IS NOT NULL
-		  AND pi.batchid <> ''
-		GROUP BY pi.batchid, pi.intent_type
-		ORDER BY MAX(pi.created_at) DESC
-	`
-
-	scanRows := func(rows *sql.Rows) ([]models.BatchSidebarItem, error) {
-		defer rows.Close()
-
-		items := make([]models.BatchSidebarItem, 0)
-		for rows.Next() {
-			var item models.BatchSidebarItem
-			var highConfidence sql.NullFloat64
-
-			if err := rows.Scan(
-				&item.BatchID,
-				&item.Type,
-				&item.TotalValue,
-				&item.Transactions,
-				&item.ConfirmedCount,
-				&highConfidence,
-				&item.MismatchCount,
-				&item.UnresolvedCount,
-			); err != nil {
-				return nil, fmt.Errorf("failed to scan batch sidebar row: %w", err)
-			}
-
-			if highConfidence.Valid {
-				v := highConfidence.Float64
-				item.HighConfidenceCount = &v
-			} else {
-				zero := 0.0
-				item.HighConfidenceCount = &zero
-			}
-
-			items = append(items, item)
-		}
-
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf("error iterating batch sidebar rows: %w", err)
-		}
-		return items, nil
-	}
-
-	// 1) Primary source: payment_intents
-	rows, err := r.db.QueryContext(ctx, primaryQuery, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch batches sidebar data: %w", err)
-	}
-
-	items, err := scanRows(rows)
-	if err != nil {
-		return nil, err
-	}
-	if len(items) > 0 {
-		return items, nil
-	}
-
-	// 2) Fallback source: dlq_items + normalized_ingest_records (NIR join)
-	// Batch precedence: DLQ client_batch_ref first, then NIR fields_json->client_batch_ref
-	const fallbackQuery = `
-		WITH dlq_join AS (
+	const mergedQuery = `
+		WITH pi_agg AS (
 			SELECT
-				COALESCE(NULLIF(d.client_batch_ref, ''), NULLIF(n.fields_json->>'client_batch_ref', '')) AS batch_id,
+				pi.batchid AS batch_id,
+				MAX(pi.intent_type) AS intent_type,
+				COALESCE(SUM(pi.amount), 0)::text AS total_value,
+				COUNT(*)::bigint AS transactions,
+				COUNT(*)::bigint AS confirmed_count,
+				MAX(pi.aggregate_confidence_score) AS high_confidence_count,
+				SUM(CASE WHEN pi.duplicate_risk_flag = true THEN 1 ELSE 0 END)::bigint AS mismatch_count,
+				MAX(pi.created_at) AS last_created_at
+			FROM payment_intents pi
+			WHERE pi.tenant_id = $1
+			  AND pi.batchid IS NOT NULL
+			  AND pi.batchid <> ''
+			GROUP BY pi.batchid
+		),
+		dlq_join AS (
+			SELECT
+				COALESCE(
+					NULLIF(d.client_batch_ref, ''),
+					NULLIF(d.batch_id, ''),
+					NULLIF(n.fields_json->>'client_batch_ref', '')
+				) AS batch_id,
 				COALESCE(NULLIF(n.fields_json->>'intent_type', ''), 'UNKNOWN') AS intent_type,
-				CASE
-					WHEN (n.fields_json->>'amount') ~ '^-?[0-9]+(\.[0-9]+)?$'
-						THEN (n.fields_json->>'amount')::numeric
-					ELSE 0::numeric
-				END AS amount_num
+				d.created_at
 			FROM dlq_items d
 			LEFT JOIN normalized_ingest_records n
 				ON n.tenant_id = d.tenant_id
 			   AND n.envelope_id = d.envelope_id
 			WHERE d.tenant_id = $1
+		),
+		dlq_agg AS (
+			SELECT
+				j.batch_id,
+				MAX(j.intent_type) AS intent_type,
+				COUNT(*)::bigint AS unresolved_count,
+				MAX(j.created_at) AS last_created_at
+			FROM dlq_join j
+			WHERE j.batch_id IS NOT NULL
+			  AND j.batch_id <> ''
+			GROUP BY j.batch_id
 		)
 		SELECT
-			j.batch_id AS batchid,
-			j.intent_type,
-			COALESCE(SUM(j.amount_num), 0)::text AS total_value,
-			COUNT(*) AS transactions,
-			0::bigint AS confirmed_count,
-			0::float8 AS high_confidence_count,
-			0::bigint AS mismatch_count,
-			COUNT(*) AS unresolved_count
-		FROM dlq_join j
-		WHERE j.batch_id IS NOT NULL
-		  AND j.batch_id <> ''
-		GROUP BY j.batch_id, j.intent_type
-		ORDER BY COUNT(*) DESC
+			COALESCE(p.batch_id, d.batch_id) AS batchid,
+			COALESCE(NULLIF(p.intent_type, ''), NULLIF(d.intent_type, ''), 'UNKNOWN') AS intent_type,
+			COALESCE(p.total_value, '0') AS total_value,
+			COALESCE(p.transactions, 0)::bigint AS transactions,
+			COALESCE(p.confirmed_count, 0)::bigint AS confirmed_count,
+			COALESCE(p.high_confidence_count, 0)::float8 AS high_confidence_count,
+			COALESCE(p.mismatch_count, 0)::bigint AS mismatch_count,
+			COALESCE(d.unresolved_count, 0)::bigint AS unresolved_count
+		FROM pi_agg p
+		FULL OUTER JOIN dlq_agg d
+			ON d.batch_id = p.batch_id
+		ORDER BY COALESCE(p.last_created_at, d.last_created_at) DESC
 	`
 
-	fallbackRows, err := r.db.QueryContext(ctx, fallbackQuery, tenantID)
+	rows, err := r.db.QueryContext(ctx, mergedQuery, tenantID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch fallback batches sidebar data: %w", err)
+		return nil, fmt.Errorf("failed to fetch batches sidebar data: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.BatchSidebarItem, 0)
+	for rows.Next() {
+		var item models.BatchSidebarItem
+		var highConfidence sql.NullFloat64
+
+		if err := rows.Scan(
+			&item.BatchID,
+			&item.Type,
+			&item.TotalValue,
+			&item.Transactions,
+			&item.ConfirmedCount,
+			&highConfidence,
+			&item.MismatchCount,
+			&item.UnresolvedCount,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan batch sidebar row: %w", err)
+		}
+
+		if highConfidence.Valid {
+			v := highConfidence.Float64
+			item.HighConfidenceCount = &v
+		} else {
+			zero := 0.0
+			item.HighConfidenceCount = &zero
+		}
+
+		items = append(items, item)
 	}
 
-	fallbackItems, err := scanRows(fallbackRows)
-	if err != nil {
-		return nil, err
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating batch sidebar rows: %w", err)
 	}
 
-	return fallbackItems, nil
+	return items, nil
 }
 func (r *IntentQueryRepo) ListPaymentIntentsByBatch(
 	ctx context.Context,
 	tenantID, batchID string,
 	page, pageSize int,
 ) ([]models.CanonicalIntent, int, error) {
-
-	offset := (page - 1) * pageSize
-
 	const countQ = `
 		SELECT COUNT(*)
 		FROM payment_intents
@@ -428,10 +403,9 @@ func (r *IntentQueryRepo) ListPaymentIntentsByBatch(
 		WHERE tenant_id = $1
 		  AND batchid = $2
 		ORDER BY created_at DESC, intent_id DESC
-		LIMIT $3 OFFSET $4
 	`
 
-	rows, err := r.db.QueryContext(ctx, dataQ, tenantID, batchID, pageSize, offset)
+	rows, err := r.db.QueryContext(ctx, dataQ, tenantID, batchID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch payment intents by batch: %w", err)
 	}
@@ -490,13 +464,18 @@ func (r *IntentQueryRepo) ListDLQItemsByBatch(
 	page, pageSize int,
 ) ([]models.DLQEntry, int, error) {
 
-	offset := (page - 1) * pageSize
-
 	const countQ = `
 		SELECT COUNT(*)
-		FROM dlq_items
-		WHERE tenant_id = $1
-		  AND (client_batch_ref = $2 OR batch_id = $2)
+		FROM dlq_items d
+		LEFT JOIN normalized_ingest_records n
+			ON n.tenant_id = d.tenant_id
+		   AND n.envelope_id = d.envelope_id
+		WHERE d.tenant_id = $1
+		  AND COALESCE(
+				NULLIF(d.client_batch_ref, ''),
+				NULLIF(d.batch_id, ''),
+				NULLIF(n.fields_json->>'client_batch_ref', '')
+		  ) = $2
 	`
 	var total int
 	if err := r.db.QueryRowContext(ctx, countQ, tenantID, batchID).Scan(&total); err != nil {
@@ -505,24 +484,30 @@ func (r *IntentQueryRepo) ListDLQItemsByBatch(
 
 	const dataQ = `
 		SELECT
-			dlq_id,
-			tenant_id,
-			envelope_id,
-			stage,
-			reason_code,
-			error_detail,
-			replayable,
-			client_batch_ref,
-			created_at,
-			COALESCE(batch_id, '')
-		FROM dlq_items
-		WHERE tenant_id = $1
-		  AND (client_batch_ref = $2 OR batch_id = $2)
-		ORDER BY created_at DESC, dlq_id DESC
-		LIMIT $3 OFFSET $4
+			d.dlq_id,
+			d.tenant_id,
+			d.envelope_id,
+			d.stage,
+			d.reason_code,
+			d.error_detail,
+			d.replayable,
+			d.client_batch_ref,
+			d.created_at,
+			COALESCE(d.batch_id, '')
+		FROM dlq_items d
+		LEFT JOIN normalized_ingest_records n
+			ON n.tenant_id = d.tenant_id
+		   AND n.envelope_id = d.envelope_id
+		WHERE d.tenant_id = $1
+		  AND COALESCE(
+				NULLIF(d.client_batch_ref, ''),
+				NULLIF(d.batch_id, ''),
+				NULLIF(n.fields_json->>'client_batch_ref', '')
+		  ) = $2
+		ORDER BY d.created_at DESC, d.dlq_id DESC
 	`
 
-	rows, err := r.db.QueryContext(ctx, dataQ, tenantID, batchID, pageSize, offset)
+	rows, err := r.db.QueryContext(ctx, dataQ, tenantID, batchID)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to fetch dlq items by batch: %w", err)
 	}

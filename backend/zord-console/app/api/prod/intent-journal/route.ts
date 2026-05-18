@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
     const batchesUrl = `${intelBase}${BACKEND_SERVICES.INTELLIGENCE.ENDPOINTS.BATCHES}?tenant_id=${encodeURIComponent(tenantId)}&limit=100`
 
     const [intentsRes, dlqRaw, batchesJson] = await Promise.all([
-      fetchIntents({ tenant_id: tenantId, batch_id: batchId, page: 1, page_size: 120 }),
+      fetchIntents({ tenant_id: tenantId, batch_id: batchId }),
       fetchDLQItems({ tenant_id: tenantId }),
       fetchIntelligenceJson(batchesUrl, tenantId),
     ])

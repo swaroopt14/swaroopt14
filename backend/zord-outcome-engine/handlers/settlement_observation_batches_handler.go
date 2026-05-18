@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"zord-outcome-engine/db"
-	"zord-outcome-engine/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -20,7 +19,28 @@ type SettlementObservationBatchIDListResponse struct {
 }
 
 type SettlementObservationDetailResponse struct {
-	Items []models.CanonicalSettlementObservation `json:"items"`
+	Items []SettlementObservationBatchDetailItem `json:"items"`
+}
+type SettlementObservationBatchDetailItem struct {
+	SettlementBatchID    string      `json:"settlement_batch_id"`
+	SourceRowRef         string      `json:"source_row_ref"`
+	SourceSystem         string      `json:"source_system"`
+	Amount               interface{} `json:"amount"`
+	SettledAmount        interface{} `json:"settled_amount"`
+	FeeAmount            interface{} `json:"fee_amount"`
+	DeductionAmount      interface{} `json:"deduction_amount"`
+	CurrencyCode         string      `json:"currency_code"`
+	SettlementStatus     string      `json:"settlement_status"`
+	ProviderStatusCode   *string     `json:"provider_status_code"`
+	FailureReasonCode    *string     `json:"failure_reason_code"`
+	RetryFlag            bool        `json:"retry_flag"`
+	ReversalFlag         bool        `json:"reversal_flag"`
+	ReturnFlag           bool        `json:"return_flag"`
+	ObservationTimestamp interface{} `json:"observation_timestamp"`
+	ValueDate            interface{} `json:"value_date"`
+	SourceSystemID       string      `json:"source_system_id"`
+	CreatedAt            interface{} `json:"created_at"`
+	UpdatedAt            interface{} `json:"updated_at"`
 }
 
 // GetSettlementObservationBatchesHandler supports 2 modes:
@@ -78,26 +98,9 @@ func (h *Handler) GetSettlementObservationBatchesHandler(c *gin.Context) {
 	// Mode 2: tenant + client_batch_id -> full rows
 	const q = `
 		SELECT
-			settlement_observation_id,
-			tenant_id,
-			trace_id,
-			settlement_envelope_id,
-			ingest_run_id,
 			settlement_batch_id,
-			source_file_ref,
 			source_row_ref,
 			source_system,
-			connector_id,
-			observation_kind,
-			source_strength_class,
-			client_reference_candidate,
-			provider_reference,
-			bank_reference,
-			external_reference,
-			batch_reference,
-			merchant_id_token,
-			seller_id_token,
-			vendor_id_token,
 			amount,
 			settled_amount,
 			fee_amount,
@@ -111,30 +114,7 @@ func (h *Handler) GetSettlementObservationBatchesHandler(c *gin.Context) {
 			return_flag,
 			observation_timestamp,
 			value_date,
-			provider_ref_status,
-			provider_ref_first_seen_at,
-			provider_ref_last_seen_at,
-			provider_ref_source_set,
-			provider_ref_consistency_flag,
-			mapping_profile_id,
-			mapping_profile_version,
-			client_batch_id,
-			parse_confidence,
-			mapping_confidence,
-			carrier_richness_score,
-			attachment_readiness_score,
-			score_breakdown_json,
-			score_reason_codes_json,
-			score_version,
-			canonical_hash,
-			canonical_snapshot_ref,
-			source_strength,
-			source_type,
 			source_system_id,
-			corridor_id,
-			beneficiary_fingerprint,
-			zord_signature_carrier,
-			warnings_json,
 			created_at,
 			updated_at
 		FROM canonical_settlement_observations
@@ -150,31 +130,14 @@ func (h *Handler) GetSettlementObservationBatchesHandler(c *gin.Context) {
 	}
 	defer rows.Close()
 
-	items := make([]models.CanonicalSettlementObservation, 0)
+	items := make([]SettlementObservationBatchDetailItem, 0)
 	for rows.Next() {
-		var row models.CanonicalSettlementObservation
+		var row SettlementObservationBatchDetailItem
 
 		if err := rows.Scan(
-			&row.SettlementObservationID,
-			&row.TenantID,
-			&row.TraceID,
-			&row.SettlementEnvelopeID,
-			&row.IngestRunID,
 			&row.SettlementBatchID,
-			&row.SourceFileRef,
 			&row.SourceRowRef,
 			&row.SourceSystem,
-			&row.ConnectorID,
-			&row.ObservationKind,
-			&row.SourceStrengthClass,
-			&row.ClientReferenceCandidate,
-			&row.ProviderReference,
-			&row.BankReference,
-			&row.ExternalReference,
-			&row.BatchReference,
-			&row.MerchantIDToken,
-			&row.SellerIDToken,
-			&row.VendorIDToken,
 			&row.Amount,
 			&row.SettledAmount,
 			&row.FeeAmount,
@@ -188,30 +151,7 @@ func (h *Handler) GetSettlementObservationBatchesHandler(c *gin.Context) {
 			&row.ReturnFlag,
 			&row.ObservationTimestamp,
 			&row.ValueDate,
-			&row.ProviderRefStatus,
-			&row.ProviderRefFirstSeenAt,
-			&row.ProviderRefLastSeenAt,
-			&row.ProviderRefSourceSet,
-			&row.ProviderRefConsistencyFlag,
-			&row.MappingProfileID,
-			&row.MappingProfileVersion,
-			&row.ClientBatchID,
-			&row.ParseConfidence,
-			&row.MappingConfidence,
-			&row.CarrierRichnessScore,
-			&row.AttachmentReadinessScore,
-			&row.ScoreBreakdownJSON,
-			&row.ScoreReasonCodesJSON,
-			&row.ScoreVersion,
-			&row.CanonicalHash,
-			&row.CanonicalSnapshotRef,
-			&row.SourceStrength,
-			&row.SourceType,
 			&row.SourceSystemID,
-			&row.CorridorID,
-			&row.BeneficiaryFingerprint,
-			&row.ZordSignatureCarrier,
-			&row.WarningsJSON,
 			&row.CreatedAt,
 			&row.UpdatedAt,
 		); err != nil {

@@ -3,11 +3,13 @@ package handlers
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"zord-outcome-engine/db"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/shopspring/decimal"
 )
 
 type SettlementObservationBatchIDItem struct {
@@ -22,25 +24,25 @@ type SettlementObservationDetailResponse struct {
 	Items []SettlementObservationBatchDetailItem `json:"items"`
 }
 type SettlementObservationBatchDetailItem struct {
-	SettlementBatchID    string      `json:"settlement_batch_id"`
-	SourceRowRef         string      `json:"source_row_ref"`
-	SourceSystem         string      `json:"source_system"`
-	Amount               interface{} `json:"amount"`
-	SettledAmount        interface{} `json:"settled_amount"`
-	FeeAmount            interface{} `json:"fee_amount"`
-	DeductionAmount      interface{} `json:"deduction_amount"`
-	CurrencyCode         string      `json:"currency_code"`
-	SettlementStatus     string      `json:"settlement_status"`
-	ProviderStatusCode   *string     `json:"provider_status_code"`
-	FailureReasonCode    *string     `json:"failure_reason_code"`
-	RetryFlag            bool        `json:"retry_flag"`
-	ReversalFlag         bool        `json:"reversal_flag"`
-	ReturnFlag           bool        `json:"return_flag"`
-	ObservationTimestamp interface{} `json:"observation_timestamp"`
-	ValueDate            interface{} `json:"value_date"`
-	SourceSystemID       string      `json:"source_system_id"`
-	CreatedAt            interface{} `json:"created_at"`
-	UpdatedAt            interface{} `json:"updated_at"`
+	SettlementBatchID    string           `json:"settlement_batch_id"`
+	SourceRowRef         string           `json:"source_row_ref"`
+	SourceSystem         string           `json:"source_system"`
+	Amount               decimal.Decimal  `json:"amount"`
+	SettledAmount        *decimal.Decimal `json:"settled_amount"`
+	FeeAmount            *decimal.Decimal `json:"fee_amount"`
+	DeductionAmount      *decimal.Decimal `json:"deduction_amount"`
+	CurrencyCode         string           `json:"currency_code"`
+	SettlementStatus     string           `json:"settlement_status"`
+	ProviderStatusCode   *string          `json:"provider_status_code"`
+	FailureReasonCode    *string          `json:"failure_reason_code"`
+	RetryFlag            bool             `json:"retry_flag"`
+	ReversalFlag         bool             `json:"reversal_flag"`
+	ReturnFlag           bool             `json:"return_flag"`
+	ObservationTimestamp time.Time        `json:"observation_timestamp"`
+	ValueDate            *time.Time       `json:"value_date"`
+	SourceSystemID       string           `json:"source_system_id"`
+	CreatedAt            time.Time        `json:"created_at"`
+	UpdatedAt            time.Time        `json:"updated_at"`
 }
 
 // GetSettlementObservationBatchesHandler supports 2 modes:

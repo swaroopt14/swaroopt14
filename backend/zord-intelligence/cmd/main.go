@@ -20,6 +20,7 @@ import (
 	"github.com/zord/zord-intelligence/internal/persistence"
 	"github.com/zord/zord-intelligence/internal/services"
 	"github.com/zord/zord-intelligence/internal/worker"
+	"github.com/zord/zord-intelligence/tracing"
 	kafkapkg "github.com/zord/zord-intelligence/kafka"
 )
 
@@ -30,6 +31,10 @@ func init() {
 }
 
 func main() {
+	// ── OpenTelemetry ──────────────────────────────────────────────────────
+	cleanupTracing := tracing.InitTracing("zord-intelligence")
+	defer cleanupTracing()
+
 	// ── Step 1: Load .env file ─────────────────────────────────────────────
 	if err := godotenv.Load(); err != nil {
 		log.Println("main: no .env file found — using system environment variables")

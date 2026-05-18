@@ -15,11 +15,15 @@ import (
 	"zord-evidence/routes"
 	"zord-evidence/services"
 	"zord-evidence/storage"
+	"zord-evidence/tracing"
 
 	"github.com/gin-gonic/gin"
 )
 
 func main() {
+	cleanup := tracing.InitTracing("zord-evidence")
+	defer cleanup()
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config load failed: %v", err)

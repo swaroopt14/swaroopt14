@@ -15,6 +15,10 @@ func Routes(router *gin.Engine, h *handlers.Handler) {
 	router.GET("/v1/settlement/jobs/:job_id", h.GetSettlementJobHandler)
 	// Supported PSPs — returns the live list of registered PSP keys and their file formats.
 	router.GET("/v1/settlement/supported-psps", handlers.GetSupportedPSPs)
+	// 2-mode batch observations endpoint:
+	// 1) tenant_id only -> list client_batch_id values
+	// 2) tenant_id + client_batch_id -> full canonical settlement observation rows
+	router.GET("/v1/settlement/observations/batches", h.GetSettlementObservationBatchesHandler)
 }
 
 // OutboxRoutes registers the internal relay-facing endpoints that zord-relay

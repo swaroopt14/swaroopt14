@@ -56,6 +56,7 @@ func (p *MerchantParser) parseRow(rowNum int, row []string, colIndex map[string]
 	
 	shape.Source = get("source")
 	shape.SourceSystem = get("source_system")
+	shape.IdempotencyKey = get("idempotency_key", "idempotency key", "idempotencykey")
 
 	shape.Constraints = make(map[string]any)
 	if window := get("constraints.execution_window"); window != "" {

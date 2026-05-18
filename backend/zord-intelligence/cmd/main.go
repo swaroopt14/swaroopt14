@@ -183,7 +183,7 @@ func main() {
 	dashLeakageH := handlers.NewDashboardLeakageHandler(snapshotRepo)
 	dashAmbiguityH := handlers.NewDashboardAmbiguityHandler(snapshotRepo)
 	dashDefensibilityH := handlers.NewDashboardDefensibilityHandler(snapshotRepo)
-	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo)
+	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo, projRepo)
 	dashRecommendationH := handlers.NewDashboardRecommendationHandler(actionRepo)
 
 	// ── Step 9: Build the HTTP router ─────────────────────────────────────

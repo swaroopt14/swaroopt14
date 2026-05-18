@@ -33,11 +33,15 @@ import (
 // DashboardPatternHandler serves GET /v1/intelligence/dashboard/patterns.
 type DashboardPatternHandler struct {
 	snapshotRepo *persistence.IntelligenceSnapshotRepo
+	projRepo     *persistence.ProjectionRepo
 }
 
 // NewDashboardPatternHandler creates a DashboardPatternHandler.
-func NewDashboardPatternHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo) *DashboardPatternHandler {
-	return &DashboardPatternHandler{snapshotRepo: snapshotRepo}
+func NewDashboardPatternHandler(
+	snapshotRepo *persistence.IntelligenceSnapshotRepo,
+	projRepo *persistence.ProjectionRepo,
+) *DashboardPatternHandler {
+	return &DashboardPatternHandler{snapshotRepo: snapshotRepo, projRepo: projRepo}
 }
 
 // patternKPIFields reads only the KPI 14 fields from PatternSnapshot JSON.
@@ -69,6 +73,12 @@ type DashboardPatternResponse struct {
 	// KPI 14 — pattern_anomaly_score
 	BatchAnomalyScore float64 `json:"batch_anomaly_score"`
 	AnomalyLevel      string  `json:"anomaly_level"`
+
+	// P7 — value_date_mismatch_rate
+	// numerator: value_date_mismatch_count from leakage projection
+	// denominator: total_decisions - unresolved_settlement_count from ambiguity projection
+	ValueDateMismatchCount int     `json:"value_date_mismatch_count"`
+	ValueDateMismatchRate  float64 `json:"value_date_mismatch_rate"`
 
 	// Supplementary pattern fields for frontend context
 	AnomalyType    string  `json:"anomaly_type,omitempty"`
@@ -117,6 +127,22 @@ func (h *DashboardPatternHandler) GetPatternKPIs(w http.ResponseWriter, r *http.
 	}
 
 	resp := DashboardPatternResponse{TenantID: tenantID}
+
+	// ── P7: value_date_mismatch_rate ─────────────────────────────────────
+	// Always computed from projections, regardless of whether a PATTERN snapshot exists.
+	// numerator   = value_date_mismatch_count from leakage.total projection
+	// denominator = total_decisions - unresolved_settlement_count from ambiguity.summary projection
+	leakage, leakErr := h.projRepo.GetLeakageSummary(r.Context(), tenantID)
+	ambiguity, ambErr := h.projRepo.GetAmbiguitySummary(r.Context(), tenantID)
+	if leakErr == nil && leakage != nil {
+		resp.ValueDateMismatchCount = leakage.ValueDateMismatchCount
+		if ambErr == nil && ambiguity != nil {
+			attachedRecords := ambiguity.TotalDecisions - ambiguity.UnresolvedSettlementCount
+			if attachedRecords > 0 {
+				resp.ValueDateMismatchRate = float64(leakage.ValueDateMismatchCount) / float64(attachedRecords)
+			}
+		}
+	}
 
 	if snap == nil {
 		resp.DataAvailable = false

@@ -36,6 +36,14 @@ import (
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
 
+// ambiguityKPIsForLeakage holds the ambiguity snapshot fields needed to compute
+// L4 (ambiguous_value_at_risk) and L10 (risk_adjusted_leakage).
+type ambiguityKPIsForLeakage struct {
+	AmbiguousAmountMinor    decimal.Decimal `json:"ambiguous_amount_minor"`
+	ValueAtRiskMinor        decimal.Decimal `json:"value_at_risk_minor"`
+	AvgAttachmentConfidence float64         `json:"avg_attachment_confidence"`
+}
+
 // DashboardLeakageHandler serves GET /v1/intelligence/dashboard/leakage.
 type DashboardLeakageHandler struct {
 	snapshotRepo *persistence.IntelligenceSnapshotRepo
@@ -46,27 +54,28 @@ func NewDashboardLeakageHandler(snapshotRepo *persistence.IntelligenceSnapshotRe
 	return &DashboardLeakageHandler{snapshotRepo: snapshotRepo}
 }
 
-// leakageKPIFields contains only the 6 KPI fields extracted from LeakageSnapshot JSON.
+// leakageKPIFields contains the KPI fields extracted from LeakageSnapshot JSON.
 // We unmarshal just these fields to avoid coupling to the full service snapshot struct.
 type leakageKPIFields struct {
-	TotalIntendedAmountMinor   decimal.Decimal `json:"total_intended_amount_minor"`
-	UnmatchedAmountMinor       decimal.Decimal `json:"unmatched_amount_minor"`
-	UnderSettlementAmountMinor decimal.Decimal `json:"under_settlement_amount_minor"`
-	OrphanAmountMinor          decimal.Decimal `json:"orphan_amount_minor"`
-	ReversalExposureMinor      decimal.Decimal `json:"reversal_exposure_minor"`
-	LeakagePercentage          float64         `json:"leakage_percentage"`
-	RiskTier                   string          `json:"risk_tier"`
+	TotalIntendedAmountMinor        decimal.Decimal `json:"total_intended_amount_minor"`
+	TotalObservedSettledAmountMinor decimal.Decimal `json:"total_observed_settled_amount_minor"`
+	UnmatchedAmountMinor            decimal.Decimal `json:"unmatched_amount_minor"`
+	UnderSettlementAmountMinor      decimal.Decimal `json:"under_settlement_amount_minor"`
+	OrphanAmountMinor               decimal.Decimal `json:"orphan_amount_minor"`
+	ReversalExposureMinor           decimal.Decimal `json:"reversal_exposure_minor"`
+	LeakagePercentage               float64         `json:"leakage_percentage"`
+	RiskTier                        string          `json:"risk_tier"`
 }
 
 // DashboardLeakageResponse is the frontend-ready payload for the leakage dashboard card.
 type DashboardLeakageResponse struct {
-	TenantID     string     `json:"tenant_id"`
-	DataAvailable bool      `json:"data_available"`
-	SnapshotID   string     `json:"snapshot_id,omitempty"`
-	WindowStart  *time.Time `json:"window_start,omitempty"`
-	WindowEnd    *time.Time `json:"window_end,omitempty"`
-	ComputedAt   *time.Time `json:"computed_at,omitempty"`
-	Reason       string     `json:"reason,omitempty"`
+	TenantID      string     `json:"tenant_id"`
+	DataAvailable bool       `json:"data_available"`
+	SnapshotID    string     `json:"snapshot_id,omitempty"`
+	WindowStart   *time.Time `json:"window_start,omitempty"`
+	WindowEnd     *time.Time `json:"window_end,omitempty"`
+	ComputedAt    *time.Time `json:"computed_at,omitempty"`
+	Reason        string     `json:"reason,omitempty"`
 
 	// KPI 1 — total_intended_volume
 	TotalIntendedAmountMinor decimal.Decimal `json:"total_intended_amount_minor"`
@@ -80,6 +89,16 @@ type DashboardLeakageResponse struct {
 	ReversalExposureMinor decimal.Decimal `json:"reversal_exposure_minor"`
 	// KPI 6 — leakage_rate
 	LeakagePercentage float64 `json:"leakage_percentage"`
+
+	// L2 — total_observed_settled_volume: sum of all SettledAmountMinor across all settlements
+	TotalObservedSettledAmountMinor decimal.Decimal `json:"total_observed_settled_amount_minor"`
+
+	// L4 — ambiguous_value_at_risk: ambiguous_amount_minor from AMBIGUITY snapshot
+	AmbiguousValueAtRiskMinor decimal.Decimal `json:"ambiguous_value_at_risk_minor"`
+
+	// L10 — risk_adjusted_leakage: total_amount_minor + (value_at_risk_minor × weight)
+	// weight derived from avg_attachment_confidence: ≥0.90→0.25, ≥0.70→0.40, <0.70→0.60
+	RiskAdjustedLeakageMinor decimal.Decimal `json:"risk_adjusted_leakage_minor"`
 
 	// Risk classification tier — included for frontend colour-coding
 	RiskTier string `json:"risk_tier,omitempty"`
@@ -126,12 +145,45 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 	resp.WindowEnd = &snap.WindowEnd
 	resp.ComputedAt = &snap.CreatedAt
 	resp.TotalIntendedAmountMinor = kpis.TotalIntendedAmountMinor
+	resp.TotalObservedSettledAmountMinor = kpis.TotalObservedSettledAmountMinor
 	resp.UnmatchedAmountMinor = kpis.UnmatchedAmountMinor
 	resp.UnderSettlementAmountMinor = kpis.UnderSettlementAmountMinor
 	resp.OrphanAmountMinor = kpis.OrphanAmountMinor
 	resp.ReversalExposureMinor = kpis.ReversalExposureMinor
 	resp.LeakagePercentage = kpis.LeakagePercentage
 	resp.RiskTier = kpis.RiskTier
+
+	// ── L4 and L10: fetch AMBIGUITY snapshot for cross-category derivation ──
+	// L4 = ambiguous_amount_minor (already computed in ambiguity snapshot)
+	// L10 = total_amount_minor + value_at_risk_minor × ambiguity_risk_weight
+	ambSnap, err := h.snapshotRepo.GetLatestByTypeFiltered(
+		r.Context(),
+		tenantID, "AMBIGUITY", "TENANT", nil,
+		from, to,
+	)
+	if err == nil && ambSnap != nil {
+		var ambKPIs ambiguityKPIsForLeakage
+		if jsonErr := json.Unmarshal(ambSnap.SnapshotJSON, &ambKPIs); jsonErr == nil {
+			// L4: ambiguous value at risk is the ambiguous_amount_minor from the ambiguity snapshot
+			resp.AmbiguousValueAtRiskMinor = ambKPIs.AmbiguousAmountMinor
+
+			// L10: weight is derived from avg_attachment_confidence
+			// ≥0.90 → low ambiguity risk weight 0.25
+			// ≥0.70 → medium ambiguity risk weight 0.40
+			// <0.70 → high ambiguity risk weight 0.60
+			var ambiguityRiskWeight float64
+			switch {
+			case ambKPIs.AvgAttachmentConfidence >= 0.90:
+				ambiguityRiskWeight = 0.25
+			case ambKPIs.AvgAttachmentConfidence >= 0.70:
+				ambiguityRiskWeight = 0.40
+			default:
+				ambiguityRiskWeight = 0.60
+			}
+			weightedRisk := ambKPIs.ValueAtRiskMinor.Mul(decimal.NewFromFloat(ambiguityRiskWeight))
+			resp.RiskAdjustedLeakageMinor = kpis.TotalObservedSettledAmountMinor.Add(weightedRisk)
+		}
+	}
 
 	writeJSON(w, http.StatusOK, resp)
 }

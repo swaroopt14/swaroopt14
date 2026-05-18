@@ -82,6 +82,22 @@ type AmbiguitySnapshot struct {
 	// ── Money ────────────────────────────────────────────────────────────
 	AmbiguousAmountMinor decimal.Decimal `json:"ambiguous_amount_minor"`
 
+	// ── A5: Low-confidence rate ───────────────────────────────────────────
+	LowConfidenceCount int     `json:"low_confidence_count"`
+	LowConfidenceRate  float64 `json:"low_confidence_rate"` // low_confidence_count / total_decisions
+
+	// ── A6: Candidate collision rate ──────────────────────────────────────
+	CandidateCollisionCount int     `json:"candidate_collision_count"`
+	CandidateCollisionRate  float64 `json:"candidate_collision_rate"` // collision_count / total_decisions
+
+	// ── A7: Average score margin ──────────────────────────────────────────
+	AvgScoreMargin float64 `json:"avg_score_margin"` // avg(WinningScore - RunnerUpScore)
+
+	// ── A8: Carrier completeness rate ────────────────────────────────────
+	CarrierCompleteCount    int     `json:"carrier_complete_count"`
+	TotalCarrierRecords     int     `json:"total_carrier_records"`
+	CarrierCompletenessRate float64 `json:"carrier_completeness_rate"` // complete_count / total_carrier_records
+
 	// ── Risk classification ───────────────────────────────────────────────
 	RiskTier string `json:"risk_tier"`
 
@@ -190,6 +206,14 @@ func (s *AmbiguityIntelligenceService) buildSnapshot(av *models.AmbiguityValue) 
 		ProviderRefMissingCount:   av.ProviderRefMissingCount,
 		TotalDecisions:            av.TotalDecisions,
 		AmbiguousAmountMinor:      av.AmbiguousAmountMinor,
+		LowConfidenceCount:        av.LowConfidenceCount,
+		LowConfidenceRate:         av.LowConfidenceRate,
+		CandidateCollisionCount:   av.CandidateCollisionCount,
+		CandidateCollisionRate:    av.CandidateCollisionRate,
+		AvgScoreMargin:            av.AvgScoreMargin,
+		CarrierCompleteCount:      av.CarrierCompleteCount,
+		TotalCarrierRecords:       av.TotalCarrierRecords,
+		CarrierCompletenessRate:   av.CarrierCompletenessRate,
 		ComputedAt:                time.Now().UTC(),
 	}
 

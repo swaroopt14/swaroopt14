@@ -90,6 +90,13 @@ type LeakageSnapshot struct {
 	// Key: variance type string. Value: cumulative minor-unit amount.
 	BreakdownByType map[string]decimal.Decimal `json:"breakdown_by_type"`
 
+	// ── L2: Total observed settled volume ────────────────────────────────
+	// Accumulated from CanonicalSettlementCreatedEvent for ALL settlements.
+	TotalObservedSettledAmountMinor decimal.Decimal `json:"total_observed_settled_amount_minor"`
+
+	// ── P7 numerator: value-date mismatch count ────────────────────────────
+	ValueDateMismatchCount int `json:"value_date_mismatch_count"`
+
 	// ── Top leakage drivers (deterministic ranking) ───────────────────────
 	// Sorted by amount desc. Used by the recommendation layer.
 	TopDrivers []LeakageDriver `json:"top_drivers"`
@@ -207,19 +214,21 @@ func (s *LeakageIntelligenceService) ComputeAndSave(
 // buildSnapshot converts a LeakageValue projection into a full LeakageSnapshot.
 func (s *LeakageIntelligenceService) buildSnapshot(lv *models.LeakageValue) LeakageSnapshot {
 	snap := LeakageSnapshot{
-		TotalAmountMinor:           lv.TotalAmountMinor,
-		LeakagePercentage:          lv.LeakagePercentage,
-		TotalIntendedAmountMinor:   lv.TotalIntendedAmountMinor,
-		UnmatchedAmountMinor:       lv.UnmatchedAmountMinor,
-		UnderSettlementAmountMinor: lv.UnderSettlementAmountMinor,
-		OrphanAmountMinor:          lv.OrphanAmountMinor,
-		ReversalExposureMinor:      lv.ReversalExposureMinor,
-		UnmatchedIntentCount:       lv.UnmatchedIntentCount,
-		UnderSettlementCount:       lv.UnderSettlementCount,
-		OrphanSettlementCount:      lv.OrphanSettlementCount,
-		ReversalCount:              lv.ReversalCount,
-		BreakdownByType:            lv.BreakdownByType,
-		ComputedAt:                 time.Now().UTC(),
+		TotalAmountMinor:                lv.TotalAmountMinor,
+		LeakagePercentage:               lv.LeakagePercentage,
+		TotalIntendedAmountMinor:        lv.TotalIntendedAmountMinor,
+		TotalObservedSettledAmountMinor: lv.TotalObservedSettledAmountMinor,
+		ValueDateMismatchCount:          lv.ValueDateMismatchCount,
+		UnmatchedAmountMinor:            lv.UnmatchedAmountMinor,
+		UnderSettlementAmountMinor:      lv.UnderSettlementAmountMinor,
+		OrphanAmountMinor:               lv.OrphanAmountMinor,
+		ReversalExposureMinor:           lv.ReversalExposureMinor,
+		UnmatchedIntentCount:            lv.UnmatchedIntentCount,
+		UnderSettlementCount:            lv.UnderSettlementCount,
+		OrphanSettlementCount:           lv.OrphanSettlementCount,
+		ReversalCount:                   lv.ReversalCount,
+		BreakdownByType:                 lv.BreakdownByType,
+		ComputedAt:                      time.Now().UTC(),
 	}
 
 	// Build top drivers list (sorted by amount desc, top 5)

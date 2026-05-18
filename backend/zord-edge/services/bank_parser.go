@@ -40,7 +40,7 @@ func (p *BankParser) parseRow(rowNum int, row []string, colIndex map[string]int)
 	shape.IntentType = get("intent_type", "PAYOUT")
 
 	// Service 2 expects account_number at TOP LEVEL
-	shape.AccountNumber = get("account_number", "account number", "beneficiary.instrument.account_number")
+	shape.AccountNumber = get("account_number", "account number", "beneficiary.instrument.account_number", "")
 
 	shape.Beneficiary.Name = get("beneficiary.name", "beneficiary name", "name")
 	shape.Beneficiary.Instrument.Kind = get("beneficiary.instrument.kind", "instrument_kind", "BANK_ACCOUNT")
@@ -60,7 +60,7 @@ func (p *BankParser) parseRow(rowNum int, row []string, colIndex map[string]int)
 
 	shape.Source = get("source")
 	shape.SourceSystem = get("source_system")
-	shape.IdempotencyKey = get("idempotency_key", "idempotency key", "idempotencykey")
+	shape.IdempotencyKey = get("idempotency_key", "idempotency key", "idempotencykey", "")
 
 	shape.Constraints = make(map[string]any)
 	if window := get("constraints.execution_window"); window != "" {

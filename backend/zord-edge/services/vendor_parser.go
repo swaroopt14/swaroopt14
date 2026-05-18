@@ -59,7 +59,7 @@ func (p *VendorParser) parseRow(rowNum int, row []string, colIndex map[string]in
 	shape.SchemaVersion = get("schema_version", "1.0.0")
 	shape.IntentType = get("intent_type", "PAYOUT")
 
-	shape.AccountNumber = get("account_number", "beneficiary_account_no", "account number", "account no")
+	shape.AccountNumber = get("account_number", "beneficiary_account_no", "account number", "account no", "")
 	shape.Beneficiary.Name = get("beneficiary.name", "beneficiary_name", "vendor name", "name")
 	shape.Beneficiary.Instrument.Kind = get("beneficiary.instrument.kind", "instrument_kind", "BANK_ACCOUNT")
 	shape.Beneficiary.Instrument.IFSC = get("beneficiary.instrument.ifsc", "beneficiary_ifsc", "ifsc code", "ifsc")
@@ -73,7 +73,7 @@ func (p *VendorParser) parseRow(rowNum int, row []string, colIndex map[string]in
 	
 	shape.Source = get("source")
 	shape.SourceSystem = get("source_system")
-	shape.IdempotencyKey = get("idempotency_key", "idempotency key", "idempotencykey")
+	shape.IdempotencyKey = get("idempotency_key", "idempotency key", "idempotencykey", "")
 
 	shape.Constraints = make(map[string]any)
 	if window := get("constraints.execution_window"); window != "" {

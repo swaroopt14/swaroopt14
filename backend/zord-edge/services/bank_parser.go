@@ -56,7 +56,7 @@ func (p *BankParser) parseRow(rowNum int, row []string, colIndex map[string]int)
 	shape.ClientBatchRef = get("client_batch_ref", "batch_id")
 	shape.PurposeCode = get("purpose_code", "remarks", "narration")
 	shape.ProviderHint = get("provider_hint")
-	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "schedule_at")
+	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "scheduled_execution_at", "schedule_at", "")
 
 	shape.Source = get("source")
 	shape.SourceSystem = get("source_system")

@@ -152,7 +152,7 @@ func validateInstrumentParsed(intent models.ParsedIncomingIntent) error {
 		return nil
 
 	default:
-		return semanticError("unsupported instrument kind")
+		return nil
 	}
 
 	return nil

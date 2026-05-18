@@ -76,7 +76,7 @@ func (p *MerchantParser) parseRow(rowNum int, row []string, colIndex map[string]
 	shape.FundAccountID = get("fund_account_id", "fund account id")
 	shape.ContactID = get("contact_id", "contact id")
 	shape.ProviderHint = get("provider_hint")
-	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "schedule_at")
+	shape.IntendedExecutionAt = get("intended_execution_at", "execution_date", "scheduled_execution_at", "schedule_at", "")
 
 	// ── Product / Payout context ──────────────────────────────────────────
 	shape.ProductID = get("product_id", "product id")

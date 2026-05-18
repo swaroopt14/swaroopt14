@@ -15,12 +15,16 @@ import (
 	"zord-outcome-engine/kafka"
 	"zord-outcome-engine/routes"
 	"zord-outcome-engine/storage"
+	"zord-outcome-engine/tracing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
 func main() {
+	cleanup := tracing.InitTracing("zord-outcome-engine")
+	defer cleanup()
+
 	gin.SetMode(gin.ReleaseMode)
 	server := gin.New()
 	server.Use(gin.Recovery())

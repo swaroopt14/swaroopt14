@@ -508,6 +508,77 @@ Then open `https://zordnet.com` in browser.
 
 ---
 
+## Viewing Logs (Like Docker Desktop)
+
+### Live streaming logs (real-time)
+
+```bash
+# Console
+kubectl logs -n zord deploy/zord-console -f
+
+# Edge
+kubectl logs -n zord deploy/zord-edge -f
+
+# Intent Engine
+kubectl logs -n zord deploy/zord-intent-engine -f
+
+# Token Enclave
+kubectl logs -n zord deploy/zord-token-enclave -f
+
+# Relay
+kubectl logs -n zord deploy/zord-relay -f
+
+# Outcome Engine
+kubectl logs -n zord deploy/zord-outcome-engine -f
+
+# Evidence
+kubectl logs -n zord deploy/zord-evidence -f
+
+# Intelligence
+kubectl logs -n zord deploy/zord-intelligence -f
+
+# Prompt Layer
+kubectl logs -n zord deploy/zord-prompt-layer -f
+
+# Postgres
+kubectl logs -n zord zord-postgres-0 -f
+
+# Kafka
+kubectl logs -n zord zord-kafka-0 -f
+```
+
+Press `Ctrl+C` to stop streaming.
+
+### Last N lines (quick check)
+
+```bash
+kubectl logs -n zord deploy/zord-edge --tail=50
+```
+
+### Both replicas of a service
+
+```bash
+kubectl logs -n zord -l app.kubernetes.io/name=zord-edge --tail=20
+```
+
+### Previous crashed pod logs
+
+```bash
+kubectl logs -n zord deploy/zord-intelligence --previous
+```
+
+### All services quick health check
+
+```bash
+for svc in zord-edge zord-intent-engine zord-token-enclave zord-relay zord-outcome-engine zord-evidence zord-intelligence zord-prompt-layer zord-console; do
+  echo "=== $svc ==="
+  kubectl logs -n zord deploy/$svc --tail=5
+  echo ""
+done
+```
+
+---
+
 ## Troubleshooting Reference
 
 | Symptom | Cause | Fix |

@@ -17,6 +17,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: zord-intent-engine
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8083"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: zord-aws-access
       terminationGracePeriodSeconds: 45
@@ -112,6 +116,13 @@ spec:
                   key: RELAY_SERVICES_0_AUTH_TOKEN
             - name: WORKER_POOL_SIZE
               value: "64"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_SERVICE_NAME
+              value: zord-intent-engine
           readinessProbe:
             httpGet:
               path: /health

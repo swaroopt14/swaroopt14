@@ -17,6 +17,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: zord-token-enclave
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8087"
+        prometheus.io/path: "/metrics"
     spec:
       terminationGracePeriodSeconds: 45
       affinity:
@@ -88,6 +92,13 @@ spec:
                 configMapKeyRef:
                   name: zord-aws-config
                   key: KAFKA_BROKERS
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_SERVICE_NAME
+              value: zord-token-enclave
           readinessProbe:
             httpGet:
               path: /v1/health

@@ -17,6 +17,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: zord-evidence
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8088"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: zord-aws-access
       terminationGracePeriodSeconds: 45
@@ -112,6 +116,13 @@ spec:
                 secretKeyRef:
                   name: zord-app-secrets
                   key: EVIDENCE_ARCHIVE_ENCRYPTION_KEY_BASE64
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_SERVICE_NAME
+              value: zord-evidence
           readinessProbe:
             httpGet:
               path: /healthz

@@ -17,6 +17,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: zord-edge
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: zord-aws-access
       affinity:
@@ -107,6 +111,13 @@ spec:
                 secretKeyRef:
                   name: zord-app-secrets
                   key: RELAY_SERVICES_1_AUTH_TOKEN
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+            - name: OTEL_SERVICE_NAME
+              value: zord-edge
           volumeMounts:
             - name: signing-key
               mountPath: /run/secrets

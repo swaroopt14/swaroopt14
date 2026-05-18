@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fluentd-config
+  namespace: logging
+data:
+  fluent.conf: |
+    <source>
+      @type tail
+      path /var/log/containers/*.log
+      pos_file /var/log/fluentd-containers.log.pos
+      tag kubernetes.*
+      read_from_head true
+      <parse>
+        @type cri
+        merge_cri_fields true
+      </parse>
+    </source>
+
+    <filter kubernetes.**>
+      @type kubernetes_metadata
+      @id filter_kube_metadata
+      skip_labels false
+      skip_container_metadata false
+      skip_master_url true
+      skip_namespace_metadata true
+    </filter>
+
+    <filter kubernetes.**>
+      @type record_transformer
+      <record>
+        cluster zord-eks-prod
+        namespace ${record.dig("kubernetes", "namespace_name") || "unknown"}
+        pod ${record.dig("kubernetes", "pod_name") || "unknown"}
+        container ${record.dig("kubernetes", "container_name") || "unknown"}
+        service ${record.dig("kubernetes", "labels", "app.kubernetes.io/name") || record.dig("kubernetes", "labels", "app") || "unknown"}
+      </record>
+    </filter>
+
+    <match kubernetes.var.log.containers.**logging**>
+      @type null
+    </match>
+
+    <match kubernetes.**>
+      @type elasticsearch
+      @id out_es
+      host elasticsearch.logging.svc.cluster.local
+      port 9200
+      scheme http
+      logstash_format true
+      logstash_prefix zord-logs
+      logstash_dateformat %Y.%m.%d
+      include_tag_key true
+      type_name _doc
+      suppress_type_name true
+      reconnect_on_error true
+      reload_on_failure true
+      reload_connections false
+      request_timeout 30s
+      <buffer>
+        @type file
+        path /var/log/fluentd-buffers/kubernetes.system.buffer
+        flush_mode interval
+        flush_interval 5s
+        flush_thread_count 2
+        retry_type exponential_backoff
+        retry_forever true
+        retry_max_interval 30
+        chunk_limit_size 8M
+        queue_limit_length 32
+        overflow_action block
+      </buffer>
+    </match>

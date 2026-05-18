@@ -144,7 +144,7 @@ export default function PricingPageClient() {
       title="Commercial clarity for payments, banking, payroll, and credit."
       description="A fintech pricing page should answer buying questions fast. This page keeps the pricing story structured by product family, commitment model, and rollout depth."
       primaryAction={{ label: 'Contact sales', href: 'mailto:hello@arelais.com?subject=Pricing%20discussion%20for%20ZORD' }}
-      secondaryAction={{ label: 'Back to product', href: '/final-landing' }}
+      secondaryAction={{ label: 'Back to product', href: '/' }}
       heroVisual={{
         src: '/final-landing/sections/finance-ops-collaboration.png',
         alt: 'Finance and operations leaders reviewing payout evidence and rollout fit together',

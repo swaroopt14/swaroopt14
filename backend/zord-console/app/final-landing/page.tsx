@@ -1,5 +1,6 @@
-import LandingPageFinalClient from '@/components/landing-final/LandingPageFinalClient'
+import { redirect } from 'next/navigation'
 
-export default function FinalLandingPage() {
-  return <LandingPageFinalClient />
+/** Legacy URL — canonical home is `/`. */
+export default function FinalLandingRedirectPage() {
+  redirect('/')
 }

@@ -194,9 +194,9 @@ function providerGlyph(provider: BatchRow['provider']) {
 }
 
 function toCsv(rows: BatchRow[]) {
-  const header = ['Request ID', 'Amount', 'Borrower', 'Disbursement status', 'Stage', 'Reason', 'Last updated', 'Payment partner', 'Partner reference', 'Bank reference']
-  const lines = rows.map((row) =>
-    [row.refId, row.amount, row.beneficiary, row.status, row.stage, row.reason, row.time, row.provider, row.dispatchId, row.bankReference]
+  const header = ['No.', 'Amount', 'Borrower', 'Disbursement status', 'Stage', 'Reason', 'Last updated', 'Payment partner', 'Partner reference', 'Bank reference', 'Ref']
+  const lines = rows.map((row, index) =>
+    [index + 1, row.amount, row.beneficiary, row.status, row.stage, row.reason, row.time, row.provider, row.dispatchId, row.bankReference, row.refId]
       .map((value) => `"${String(value).replaceAll('"', '""')}"`)
       .join(','),
   )
@@ -372,15 +372,19 @@ export default function BatchCommandCenterClient() {
   const [uploadRelayState, setUploadRelayState] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle')
   const [uploadRelayMessage, setUploadRelayMessage] = useState<string | null>(null)
   /** 2-step intake: intent batch → settlement file. */
+  const [selectedIntentFile, setSelectedIntentFile] = useState<File | null>(null)
+  const [selectedSettlementFile, setSelectedSettlementFile] = useState<File | null>(null)
   const [intentFileName, setIntentFileName] = useState<string | null>(null)
   const [settlementFileName, setSettlementFileName] = useState<string | null>(null)
+  const [settlementIngestOk, setSettlementIngestOk] = useState(false)
   const [intakeStep, setIntakeStep] = useState<'idle' | 'intent_uploading' | 'intent_ready' | 'settlement_uploading' | 'closed'>('idle')
   // Top tab toggle — Bulk batch upload (default) vs single intent creation form
   // reused from /customer/intents/create. Same component, same backend path.
   const [intakeTab, setIntakeTab] = useState<'batch' | 'single'>('batch')
   const [apiKey, setApiKey] = useState('')
-  const [tenantType, setTenantType] = useState<'MERCHANT' | 'BANK' | 'NBFC' | 'VENDOR' | 'GATEWAY'>('MERCHANT')
+  const tenantType = 'BANK' as const
   const [batchIdInput, setBatchIdInput] = useState('')
+  const [bulkForceReprocess, setBulkForceReprocess] = useState(false)
   const { tenantId, tenantReady, refreshTenant } = useSessionTenant()
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [intentIngestOk, setIntentIngestOk] = useState(false)
@@ -393,6 +397,7 @@ export default function BatchCommandCenterClient() {
   } | null>(null)
   /** Batch id used for settlement (response body, optional Step 1 field, or LOCAL-* fallback). */
   const [settlementBatchId, setSettlementBatchId] = useState<string | null>(null)
+  const intentFileInputRef = useRef<HTMLInputElement>(null)
   const settlementFileInputRef = useRef<HTMLInputElement>(null)
   const toolbarNoticeTimerRef = useRef<number | null>(null)
   const [toolbarNotice, setToolbarNotice] = useState<string | null>(null)
@@ -447,7 +452,10 @@ export default function BatchCommandCenterClient() {
     () => tenantReady && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
     [psp, settlementBatchIdResolved, tenantReady],
   )
-  const settlementPickerEnabled = settlementCredentialsReady && intakeStep !== 'settlement_uploading'
+  const settlementFilePickerEnabled =
+    settlementCredentialsReady && intakeStep !== 'settlement_uploading'
+  const settlementUploadEnabled =
+    settlementFilePickerEnabled && Boolean(selectedSettlementFile) && intakeStep !== 'settlement_uploading'
 
   const loadIntelBatchDetail = useCallback(async () => {
     if (!tenantReady) {
@@ -616,8 +624,23 @@ export default function BatchCommandCenterClient() {
    * Target model: failed rows → intents (or batch line items) with FAILED + structured errors;
    * DLQ only for true dead letters that never become normal intents.
    */
+  const onIntentFileChosen = useCallback((file: File | null) => {
+    if (!file) return
+    setSelectedIntentFile(file)
+    setIntentIngestOk(false)
+    setIntentBulkIngestAck(null)
+    setSettlementBatchId(null)
+    setSelectedSettlementFile(null)
+    setSettlementFileName(null)
+    setSettlementIngestOk(false)
+    setIntakeStep('idle')
+    setUploadRelayState('idle')
+    setUploadRelayMessage(null)
+  }, [])
+
   const onIntentBatchUpload = useCallback(
-    async (file: File | null) => {
+    async () => {
+      const file = selectedIntentFile
       if (!file) return
       setIntentFileName(file.name)
       setIntentIngestOk(false)
@@ -630,12 +653,16 @@ export default function BatchCommandCenterClient() {
       try {
         const parsed = await parseUploadedSheet(file)
         const bid = batchIdInput.trim()
+        if (bulkForceReprocess && !bid) {
+          throw new Error('Force reprocess requires a Batch-Id in the field above.')
+        }
         const result = await postIntentBulkIngest({
           file,
           apiKeyRaw: apiKey.trim() || undefined,
           sourceType: bulkIngestSourceTypeFromFilename(file.name),
           tenantType,
           optionalBatchId: bid || undefined,
+          forceReprocess: bulkForceReprocess,
         })
         if (!result.ok) {
           throw new Error(result.errorMessage ?? `HTTP ${result.httpStatus}`)
@@ -678,51 +705,63 @@ export default function BatchCommandCenterClient() {
         setIntakeStep('idle')
       }
     },
-    [apiKey, batchIdInput, tenantType, refreshTenant],
+    [apiKey, batchIdInput, bulkForceReprocess, selectedIntentFile, tenantType, refreshTenant],
   )
 
+  const onSettlementFileChosen = useCallback((file: File | null) => {
+    if (!file) return
+    setSelectedSettlementFile(file)
+    setSettlementIngestOk(false)
+    setUploadRelayState('idle')
+    setUploadRelayMessage(null)
+    if (intakeStep === 'closed') setIntakeStep('intent_ready')
+  }, [intakeStep])
+
   /** Step 2 — POST /api/settlement/upload (proxies settlement service). Does not replace the table with the settlement file. */
-  const onSettlementUpload = useCallback(
-    async (file: File | null) => {
-      if (!file) return
-      const pspVal = psp.trim()
-      const bid = (settlementBatchId ?? batchIdInput.trim()).trim()
-      if (!tenantReady || !pspVal || !bid) {
-        setUploadRelayState('failed')
-        setUploadRelayMessage(
-          'Settlement upload needs an active session, psp, and Batch-Id (complete Step 1 or enter Batch-Id in the field above).',
-        )
-        return
+  const onSettlementBatchUpload = useCallback(async () => {
+    const file = selectedSettlementFile
+    if (!file) return
+    const pspVal = psp.trim()
+    const bid = (settlementBatchId ?? batchIdInput.trim()).trim()
+    if (!tenantReady || !pspVal || !bid) {
+      setUploadRelayState('failed')
+      setUploadRelayMessage(
+        'Settlement batch upload needs an active session, PSP, and Batch-Id (complete Step 1 or enter Batch-Id above).',
+      )
+      return
+    }
+    setSettlementFileName(file.name)
+    setIntakeStep('settlement_uploading')
+    setUploadRelayState('syncing')
+    setUploadRelayMessage('Uploading settlement batch…')
+    try {
+      const result = await postSettlementFileUpload({
+        file,
+        apiKeyRaw: apiKey.trim() || undefined,
+        psp: pspVal,
+        batchId: bid,
+      })
+      if (!result.ok) {
+        throw new Error(result.errorMessage ?? `HTTP ${result.httpStatus}`)
       }
-      setSettlementFileName(file.name)
-      setIntakeStep('settlement_uploading')
-      setUploadRelayState('syncing')
-      setUploadRelayMessage('Uploading settlement file…')
-      try {
-        const result = await postSettlementFileUpload({
-          file,
-          apiKeyRaw: apiKey.trim() || undefined,
-          psp: pspVal,
-          batchId: bid,
-        })
-        if (!result.ok) {
-          throw new Error(result.errorMessage ?? `HTTP ${result.httpStatus}`)
-        }
-        setUploadRelayState('synced')
-        setUploadRelayMessage('Settlement file accepted. Matching runs against the intent batch on the server.')
-        markSandboxSetupStep('settlement')
-        setIntakeStep('closed')
-      } catch (error) {
-        setUploadRelayState('failed')
-        setUploadRelayMessage(`Settlement upload failed (${error instanceof Error ? error.message : 'unknown error'}).`)
-        setIntakeStep('intent_ready')
-      } finally {
-        const el = settlementFileInputRef.current
-        if (el) el.value = ''
-      }
-    },
-    [apiKey, batchIdInput, psp, settlementBatchId, tenantReady],
-  )
+      setSettlementIngestOk(true)
+      setUploadRelayState('synced')
+      setUploadRelayMessage(
+        `Settlement batch accepted for ${bid}. Canonical observations appear in Settlement Journal after processing.`,
+      )
+      markSandboxSetupStep('settlement')
+      setIntakeStep('closed')
+    } catch (error) {
+      setUploadRelayState('failed')
+      setUploadRelayMessage(
+        `Settlement batch upload failed (${error instanceof Error ? error.message : 'unknown error'}).`,
+      )
+      setIntakeStep('intent_ready')
+    } finally {
+      const el = settlementFileInputRef.current
+      if (el) el.value = ''
+    }
+  }, [apiKey, batchIdInput, psp, selectedSettlementFile, settlementBatchId, tenantReady])
 
   const retryFailedRows = useCallback(() => {
     setRows((prev) => {
@@ -803,10 +842,11 @@ export default function BatchCommandCenterClient() {
       intentFileName,
       intentIngestOk,
       settlementFileName,
+      settlementIngestOk,
       uploadedFileName,
       uploadState,
     }),
-    [intakeStep, intentFileName, intentIngestOk, settlementFileName, uploadedFileName, uploadState],
+    [intakeStep, intentFileName, intentIngestOk, settlementFileName, settlementIngestOk, uploadedFileName, uploadState],
   )
 
   const timeline = useMemo(
@@ -829,9 +869,22 @@ export default function BatchCommandCenterClient() {
     const query = search.trim().toLowerCase()
     let next = rows
     if (query) {
-      next = next.filter((r) =>
-        r.refId.toLowerCase().includes(query) || r.beneficiary.toLowerCase().includes(query),
-      )
+      next = next.filter((r) => {
+        const haystack = [
+          r.beneficiary,
+          r.refId,
+          r.status,
+          r.stage,
+          r.reason,
+          r.provider,
+          r.dispatchId,
+          r.bankReference,
+          String(r.amount),
+        ]
+          .join(' ')
+          .toLowerCase()
+        return haystack.includes(query)
+      })
     }
     if (selectedFailureReason) next = next.filter((r) => r.reason === selectedFailureReason)
     return sortRowsByLatest(next, sortMode)
@@ -1214,7 +1267,7 @@ export default function BatchCommandCenterClient() {
             <span className="text-[11px] font-medium uppercase tracking-[0.1em] text-[#888888]">Step 1 → Step 2</span>
           </div>
           <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
-            Upload the intent batch file first. Once dispatched, upload the settlement file when received from the PSP / bank.
+            Upload the intent batch first (Step 1). When the PSP / bank file arrives, upload the settlement batch (Step 2).
             Tenant and credentials are resolved automatically from your signed-in session.
           </p>
 
@@ -1223,17 +1276,9 @@ export default function BatchCommandCenterClient() {
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">
                 Tenant type
               </span>
-              <select
-                value={tenantType}
-                onChange={(e) => setTenantType(e.target.value as typeof tenantType)}
-                className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2 text-[13px] text-[#0A0A0A] outline-none focus:border-[#6366f1]/50"
-              >
-                <option value="MERCHANT">Merchant</option>
-                <option value="VENDOR">Vendor</option>
-                <option value="BANK">Bank</option>
-                <option value="NBFC">NBFC</option>
-                <option value="GATEWAY">Gateway</option>
-              </select>
+              <div className="flex h-9 items-center rounded-lg border border-[#E5E5E5] bg-[#f8fafc] px-2.5 text-[13px] font-medium text-[#0A0A0A]">
+                Bank
+              </div>
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">Batch-Id (optional)</span>
@@ -1243,6 +1288,19 @@ export default function BatchCommandCenterClient() {
                 placeholder="Auto-assigned if empty"
                 className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0A0A0A] outline-none focus:border-[#6366f1]/50"
               />
+            </label>
+            <label className="flex flex-col justify-end gap-1 sm:col-span-2 lg:col-span-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">Reprocess</span>
+              <span className="flex min-h-9 items-center gap-2 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0A0A0A]">
+                <input
+                  type="checkbox"
+                  checked={bulkForceReprocess}
+                  onChange={(e) => setBulkForceReprocess(e.target.checked)}
+                  className="h-4 w-4 rounded border-[#cbd5e1]"
+                />
+                Force reprocess
+              </span>
+              <span className="text-[11px] leading-snug text-[#64748b]">Requires Batch-Id · sends X-Zord-Force-Reprocess</span>
             </label>
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">PSP</span>
@@ -1262,75 +1320,91 @@ export default function BatchCommandCenterClient() {
           ) : null}
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {/* Step 1 — Intent batch */}
-            <label
-              className={`group relative flex cursor-pointer flex-col rounded-[14px] border bg-white p-4 transition ${
-                intentFileName
+            {/* Step 1 — Intent batch: choose file, review name, then Upload */}
+            <div
+              className={`relative flex flex-col rounded-[14px] border bg-white p-4 transition ${
+                intentIngestOk && intentFileName
                   ? 'border-emerald-200 bg-emerald-50/30'
-                  : 'border-[#E5E5E5] hover:border-[#0A0A0A]/30'
+                  : selectedIntentFile
+                    ? 'border-[#6366f1]/30 bg-indigo-50/20'
+                    : 'border-[#E5E5E5]'
               }`}
             >
               <div className="flex items-center gap-2">
                 <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#0A0A0A] text-[12px] font-bold text-white">1</span>
                 <span className="text-[14px] font-semibold text-[#0A0A0A]">Upload intent batch</span>
-                {intentFileName ? (
+                {intentIngestOk && intentFileName ? (
                   <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                     <svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
                       <path d="M3 6.5 5.2 8.7 9.5 4" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    Loaded
+                    Uploaded
+                  </span>
+                ) : selectedIntentFile ? (
+                  <span className="ml-auto rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                    Ready to upload
                   </span>
                 ) : null}
               </div>
               <p className="mt-1.5 text-[12px] leading-relaxed text-[#888888]">
                 CSV or spreadsheet (XLS / XLSX) from LMS / ERP — one row per payout intent.
               </p>
-              {intentFileName ? (
-                <p className="mt-2 truncate font-mono text-[12px] text-[#0A0A0A]" title={intentFileName}>
-                  {intentFileName}
-                </p>
-              ) : null}
-              <span
-                className={`mt-3 inline-flex h-8 w-fit items-center rounded-[8px] px-3 text-[12px] font-medium transition ${
-                  intakeStep === 'intent_uploading'
-                    ? 'bg-[#0A0A0A] text-white opacity-70'
-                    : intentFileName
-                      ? 'border border-[#E5E5E5] bg-white text-[#0A0A0A] group-hover:bg-slate-100'
-                      : 'bg-[#0A0A0A] text-white group-hover:bg-[#0A0A0A]'
-                }`}
-              >
-                {intakeStep === 'intent_uploading' ? 'Uploading…' : intentFileName ? 'Replace file' : 'Choose file'}
-              </span>
+              {selectedIntentFile ? (
+                <div className="mt-2 rounded-lg border border-[#E5E5E5] bg-[#fafafa] px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#888888]">Selected file</p>
+                  <p className="mt-0.5 truncate font-mono text-[12px] text-[#0A0A0A]" title={selectedIntentFile.name}>
+                    {selectedIntentFile.name}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-[#64748b]">
+                    {(selectedIntentFile.size / 1024).toFixed(selectedIntentFile.size >= 1024 * 1024 ? 1 : 0)}{' '}
+                    {selectedIntentFile.size >= 1024 * 1024 ? 'MB' : 'KB'}
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-2 text-[12px] italic text-[#888888]">Choose a file to review it here, then click Upload.</p>
+              )}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={intakeStep === 'intent_uploading'}
+                  onClick={() => intentFileInputRef.current?.click()}
+                  className="inline-flex h-8 items-center rounded-[8px] border border-[#E5E5E5] bg-white px-3 text-[12px] font-medium text-[#0A0A0A] transition hover:bg-slate-100 disabled:opacity-60"
+                >
+                  {selectedIntentFile ? 'Replace file' : 'Choose file'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIntentFile || intakeStep === 'intent_uploading'}
+                  onClick={() => void onIntentBatchUpload()}
+                  className="inline-flex h-8 items-center rounded-[8px] bg-[#0A0A0A] px-3 text-[12px] font-medium text-white transition hover:bg-[#1a1a1a] disabled:cursor-not-allowed disabled:bg-[#94a3b8]"
+                >
+                  {intakeStep === 'intent_uploading' ? 'Uploading…' : 'Upload'}
+                </button>
+              </div>
               <input
+                ref={intentFileInputRef}
                 type="file"
+                accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 className="hidden"
-                onChange={(e) => void onIntentBatchUpload(e.target.files?.[0] ?? null)}
+                aria-label="Intent batch file"
+                onChange={(e) => {
+                  onIntentFileChosen(e.target.files?.[0] ?? null)
+                  e.target.value = ''
+                }}
               />
-            </label>
+            </div>
 
-            {/* Step 2 — Settlement (programmatic file click: reliable when input is disabled/enabled and avoids label+hidden quirks). */}
+            {/* Step 2 — Settlement batch */}
             <div
-              role="button"
-              tabIndex={settlementPickerEnabled ? 0 : -1}
-              aria-disabled={!settlementPickerEnabled}
-              className={`group relative flex flex-col rounded-[14px] border bg-white p-4 transition outline-none focus-visible:ring-2 focus-visible:ring-[#6366f1]/40 ${
+              className={`relative flex flex-col rounded-[14px] border bg-white p-4 transition ${
                 !settlementCredentialsReady
-                  ? 'cursor-not-allowed border-dashed border-[#E5E5E5] opacity-50'
-                  : settlementFileName
-                    ? 'cursor-pointer border-emerald-200 bg-emerald-50/30'
-                    : 'cursor-pointer border-[#E5E5E5] hover:border-[#0A0A0A]/30'
+                  ? 'border-dashed border-[#E5E5E5] opacity-60'
+                  : settlementIngestOk && settlementFileName
+                    ? 'border-emerald-200 bg-emerald-50/30'
+                    : selectedSettlementFile
+                      ? 'border-[#6366f1]/30 bg-indigo-50/20'
+                      : 'border-[#E5E5E5]'
               }`}
-              onKeyDown={(e) => {
-                if (!settlementPickerEnabled) return
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  settlementFileInputRef.current?.click()
-                }
-              }}
-              onClick={() => {
-                if (!settlementPickerEnabled) return
-                settlementFileInputRef.current?.click()
-              }}
             >
               <div className="flex items-center gap-2">
                 <span
@@ -1340,50 +1414,85 @@ export default function BatchCommandCenterClient() {
                 >
                   2
                 </span>
-                <span className="text-[14px] font-semibold text-[#0A0A0A]">Upload settlement file</span>
-                {settlementFileName ? (
+                <span className="text-[14px] font-semibold text-[#0A0A0A]">Upload settlement batch</span>
+                {settlementIngestOk && settlementFileName ? (
                   <span className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                     <svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
                       <path d="M3 6.5 5.2 8.7 9.5 4" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
-                    Loaded
+                    Uploaded
+                  </span>
+                ) : selectedSettlementFile ? (
+                  <span className="ml-auto rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700">
+                    Ready to upload
                   </span>
                 ) : null}
               </div>
               <p className="mt-1.5 text-[12px] leading-relaxed text-[#888888]">
-                Bank / PSP settlement file (CSV or spreadsheet) — Zord matches it back to the intent batch.
+                Bank / PSP settlement file (CSV or XLS / XLSX) — matched to Batch-Id{' '}
+                {settlementBatchIdResolved ? (
+                  <span className="font-mono text-[#334155]">{settlementBatchIdResolved}</span>
+                ) : (
+                  'from Step 1 or the field above'
+                )}
+                .
               </p>
-              {settlementFileName ? (
-                <p className="mt-2 truncate font-mono text-[12px] text-[#0A0A0A]" title={settlementFileName}>
-                  {settlementFileName}
-                </p>
+              {selectedSettlementFile ? (
+                <div className="mt-2 rounded-lg border border-[#E5E5E5] bg-[#fafafa] px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-[#888888]">Selected file</p>
+                  <p className="mt-0.5 truncate font-mono text-[12px] text-[#0A0A0A]" title={selectedSettlementFile.name}>
+                    {selectedSettlementFile.name}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-[#64748b]">
+                    {(selectedSettlementFile.size / 1024).toFixed(
+                      selectedSettlementFile.size >= 1024 * 1024 ? 1 : 0,
+                    )}{' '}
+                    {selectedSettlementFile.size >= 1024 * 1024 ? 'MB' : 'KB'}
+                  </p>
+                </div>
               ) : (
                 <p className="mt-2 text-[12px] italic text-[#888888]">
                   {settlementCredentialsReady
-                    ? 'Click this card or Choose file to pick a settlement file — POST /api/settlement/upload.'
-                    : 'Enter Tenant, PSP, and Batch-Id (or complete Step 1) to enable settlement upload.'}
+                    ? 'Choose a settlement batch file, review it here, then click Upload.'
+                    : 'Complete Step 1 or enter Batch-Id and PSP to enable settlement batch upload.'}
                 </p>
               )}
-              <span
-                className={`mt-3 inline-flex h-8 w-fit items-center rounded-[8px] px-3 text-[12px] font-medium transition ${
-                  intakeStep === 'settlement_uploading'
-                    ? 'bg-[#0A0A0A] text-white opacity-70'
-                    : settlementFileName
-                      ? 'border border-[#E5E5E5] bg-white text-[#0A0A0A] group-hover:bg-slate-100'
-                      : intentIngestOk && settlementBatchId
-                        ? 'bg-[#0A0A0A] text-white group-hover:bg-[#0A0A0A]'
-                        : 'bg-[#94a3b8] text-white'
-                }`}
-              >
-                {intakeStep === 'settlement_uploading' ? 'Uploading…' : settlementFileName ? 'Replace file' : 'Choose file'}
-              </span>
+              {settlementIngestOk && settlementBatchIdResolved && !settlementBatchIdResolved.startsWith('LOCAL-') && isSandboxRoute ? (
+                <Link
+                  href={`/sandbox?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchIdResolved)}`}
+                  className="mt-2 inline-flex w-fit text-[12px] font-semibold text-indigo-800 underline decoration-indigo-300/80 underline-offset-2 hover:text-indigo-900"
+                >
+                  Open in Settlement Journal
+                </Link>
+              ) : null}
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!settlementFilePickerEnabled}
+                  onClick={() => settlementFileInputRef.current?.click()}
+                  className="inline-flex h-8 items-center rounded-[8px] border border-[#E5E5E5] bg-white px-3 text-[12px] font-medium text-[#0A0A0A] transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {selectedSettlementFile ? 'Replace file' : 'Choose file'}
+                </button>
+                <button
+                  type="button"
+                  disabled={!settlementUploadEnabled}
+                  onClick={() => void onSettlementBatchUpload()}
+                  className="inline-flex h-8 items-center rounded-[8px] bg-[#0A0A0A] px-3 text-[12px] font-medium text-white transition hover:bg-[#1a1a1a] disabled:cursor-not-allowed disabled:bg-[#94a3b8]"
+                >
+                  {intakeStep === 'settlement_uploading' ? 'Uploading…' : 'Upload'}
+                </button>
+              </div>
               <input
                 ref={settlementFileInputRef}
                 type="file"
+                accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 className="hidden"
-                disabled={!settlementPickerEnabled}
-                aria-label="Settlement file upload"
-                onChange={(e) => void onSettlementUpload(e.target.files?.[0] ?? null)}
+                aria-label="Settlement batch file"
+                onChange={(e) => {
+                  onSettlementFileChosen(e.target.files?.[0] ?? null)
+                  e.target.value = ''
+                }}
               />
             </div>
           </div>
@@ -1439,16 +1548,26 @@ export default function BatchCommandCenterClient() {
                   </span>
                 ) : null}
                 {settlementBatchId && !settlementBatchId.startsWith('LOCAL-') ? (
-                  <Link
-                    href={
-                      isSandboxRoute
-                        ? `/sandbox?dock=grid&batch_id=${encodeURIComponent(settlementBatchId)}`
-                        : `/payout-command-view/today?dock=grid&batch_id=${encodeURIComponent(settlementBatchId)}`
-                    }
-                    className="font-semibold text-emerald-800 underline decoration-emerald-300/80 underline-offset-2 hover:text-emerald-900"
-                  >
-                    Open in Intent Journal
-                  </Link>
+                  <>
+                    <Link
+                      href={
+                        isSandboxRoute
+                          ? `/sandbox?dock=grid&batch_id=${encodeURIComponent(settlementBatchId)}`
+                          : `/payout-command-view/today?dock=grid&batch_id=${encodeURIComponent(settlementBatchId)}`
+                      }
+                      className="font-semibold text-emerald-800 underline decoration-emerald-300/80 underline-offset-2 hover:text-emerald-900"
+                    >
+                      Open in Intent Journal
+                    </Link>
+                    {isSandboxRoute ? (
+                      <Link
+                        href={`/sandbox?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchId)}`}
+                        className="font-semibold text-indigo-800 underline decoration-indigo-300/80 underline-offset-2 hover:text-indigo-900"
+                      >
+                        Open in Settlement Journal
+                      </Link>
+                    ) : null}
+                  </>
                 ) : null}
               </div>
             ) : null}
@@ -1867,21 +1986,38 @@ export default function BatchCommandCenterClient() {
             <table className="min-w-full text-left">
               <thead>
                 <tr className="border-b border-slate-200/90 bg-slate-50">
-                  {['Request ID', 'Borrower', 'Amount', 'Method', 'Status', 'Mandate status', 'Last updated', 'Action'].map((h) => (
-                    <th key={h} className="px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.07em] text-[#888888] whitespace-nowrap">{h}</th>
+                  {['No.', 'Borrower', 'Amount', 'Method', 'Status', 'Mandate status', 'Last updated', 'Action'].map((h, colIndex) => (
+                    <th
+                      key={h}
+                      className={`px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.07em] text-[#888888] whitespace-nowrap ${
+                        colIndex === 0 ? 'w-14 min-w-[3.5rem] text-center' : ''
+                      }`}
+                    >
+                      {h}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {pageRows.map((row) => {
+                {pageRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-12 text-center text-[14px] text-[#888888]">
+                      No rows match your search or status filter.
+                    </td>
+                  </tr>
+                ) : (
+                  pageRows.map((row, rowIndex) => {
                   const expanded = expandedRef === row.refId
+                  const rowNo = (currentPage - 1) * PAGE_SIZE + rowIndex + 1
                   return (
                     <Fragment key={row.refId}>
                       <tr
-                        className="cursor-pointer border-b border-slate-100 text-[14px] transition-colors hover:bg-slate-50"
+                        className={`cursor-pointer border-b border-slate-100 text-[14px] transition-colors hover:bg-slate-50 ${rowIndex % 2 === 1 ? 'bg-slate-50/50' : ''}`}
                         onClick={() => setExpandedRef((c) => (c === row.refId ? null : row.refId))}
                       >
-                        <td className="px-4 py-3.5 font-semibold text-[#0A0A0A] whitespace-nowrap">{row.refId}</td>
+                        <td className="px-3 py-3.5 text-center text-[13px] font-semibold tabular-nums text-[#64748b] whitespace-nowrap">
+                          {rowNo}
+                        </td>
                         <td className="px-4 py-3.5 text-[#1A1A1A]">{row.beneficiary}</td>
                         <td className="px-4 py-3.5 text-[#0A0A0A] whitespace-nowrap">{formatInrPrecise(row.amount)}</td>
                         <td className="px-4 py-3.5 text-[#1A1A1A]">{disbursementMethodFromProvider(row.provider)}</td>
@@ -1957,7 +2093,8 @@ export default function BatchCommandCenterClient() {
                       )}
                     </Fragment>
                   )
-                })}
+                })
+                )}
               </tbody>
             </table>
           </div>

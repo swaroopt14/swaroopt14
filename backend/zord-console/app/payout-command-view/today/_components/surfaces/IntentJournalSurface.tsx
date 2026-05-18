@@ -9,22 +9,10 @@ import {
 import type { IntentDetail } from '@/services/payout-command/intent-journal-types'
 import { getProdIntentDetail } from '@/services/payout-command/prod-api/getProdIntentDetail'
 import { buildLiveIntentDetailFromRowAndApi } from '@/services/payout-command/liveJournalIntentDetail'
-import {
-  getIntelligenceBatchDetail,
-  getPatternsKpis,
-} from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { getIntelligenceBatchDetail } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
-import {
-  JOURNAL_BATCHES_BFF_PATH,
-  useIntentJournalBatchFeed,
-} from '../intent-journal/useIntentJournalBatchFeed'
-import { SessionTenantScopeBar } from '../layout/SessionTenantScopeBar'
-import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type {
-  BatchDetailResponse,
-  IntelligenceBatchRow,
-  PatternsKpiResponse,
-} from '@/services/payout-command/prod-api/intelligenceTypes'
+import { useIntentJournalBatchFeed } from '../intent-journal/useIntentJournalBatchFeed'
+import type { BatchDetailResponse, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { ApiProdIntentDetailPayload } from '@/services/payout-command/prod-api/prodApiTypes'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
 import { markSandboxSetupStep, openSandboxSetupPanel } from '@/services/payout-command/sandbox-setup-guide'
@@ -62,13 +50,15 @@ type BatchType = 'Disbursement' | 'Settlement'
 type BatchStatus = 'Strong' | 'Stable' | 'Risk' | 'Critical'
 type BatchFilter = 'All Batches' | 'Recent' | 'Needs Attention' | 'High Value' | 'Completed'
 type TabKey = 'transactions' | 'failures'
-type IntentStatus = 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
+type IntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
 type IntentMatch = 'Matched' | 'Likely Matched' | 'Awaiting' | 'Mismatch' | 'Not Found'
 type SidebarMode = 'listed' | 'sectors'
 
 type BatchRecord = {
   batchId: string
   type: BatchType
+  /** Raw API type (PAYOUT, COLLECTION, …) when from intent-engine sidebar. */
+  apiType?: string
   source: string
   totalValue: number
   transactions: number
@@ -156,8 +146,13 @@ const TAB_ITEMS: { key: TabKey; label: string }[] = [
 ]
 
 const BATCH_FILTERS: BatchFilter[] = ['All Batches', 'Recent', 'Needs Attention', 'High Value', 'Completed']
-const ROW_SIZE_OPTIONS = [15, 30, 50] as const
+const ROW_SIZE_OPTIONS = [25, 50, 100, 200] as const
 const SIDEBAR_PAGE_SIZE = 8
+
+const TABLE_ROW_NUM_TH =
+  'w-11 min-w-[2.75rem] px-2 py-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.06em] text-[#888888]'
+const TABLE_ROW_NUM_TD =
+  'w-11 min-w-[2.75rem] px-2 py-2.5 text-center text-[13px] font-semibold tabular-nums text-[#64748b]'
 
 function usd(value: number) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
@@ -170,6 +165,14 @@ function usdCompact(value: number) {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(value)
+}
+
+function engineDispatchConfidencePct(batch: BatchRecord): number {
+  if (typeof batch.avgConfidenceScore === 'number' && Number.isFinite(batch.avgConfidenceScore)) {
+    return Math.min(100, Math.max(0, batch.avgConfidenceScore * 100))
+  }
+  const total = Math.max(batch.transactions, 1)
+  return (batch.confirmedCount / total) * 100
 }
 
 function formatInrRupees(rupees: number): string {
@@ -250,6 +253,35 @@ function batchStatusFromFinality(fs: string | undefined): BatchStatus {
   return 'Stable'
 }
 
+/** Sidebar / overview health — uses loaded DLQ + intent counts when available. */
+function resolveBatchHealthStatus(
+  batch: BatchRecord,
+  opts?: { dlqCount?: number; intentCount?: number; finality?: string },
+): BatchStatus {
+  const dlq = Math.max(0, opts?.dlqCount ?? 0)
+  const intents = Math.max(0, opts?.intentCount ?? 0)
+  const attention = (batch.mismatchCount ?? 0) + (batch.unresolvedCount ?? 0)
+  const ingestTotal = Math.max(batch.transactions, 0)
+  const pipelineTotal = Math.max(intents + dlq, ingestTotal, 1)
+
+  if (dlq > 0 && intents === 0) return 'Critical'
+  if (dlq >= 10) return 'Critical'
+  const dlqRatio = dlq / pipelineTotal
+  if (dlqRatio >= 0.15) return 'Critical'
+  if (dlq > 0 && dlqRatio >= 0.05) return 'Risk'
+  if (batch.engineSidebar && ingestTotal > 0 && batch.confirmedCount === 0 && dlq > 0) return 'Critical'
+  if (attention > 0 && attention >= ingestTotal && ingestTotal > 0) return 'Critical'
+  if (attention > ingestTotal * 0.5 && ingestTotal > 0) return 'Critical'
+
+  const fs = opts?.finality
+  if (fs) {
+    const fromFinality = batchStatusFromFinality(fs)
+    if (fromFinality === 'Critical' || fromFinality === 'Risk') return fromFinality
+  }
+
+  return batchStatus(batchQualityScore(batch))
+}
+
 function statusTone(status: BatchStatus) {
   if (status === 'Strong' || status === 'Stable') return { text: 'text-emerald-700', left: 'border-l-4 border-l-emerald-500', ring: '#16a34a' }
   if (status === 'Risk') return { text: 'text-amber-700', left: 'border-l-4 border-l-amber-500', ring: '#d97706' }
@@ -257,6 +289,7 @@ function statusTone(status: BatchStatus) {
 }
 
 function intentStatusClass(status: IntentStatus) {
+  if (status === 'Ready to Process') return 'text-sky-700'
   if (status === 'Confirmed') return 'text-emerald-700'
   if (status === 'Pending') return 'text-amber-600'
   if (status === 'Needs Review') return 'text-orange-600'
@@ -265,6 +298,7 @@ function intentStatusClass(status: IntentStatus) {
 }
 
 function intentStatusLabel(status: IntentStatus) {
+  if (status === 'Ready to Process') return 'Ready to process'
   return status
 }
 
@@ -459,8 +493,6 @@ function failureHaystack(row: FailureRow) {
 }
 
 const LIVE_JOURNAL_POLL_MS = 8_000
-/** KPI 14 — `GET /v1/intelligence/dashboard/patterns?tenant_id&batch_id` (snapshots), not batch list/detail. */
-const KPI14_PATTERNS_POLL_MS = 30_000
 
 export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const { mode } = useEnvironment()
@@ -476,24 +508,16 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     intentRows: liveIntentRows,
     failureRows: liveFailureRows,
     intentPagination,
+    dlqPagination,
     feedLoaded: liveFeedLoaded,
+    detailLoading: liveDetailLoading,
     feedError,
-    feedMeta,
     syncAt: liveSyncAt,
     selectBatch,
-    setIntentPage: setServerIntentPage,
-    intentPage: serverIntentPage,
     refreshFeed,
   } = useIntentJournalBatchFeed({ enabled: journalUsesBackendFeed, initialBatchId })
 
-  const [scopeBatchId, setScopeBatchId] = useState(() => initialBatchId ?? '')
-  useEffect(() => {
-    if (selectedBatchId.trim()) setScopeBatchId(selectedBatchId)
-  }, [selectedBatchId])
-  useEffect(() => {
-    if (initialBatchId?.trim()) setScopeBatchId(initialBatchId)
-  }, [initialBatchId])
-
+  const [failureReviewId, setFailureReviewId] = useState<string | null>(null)
   const [feedRefreshing, setFeedRefreshing] = useState(false)
   const handleRefreshFeed = useCallback(async () => {
     setFeedRefreshing(true)
@@ -507,8 +531,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   // Per-batch drilldown fetched from /v1/intelligence/batches/{id} when a batch is
   // selected. Drives the right-pane KPI cards (intended/confirmed/variance/ambiguity).
   const [liveBatchDetail, setLiveBatchDetail] = useState<BatchDetailResponse | null>(null)
-  /** Raw patterns response; overview uses this only for KPI 14 after `batch_id` matches selection. */
-  const [kpi14Patterns, setKpi14Patterns] = useState<PatternsKpiResponse | null>(null)
 
   const batches = useMemo(() => {
     if (!journalUsesBackendFeed) return []
@@ -555,36 +577,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     }
   }, [journalUsesBackendFeed, tenantReady, selectedBatchId])
 
-  // KPI 14 only — `GET /v1/intelligence/dashboard/patterns` (Isolation Forest). Not used for intent counts or INR health.
-  useEffect(() => {
-    if (!journalUsesBackendFeed || !tenantReady || !selectedBatchId.trim()) {
-      setKpi14Patterns(null)
-      return
-    }
-    let cancelled = false
-    const run = () => {
-      void getPatternsKpis(selectedBatchId).then((res) => {
-        if (!cancelled) setKpi14Patterns(res)
-      })
-    }
-    run()
-    const id = window.setInterval(run, KPI14_PATTERNS_POLL_MS)
-    return () => {
-      cancelled = true
-      window.clearInterval(id)
-    }
-  }, [journalUsesBackendFeed, tenantReady, selectedBatchId])
-
-  const batchAnomalyRaw = isDataAvailable(kpi14Patterns) ? kpi14Patterns : null
-  // Only trust KPI 14 when the payload names this batch (tenant-wide patterns omit `batch_id`).
-  const batchAnomaly =
-    journalUsesBackendFeed &&
-    selectedBatchId.trim() &&
-    batchAnomalyRaw &&
-    batchAnomalyRaw.batch_id === selectedBatchId
-      ? batchAnomalyRaw
-      : null
-
   const [batchFilter, setBatchFilter] = useState<BatchFilter>('All Batches')
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>('listed')
   const [sidebarPage, setSidebarPage] = useState(1)
@@ -599,7 +591,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const [failureStageFilter, setFailureStageFilter] = useState<'All' | FailureRow['failureStage']>('All')
   const [amountRangeFilter, setAmountRangeFilter] = useState<AmountRangeFilter>('All')
 
-  const [rowsPerPage, setRowsPerPage] = useState<(typeof ROW_SIZE_OPTIONS)[number]>(15)
+  const [rowsPerPage, setRowsPerPage] = useState<(typeof ROW_SIZE_OPTIONS)[number]>(50)
   const [page, setPage] = useState(1)
   const [jumpPage, setJumpPage] = useState('1')
   const [failurePage, setFailurePage] = useState(1)
@@ -616,6 +608,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     setExpandedId(null)
     setSelectedIntentId(null)
     setLiveIntentDrawerApi(null)
+    setFailureReviewId(null)
   }, [selectedBatchId])
 
   useEffect(() => {
@@ -651,14 +644,43 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     return liveBatchList
   }, [journalUsesBackendFeed, liveBatchList])
 
+  const selectedDlqTotal = journalUsesBackendFeed
+    ? Math.max(dlqPagination?.total ?? 0, liveFailureRows.length)
+    : 0
+  /** After detail fetch, trust loaded rows — pagination `total` can mirror ingest volume when all rows are DLQ. */
+  const selectedEngineIntentTotal = journalUsesBackendFeed
+    ? liveDetailLoading
+      ? Math.max(intentPagination?.total ?? 0, liveIntentRows.length)
+      : liveIntentRows.length
+    : 0
+
   // Sidebar list filters — intelligence batches from `GET /v1/intelligence/batches`.
   const filteredBatches = useMemo(() => {
     if (batchFilter === 'All Batches') return sidebarBatchList
     if (batchFilter === 'Recent') return sidebarBatchList.slice(0, 10)
-    if (batchFilter === 'Needs Attention') return sidebarBatchList.filter((b) => batchQualityScore(b) < 80)
+    if (batchFilter === 'Needs Attention') {
+      return sidebarBatchList.filter((b) => {
+        const health = resolveBatchHealthStatus(b, {
+          dlqCount:
+            b.batchId === selectedBatchId
+              ? selectedDlqTotal
+              : b.engineSidebar && b.transactions > 0 && b.confirmedCount === 0
+                ? b.transactions
+                : b.unresolvedCount + b.mismatchCount,
+          intentCount:
+            b.batchId === selectedBatchId
+              ? selectedEngineIntentTotal
+              : b.engineSidebar
+                ? b.confirmedCount
+                : b.transactions,
+          finality: b.intelligenceCounts?.finality_status,
+        })
+        return health === 'Risk' || health === 'Critical'
+      })
+    }
     if (batchFilter === 'High Value') return sidebarBatchList.filter((b) => b.totalValue >= 1_500_000)
     return sidebarBatchList.filter((b) => batchStatus(batchQualityScore(b)) === 'Strong' || batchStatus(batchQualityScore(b)) === 'Stable')
-  }, [batchFilter, sidebarBatchList])
+  }, [batchFilter, sidebarBatchList, selectedBatchId, selectedDlqTotal, selectedEngineIntentTotal])
 
   /** Resolved from intelligence batch list only — no synthetic batch row. */
   const selectedBatch: BatchRecord | null =
@@ -667,6 +689,36 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       : (filteredBatches.find((b) => b.batchId === selectedBatchId) ??
           batches.find((b) => b.batchId === selectedBatchId) ??
           null)
+
+  const selectedBatchHealth = useMemo((): BatchStatus => {
+    if (!selectedBatch) return 'Stable'
+    return resolveBatchHealthStatus(selectedBatch, {
+      dlqCount: selectedBatchId.trim() ? selectedDlqTotal : 0,
+      intentCount: selectedBatchId.trim() ? selectedEngineIntentTotal : 0,
+      finality:
+        liveBatchDetail?.batch?.finality_status ?? selectedBatch.intelligenceCounts?.finality_status,
+    })
+  }, [
+    selectedBatch,
+    selectedBatchId,
+    selectedDlqTotal,
+    selectedEngineIntentTotal,
+    liveBatchDetail?.batch?.finality_status,
+    selectedBatch?.intelligenceCounts?.finality_status,
+  ])
+
+  useEffect(() => {
+    if (!journalUsesBackendFeed || liveDetailLoading || !selectedBatchId.trim()) return
+    if (selectedDlqTotal > 0 && selectedEngineIntentTotal === 0) {
+      setActiveTab('failures')
+    }
+  }, [
+    journalUsesBackendFeed,
+    liveDetailLoading,
+    selectedBatchId,
+    selectedDlqTotal,
+    selectedEngineIntentTotal,
+  ])
 
   const sandboxJournalEmpty =
     mode === 'sandbox' && tenantReady && liveFeedLoaded && liveBatchList.length === 0
@@ -681,7 +733,24 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
   const showSandboxSetupNotice = sandboxJournalEmpty && !sandboxSetupNoticeDismissed
 
-  const needsAttentionCount = batches.filter((b) => batchQualityScore(b) < 80).length
+  const needsAttentionCount = batches.filter((b) => {
+    const health = resolveBatchHealthStatus(b, {
+      dlqCount:
+        b.batchId === selectedBatchId
+          ? selectedDlqTotal
+          : b.engineSidebar && b.transactions > 0 && b.confirmedCount === 0
+            ? b.transactions
+            : b.unresolvedCount + b.mismatchCount,
+      intentCount:
+        b.batchId === selectedBatchId
+          ? selectedEngineIntentTotal
+          : b.engineSidebar
+            ? b.confirmedCount
+            : b.transactions,
+      finality: b.intelligenceCounts?.finality_status,
+    })
+    return health === 'Risk' || health === 'Critical'
+  }).length
   const sourceCount = new Set(batches.map((b) => b.source)).size
   const sidebarTotalPages = Math.max(1, Math.ceil(filteredBatches.length / SIDEBAR_PAGE_SIZE))
   const safeSidebarPage = Math.min(sidebarPage, sidebarTotalPages)
@@ -754,10 +823,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     setJumpPage('1')
     setFailurePage(1)
     setFailureJumpPage('1')
-    if (journalUsesBackendFeed) setServerIntentPage(1)
   }, [
-    journalUsesBackendFeed,
-    setServerIntentPage,
     tableSearch,
     dateRange,
     filterBatchId,
@@ -770,16 +836,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     selectedBatchId,
   ])
 
-  const backendIntentTotal = intentPagination?.total ?? filteredIntents.length
-  const backendPageSize = intentPagination?.page_size ?? 20
-  const intentTotal = journalUsesBackendFeed ? backendIntentTotal : filteredIntents.length
-  const totalPages = journalUsesBackendFeed
-    ? Math.max(1, Math.ceil(backendIntentTotal / backendPageSize))
-    : Math.max(1, Math.ceil(filteredIntents.length / rowsPerPage))
-  const safePage = journalUsesBackendFeed ? Math.min(serverIntentPage, totalPages) : Math.min(page, totalPages)
-  const pageRows = journalUsesBackendFeed
-    ? filteredIntents
-    : filteredIntents.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage)
+  const intentTotal = filteredIntents.length
+  const totalPages = Math.max(1, Math.ceil(intentTotal / rowsPerPage))
+  const safePage = Math.min(page, totalPages)
+  const pageRows = filteredIntents.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage)
 
   const failureTotal = filteredFailures.length
   const failureTotalPages = Math.max(1, Math.ceil(failureTotal / rowsPerPage))
@@ -829,39 +889,33 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
   const operationalDispatchPct =
     selectedBatchTotal === 0 ? 0 : (selectedConfirmed / selectedBatchTotal) * 100
-  /** Settlement-style ratio from batch row / detail — not the ML anomaly score. */
-  const dispatchConfidencePct = operationalDispatchPct
-
-  /** KPI 14 batch anomaly (0–100 scale from 0–1 score) when patterns payload matches this `batch_id`. */
-  const kpi14AnomalyPct =
-    batchAnomaly != null &&
-    typeof batchAnomaly.batch_anomaly_score === 'number' &&
-    Number.isFinite(batchAnomaly.batch_anomaly_score)
-      ? Math.min(100, Math.max(0, batchAnomaly.batch_anomaly_score * 100))
-      : null
 
   const selectedBatchScore = Math.round(
-    !selectedBatch ? 0 : journalUsesBackendFeed ? operationalDispatchPct : batchQualityScore(selectedBatch, undefined),
+    !selectedBatch
+      ? 0
+      : selectedBatch.engineSidebar
+        ? engineDispatchConfidencePct(selectedBatch)
+        : journalUsesBackendFeed
+          ? operationalDispatchPct
+          : batchQualityScore(selectedBatch, undefined),
   )
 
-  const intentDistribution = [
-    { label: 'Confirmed', count: selectedConfirmed.toLocaleString('en-US'), pct: (selectedConfirmed / pctBase) * 100, color: '#10B981' },
-    { label: 'Pending', count: selectedPending.toLocaleString('en-US'), pct: (selectedPending / pctBase) * 100, color: '#F59E0B' },
-    { label: 'Needs Review', count: selectedNeedsReview.toLocaleString('en-US'), pct: (selectedNeedsReview / pctBase) * 100, color: '#06B6D4' },
-    { label: 'Failed', count: selectedFailed.toLocaleString('en-US'), pct: (selectedFailed / pctBase) * 100, color: '#EC4899' },
-  ] as const
-  const donutRadius = 42
-  const donutCircumference = 2 * Math.PI * donutRadius
-  const donutGap = 10
-  let cumulativeOffset = 0
-  const donutSegments = intentDistribution.map((item) => {
-    const arc = (item.pct / 100) * donutCircumference
-    // Keep offsets wrapped to one circumference so small segments
-    // do not jump to unexpected positions.
-    const offset = -(cumulativeOffset % donutCircumference)
-    cumulativeOffset += arc + donutGap
-    return { ...item, arc, offset }
-  })
+  const engineOverviewStats = selectedBatch?.engineSidebar
+    ? [
+        { label: 'Batch health', value: selectedBatchHealth },
+        { label: 'DLQ rows', value: selectedDlqTotal.toLocaleString('en-US') },
+        { label: 'Payment intents', value: selectedEngineIntentTotal.toLocaleString('en-US') },
+        { label: 'Total intents', value: selectedBatch.transactions.toLocaleString('en-US') },
+        { label: 'Confirmed value', value: formatInrRupees(selectedBatch.totalValue) },
+        {
+          label: 'Dispatch confidence',
+          value: `${engineDispatchConfidencePct(selectedBatch).toFixed(1)}%`,
+        },
+        { label: 'Confirmed count', value: selectedBatch.confirmedCount.toLocaleString('en-US') },
+        { label: 'Batch type', value: selectedBatch.apiType ?? selectedBatch.type },
+        { label: 'Batch ID', value: selectedBatch.batchId, mono: true },
+      ]
+    : null
 
   const clearTableFilters = () => {
     setTableSearch('')
@@ -946,16 +1000,37 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 : batch.transactions
               const liveTotal = Math.max(liveTotalRaw, 0)
               const liveFinality = detailRow?.finality_status ?? batch.intelligenceCounts?.finality_status
-              const status =
-                journalUsesBackendFeed ? batchStatusFromFinality(liveFinality) : batchStatus(score)
+              const dlqCount = selected
+                ? selectedDlqTotal
+                : batch.engineSidebar && batch.transactions > 0 && batch.confirmedCount === 0
+                  ? batch.transactions
+                  : batch.unresolvedCount + batch.mismatchCount
+              const intentCount = selected
+                ? selectedEngineIntentTotal
+                : batch.engineSidebar
+                  ? batch.confirmedCount
+                  : batch.transactions
+              const status = resolveBatchHealthStatus(batch, {
+                dlqCount,
+                intentCount,
+                finality: liveFinality,
+              })
               const sidebarScoreDisplay =
-                journalUsesBackendFeed && liveSuccess !== null ? liveSuccess.toLocaleString('en-US') : String(score)
+                status === 'Critical' || status === 'Risk'
+                  ? status
+                  : journalUsesBackendFeed && liveSuccess !== null
+                    ? liveSuccess.toLocaleString('en-US')
+                    : String(score)
               const progressWidthPct =
-                journalUsesBackendFeed && liveSuccess !== null
-                  ? liveTotal === 0
-                    ? 0
-                    : Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
-                  : score
+                status === 'Critical'
+                  ? Math.min(100, dlqCount > 0 ? 100 : 15)
+                  : status === 'Risk'
+                    ? 45
+                    : journalUsesBackendFeed && liveSuccess !== null
+                      ? liveTotal === 0
+                        ? 0
+                        : Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
+                      : score
               const tone = statusTone(status)
               const dotColor =
                 status === 'Strong' || status === 'Stable'
@@ -1011,7 +1086,13 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     <span aria-hidden>·</span>
                     <span className="tabular-nums">
                       {liveMoneyLine ??
-                        (batch.totalValue > 0 ? usdCompact(batch.totalValue) : journalUsesBackendFeed ? '—' : usdCompact(0))}
+                        (batch.engineSidebar && batch.totalValue > 0
+                          ? formatInrRupees(batch.totalValue)
+                          : batch.totalValue > 0
+                            ? usdCompact(batch.totalValue)
+                            : journalUsesBackendFeed
+                              ? '—'
+                              : usdCompact(0))}
                     </span>
                     <span aria-hidden>·</span>
                     <span className="tabular-nums">
@@ -1092,22 +1173,18 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   isLive={Boolean(journalUsesBackendFeed && liveFeedLoaded)}
                   source="intelligence"
                 />
+                {journalUsesBackendFeed ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshFeed()}
+                    disabled={feedRefreshing || !tenantReady}
+                    className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {feedRefreshing ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                ) : null}
               </div>
             </div>
-
-            {journalUsesBackendFeed ? (
-              <div className="mb-4">
-                <SessionTenantScopeBar
-                  batchId={scopeBatchId}
-                  onBatchIdChange={setScopeBatchId}
-                  onAfterFetch={() => {
-                    void refreshFeed()
-                    const bid = scopeBatchId.trim()
-                    if (bid) selectBatch(bid)
-                  }}
-                />
-              </div>
-            ) : null}
 
             {journalUsesBackendFeed && !tenantReady ? (
               <p className={`mb-4 rounded-xl border border-slate-200/90 bg-slate-50 px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>
@@ -1121,91 +1198,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               </p>
             ) : null}
 
-            {journalUsesBackendFeed && liveFeedLoaded ? (
-              <div className={`mb-4 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0 flex-1">
-                    <span className={`font-semibold ${HOME_TITLE_BLACK}`}>
-                      {mode === 'sandbox' ? 'Sandbox · same tenant APIs' : 'Live backend feed'}
-                    </span>
-                    <span className="text-[#cbd5e1]"> · </span>
-                    <span className={HOME_BODY_IMPERIAL_SM}>
-                      <code className="font-mono text-[12px]">{JOURNAL_BATCHES_BFF_PATH}</code>
-                      {feedMeta ? (
-                        <>
-                          {' '}
-                          · HTTP {feedMeta.status || '—'} · {feedMeta.sidebarCount} batch
-                          {feedMeta.sidebarCount === 1 ? '' : 'es'}
-                        </>
-                      ) : null}
-                    </span>
-                    <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
-                      Refreshes every {Math.round(LIVE_JOURNAL_POLL_MS / 1000)}s
-                      {liveSyncAt ? (
-                        <>
-                          {' '}
-                          · Last synced{' '}
-                          <time dateTime={liveSyncAt.toISOString()}>
-                            {liveSyncAt.toLocaleTimeString('en-IN', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                              second: '2-digit',
-                            })}
-                          </time>
-                        </>
-                      ) : null}
-                      {selectedBatchId.trim() ? (
-                        <>
-                          {' '}
-                          · Selected batch <code className="font-mono text-[12px]">{selectedBatchId}</code>
-                        </>
-                      ) : null}
-                    </p>
-                    <p className="mt-1 text-[12px] text-slate-500">
-                      Data in DB? Compare <code className="font-mono">tenant_id</code> and{' '}
-                      <code className="font-mono">batch_id</code> on your rows with the session tenant and selected batch
-                      above.
-                    </p>
-                    {liveIntentRows.length > 0 || liveFailureRows.length > 0 ? (
-                      <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
-                        {liveIntentRows.length} intent{liveIntentRows.length === 1 ? '' : 's'} (Intents tab)
-                        {liveFailureRows.length > 0 ? (
-                          <>
-                            {' '}
-                            · {liveFailureRows.length} DLQ row{liveFailureRows.length === 1 ? '' : 's'} (Failures tab)
-                          </>
-                        ) : null}
-                      </p>
-                    ) : (
-                      <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
-                        No rows loaded for this batch — use Fetch tenant id, confirm Batch-Id, then Refresh now.
-                      </p>
-                    )}
-                    {feedMeta?.ok &&
-                    feedMeta.sidebarCount === 0 &&
-                    !feedError &&
-                    (liveIntentRows.length === 0 && liveFailureRows.length === 0) ? (
-                      <p className={`mt-2 border-t border-slate-100 pt-2 text-[12px] leading-relaxed text-slate-600`}>
-                        BFF returned 200 with zero batches. If Batch Command Center already shows{' '}
-                        <span className="font-semibold text-slate-700">Accepted</span> rows, the gap is usually
-                        downstream: zord-edge <code className="font-mono text-[11px]">ingress_outbox</code> still{' '}
-                        <span className="font-semibold">PENDING</span> or Kafka / zord-relay is not publishing to
-                        intent-engine — fix brokers and relay, then wait for{' '}
-                        <code className="font-mono text-[11px]">payment_intents</code> to populate.
-                      </p>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => void handleRefreshFeed()}
-                    disabled={feedRefreshing || !tenantReady}
-                    className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-3.5 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {feedRefreshing ? 'Refreshing…' : 'Refresh now'}
-                  </button>
-                </div>
-              </div>
-            ) : null}
 
             {journalUsesBackendFeed &&
             liveFeedLoaded &&
@@ -1226,17 +1218,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
             {showNoBatchesNotice ? (
               <JournalRecommendedBlackCard
-                eyebrow="Intelligence"
-                title="No batches in intelligence yet"
-                body={
-                  <>
-                    Create or ingest a batch for this tenant. The sidebar populates from{' '}
-                    <code className="rounded bg-white/10 px-1 font-mono text-[12px] text-white/90">
-                      GET /v1/intelligence/batches
-                    </code>
-                    .
-                  </>
-                }
+                eyebrow="Batches"
+                title="No batches yet"
+                body="Create or ingest a batch in Batch Command Center. The sidebar loads from the intent-engine batch list for your session tenant."
                 onDismiss={() => {
                   dismissJournalNotice(JOURNAL_NO_BATCHES_DISMISS_KEY)
                   setNoBatchesNoticeDismissed(true)
@@ -1327,28 +1311,29 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <p className={COMMAND_CENTER_LABEL_GREEN}>Batch overview</p>
-                  <h2 className={`mt-1 text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
-                    {selectedBatch.batchId}
-                  </h2>
-                  <div className={`mt-2 grid gap-1 sm:grid-cols-2 ${HOME_BODY_IMPERIAL_SM}`}>
-                    <p><span className={HOME_INSIGHT_PROSE_STRONG}>Type:</span> {selectedBatch.type}</p>
-                    <p className="sm:text-right"><span className={HOME_INSIGHT_PROSE_STRONG}>Source:</span> {selectedBatch.source}</p>
-                    <p><span className={HOME_INSIGHT_PROSE_STRONG}>Total intents:</span> {overviewIntentTotal.toLocaleString('en-US')}</p>
-                    <p className="sm:text-right">
-                      <span className="font-semibold text-[#16a34a]">Dispatch confidence:</span>{' '}
-                      {dispatchConfidencePct.toFixed(1)}% ({batchStatus(selectedBatchScore)})
-                      {batchAnomaly ? (
-                        <span className="text-[14px] text-slate-500">
-                          {' '}
-                          · KPI 14 (patterns){' '}
-                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
-                            /v1/intelligence/dashboard/patterns
-                          </code>
-                          : {(batchAnomaly.batch_anomaly_score * 100).toFixed(1)}% · {batchAnomaly.anomaly_level}
-                        </span>
-                      ) : null}
-                    </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <h2 className={`text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
+                      {selectedBatch.batchId}
+                    </h2>
+                    <span
+                      className={`inline-flex rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${statusTone(selectedBatchHealth).text} ${
+                        selectedBatchHealth === 'Critical'
+                          ? 'border-rose-200 bg-rose-50'
+                          : selectedBatchHealth === 'Risk'
+                            ? 'border-amber-200 bg-amber-50'
+                            : 'border-emerald-200 bg-emerald-50'
+                      }`}
+                    >
+                      {selectedBatchHealth}
+                    </span>
                   </div>
+                  <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+                    {selectedBatch.source}
+                    {selectedBatch.engineSidebar ? ' · intent-engine batch list' : ''}
+                    {selectedDlqTotal > 0
+                      ? ` · ${selectedDlqTotal.toLocaleString('en-US')} DLQ row${selectedDlqTotal === 1 ? '' : 's'}`
+                      : ''}
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -1361,226 +1346,52 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   Dispatch batch
                 </button>
               </div>
-              <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-[0.95fr_0.95fr_1.25fr] xl:grid-rows-2">
-                {(
+              <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {(engineOverviewStats ??
                   [
+                    { label: 'Total intents', value: overviewIntentTotal.toLocaleString('en-US') },
                     {
-                      variant: 'pending' as const,
-                      label: 'Dispatch confidence',
-                      value: `${dispatchConfidencePct.toFixed(1)}%`,
-                      trend: batchAnomaly
-                        ? `Success ratio · KPI 14: ${batchAnomaly.anomaly_level} (${(batchAnomaly.batch_anomaly_score * 100).toFixed(1)}% anomaly)`
-                        : `${batchStatus(selectedBatchScore)} · success / total from batch`,
-                      trendTone: 'text-sky-700',
-                      iconWrap: 'bg-sky-50 text-sky-600 ring-1 ring-sky-100',
-                      spark: 'bg-sky-500',
-                    },
-                    {
-                      variant: 'total' as const,
-                      label: 'Total intents',
-                      value: overviewIntentTotal.toLocaleString('en-US'),
-                      trend: 'in batch',
-                      trendTone: 'text-slate-600',
-                      iconWrap: 'bg-slate-50 text-slate-600 ring-1 ring-slate-100',
-                      spark: 'bg-slate-500',
-                    },
-                    {
-                      variant: 'confirmed' as const,
                       label: 'Confirmed value',
-                      value: journalUsesBackendFeed ? formatInrRupees(selectedConfirmedValue) : usdCompact(selectedConfirmedValue),
-                      trend: 'Settled (batch health)',
-                      trendTone: 'text-emerald-700',
-                      iconWrap: 'bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100',
-                      spark: 'bg-emerald-500',
+                      value: formatInrRupees(selectedBatch.totalValue || selectedConfirmedValue),
                     },
                     {
-                      variant: 'attention' as const,
-                      label: 'Needs attention',
-                      value: journalUsesBackendFeed ? formatInrRupees(selectedAttentionValue) : usdCompact(selectedAttentionValue),
-                      trend: `${selectedNeedsReview + selectedFailed} intents`,
-                      trendTone: 'text-rose-700',
-                      iconWrap: 'bg-rose-50 text-rose-600 ring-1 ring-rose-100',
-                      spark: 'bg-rose-500',
+                      label: 'Dispatch confidence',
+                      value: `${operationalDispatchPct.toFixed(1)}%`,
                     },
-                  ] as const
-                ).map((kpi, idx) => (
+                    {
+                      label: 'Needs attention',
+                      value: (selectedNeedsReview + selectedFailed).toLocaleString('en-US'),
+                    },
+                    { label: 'Confirmed count', value: selectedConfirmed.toLocaleString('en-US') },
+                    { label: 'Batch type', value: selectedBatch.type },
+                    { label: 'Batch ID', value: selectedBatch.batchId, mono: true as const },
+                  ]).map((stat) => (
                   <article
-                    key={kpi.label}
-                    className={`group relative flex flex-col overflow-hidden ${COMMAND_CENTER_KPI_CARD} p-3 ${
-                      idx === 0 ? 'xl:col-start-1 xl:row-start-1' : ''
-                    } ${idx === 1 ? 'xl:col-start-2 xl:row-start-1' : ''} ${idx === 2 ? 'xl:col-start-1 xl:row-start-2' : ''} ${
-                      idx === 3 ? 'xl:col-start-2 xl:row-start-2' : ''
-                    }`}
+                    key={stat.label}
+                    className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex min-w-0 flex-1 items-center gap-2">
-                        <div
-                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${kpi.iconWrap}`}
-                          aria-hidden
-                        >
-                          <KpiGlyph variant={kpi.variant} />
-                        </div>
-                        <h3 className={`text-[14px] font-medium leading-snug ${HOME_TITLE_BLACK}`}>{kpi.label}</h3>
-                      </div>
-                      <span className="text-[#94a3b8]">↗</span>
-                    </div>
-                    <div className="mt-2">
-                      <p className={`mt-1 text-[30px] font-semibold leading-none tracking-tight tabular-nums ${HOME_TITLE_BLACK}`}>{kpi.value}</p>
-                    </div>
-                    <p className={`mt-2 text-[15px] font-medium ${kpi.trendTone}`}>
-                      {journalUsesBackendFeed ? kpi.trend : `↑ ${kpi.trend}`}
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">
+                      {stat.label}
                     </p>
-                    <div className="mt-1.5 flex items-end justify-between gap-3">
-                      <span className="text-[13px] font-medium uppercase tracking-wider text-[#cbd5e1]"> </span>
-                      <KpiSpark tone={kpi.spark} />
-                    </div>
+                    <p
+                      className={`mt-1 font-semibold tabular-nums tracking-tight text-[#0f172a] ${
+                        'mono' in stat && stat.mono
+                          ? 'break-all font-mono text-[14px]'
+                          : 'text-[22px]'
+                      }`}
+                    >
+                      {stat.value}
+                    </p>
                   </article>
                 ))}
-
-                <section className={`${COMMAND_CENTER_KPI_CARD} sm:col-span-2 xl:col-start-3 xl:row-start-1 xl:row-end-3`}>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className={`text-[14px] font-medium ${HOME_TITLE_BLACK}`}>Intent activity</p>
-                      <p className={HOME_BODY_IMPERIAL_SM}>Distribution by state</p>
-                      {journalUsesBackendFeed ? (
-                        <p className={`mt-1 max-w-[22rem] ${HOME_INSIGHT_PROSE}`}>
-                          Segment counts from batch detail{' '}
-                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
-                            GET /v1/intelligence/batches/{'{batch_id}'}?tenant_id=…
-                          </code>{' '}
-                          when loaded, else the list{' '}
-                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
-                            GET /v1/intelligence/batches?tenant_id=…
-                          </code>
-                          . Center: KPI 14 only if{' '}
-                          <code className="rounded bg-slate-100 px-0.5 font-mono text-[12px]">
-                            GET /v1/intelligence/dashboard/patterns?batch_id=…
-                          </code>{' '}
-                          returns this batch; otherwise the settlement success ratio.
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="flex items-center gap-1 text-[14px]">
-                      {mode === 'sandbox'
-                        ? OVERVIEW_QUICK_RANGES.map(({ label, value }) => (
-                            <button
-                              key={label}
-                              type="button"
-                              onClick={() => setDateRange(value)}
-                              className={`rounded-full px-3 py-1.5 text-[14px] font-medium transition ${
-                                dateRange === value
-                                  ? 'bg-[#39E07E] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/35'
-                                  : `border border-[#E5E5E5] bg-white hover:bg-[#f5f5f5] ${HOME_TITLE_BLACK}`
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))
-                        : null}
-                    </div>
-                  </div>
-
-                  <div className="mt-3 flex items-center gap-5">
-                    <div className="relative h-[210px] w-[210px] shrink-0">
-                      <svg viewBox="0 0 120 120" className="-rotate-90">
-                        <circle cx="60" cy="60" r="42" fill="none" stroke="#e6e8ec" strokeWidth="10" />
-                        {donutSegments.map((seg) => (
-                          <circle
-                            key={seg.label}
-                            cx="60"
-                            cy="60"
-                            r="42"
-                            fill="none"
-                            stroke={seg.color}
-                            strokeWidth="10"
-                            strokeDasharray={`${seg.arc} ${donutCircumference}`}
-                            strokeDashoffset={seg.offset}
-                            strokeLinecap="round"
-                          />
-                        ))}
-                      </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                        <div className="flex h-[130px] w-[130px] flex-col items-center justify-center rounded-full border border-[#e5e7eb] bg-white shadow-sm">
-                          <p className="text-[36px] font-semibold leading-none tabular-nums text-[#0f172a]">
-                            {(kpi14AnomalyPct != null ? kpi14AnomalyPct : dispatchConfidencePct).toFixed(1)}%
-                          </p>
-                          <p className="mt-1 text-[14px] font-medium text-[#64748b]">
-                            {kpi14AnomalyPct != null
-                              ? `KPI 14 anomaly${batchAnomaly ? ` · ${batchAnomaly.anomaly_level}` : ''}`
-                              : 'Dispatch confidence (success ratio)'}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="min-w-0 flex-1 space-y-2 text-[15px]">
-                      {donutSegments.map((item) => (
-                        <div key={item.label} className="flex items-center justify-between gap-3 border-b border-dashed border-[#e5e7eb] px-1 py-1.5">
-                          <span className="flex items-center gap-2 text-[18px] font-medium text-[#334155]">
-                            <span className="h-4 w-4 rounded-[4px]" style={{ backgroundColor: item.color }} />
-                            {item.label}
-                          </span>
-                          <span className="text-[18px] font-semibold tabular-nums text-[#0f172a]">{item.count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </section>
               </div>
             </section>
-
-            {/* ── Defensibility Insight — minimal: just why it's green/yellow/red ─ */}
-            {(() => {
-              const total = Math.max(selectedBatchTotal, 1)
-              const mismatchPct = (selectedNeedsReview / total) * 100
-              const unresolvedPct = (selectedFailed / total) * 100
-              const dragPct = mismatchPct + unresolvedPct
-              const status = batchStatus(selectedBatchScore)
-
-              const isGreen = status === 'Strong' || status === 'Stable'
-              const isYellow = status === 'Risk'
-              const colorWord = isGreen ? 'green' : isYellow ? 'yellow' : 'red'
-
-              const tone = isGreen
-                ? { border: 'border-emerald-200', bg: 'bg-emerald-50/50', dot: 'bg-emerald-500', text: 'text-emerald-700' }
-                : isYellow
-                  ? { border: 'border-amber-200', bg: 'bg-amber-50/50', dot: 'bg-amber-500', text: 'text-amber-700' }
-                  : { border: 'border-rose-200', bg: 'bg-rose-50/50', dot: 'bg-rose-600', text: 'text-rose-700' }
-
-              const topDriver =
-                mismatchPct >= unresolvedPct
-                  ? { label: 'mismatched', pct: mismatchPct, code: 'MATCH_LOW' }
-                  : { label: 'unresolved', pct: unresolvedPct, code: 'SIGNAL_MISSING' }
-
-              const reason = isGreen
-                ? `Only ${dragPct.toFixed(1)}% drag from mismatch + unresolved. Confirmation pipeline is healthy — audit-ready.`
-                : isYellow
-                  ? `${topDriver.label} rate is ${topDriver.pct.toFixed(1)}% (code ${topDriver.code}). Pipeline is healthy but matching layer needs review.`
-                  : `${dragPct.toFixed(1)}% of intents are mismatched or unresolved. Top driver: ${topDriver.label} at ${topDriver.pct.toFixed(1)}% (code ${topDriver.code}). Immediate intervention required.`
-
-              return (
-                <section className={`mb-4 flex flex-wrap items-start gap-3 rounded-[12px] border ${tone.border} ${tone.bg} px-4 py-3`}>
-                  <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border bg-white px-2 py-0.5 text-[14px] font-semibold ${tone.text} ${tone.border}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} aria-hidden />
-                    {status} · score {selectedBatchScore}
-                  </span>
-                  <p className="min-w-0 flex-1 text-[15px] leading-[1.55] text-[#0f172a]">
-                    <span className="text-[#64748b]">Why this is </span>
-                    <span className={`font-semibold ${tone.text}`}>{colorWord}</span>
-                    <span className="text-[#64748b]">: </span>
-                    {reason}
-                  </p>
-                </section>
-              )
-            })()}
               </>
             ) : (
               <section className="mb-4 rounded-[20px] border border-dashed border-slate-200/90 bg-slate-50/60 px-6 py-8 text-center shadow-[0_2px_12px_rgba(15,23,42,0.04)]">
                 <h2 className="text-[18px] font-semibold tracking-tight text-[#0f172a]">Batch overview</h2>
                 <p className="mx-auto mt-2 max-w-xl text-[15px] leading-relaxed text-[#64748b]">
-                  Select a batch from the intelligence list for KPIs. Batches load from{' '}
-                  <code className="rounded bg-white px-1 font-mono text-[13px]">GET /v1/intelligence/batches</code>.
-                  Intent and DLQ tables below use the intent engine for this tenant only — no synthetic batch rows.
+                  Select a batch from the sidebar to view batch totals and intent rows for your session tenant.
                 </p>
               </section>
             )}
@@ -1620,8 +1431,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       onChange={(e) => setTableSearch(e.target.value)}
                       placeholder={
                         activeTab === 'transactions'
-                          ? 'Search request ID, reference, batch, bank, connector, status, amount…'
-                          : 'Search failed intents — ID, reference, reason, stage, connector, action…'
+                          ? 'Search batch, bank, connector, status, amount…'
+                          : 'Search failed intents — batch, reason, stage, connector, action…'
                       }
                       className={`${filterInputClass} pl-9`}
                     />
@@ -1683,10 +1494,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   {activeTab === 'transactions' ? (
                     <select value={intentStatusFilter} onChange={(e) => setIntentStatusFilter(e.target.value as 'All' | IntentStatus)} className={filterSelectClass}>
                       <option value="All">All statuses</option>
-                      <option value="Confirmed">Confirmed</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Needs Review">Needs Review</option>
-                      <option value="In Progress">In Progress</option>
+                      <option value="Ready to Process">Ready to process</option>
+                      <option value="Needs Review">Needs review</option>
                     </select>
                   ) : (
                     <select
@@ -1754,9 +1563,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     <table className={`w-full border-collapse text-[14px] ${HOME_TITLE_BLACK}`}>
                       <thead className="bg-[#f8fafc]">
                         <tr>
+                          <th className={TABLE_ROW_NUM_TH}>No.</th>
                           {[
-                            { key: 'request', label: 'Request ID', icon: 'request' as const },
-                            { key: 'reference', label: 'Reference', icon: 'reference' as const },
                             { key: 'amount', label: 'Amount', icon: 'amount' as const },
                             { key: 'connector', label: 'Payment Method', icon: 'payment' as const },
                             { key: 'status', label: 'Status', icon: 'status' as const },
@@ -1773,18 +1581,24 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                         </tr>
                       </thead>
                       <tbody>
-                        {pageRows.map((row) => (
+                        {pageRows.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="px-4 py-12 text-center text-[14px] text-[#64748b]">
+                              No intents match your filters for this batch.
+                            </td>
+                          </tr>
+                        ) : (
+                          pageRows.map((row, rowIndex) => (
                           <Fragment key={row.requestId}>
                             <tr
                               onClick={() => {
                                 setSelectedIntentId(row.requestId)
                                 setExpandedId((current) => (current === row.requestId ? null : row.requestId))
                               }}
-                              className={`cursor-pointer border-t border-[#f3f4f6] ${selectedIntentId === row.requestId ? 'bg-[#f8fafc]' : 'hover:bg-[#f9fafb]'}`}
+                              className={`cursor-pointer border-t border-[#f3f4f6] ${selectedIntentId === row.requestId ? 'bg-[#f8fafc]' : rowIndex % 2 === 1 ? 'bg-slate-50/40 hover:bg-[#f9fafb]' : 'hover:bg-[#f9fafb]'}`}
                             >
-                              <td className="px-3 py-2.5">{row.requestId}</td>
-                              <td className="px-3 py-2.5">
-                                <span className="font-mono text-[14px] text-[#475569]">{row.reference}</span>
+                              <td className={TABLE_ROW_NUM_TD}>
+                                {(safePage - 1) * rowsPerPage + rowIndex + 1}
                               </td>
                               <td className="px-3 py-2.5 tabular-nums">
                                 {formatJournalMoney(
@@ -1808,7 +1622,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                             </tr>
                             {expandedId === row.requestId ? (
                               <tr className="bg-slate-50">
-                                <td colSpan={6} className="px-3 pb-4 pt-3">
+                                <td colSpan={5} className="px-3 pb-4 pt-3">
                                   {(() => {
                                     const detail: IntentDetail = buildLiveIntentDetailFromRowAndApi(
                                       {
@@ -1842,26 +1656,17 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                               </tr>
                             ) : null}
                           </Fragment>
-                        ))}
+                          ))
+                        )}
                       </tbody>
                     </table>
                   </div>
                   <div className="border-t border-slate-200/80 bg-[#f8fbff] px-3 py-2 text-[15px] text-[#64748b]">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <span>
-                        Showing range{' '}
-                        {intentTotal === 0
-                          ? 0
-                          : journalUsesBackendFeed
-                            ? (safePage - 1) * backendPageSize + 1
-                            : (safePage - 1) * rowsPerPage + 1}
-                        -
-                        {intentTotal === 0
-                          ? 0
-                          : journalUsesBackendFeed
-                            ? Math.min(safePage * backendPageSize, intentTotal)
-                            : Math.min(safePage * rowsPerPage, intentTotal)}{' '}
-                        of {intentTotal.toLocaleString('en-US')} intents
+                        Showing {(intentTotal === 0 ? 0 : (safePage - 1) * rowsPerPage + 1)}-
+                        {intentTotal === 0 ? 0 : Math.min(safePage * rowsPerPage, intentTotal)} of{' '}
+                        {intentTotal.toLocaleString('en-US')} intents
                       </span>
                       <div className="flex items-center gap-2">
                         <span>Rows per page:</span>
@@ -1887,11 +1692,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          const next = Math.max(1, safePage - 1)
-                          if (journalUsesBackendFeed) setServerIntentPage(next)
-                          else setPage(next)
-                        }}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
                         className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
                       >
                         Prev
@@ -1901,11 +1702,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       </span>
                       <button
                         type="button"
-                        onClick={() => {
-                          const next = Math.min(totalPages, safePage + 1)
-                          if (journalUsesBackendFeed) setServerIntentPage(next)
-                          else setPage((p) => Math.min(totalPages, p + 1))
-                        }}
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                         className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
                       >
                         Next
@@ -1918,9 +1715,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                         onClick={() => {
                           const target = Number(jumpPage)
                           if (!Number.isFinite(target) || target < 1) return
-                          const next = Math.min(totalPages, target)
-                          if (journalUsesBackendFeed) setServerIntentPage(next)
-                          else setPage(next)
+                          setPage(Math.min(totalPages, target))
                         }}
                       >
                         Go
@@ -1970,21 +1765,34 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     </button>
                   </div>
                 </div>
+                {failureReviewId ? (
+                  <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[14px] text-amber-950">
+                    <p className="font-semibold">Review — DLQ row</p>
+                    <p className="mt-1 text-[13px] leading-relaxed">
+                      {failureRows.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
+                    </p>
+                    <button
+                      type="button"
+                      className="mt-2 text-[12px] font-semibold underline"
+                      onClick={() => setFailureReviewId(null)}
+                    >
+                      Close
+                    </button>
+                  </div>
+                ) : null}
                 <div className="overflow-x-auto">
                   <table className={`w-full border-collapse text-[14px] ${HOME_TITLE_BLACK}`}>
                     <thead className="bg-[#f8fafc]">
                       <tr>
+                        <th className={TABLE_ROW_NUM_TH}>No.</th>
                         {[
-                          { key: 'request', label: 'Request ID', icon: 'request' as const },
-                          { key: 'reference', label: 'Reference', icon: 'reference' as const },
                           { key: 'batch', label: 'Batch', icon: 'reference' as const },
                           { key: 'amount', label: 'Amount', icon: 'amount' as const },
                           { key: 'method', label: 'Method', icon: 'payment' as const },
                           { key: 'connector', label: 'Connector', icon: 'payment' as const },
                           { key: 'reason', label: 'Failure Reason', icon: 'status' as const },
-                          { key: 'stage', label: 'Stage', icon: 'status' as const },
+                          { key: 'status', label: 'Status', icon: 'status' as const },
                           { key: 'updated', label: 'Updated', icon: 'updated' as const },
-                          { key: 'action', label: 'Action', icon: 'status' as const },
                         ].map((h) => (
                           <th key={h.key} className={`px-3 py-2.5 text-left ${COMMAND_CENTER_LABEL_GREEN}`}>
                             <span className="inline-flex items-center gap-1.5">
@@ -1996,10 +1804,21 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       </tr>
                     </thead>
                     <tbody>
-                      {failurePageRows.map((row) => (
-                        <tr key={row.requestId} className="border-t border-[#f3f4f6] hover:bg-[#f9fafb]">
-                          <td className="px-3 py-2.5 font-medium text-[#0f172a]">{row.requestId}</td>
-                          <td className="px-3 py-2.5">{row.reference}</td>
+                      {failurePageRows.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-12 text-center text-[14px] text-[#64748b]">
+                            No failures match your filters for this batch.
+                          </td>
+                        </tr>
+                      ) : (
+                        failurePageRows.map((row, rowIndex) => (
+                        <tr
+                          key={row.requestId}
+                          className={`border-t border-[#f3f4f6] hover:bg-[#f9fafb] ${failureReviewId === row.requestId ? 'bg-amber-50/60' : ''} ${rowIndex % 2 === 1 && failureReviewId !== row.requestId ? 'bg-slate-50/40' : ''}`}
+                        >
+                          <td className={TABLE_ROW_NUM_TD}>
+                            {(safeFailurePage - 1) * rowsPerPage + rowIndex + 1}
+                          </td>
                           <td className="px-3 py-2.5 text-[15px] text-[#475569]">{row.batchId}</td>
                           <td className="px-3 py-2.5 tabular-nums">
                             {row.amount > 0
@@ -2014,19 +1833,35 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                             </div>
                           </td>
                           <td className="px-3 py-2.5 text-rose-700">{row.failureReason}</td>
-                          <td className="px-3 py-2.5">{row.failureStage}</td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[12px] font-semibold text-amber-800">
+                                Need to review
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setFailureReviewId((id) => (id === row.requestId ? null : row.requestId))
+                                }
+                                className="inline-flex h-8 items-center rounded-lg border border-[#0A0A0A] bg-[#0A0A0A] px-3 text-[12px] font-medium text-white transition hover:bg-[#1a1a1a]"
+                              >
+                                Review
+                              </button>
+                            </div>
+                          </td>
                           <td className="px-3 py-2.5 text-[#64748b]">{row.lastUpdated}</td>
-                          <td className="px-3 py-2.5 font-medium">{row.action}</td>
                         </tr>
-                      ))}
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
                 <div className="border-t border-slate-200/80 bg-[#f8fbff] px-3 py-2 text-[15px] text-[#64748b]">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span>
-                      Showing {failureTotal === 0 ? 0 : (safeFailurePage - 1) * rowsPerPage + 1}-
-                      {Math.min(safeFailurePage * rowsPerPage, failureTotal)} of {failureTotal.toLocaleString('en-US')} failures
+                      Showing {(failureTotal === 0 ? 0 : (safeFailurePage - 1) * rowsPerPage + 1)}-
+                      {failureTotal === 0 ? 0 : Math.min(safeFailurePage * rowsPerPage, failureTotal)} of{' '}
+                      {failureTotal.toLocaleString('en-US')} failures
                     </span>
                     <div className="flex items-center gap-2">
                       <span>Rows per page:</span>
@@ -2050,13 +1885,21 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     </div>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
-                    <button type="button" onClick={() => setFailurePage((p) => Math.max(1, p - 1))} className="rounded border border-[#e5e7eb] bg-white px-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => setFailurePage((p) => Math.max(1, p - 1))}
+                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                    >
                       Prev
                     </button>
                     <span>
                       Page {safeFailurePage} / {failureTotalPages}
                     </span>
-                    <button type="button" onClick={() => setFailurePage((p) => Math.min(failureTotalPages, p + 1))} className="rounded border border-[#e5e7eb] bg-white px-2 py-1">
+                    <button
+                      type="button"
+                      onClick={() => setFailurePage((p) => Math.min(failureTotalPages, p + 1))}
+                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                    >
                       Next
                     </button>
                     <span className="ml-2">Go to page</span>
@@ -2070,7 +1913,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
                       onClick={() => {
                         const target = Number(failureJumpPage)
-                        if (Number.isFinite(target) && target >= 1) setFailurePage(Math.min(failureTotalPages, target))
+                        if (!Number.isFinite(target) || target < 1) return
+                        setFailurePage(Math.min(failureTotalPages, target))
                       }}
                     >
                       Go

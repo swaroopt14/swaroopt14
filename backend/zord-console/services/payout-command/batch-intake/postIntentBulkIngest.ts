@@ -29,6 +29,12 @@ export type PostIntentBulkIngestParams = {
   tenantType: string
   /** Optional; forwarded as Batch-Id when set */
   optionalBatchId?: string
+  /** Optional; forwarded as X-Idempotency-Key */
+  idempotencyKey?: string
+  /** Optional; forwarded as X-Zord-Source-System */
+  sourceSystem?: string
+  /** When true, forwards X-Zord-Force-Reprocess (Batch-Id required upstream). */
+  forceReprocess?: boolean
   /** Override for tests or non-Next callers */
   endpointPath?: string
 }
@@ -57,6 +63,11 @@ export async function postIntentBulkIngest(params: PostIntentBulkIngestParams): 
   if (auth) headers.authorization = auth
   const bid = params.optionalBatchId?.trim()
   if (bid) headers['Batch-Id'] = bid
+  const idempotencyKey = params.idempotencyKey?.trim()
+  if (idempotencyKey) headers['X-Idempotency-Key'] = idempotencyKey
+  const sourceSystem = params.sourceSystem?.trim()
+  if (sourceSystem) headers['X-Zord-Source-System'] = sourceSystem
+  if (params.forceReprocess) headers['X-Zord-Force-Reprocess'] = 'true'
 
   const response = await fetch(path, {
     method: 'POST',

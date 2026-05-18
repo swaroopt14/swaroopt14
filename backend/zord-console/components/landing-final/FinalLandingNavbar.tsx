@@ -34,21 +34,21 @@ type FinalLandingNavbarProps = {
 const navItems: NavItem[] = [
   {
     label: 'Product',
-    href: '/final-landing#product',
+    href: '/#product',
     menu: [
       {
         label: 'Platform overview',
-        href: '/final-landing#product',
+        href: '/#product',
         note: 'Control payouts, signal quality, and proof in one operating layer.',
       },
       {
         label: 'How it works',
-        href: '/final-landing#how-it-works',
+        href: '/#how-it-works',
         note: 'See the four-stage payout flow from request to finance-ready proof.',
       },
       {
         label: 'Security & proof',
-        href: '/final-landing#security',
+        href: '/#security',
         note: 'Bank visibility, provider posture, and enterprise proof controls.',
       },
     ],
@@ -307,7 +307,7 @@ export function FinalLandingNavbar({
   return (
     <nav className="relative z-50 px-4 pt-6 sm:px-6">
       <Link
-        href="/final-landing"
+        href="/"
         className="absolute left-4 top-0 z-[60] sm:left-6"
         aria-label="Zord home"
       >

@@ -3,12 +3,14 @@ import type { ApiDlqRow } from './prodApiTypes'
 import type { IntelligenceBatchRow } from './intelligenceTypes'
 
 export type JournalBatchType = 'Disbursement' | 'Settlement'
-export type JournalIntentStatus = 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
+export type JournalIntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
 export type JournalIntentMatch = 'Matched' | 'Likely Matched' | 'Awaiting' | 'Mismatch' | 'Not Found'
 
 export type JournalBatchRecord = {
   batchId: string
   type: JournalBatchType
+  /** Raw `type` from intent-engine sidebar (e.g. PAYOUT, COLLECTION). */
+  apiType: string
   source: string
   totalValue: number
   transactions: number
@@ -74,6 +76,7 @@ export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): J
   return {
     batchId: String(it.batchId ?? '').trim() || '—',
     type: batchType,
+    apiType: typeUpper || '—',
     source: 'Intent engine',
     totalValue,
     transactions: it.transactions ?? 0,
@@ -90,6 +93,7 @@ export function mapIntelligenceRowToBatchRecord(b: IntelligenceBatchRow): Journa
   return {
     batchId: b.batch_id,
     type: 'Disbursement',
+    apiType: '—',
     source: inferBatchSource(b.batch_id, b.finality_status),
     totalValue: 0,
     transactions: b.total_count ?? 0,
@@ -115,13 +119,13 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
   const biz = String(intent.business_state ?? '').toUpperCase()
   const st = stRaw.toUpperCase()
 
-  let status: JournalIntentStatus = 'Pending'
-  if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') {
-    status = 'Confirmed'
-  } else if (st.includes('FAIL') || st.includes('REJECT') || st.includes('ERROR') || gov === 'FLAGGED') {
+  let status: JournalIntentStatus = 'Ready to Process'
+  if (st.includes('FAIL') || st.includes('REJECT') || st.includes('ERROR') || gov === 'FLAGGED') {
     status = 'Needs Review'
+  } else if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') {
+    status = 'Ready to Process'
   } else if (st.includes('PROCESS') || st.includes('DISPAT') || st === 'IN_FLIGHT' || biz === 'PROCESSING') {
-    status = 'In Progress'
+    status = 'Ready to Process'
   }
 
   const conf = intent.aggregate_confidence_score

@@ -33,6 +33,7 @@ type SettlementObservationBatchDetailItem struct {
 	DeductionAmount      *decimal.Decimal `json:"deduction_amount"`
 	CurrencyCode         string           `json:"currency_code"`
 	SettlementStatus     string           `json:"settlement_status"`
+	BankReference        *string          `json:"bank_reference"`
 	ProviderStatusCode   *string          `json:"provider_status_code"`
 	FailureReasonCode    *string          `json:"failure_reason_code"`
 	RetryFlag            bool             `json:"retry_flag"`
@@ -109,6 +110,7 @@ func (h *Handler) GetSettlementObservationBatchesHandler(c *gin.Context) {
 			deduction_amount,
 			currency_code,
 			settlement_status,
+			bank_reference,
 			provider_status_code,
 			failure_reason_code,
 			retry_flag,
@@ -146,6 +148,7 @@ func (h *Handler) GetSettlementObservationBatchesHandler(c *gin.Context) {
 			&row.DeductionAmount,
 			&row.CurrencyCode,
 			&row.SettlementStatus,
+			&row.BankReference,
 			&row.ProviderStatusCode,
 			&row.FailureReasonCode,
 			&row.RetryFlag,

@@ -24,6 +24,7 @@ import {
   EvidenceSurface,
   HomeSurface,
   IntentJournalSurface,
+  SettlementJournalSurface,
   LeakageSurface,
   LiveSyncSurface,
   ProofSurface,
@@ -56,12 +57,15 @@ type PayoutCommandViewClientProps = {
   initialDock?: DockId
   /** Deep-link from Batch Command Center → Intent Journal (`?batch_id=`). */
   initialJournalBatchId?: string
+  /** Deep-link → Settlement Journal (`?client_batch_id=`). */
+  initialSettlementClientBatchId?: string
 }
 
 export default function PayoutCommandViewClient({
   forceMode,
   initialDock = 'home',
   initialJournalBatchId,
+  initialSettlementClientBatchId,
 }: PayoutCommandViewClientProps) {
   // ── Navigation state ───────────────────────────────────────────────────────
   const [activeDock, setActiveDock] = useState<DockId>(initialDock)
@@ -169,6 +173,17 @@ export default function PayoutCommandViewClient({
     if (activeDock === 'leakage') return <LeakageSurface />
     if (activeDock === 'ambiguity') return <AmbiguitySurface />
     if (activeDock === 'grid') return <IntentJournalSurface initialBatchId={initialJournalBatchId} />
+    if (activeDock === 'settlement') {
+      if (forceMode === 'sandbox') {
+        return <SettlementJournalSurface initialClientBatchId={initialSettlementClientBatchId} />
+      }
+      return (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-[15px] text-slate-600">
+          Settlement Journal is available in sandbox only. Switch to sandbox mode to browse canonical settlement
+          observations.
+        </p>
+      )
+    }
     if (activeDock === 'connectors') {
       return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
     }
@@ -182,6 +197,7 @@ export default function PayoutCommandViewClient({
     activeTab,
     forceMode,
     initialJournalBatchId,
+    initialSettlementClientBatchId,
     handleTabChange,
     home,
     selectedSuggestion,

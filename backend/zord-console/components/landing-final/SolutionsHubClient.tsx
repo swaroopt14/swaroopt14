@@ -62,7 +62,7 @@ export default function SolutionsHubClient() {
                   Talk to sales
                 </a>
                 <Link
-                  href="/final-landing"
+                  href="/"
                   className="inline-flex items-center justify-center rounded-full border border-white/12 bg-white/[0.04] px-7 py-4 text-[15px] font-semibold text-white transition hover:bg-white/[0.08]"
                 >
                   Back to landing page

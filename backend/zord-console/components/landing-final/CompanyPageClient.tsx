@@ -67,7 +67,7 @@ export default function CompanyPageClient() {
       title="Building intelligence that acts, with ZORD as one product in that fabric."
       description="Arealis is developing distributed enterprise intelligence where data does not just inform decisions, it executes them. ZORD sits inside that wider system as the payout and financial operations layer."
       primaryAction={{ label: 'Contact Arealis', href: 'mailto:hello@arelais.com?subject=Talk%20to%20Arealis' }}
-      secondaryAction={{ label: 'Back to product', href: '/final-landing' }}
+      secondaryAction={{ label: 'Back to product', href: '/' }}
       heroVisual={{
         src: '/login/login-hero5.jpg',
         alt: 'Enterprise team collaborating around a digital operations workspace',

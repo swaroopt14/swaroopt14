@@ -63,7 +63,7 @@ export default function CustomersPageClient() {
       title="Proof that ZORD lands with payout teams carrying real accountability."
       description="These are the buyer stories behind the product: operations, finance, engineering, and risk teams that need one payout truth instead of fragmented dashboards."
       primaryAction={{ label: 'Book demo', href: 'mailto:hello@arelais.com?subject=Customer%20stories%20for%20ZORD' }}
-      secondaryAction={{ label: 'Back to product', href: '/final-landing' }}
+      secondaryAction={{ label: 'Back to product', href: '/' }}
     >
       <section className="mx-auto mt-12 max-w-6xl">
         <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">

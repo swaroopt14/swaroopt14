@@ -94,6 +94,9 @@ export async function getProdIntentEngineBatches(tenantId: string): Promise<Inte
   return fetchProdJsonGetWithMeta<IntentEngineBatchesListResponse>(batchesUrl(tid))
 }
 
+/** Max rows per upstream request (intent-engine caps page_size at 200). */
+export const INTENT_ENGINE_BATCH_DETAIL_CHUNK = 200
+
 /** Batch drill-down — BFF session tenant when `tenantId` omitted. */
 export async function getProdIntentEngineBatchDetail(
   tenantId: string | undefined,
@@ -107,7 +110,73 @@ export async function getProdIntentEngineBatchDetail(
     batchesUrl(tid || undefined, {
       batch_id: bid,
       page: opts?.page ?? 1,
-      page_size: opts?.pageSize ?? 20,
+      page_size: opts?.pageSize ?? INTENT_ENGINE_BATCH_DETAIL_CHUNK,
     }),
   )
+}
+
+/**
+ * Loads every intent + DLQ row for a batch (multiple upstream pages), so the journal
+ * can paginate in the browser without a 20-row cap on what the user can browse.
+ */
+export async function getProdIntentEngineBatchDetailAll(
+  tenantId: string | undefined,
+  batchId: string,
+): Promise<IntentEngineBatchesDetailResponse | null> {
+  const bid = batchId.trim()
+  if (!bid) return null
+
+  const first = await getProdIntentEngineBatchDetail(tenantId, bid, {
+    page: 1,
+    pageSize: INTENT_ENGINE_BATCH_DETAIL_CHUNK,
+  })
+  if (!first?.batchDetails || first.batchDetails.batchId !== bid) return first
+
+  const intentTotal =
+    first.batchDetails.paymentIntents.pagination?.total ??
+    first.batchDetails.paymentIntents.items.length
+  const dlqTotal =
+    first.batchDetails.dlqItems.pagination?.total ?? first.batchDetails.dlqItems.items.length
+
+  const pagesNeeded = Math.max(
+    1,
+    Math.ceil(intentTotal / INTENT_ENGINE_BATCH_DETAIL_CHUNK),
+    Math.ceil(dlqTotal / INTENT_ENGINE_BATCH_DETAIL_CHUNK),
+  )
+
+  let allIntents = [...first.batchDetails.paymentIntents.items]
+  let allDlq = [...first.batchDetails.dlqItems.items]
+
+  for (let page = 2; page <= pagesNeeded; page++) {
+    const res = await getProdIntentEngineBatchDetail(tenantId, bid, {
+      page,
+      pageSize: INTENT_ENGINE_BATCH_DETAIL_CHUNK,
+    })
+    if (!res?.batchDetails || res.batchDetails.batchId !== bid) break
+    allIntents = allIntents.concat(res.batchDetails.paymentIntents.items)
+    allDlq = allDlq.concat(res.batchDetails.dlqItems.items)
+  }
+
+  return {
+    ...first,
+    batchDetails: {
+      ...first.batchDetails,
+      paymentIntents: {
+        items: allIntents,
+        pagination: {
+          page: 1,
+          page_size: allIntents.length,
+          total: intentTotal,
+        },
+      },
+      dlqItems: {
+        items: allDlq,
+        pagination: {
+          page: 1,
+          page_size: allDlq.length,
+          total: dlqTotal,
+        },
+      },
+    },
+  }
 }

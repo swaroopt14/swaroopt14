@@ -25,6 +25,8 @@ export type GlyphName =
   | 'copy'
   | 'check'
   | 'lock'
+  | 'settlement'
+  | 'billing'
 
 export type DockId =
   | 'home'
@@ -32,14 +34,15 @@ export type DockId =
   | 'leakage'
   | 'ambiguity'
   | 'grid'
+  | 'settlement'
   | 'connectors'
   | 'sync'
   | 'proof'
   | 'sandbox'
   | 'billing'
 
-/** Dock IDs in sandbox top nav: Today → Intent Journal → Billing (no Connectors). */
-export const SANDBOX_DOCK_IDS: DockId[] = ['home', 'grid', 'billing']
+/** Dock IDs in sandbox top nav: Today → Intent Journal → Settlement Journal → Billing. */
+export const SANDBOX_DOCK_IDS: DockId[] = ['home', 'grid', 'settlement', 'billing']
 export type WorkspaceTab = 'Today' | 'Routing' | 'Proof' | 'Banks'
 /** Command center time window. 'Quarter' is set by the `onQuarterChange` handler
  * in PayoutCommandViewClient when the user picks a specific quarter. */
@@ -225,6 +228,16 @@ export const dockItems = [
     icon: 'grid',
   },
   {
+    id: 'settlement',
+    label: 'Settlement Journal',
+    navLabel: 'Settlement',
+    title: 'Settlement Journal',
+    breadcrumbLabel: 'Settlement Journal',
+    summary:
+      'Canonical settlement observations per client batch — PSP exports normalized after ingest and canonicalization.',
+    icon: 'bank',
+  },
+  {
     id: 'connectors',
     label: 'Connectors',
     navLabel: 'Connectors',
@@ -258,7 +271,7 @@ export const dockItems = [
     title: 'Billing',
     breadcrumbLabel: 'Billing',
     summary: 'Plan, payment method, and invoice history. Sandbox uses test billing — no real charges.',
-    icon: 'bank',
+    icon: 'billing',
   },
 ] as const
 

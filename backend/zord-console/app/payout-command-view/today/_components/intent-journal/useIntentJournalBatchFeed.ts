@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
-  getProdIntentEngineBatchDetail,
+  getProdIntentEngineBatchDetailAll,
   getProdIntentEngineBatchesForSession,
   type IntentEnginePagination,
 } from '@/services/payout-command/prod-api/getProdIntentEngineBatches'
@@ -43,9 +43,7 @@ export type IntentJournalBatchFeed = {
   syncAt: Date | null
   feedError: string | null
   feedMeta: JournalFeedFetchMeta | null
-  intentPage: number
   selectBatch: (batchId: string) => void
-  setIntentPage: (page: number) => void
   refreshFeed: () => Promise<void>
 }
 
@@ -68,16 +66,11 @@ export function useIntentJournalBatchFeed(options: {
   const [syncAt, setSyncAt] = useState<Date | null>(null)
   const [feedError, setFeedError] = useState<string | null>(null)
   const [feedMeta, setFeedMeta] = useState<JournalFeedFetchMeta | null>(null)
-  const [intentPage, setIntentPageState] = useState(1)
 
   const selectedBatchIdRef = useRef(selectedBatchId)
   selectedBatchIdRef.current = selectedBatchId
-  const intentPageRef = useRef(intentPage)
-  intentPageRef.current = intentPage
 
   const refreshSidebar = useCallback(async () => {
-    // Always omit client `tenant_id` on this path. The BFF resolves tenant from cookies only;
-    // passing NEXT_PUBLIC_ZORD_TENANT_ID / localStorage that disagrees with the session returns 403 TENANT_MISMATCH.
     const fetchRes = await getProdIntentEngineBatchesForSession()
 
     setFeedMeta({
@@ -124,69 +117,56 @@ export function useIntentJournalBatchFeed(options: {
     })
   }, [tenantId, initialBatchId])
 
-  const loadBatchDetail = useCallback(
-    async (batchId: string, page: number) => {
-      const bid = batchId.trim()
-      if (!bid) {
+  const loadBatchDetail = useCallback(async (batchId: string) => {
+    const bid = batchId.trim()
+    if (!bid) {
+      setIntentRows([])
+      setFailureRows([])
+      setIntentPagination(null)
+      setDlqPagination(null)
+      return
+    }
+    setDetailLoading(true)
+    setFeedError(null)
+    try {
+      const res = await getProdIntentEngineBatchDetailAll(undefined, bid)
+      if (!res?.batchDetails || res.batchDetails.batchId !== bid) {
+        setFeedError(
+          res
+            ? 'Batch detail response did not match selected batch — check batch_id matches your DB rows.'
+            : 'Could not load batch details from BFF.',
+        )
         setIntentRows([])
         setFailureRows([])
         setIntentPagination(null)
         setDlqPagination(null)
         return
       }
-      setDetailLoading(true)
-      setFeedError(null)
-      try {
-        const res = await getProdIntentEngineBatchDetail(undefined, bid, {
-          page,
-          pageSize: 20,
-        })
-        if (!res?.batchDetails || res.batchDetails.batchId !== bid) {
-          setFeedError(
-            res
-              ? 'Batch detail response did not match selected batch — check batch_id matches your DB rows.'
-              : 'Could not load batch details from BFF.',
-          )
-          setIntentRows([])
-          setFailureRows([])
-          setIntentPagination(null)
-          setDlqPagination(null)
-          return
-        }
-        const { batchDetails } = res
-        setIntentRows(
-          (batchDetails.paymentIntents?.items ?? []).map((it) =>
-            mapPaymentIntentToIntentRow(it, bid),
-          ),
-        )
-        setFailureRows((batchDetails.dlqItems?.items ?? []).map(mapDlqToFailureRow))
-        setIntentPagination(batchDetails.paymentIntents?.pagination ?? null)
-        setDlqPagination(batchDetails.dlqItems?.pagination ?? null)
-      } catch {
-        setFeedError('Could not load batch details.')
-        setIntentRows([])
-        setFailureRows([])
-      } finally {
-        setDetailLoading(false)
-      }
-    },
-    [],
-  )
+      const { batchDetails } = res
+      setIntentRows(
+        (batchDetails.paymentIntents?.items ?? []).map((it) => mapPaymentIntentToIntentRow(it, bid)),
+      )
+      setFailureRows((batchDetails.dlqItems?.items ?? []).map(mapDlqToFailureRow))
+      setIntentPagination(batchDetails.paymentIntents?.pagination ?? null)
+      setDlqPagination(batchDetails.dlqItems?.pagination ?? null)
+    } catch {
+      setFeedError('Could not load batch details.')
+      setIntentRows([])
+      setFailureRows([])
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
 
   const refreshFeed = useCallback(async () => {
     await refreshSidebar()
     const bid = selectedBatchIdRef.current.trim()
-    if (bid) await loadBatchDetail(bid, intentPageRef.current)
+    if (bid) await loadBatchDetail(bid)
     setSyncAt(new Date())
   }, [refreshSidebar, loadBatchDetail])
 
   const selectBatch = useCallback((batchId: string) => {
     setSelectedBatchId(batchId)
-    setIntentPageState(1)
-  }, [])
-
-  const setIntentPageAndFetch = useCallback((page: number) => {
-    setIntentPageState(page)
   }, [])
 
   useEffect(() => {
@@ -205,7 +185,7 @@ export function useIntentJournalBatchFeed(options: {
         await refreshSidebar()
         if (!cancelled) {
           const bid = selectedBatchIdRef.current.trim()
-          if (bid) await loadBatchDetail(bid, intentPageRef.current)
+          if (bid) await loadBatchDetail(bid)
         }
       } catch {
         if (!cancelled) setFeedError('Could not refresh journal feed.')
@@ -232,8 +212,8 @@ export function useIntentJournalBatchFeed(options: {
       setDlqPagination(null)
       return
     }
-    void loadBatchDetail(selectedBatchId, intentPageRef.current)
-  }, [enabled, tenantReady, tenantId, selectedBatchId, intentPage, loadBatchDetail])
+    void loadBatchDetail(selectedBatchId)
+  }, [enabled, tenantReady, tenantId, selectedBatchId, loadBatchDetail])
 
   useEffect(() => {
     if (initialBatchId) setSelectedBatchId(initialBatchId)
@@ -253,9 +233,7 @@ export function useIntentJournalBatchFeed(options: {
     syncAt,
     feedError,
     feedMeta,
-    intentPage,
     selectBatch,
-    setIntentPage: setIntentPageAndFetch,
     refreshFeed,
   }
 }

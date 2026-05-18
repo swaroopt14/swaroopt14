@@ -193,6 +193,7 @@ export type ZordPipelineIntake = {
   intentFileName: string | null
   intentIngestOk: boolean
   settlementFileName: string | null
+  settlementIngestOk: boolean
   uploadedFileName: string | null
   uploadState: 'idle' | 'uploading' | 'ready'
 }
@@ -271,6 +272,7 @@ export function deriveZordPipelineTimeline(
 
   if (!disbursementDone) set(4, 'upcoming')
   else if (intake.intakeStep === 'settlement_uploading') set(4, 'active')
+  else if (intake.settlementIngestOk || intake.intakeStep === 'closed') set(4, 'done')
   else if (summary.pending > 0) set(4, 'warning')
   else set(4, 'done')
 
@@ -287,6 +289,7 @@ export function deriveTimeline(summary: BatchSummary, fileUploaded: boolean): Ba
     intentFileName: fileUploaded ? 'legacy' : null,
     intentIngestOk: fileUploaded,
     settlementFileName: null,
+    settlementIngestOk: false,
     uploadedFileName: null,
     uploadState: fileUploaded ? 'ready' : 'idle',
   })

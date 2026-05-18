@@ -18,7 +18,7 @@ const footerColumns = [
   {
     title: 'Platform',
     links: [
-      { label: 'Final landing', href: '/final-landing' },
+      { label: 'Home', href: '/' },
       { label: 'How it works', href: '/final-landing/how-it-works' },
       { label: 'Pricing', href: '/final-landing/pricing' },
       { label: 'Console', href: '/signin/tenant' },

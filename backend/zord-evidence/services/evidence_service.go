@@ -160,7 +160,7 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		ContractID:     contractID,
 		Mode:           "INTELLIGENCE_ATTACH",
 		RulesetVersion: "v1",
-		SchemaVersions: map[string]string{"v1": "v1"},
+		SchemaVersions: map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
 		Items:          items,
 	}
 
@@ -229,7 +229,7 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 		TraceID:        "00000000-0000-0000-0000-000000000000", // or fetch from context/leaf if available
 		Mode:           "BATCH_ATTACH",
 		RulesetVersion: "v1",
-		SchemaVersions: map[string]string{"v1": "v1"},
+		SchemaVersions: map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
 		Items:          items,
 	}
 

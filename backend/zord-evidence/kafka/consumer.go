@@ -19,7 +19,7 @@ func NewConsumer(handler MessageHandler) *Consumer {
 }
 
 func (c *Consumer) Setup(sess sarama.ConsumerGroupSession) error {
-	log.Printf("evidence.kafka.session_setup claims=%v member_id=%s", sess.Claims(), sess.MemberID())
+	// log.Printf("evidence.kafka.session_setup claims=%v member_id=%s", sess.Claims(), sess.MemberID())
 	return nil
 }
 func (c *Consumer) Cleanup(sess sarama.ConsumerGroupSession) error {

@@ -12,7 +12,6 @@ package services
 
 import (
 	"encoding/json"
-	"log"
 	"math"
 	"strings"
 	"time"
@@ -198,7 +197,6 @@ func ScoreCandidate(
 	// Client payout reference exact match: +100
 	if intent.ClientPayoutRef != nil && obs.ClientReferenceCandidate != nil &&
 		strings.EqualFold(*intent.ClientPayoutRef, *obs.ClientReferenceCandidate) && *intent.ClientPayoutRef != "" {
-		log.Printf("[ScoreCandidate] Intent=%s Obs=%s MATCH: ClientPayoutRef (%s)", intent.IntentID, obs.SettlementObservationID, *intent.ClientPayoutRef)
 		bd.BusinessReferenceScore += 100
 		cs.ClientRefMatch = true
 		cs.ExactRefMatch = true
@@ -347,40 +345,31 @@ func ClassifyConfidenceContext(top CandidateScore, ranked []CandidateScore, thre
 
 	// INVALID: hard conflict or impossible match
 	if top.HasHardConflict || top.Total <= 0 {
-		log.Printf("[ClassifyConfidenceContext] Intent=%s - INVALID (Conflict=%v, Score=%.2f)", top.IntentID, top.HasHardConflict, top.Total)
 		return models.ConfidenceInvalid
 	}
 
 	// EXACT: has top-tier exact carrier + amount + currency + no strong conflict + dominant margin
 	if top.ExactRefMatch && top.AmountMatch && top.CurrencyMatch && !top.HasAnyConflict {
 		if len(ranked) == 1 || margin >= thresholds.ExactMarginThreshold {
-			log.Printf("[ClassifyConfidenceContext] Intent=%s - EXACT Match (Score: %.2f, Margin: %.2f)", top.IntentID, top.Total, margin)
 			return models.ConfidenceExact
 		}
-		log.Printf("[ClassifyConfidenceContext] Intent=%s - EXACT Candidate demoted to HIGH due to margin %.2f < %.2f", top.IntentID, margin, thresholds.ExactMarginThreshold)
 	}
 
 	// HIGH: score >= threshold + margin >= threshold + quality acceptable + no hard conflict
 	if top.Total >= thresholds.HighConfidenceScore {
 		if margin >= thresholds.AmbiguityMarginThreshold {
 			if top.QualityAcceptable {
-				log.Printf("[ClassifyConfidenceContext] Intent=%s - HIGH Confidence (Score: %.2f, Margin: %.2f)", top.IntentID, top.Total, margin)
 				return models.ConfidenceHigh
 			}
-			log.Printf("[ClassifyConfidenceContext] Intent=%s - HIGH Candidate demoted to MEDIUM due to quality", top.IntentID)
-		} else {
-			log.Printf("[ClassifyConfidenceContext] Intent=%s - HIGH Candidate demoted to MEDIUM due to margin %.2f < %.2f", top.IntentID, margin, thresholds.AmbiguityMarginThreshold)
 		}
 	}
 
 	// MEDIUM: score >= medium_threshold but margin/quality not enough for HIGH
 	if top.Total >= thresholds.MinScoreForAutoAttach {
-		log.Printf("[ClassifyConfidenceContext] Intent=%s - MEDIUM Confidence (Score: %.2f)", top.IntentID, top.Total)
 		return models.ConfidenceMedium
 	}
 
 	// LOW: below medium threshold
-	log.Printf("[ClassifyConfidenceContext] Intent=%s - LOW Confidence (Score: %.2f)", top.IntentID, top.Total)
 	return models.ConfidenceLow
 }
 

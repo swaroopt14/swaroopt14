@@ -40,10 +40,11 @@ var synonymDict = map[string]string{
 	"mode":            "beneficiary.instrument.kind",
 
 	// ── IFSC ──────────────────────────────────────────────────────
-	"ifsc":      "beneficiary.instrument.ifsc",
-	"ifsc_code": "beneficiary.instrument.ifsc",
-	"ifsc code": "beneficiary.instrument.ifsc",
-	"bank_code": "beneficiary.instrument.ifsc",
+	"ifsc":             "beneficiary.instrument.ifsc",
+	"ifsc_code":        "beneficiary.instrument.ifsc",
+	"ifsc code":        "beneficiary.instrument.ifsc",
+	"bank_code":        "beneficiary.instrument.ifsc",
+	"beneficiary_ifsc": "beneficiary.instrument.ifsc",
 
 	// ── VPA / UPI ─────────────────────────────────────────────────
 	"vpa":                     "beneficiary.instrument.vpa",
@@ -51,6 +52,7 @@ var synonymDict = map[string]string{
 	"upi id":                  "beneficiary.instrument.vpa",
 	"upi_vpa":                 "beneficiary.instrument.vpa",
 	"virtual_payment_address": "beneficiary.instrument.vpa",
+	"beneficiary_vpa":         "beneficiary.instrument.vpa",
 
 	// ── References ────────────────────────────────────────────────
 	"client_payout_ref": "client_payout_ref",
@@ -82,18 +84,20 @@ var synonymDict = map[string]string{
 	"payment_gateway": "provider_hint",
 
 	// ── Execution date ────────────────────────────────────────────
-	"intended_execution_at": "intended_execution_at",
-	"execution_date":        "intended_execution_at",
-	"payout_date":           "intended_execution_at",
-	"value_date":            "intended_execution_at",
-	"transfer_date":         "intended_execution_at",
+	"intended_execution_at":  "intended_execution_at",
+	"execution_date":         "intended_execution_at",
+	"payout_date":            "intended_execution_at",
+	"value_date":             "intended_execution_at",
+	"transfer_date":          "intended_execution_at",
+	"scheduled_execution_at": "intended_execution_at",
 
 	// ── Account number ────────────────────────────────────────────
-	"account_number": "account_number",
-	"account no":     "account_number",
-	"account_no":     "account_number",
-	"acc_no":         "account_number",
-	"bank_account":   "account_number",
+	"account_number":             "account_number",
+	"account no":                 "account_number",
+	"account_no":                 "account_number",
+	"acc_no":                     "account_number",
+	"bank_account":               "account_number",
+	"beneficiary_account_number": "account_number",
 
 	// ── Purpose ───────────────────────────────────────────────────
 	"purpose_code": "purpose_code",
@@ -143,6 +147,8 @@ var synonymDict = map[string]string{
 	"product_desc":   "product_desc",
 	"mcc_code":       "mcc_code",
 	"payout_purpose": "payout_purpose",
+	"invoice_id":     "invoice_id",
+	"voucher_id":     "voucher_id",
 
 	// ── KYC / Compliance ──────────────────────────────────────────
 	"vendor_type":      "vendor_type",
@@ -164,4 +170,6 @@ var synonymDict = map[string]string{
 	"remitter.email":               "remitter.email",
 	"remitter.customer_id":         "remitter.customer_id",
 	"constraints.execution_window": "constraints.execution_window",
+	"approval_ref":                 "approval_ref",
+	"bank_account_ref":             "bank_account_ref",
 }

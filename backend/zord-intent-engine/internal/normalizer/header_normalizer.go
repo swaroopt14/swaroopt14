@@ -297,16 +297,19 @@ func normalizeCurrency(raw string) string {
 // normalizeTimestamp handles mixed date formats from 10.3.
 var dateFormats = []string{
 	time.RFC3339,
+	"2006-01-02T15:04:05Z", // ← ADD: explicit Z suffix without timezone offset
 	"2006-01-02T15:04:05",
 	"2006-01-02 15:04:05",
-	"02/01/2006", // Indian DD/MM/YYYY
-	"01/02/2006", // US MM/DD/YYYY
+	"02/01/2006",
+	"01/02/2006",
 	"2006-01-02",
 	"02-01-2006",
 	"Jan 2, 2006",
 	"2 Jan 2006",
 	"02 Jan 2006",
 	"January 2, 2006",
+	"2 January 2006",  // ← ADD: "20 May 2026" variant
+	"02 January 2006", // ← ADD
 }
 
 func normalizeTimestamp(raw string) (time.Time, error) {

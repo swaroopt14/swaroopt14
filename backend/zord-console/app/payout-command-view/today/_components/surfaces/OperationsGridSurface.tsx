@@ -462,7 +462,7 @@ export function OperationsGridSurface() {
       (left, right) => new Date(right.created_at ?? 0).getTime() - new Date(left.created_at ?? 0).getTime(),
     )
 
-    const nextIntentRows: IntentTraceRow[] = sortedIntents.slice(0, 120).map((intent, index) => {
+    const nextIntentRows: IntentTraceRow[] = sortedIntents.map((intent, index) => {
       const status = normalizeIntentStatus(intent.status)
       const contract = contractByIntent.get(intent.intent_id)
       const amountNumber = parseNumber(intent.amount)
@@ -500,7 +500,7 @@ export function OperationsGridSurface() {
         .map((intent) => [intent.envelope_id, intent]),
     )
 
-    const nextDlqRows: DlqQueueRow[] = dlqItems.slice(0, 40).map((item, index) => {
+    const nextDlqRows: DlqQueueRow[] = dlqItems.map((item, index) => {
       const relatedIntent = item.envelope_id ? intentByEnvelope.get(item.envelope_id) : undefined
       const relatedContract = relatedIntent?.intent_id ? contractByIntent.get(relatedIntent.intent_id) : undefined
       const family = resolveDlqFamily(item.stage, item.reason_code)

@@ -287,6 +287,16 @@ type LeakageValue struct {
 	// in the same row is the atomic SQL pattern used throughout this codebase.
 	TotalIntendedAmountMinor decimal.Decimal `json:"total_intended_amount_minor"` // sum of all intent amounts
 
+	// ── Observed settled volume (L2) ─────────────────────────────────────
+	// Accumulated from CanonicalSettlementCreatedEvent.SettledAmountMinor for
+	// every settlement regardless of attachment readiness. Used to compute the
+	// gap between intended and actually-settled volume.
+	TotalObservedSettledAmountMinor decimal.Decimal `json:"total_observed_settled_amount_minor"`
+
+	// ── Value-date mismatch count (P7 numerator) ──────────────────────────
+	// Incremented for each VarianceRecordCreatedEvent with VarianceType == "VALUE_DATE_MISMATCH".
+	ValueDateMismatchCount int `json:"value_date_mismatch_count"`
+
 	// ── Derived rate (recomputed after every increment) ───────────────────
 	LeakagePercentage float64 `json:"leakage_percentage"` // (unmatched + under_settlement + reversal) / total_intended — doc §7.1 KPI 9
 
@@ -358,9 +368,33 @@ type AmbiguityValue struct {
 	ProviderRefMissingCount int `json:"provider_ref_missing_count"` // decisions with no carrier refs
 	TotalDecisions          int `json:"total_decisions"`            // all attachment decisions seen
 
+	// ── Low-confidence decisions (A5) ────────────────────────────────────
+	// Decisions where ConfidenceScore < 0.70 (threshold aligned with weakestCohortSignal).
+	LowConfidenceCount int `json:"low_confidence_count"`
+
+	// ── Candidate collision (A6) ─────────────────────────────────────────
+	// Decisions where CandidateSetSize > 1 — multiple attachment candidates competed.
+	CandidateCollisionCount int `json:"candidate_collision_count"`
+
+	// ── Score margin running average (A7) ────────────────────────────────
+	// ScoreMargin = WinningScore - RunnerUpScore, received pre-computed from upstream.
+	// Stored as sum+count so the average survives incremental updates.
+	ScoreMarginSum   float64 `json:"score_margin_sum"`
+	ScoreMarginCount int     `json:"score_margin_count"`
+	AvgScoreMargin   float64 `json:"avg_score_margin"` // recomputed: sum / count
+
+	// ── Carrier completeness (A8) ─────────────────────────────────────────
+	// Populated from CanonicalSettlementCreatedEvent.CarrierRichness.
+	// A settlement is "carrier-complete" when CarrierRichness >= 0.60.
+	CarrierCompleteCount  int `json:"carrier_complete_count"`
+	TotalCarrierRecords   int `json:"total_carrier_records"`
+	CarrierCompletenessRate float64 `json:"carrier_completeness_rate"` // recomputed: complete / total
+
 	// ── Derived rates (recomputed after every increment) ─────────────────
 	ProviderRefMissingRate float64 `json:"provider_ref_missing_rate"` // missing_count / total_decisions
 	AmbiguityRate          float64 `json:"ambiguity_rate"`            // ambiguous_count / total_decisions
+	LowConfidenceRate      float64 `json:"low_confidence_rate"`       // low_confidence_count / total_decisions
+	CandidateCollisionRate float64 `json:"candidate_collision_rate"`  // collision_count / total_decisions
 
 	UpdatedAt time.Time `json:"updated_at"`
 }

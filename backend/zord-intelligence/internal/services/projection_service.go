@@ -831,6 +831,26 @@ func (s *ProjectionService) HandleSettlementCreated(
 		}
 	}
 
+	// ── L2: Accumulate total observed settled volume for ALL settlements ──
+	// Tracks every confirmed settled amount regardless of attachment readiness.
+	// Numerator and denominator for leakage rate are computed separately.
+	if err := s.projRepo.AtomicIncrementSettledVolume(
+		ctx, e.TenantID, e.SettledAmountMinor, window.start, window.end,
+	); err != nil {
+		log.Printf("HandleSettlementCreated: AtomicIncrementSettledVolume failed settlement=%s: %v",
+			e.SettlementID, err)
+	}
+
+	// ── A8: Record carrier completeness for ALL settlements ───────────────
+	// A settlement is carrier-complete when CarrierRichness >= 0.60 (3 of 5 carriers populated).
+	isCarrierComplete := e.CarrierRichness >= 0.60
+	if err := s.projRepo.AtomicRecordCarrierCompleteness(
+		ctx, e.TenantID, isCarrierComplete, window.start, window.end,
+	); err != nil {
+		log.Printf("HandleSettlementCreated: AtomicRecordCarrierCompleteness failed settlement=%s: %v",
+			e.SettlementID, err)
+	}
+
 	log.Printf("HandleSettlementCreated: settlement_id=%s tenant=%s source=%s readiness=%s(score=%.2f) carrier=%s(richness=%.2f) confidence=%.2f",
 		e.SettlementID, e.TenantID, e.SourceSystemID, readiness, e.AttachmentReadiness, carrierTier, e.CarrierRichness, e.ParseConfidence)
 
@@ -904,6 +924,11 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	// ── Step 2: Update AMBIGUITY projection for ALL decisions ─────────────
 	// Every attachment decision contributes to the running confidence average
 	// and the total_decisions denominator, regardless of decision type.
+	// A5: low confidence when ConfidenceScore < 0.70 (aligned with weakestCohortSignal threshold)
+	// A6: collision when more than one candidate competed for attachment
+	// A7: ScoreMargin is pre-computed upstream as WinningScore - RunnerUpScore
+	isLowConfidence := e.ConfidenceScore < 0.70
+	hasCollision := e.CandidateSetSize > 1
 	if err := s.projRepo.AtomicRecordAttachmentDecision(
 		ctx,
 		e.TenantID,
@@ -911,6 +936,9 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		e.ConfidenceScore,
 		e.IntendedAmountMinor,
 		supportingCarriers,
+		isLowConfidence,
+		hasCollision,
+		e.ScoreMargin,
 		window.start, window.end,
 	); err != nil {
 		return fmt.Errorf("HandleAttachmentDecision AtomicRecordAttachmentDecision decision=%s: %w",
@@ -1062,6 +1090,20 @@ func (s *ProjectionService) HandleVarianceRecord(
 		); err != nil {
 			return fmt.Errorf("HandleVarianceRecord AtomicRecordVariance variance=%s: %w",
 				e.VarianceID, err)
+		}
+
+		// ── P7: Track value-date mismatch count ───────────────────────────
+		// VALUE_DATE_MISMATCH is a timing-only variance: the settlement arrived
+		// on a different value date than intended. It is already recorded in
+		// AtomicRecordVariance (non-reversal path with zero amount), but we
+		// also keep a dedicated counter in the leakage projection for P7 rate.
+		if e.VarianceType == "VALUE_DATE_MISMATCH" {
+			if err := s.projRepo.AtomicIncrementValueDateMismatch(
+				ctx, e.TenantID, window.start, window.end,
+			); err != nil {
+				log.Printf("HandleVarianceRecord: AtomicIncrementValueDateMismatch failed variance=%s: %v",
+					e.VarianceID, err)
+			}
 		}
 
 		// Recompute leakage intelligence snapshot

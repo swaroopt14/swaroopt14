@@ -1819,6 +1819,9 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	confidenceScore float64,
 	intendedMinor decimal.Decimal,
 	supportingCarriers []string,
+	isLowConfidence bool,
+	hasCollision bool,
+	scoreMargin float64,
 	windowStart, windowEnd time.Time,
 ) error {
 	key := "ambiguity.summary"
@@ -1851,6 +1854,14 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	if hasNoCarriers {
 		missingCarrierIncr = 1
 	}
+	lowConfidenceIncr := 0
+	if isLowConfidence {
+		lowConfidenceIncr = 1
+	}
+	collisionIncr := 0
+	if hasCollision {
+		collisionIncr = 1
+	}
 
 	upsertSQL := `
 		INSERT INTO projection_state
@@ -1869,7 +1880,14 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 				'provider_ref_missing_count',   $10::int,
 				'total_decisions',              1,
 				'provider_ref_missing_rate',    $10::float8,
-				'ambiguity_rate',               $5::float8
+				'ambiguity_rate',               $5::float8,
+				'low_confidence_count',         $11::int,
+				'low_confidence_rate',          $11::float8,
+				'candidate_collision_count',    $12::int,
+				'candidate_collision_rate',     $12::float8,
+				'score_margin_sum',             $13::float8,
+				'score_margin_count',           1,
+				'avg_score_margin',             $13::float8
 			),
 			now(), 1, 'AMBIGUITY', 'TENANT')
 		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
@@ -1882,32 +1900,48 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 								jsonb_set(
 									jsonb_set(
 										jsonb_set(
-											projection_state.value_json,
-											'{ambiguous_intent_count}',
-											to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_intent_count')::int, 0) + $5::int)
+											jsonb_set(
+												jsonb_set(
+													jsonb_set(
+														jsonb_set(
+															projection_state.value_json,
+															'{ambiguous_intent_count}',
+															to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_intent_count')::int, 0) + $5::int)
+														),
+														'{ambiguous_amount_minor}',
+														to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_amount_minor')::numeric, 0) + $6::numeric)
+													),
+													'{unresolved_settlement_count}',
+													to_jsonb(COALESCE((projection_state.value_json->>'unresolved_settlement_count')::int, 0) + $7::int)
+												),
+												'{value_at_risk_minor}',
+												to_jsonb(COALESCE((projection_state.value_json->>'value_at_risk_minor')::numeric, 0) + $8::numeric)
+											),
+											'{confidence_sum}',
+											to_jsonb(COALESCE((projection_state.value_json->>'confidence_sum')::float8, 0.0) + $9::float8)
 										),
-										'{ambiguous_amount_minor}',
-										to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_amount_minor')::numeric, 0) + $6::numeric)
+										'{confidence_count}',
+										to_jsonb(COALESCE((projection_state.value_json->>'confidence_count')::int, 0) + 1)
 									),
-									'{unresolved_settlement_count}',
-									to_jsonb(COALESCE((projection_state.value_json->>'unresolved_settlement_count')::int, 0) + $7::int)
+									'{provider_ref_missing_count}',
+									to_jsonb(COALESCE((projection_state.value_json->>'provider_ref_missing_count')::int, 0) + $10::int)
 								),
-								'{value_at_risk_minor}',
-								to_jsonb(COALESCE((projection_state.value_json->>'value_at_risk_minor')::numeric, 0) + $8::numeric)
+								'{total_decisions}',
+								to_jsonb(COALESCE((projection_state.value_json->>'total_decisions')::int, 0) + 1)
 							),
-							'{confidence_sum}',
-							to_jsonb(COALESCE((projection_state.value_json->>'confidence_sum')::float8, 0.0) + $9::float8)
+							'{low_confidence_count}',
+							to_jsonb(COALESCE((projection_state.value_json->>'low_confidence_count')::int, 0) + $11::int)
 						),
-						'{confidence_count}',
-						to_jsonb(COALESCE((projection_state.value_json->>'confidence_count')::int, 0) + 1)
+						'{candidate_collision_count}',
+						to_jsonb(COALESCE((projection_state.value_json->>'candidate_collision_count')::int, 0) + $12::int)
 					),
-					'{provider_ref_missing_count}',
-					to_jsonb(COALESCE((projection_state.value_json->>'provider_ref_missing_count')::int, 0) + $10::int)
+					'{score_margin_sum}',
+					to_jsonb(COALESCE((projection_state.value_json->>'score_margin_sum')::float8, 0.0) + $13::float8)
 				),
-				'{total_decisions}',
-				to_jsonb(COALESCE((projection_state.value_json->>'total_decisions')::int, 0) + 1)
+				'{score_margin_count}',
+				to_jsonb(COALESCE((projection_state.value_json->>'score_margin_count')::int, 0) + 1)
 			),
-			computed_at = now()
+		computed_at = now()
 	`
 	if _, err := r.pool.Exec(ctx, upsertSQL,
 		tenantID, key, windowStart, windowEnd,
@@ -1915,8 +1949,11 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 		ambiguousAmount.String(), // $6
 		unresolvedIncr,           // $7
 		atRiskAmount.String(),    // $8
-		confidenceScore,           // $9
-		missingCarrierIncr,        // $10
+		confidenceScore,          // $9
+		missingCarrierIncr,       // $10
+		lowConfidenceIncr,        // $11
+		collisionIncr,            // $12
+		scoreMargin,              // $13
 	); err != nil {
 		return fmt.Errorf("projection_repo.AtomicRecordAttachmentDecision tenant=%s decision=%s: %w",
 			tenantID, decisionType, err)
@@ -1925,11 +1962,15 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	return r.recomputeAmbiguityRates(ctx, tenantID, key, windowStart)
 }
 
-// recomputeAmbiguityRates recalculates the three derived rates:
+// recomputeAmbiguityRates recalculates all derived rates in the ambiguity projection:
 //
 //	avg_attachment_confidence = confidence_sum / confidence_count
 //	provider_ref_missing_rate = provider_ref_missing_count / total_decisions
 //	ambiguity_rate            = ambiguous_intent_count / total_decisions
+//	low_confidence_rate       = low_confidence_count / total_decisions
+//	candidate_collision_rate  = candidate_collision_count / total_decisions
+//	avg_score_margin          = score_margin_sum / score_margin_count
+//	carrier_completeness_rate = carrier_complete_count / total_carrier_records
 func (r *ProjectionRepo) recomputeAmbiguityRates(
 	ctx context.Context,
 	tenantID, key string,
@@ -1940,30 +1981,70 @@ func (r *ProjectionRepo) recomputeAmbiguityRates(
 		SET value_json = jsonb_set(
 			jsonb_set(
 				jsonb_set(
-					value_json,
-					'{avg_attachment_confidence}',
+					jsonb_set(
+						jsonb_set(
+							jsonb_set(
+								jsonb_set(
+									value_json,
+									'{avg_attachment_confidence}',
+									to_jsonb(
+										COALESCE(
+											(value_json->>'confidence_sum')::numeric /
+											NULLIF((value_json->>'confidence_count')::numeric, 0),
+											0
+										)
+									)
+								),
+								'{provider_ref_missing_rate}',
+								to_jsonb(
+									COALESCE(
+										(value_json->>'provider_ref_missing_count')::numeric /
+										NULLIF((value_json->>'total_decisions')::numeric, 0),
+										0
+									)
+								)
+							),
+							'{ambiguity_rate}',
+							to_jsonb(
+								COALESCE(
+									(value_json->>'ambiguous_intent_count')::numeric /
+									NULLIF((value_json->>'total_decisions')::numeric, 0),
+									0
+								)
+							)
+						),
+						'{low_confidence_rate}',
+						to_jsonb(
+							COALESCE(
+								(value_json->>'low_confidence_count')::numeric /
+								NULLIF((value_json->>'total_decisions')::numeric, 0),
+								0
+							)
+						)
+					),
+					'{candidate_collision_rate}',
 					to_jsonb(
 						COALESCE(
-							(value_json->>'confidence_sum')::numeric /
-							NULLIF((value_json->>'confidence_count')::numeric, 0),
+							(value_json->>'candidate_collision_count')::numeric /
+							NULLIF((value_json->>'total_decisions')::numeric, 0),
 							0
 						)
 					)
 				),
-				'{provider_ref_missing_rate}',
+				'{avg_score_margin}',
 				to_jsonb(
 					COALESCE(
-						(value_json->>'provider_ref_missing_count')::numeric /
-						NULLIF((value_json->>'total_decisions')::numeric, 0),
+						(value_json->>'score_margin_sum')::numeric /
+						NULLIF((value_json->>'score_margin_count')::numeric, 0),
 						0
 					)
 				)
 			),
-			'{ambiguity_rate}',
+			'{carrier_completeness_rate}',
 			to_jsonb(
 				COALESCE(
-					(value_json->>'ambiguous_intent_count')::numeric /
-					NULLIF((value_json->>'total_decisions')::numeric, 0),
+					(value_json->>'carrier_complete_count')::numeric /
+					NULLIF((value_json->>'total_carrier_records')::numeric, 0),
 					0
 				)
 			)
@@ -1976,6 +2057,131 @@ func (r *ProjectionRepo) recomputeAmbiguityRates(
 	`
 	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart); err != nil {
 		return fmt.Errorf("projection_repo.recomputeAmbiguityRates: %w", err)
+	}
+	return nil
+}
+
+// AtomicIncrementSettledVolume adds a single settlement's amount to the leakage
+// projection's total_observed_settled_amount_minor counter (KPI L2).
+//
+// Called for EVERY CanonicalSettlementCreatedEvent regardless of attachment readiness.
+func (r *ProjectionRepo) AtomicIncrementSettledVolume(
+	ctx context.Context,
+	tenantID string,
+	settledAmountMinor decimal.Decimal,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "leakage.total"
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_observed_settled_amount_minor', $5::numeric
+			),
+			now(), 1, 'LEAKAGE', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				projection_state.value_json,
+				'{total_observed_settled_amount_minor}',
+				to_jsonb(
+					COALESCE((projection_state.value_json->>'total_observed_settled_amount_minor')::numeric, 0)
+					+ $5::numeric
+				)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql,
+		tenantID, key, windowStart, windowEnd,
+		settledAmountMinor.String(), // $5
+	); err != nil {
+		return fmt.Errorf("projection_repo.AtomicIncrementSettledVolume tenant=%s: %w", tenantID, err)
+	}
+	return nil
+}
+
+// AtomicRecordCarrierCompleteness tracks carrier richness per settlement for KPI A8.
+//
+// A settlement is "carrier-complete" when CarrierRichness >= 0.60.
+// Stored in the ambiguity.summary projection alongside attachment decision counters.
+// Called for EVERY CanonicalSettlementCreatedEvent from HandleSettlementCreated.
+func (r *ProjectionRepo) AtomicRecordCarrierCompleteness(
+	ctx context.Context,
+	tenantID string,
+	isComplete bool,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "ambiguity.summary"
+	completeIncr := 0
+	if isComplete {
+		completeIncr = 1
+	}
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'carrier_complete_count',  $5::int,
+				'total_carrier_records',   1,
+				'carrier_completeness_rate', $5::float8
+			),
+			now(), 1, 'AMBIGUITY', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					projection_state.value_json,
+					'{carrier_complete_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'carrier_complete_count')::int, 0) + $5::int)
+				),
+				'{total_carrier_records}',
+				to_jsonb(COALESCE((projection_state.value_json->>'total_carrier_records')::int, 0) + 1)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql,
+		tenantID, key, windowStart, windowEnd,
+		completeIncr, // $5
+	); err != nil {
+		return fmt.Errorf("projection_repo.AtomicRecordCarrierCompleteness tenant=%s: %w", tenantID, err)
+	}
+	return r.recomputeAmbiguityRates(ctx, tenantID, key, windowStart)
+}
+
+// AtomicIncrementValueDateMismatch increments the value_date_mismatch_count in the
+// leakage projection (KPI P7 numerator).
+//
+// Called from HandleVarianceRecord when VarianceType == "VALUE_DATE_MISMATCH".
+func (r *ProjectionRepo) AtomicIncrementValueDateMismatch(
+	ctx context.Context,
+	tenantID string,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "leakage.total"
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object('value_date_mismatch_count', 1),
+			now(), 1, 'LEAKAGE', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				projection_state.value_json,
+				'{value_date_mismatch_count}',
+				to_jsonb(COALESCE((projection_state.value_json->>'value_date_mismatch_count')::int, 0) + 1)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd); err != nil {
+		return fmt.Errorf("projection_repo.AtomicIncrementValueDateMismatch tenant=%s: %w", tenantID, err)
 	}
 	return nil
 }

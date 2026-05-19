@@ -17,6 +17,7 @@ import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import type {
   AmbiguityKpiResolved,
   DefensibilityKpiResolved,
@@ -124,7 +125,7 @@ function DefensibilityTierPlaceholder() {
 export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const [search, setSearch] = useState('')
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
-  const [batchId, setBatchId] = useState<string>(() => initialBatchId?.trim() ?? '')
+  const [batchId, setBatchId] = useState<string>(() => apiTrimmedString(initialBatchId))
   const [packRows, setPackRows] = useState<EvidencePackRow[]>([])
   const [packListError, setPackListError] = useState<string | null>(null)
   const [packsLoading, setPacksLoading] = useState(false)
@@ -146,14 +147,14 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   )
 
   useEffect(() => {
-    const fromUrl = initialBatchId?.trim()
+    const fromUrl = apiTrimmedString(initialBatchId)
     if (fromUrl) setBatchId(fromUrl)
   }, [initialBatchId])
 
   useEffect(() => {
     if (!tenantReady) {
       setBatches([])
-      if (!initialBatchId?.trim()) setBatchId('')
+      if (!apiTrimmedString(initialBatchId)) setBatchId('')
       return
     }
     let cancelled = false
@@ -165,7 +166,11 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
         return
       }
       setBatches(res.batches)
-      setBatchId((prev) => (res.batches.some((b) => b.batch_id === prev) ? prev : res.batches[0].batch_id))
+      setBatchId((prev) => {
+        const prevId = apiTrimmedString(prev)
+        const match = res.batches.find((b) => apiTrimmedString(b.batch_id) === prevId)
+        return match ? prevId : apiTrimmedString(res.batches[0]?.batch_id)
+      })
     })
     return () => {
       cancelled = true
@@ -197,8 +202,9 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
       const sliced = summaries.slice(0, 16)
       const enriched = await Promise.all(
         sliced.map(async (s) => {
-          const full = await getEvidencePackFull(s.evidence_pack_id)
-          return { id: s.evidence_pack_id, itemCount: full?.items?.length }
+          const packId = apiTrimmedString(s.evidence_pack_id)
+          const full = await getEvidencePackFull(packId)
+          return { id: packId, itemCount: full?.items?.length }
         }),
       )
       if (cancelled) return
@@ -206,7 +212,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
       setPackRows((prev) =>
         prev.map((row) => ({
           ...row,
-          itemCount: countMap.get(row.summary.evidence_pack_id) ?? row.itemCount,
+          itemCount: countMap.get(apiTrimmedString(row.summary.evidence_pack_id)) ?? row.itemCount,
         })),
       )
       setPacksLoading(false)
@@ -246,14 +252,16 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const filteredPacks = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return packRows
-    return packRows.filter(
-      (r) =>
-        r.summary.evidence_pack_id.toLowerCase().includes(q) ||
-        (r.summary.intent_id || '').toLowerCase().includes(q) ||
-        (r.summary.batch_id || '').toLowerCase().includes(q) ||
-        (r.summary.merkle_root || '').toLowerCase().includes(q) ||
-        summaryLabel(r.summary).toLowerCase().includes(q),
-    )
+    return packRows.filter((r) => {
+      const s = r.summary
+      return (
+        apiTrimmedString(s.evidence_pack_id).toLowerCase().includes(q) ||
+        apiTrimmedString(s.intent_id).toLowerCase().includes(q) ||
+        apiTrimmedString(s.batch_id).toLowerCase().includes(q) ||
+        apiTrimmedString(s.merkle_root).toLowerCase().includes(q) ||
+        summaryLabel(s).toLowerCase().includes(q)
+      )
+    })
   }, [packRows, search])
 
   return (
@@ -525,7 +533,7 @@ function PackTableRow({
       </td>
       <td className="max-w-[14rem] px-4 py-4 align-middle">
         <p className={`text-[10px] font-semibold uppercase tracking-[0.1em] ${ASK.muted}`}>Intent</p>
-        <p className="mt-0.5 font-mono text-[13px] font-semibold text-[#111111]">{s.intent_id?.trim() || '—'}</p>
+        <p className="mt-0.5 font-mono text-[13px] font-semibold text-[#111111]">{apiTrimmedString(s.intent_id) || '—'}</p>
         <p className="mt-1 text-[14px] leading-snug text-[#6f716d]">{summaryLabel(s)}</p>
       </td>
       <td className="min-w-[12rem] px-4 py-4 align-middle">

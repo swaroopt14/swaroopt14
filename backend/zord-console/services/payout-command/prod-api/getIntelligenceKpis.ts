@@ -1,4 +1,5 @@
 import { fetchProdJsonGet } from './fetchProdJsonGet'
+import { apiTrimmedString } from './coerceApiField'
 import type {
   AmbiguityKpiResponse,
   BatchDetailResponse,
@@ -37,8 +38,9 @@ export async function getDefensibilityKpis(): Promise<DefensibilityKpiResponse |
 
 /** Patterns KPI — optional `batch_id` scopes anomaly to one batch; omit for latest tenant snapshot. */
 export async function getPatternsKpis(batchId?: string): Promise<PatternsKpiResponse | null> {
-  const path = batchId?.trim()
-    ? intelQueryPath(`${INTEL_BASE}/patterns`, { batch_id: batchId.trim() })
+  const bid = apiTrimmedString(batchId)
+  const path = bid
+    ? intelQueryPath(`${INTEL_BASE}/patterns`, { batch_id: bid })
     : intelQueryPath(`${INTEL_BASE}/patterns`)
   return fetchProdJsonGet<PatternsKpiResponse>(path)
 }
@@ -64,7 +66,7 @@ export async function getIntelligenceBatches(
 
 /** Per-batch intelligence snapshot — BFF injects session tenant. */
 export async function getIntelligenceBatchDetail(batchId: string): Promise<BatchDetailResponse | null> {
-  const bid = batchId.trim()
+  const bid = apiTrimmedString(batchId)
   if (!bid) return null
   return fetchProdJsonGet<BatchDetailResponse>(
     intelQueryPath(`${INTEL_BASE}/batches/${encodeURIComponent(bid)}`),

@@ -36,6 +36,7 @@ import {
   PAYOUT_CONSOLE_CARD_CLASS,
   PAYOUT_PAGE_BG_CLASS,
 } from './command-center/homeCommandCenterTokens'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 
 const manropeHome = Manrope({
   subsets: ['latin'],
@@ -60,7 +61,8 @@ type PayoutCommandViewClientProps = {
 
 /** Shared URL batch scope for journal, evidence, and patterns KPIs. */
 function resolveSharedBatchId(initial?: string) {
-  return initial?.trim() || undefined
+  const id = apiTrimmedString(initial)
+  return id || undefined
 }
 
 export default function PayoutCommandViewClient({

@@ -11,6 +11,7 @@ import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-comman
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { buildEvidencePackGraphFromApi } from './evidencePackGraphFromApi'
 import type {
@@ -226,8 +227,8 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   const { tenantReady } = useSessionTenant()
   const useLive = tenantReady
 
-  const [activePackId, setActivePackId] = useState(() => initialPackId?.trim() || initialPack.packId)
-  const [activeBatchId, setActiveBatchId] = useState(initialPack.batchId)
+  const [activePackId, setActivePackId] = useState(() => apiTrimmedString(initialPackId) || initialPack.packId)
+  const [activeBatchId, setActiveBatchId] = useState(() => apiTrimmedString(initialPack.batchId))
   const [intelBatches, setIntelBatches] = useState<IntelligenceBatchRow[]>([])
   const [packSummaries, setPackSummaries] = useState<EvidencePackSummaryRow[]>([])
   const [liveGraphs, setLiveGraphs] = useState<Record<string, EvidencePackGraph>>({})
@@ -249,8 +250,9 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
       if (cancelled || !res?.batches?.length) return
       setIntelBatches(res.batches)
       setActiveBatchId((prev) => {
-        if (res.batches.some((b) => b.batch_id === prev)) return prev
-        return res.batches[0].batch_id
+        const prevId = apiTrimmedString(prev)
+        const match = res.batches.find((b) => apiTrimmedString(b.batch_id) === prevId)
+        return match ? prevId : apiTrimmedString(res.batches[0]?.batch_id)
       })
     })
     return () => {
@@ -283,7 +285,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   useEffect(() => {
     if (!useLive || packSummaries.length === 0) return
     let cancelled = false
-    const ids = packSummaries.map((s) => s.evidence_pack_id).slice(0, 24)
+    const ids = packSummaries.map((s) => apiTrimmedString(s.evidence_pack_id)).filter(Boolean).slice(0, 24)
     void Promise.all(
       ids.map(async (id) => {
         const full = await getEvidencePackFull(id)
@@ -308,9 +310,10 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   }, [useLive, packSummaries, activeBatchId, defensibilityScore])
 
   useEffect(() => {
-    if (!useLive || !initialPackId?.trim()) return
+    const packIdFromUrl = apiTrimmedString(initialPackId)
+    if (!useLive || !packIdFromUrl) return
     let cancelled = false
-    void getEvidencePackFull(initialPackId.trim()).then((full) => {
+    void getEvidencePackFull(packIdFromUrl).then((full) => {
       if (cancelled || !full) return
       const g = buildEvidencePackGraphFromApi(full, {
         batchId: activeBatchId || 'batch',
@@ -330,7 +333,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   const liveBatchPacks = useMemo(() => {
     const graphs: EvidencePackGraph[] = []
     for (const s of packSummaries) {
-      const g = liveGraphs[s.evidence_pack_id]
+      const g = liveGraphs[apiTrimmedString(s.evidence_pack_id)]
       if (g) graphs.push(g)
     }
     return graphs

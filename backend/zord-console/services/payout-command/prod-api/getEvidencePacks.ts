@@ -1,4 +1,5 @@
 import { fetchProdJsonGet } from './fetchProdJsonGet'
+import { apiTrimmedString } from './coerceApiField'
 import type { EvidencePackFull, ListPacksResponse } from './evidenceTypes'
 
 const EVIDENCE_BASE = '/api/prod/evidence'
@@ -20,13 +21,15 @@ export type ListEvidencePacksOptions = {
 /** Evidence pack list — BFF injects session tenant. */
 export async function listEvidencePacks(opts: ListEvidencePacksOptions = {}): Promise<ListPacksResponse | null> {
   const extra: Record<string, string> = {}
-  if (opts.batchId?.trim()) extra.batch_id = opts.batchId.trim()
-  if (opts.intentId?.trim()) extra.intent_id = opts.intentId.trim()
+  const batchId = apiTrimmedString(opts.batchId)
+  const intentId = apiTrimmedString(opts.intentId)
+  if (batchId) extra.batch_id = batchId
+  if (intentId) extra.intent_id = intentId
   return fetchProdJsonGet<ListPacksResponse>(evidenceQueryPath(`${EVIDENCE_BASE}/packs`, extra))
 }
 
 export async function getEvidencePackFull(packId: string): Promise<EvidencePackFull | null> {
-  const pid = packId.trim()
+  const pid = apiTrimmedString(packId)
   if (!pid) return null
   return fetchProdJsonGet<EvidencePackFull>(evidenceQueryPath(`${EVIDENCE_BASE}/packs/${encodeURIComponent(pid)}`))
 }

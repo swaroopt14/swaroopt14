@@ -1,4 +1,5 @@
 import type { GlyphName } from '@/services/payout-command/model'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import type { EvidencePackFull } from '@/services/payout-command/prod-api/evidenceTypes'
 import type {
   EvidencePackGraph,
@@ -63,12 +64,12 @@ function normalizeItemType(t: string): LeafNode['itemType'] {
 }
 
 function leafStatusForItem(it: EvidencePackFull['items'][0]): LeafStatus {
-  if (!it.hash?.trim() && !it.leaf_hash?.trim()) return 'missing'
+  if (!apiTrimmedString(it.hash) && !apiTrimmedString(it.leaf_hash)) return 'missing'
   return 'valid'
 }
 
-function normalizeMode(mode: string): EvidencePackMode {
-  const m = mode.trim().toUpperCase()
+function normalizeMode(mode: unknown): EvidencePackMode {
+  const m = apiTrimmedString(mode).toUpperCase()
   if (m === 'INTELLIGENCE_ATTACH' || m === 'SECONDARY_DISPATCH' || m === 'FULL_CONTROL' || m === 'BATCH_ATTACH') {
     return m as EvidencePackMode
   }
@@ -101,13 +102,14 @@ export function buildEvidencePackGraphFromApi(
     const id = `L${i + 1}`
     const h = it.hash || it.leaf_hash || ''
     const status = leafStatusForItem(it)
-    const itemType = normalizeItemType(it.type)
+    const typeKey = apiTrimmedString(it.type)
+    const itemType = normalizeItemType(typeKey)
     return {
       id,
-      name: humanizeType(it.type),
-      artifact: `${it.type.toLowerCase().replace(/_/g, '-')}.json`,
+      name: humanizeType(typeKey),
+      artifact: `${typeKey.toLowerCase().replace(/_/g, '-')}.json`,
       itemType,
-      stableRef: it.ref || '—',
+      stableRef: apiTrimmedString(it.ref) || '—',
       version: it.schema_version || 'v1',
       sourceService: 'zord-evidence',
       hashFull: h || '—',
@@ -116,8 +118,8 @@ export function buildEvidencePackGraphFromApi(
       source: 'Service 6 — Evidence',
       receivedAt: new Date(pack.created_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }),
       status,
-      impact: `${it.type} · ${it.ref || 'no ref'}`,
-      iconName: iconForType(it.type),
+      impact: `${typeKey} · ${apiTrimmedString(it.ref) || 'no ref'}`,
+      iconName: iconForType(typeKey),
     }
   })
 

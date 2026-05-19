@@ -15,6 +15,7 @@ import type {
   PatternsKpiResponse,
   RecommendationsKpiResponse,
 } from './intelligenceTypes'
+import { apiTrimmedString } from './coerceApiField'
 
 export type IntelligenceKpis = {
   leakage: LeakageKpiResponse | null
@@ -62,7 +63,7 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
         getLeakageKpis(),
         getAmbiguityKpis(),
         getDefensibilityKpis(),
-        getPatternsKpis(batchId?.trim() || undefined),
+        getPatternsKpis(apiTrimmedString(batchId) || undefined),
         getRecommendationsKpis(),
       ])
       if (cancelledRef.current) return

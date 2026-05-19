@@ -43,6 +43,18 @@ export const JOURNAL_KPI_STAT_VALUE_MONO =
 export const COMMAND_CENTER_INSIGHT_GREEN_CARD =
   'rounded-xl bg-gradient-to-br from-[#166534] via-[#16a34a] to-[#22c55e] px-4 py-3.5 shadow-[0_8px_28px_rgba(22,163,74,0.32)] ring-1 ring-white/25'
 
+/** Journal hero — black account-insight style (Intent + Settlement gross value). */
+export const JOURNAL_HERO_BLACK_CARD =
+  'relative overflow-hidden rounded-[20px] border border-white/10 bg-[#0A0A0A] shadow-[0_16px_48px_rgba(0,0,0,0.38)] ring-1 ring-white/10'
+
+/** Dark donut / outcome-mix card (matches account insight carousel density). */
+export const JOURNAL_INSIGHT_DARK_CARD =
+  'relative overflow-hidden rounded-[20px] border border-white/[0.08] bg-[#0B0B0F] shadow-[0_12px_40px_rgba(0,0,0,0.32)] ring-1 ring-white/[0.06]'
+
+export const JOURNAL_INSIGHT_DARK_LABEL = 'text-[13px] font-medium text-white/90'
+export const JOURNAL_INSIGHT_DARK_MUTED = 'text-[12px] font-medium text-white/55'
+export const JOURNAL_INSIGHT_DARK_LEGEND = 'text-[13px] font-medium text-white/80'
+
 export const COMMAND_CENTER_INSIGHT_GREEN_TEXT =
   'text-[13px] font-medium leading-relaxed text-white'
 

@@ -19,15 +19,32 @@ export type IntentEnginePagination = {
   total?: number
 }
 
+export type PaymentIntentGovernance = {
+  semantic_valid?: boolean
+  semantic_errors?: unknown
+  duplicate_detected?: boolean
+  duplicate_reason?: string
+  missing_fields?: unknown
+  low_confidence_fields?: unknown
+  routing_consistent?: boolean
+  execution_window_valid?: boolean
+  policy_flags?: unknown
+}
+
 export type PaymentIntentRecord = {
   intent_id: string
   envelope_id?: string
   tenant_id?: string
+  contract_id?: string
+  trace_id?: string
+  idempotency_key?: string
+  intent_type?: string
   amount?: string | number
   currency?: string
   status?: string
   created_at?: string
   updated_at?: string
+  intended_execution_at?: string
   beneficiary_type?: string
   client_payout_ref?: string
   governance_state?: string
@@ -36,8 +53,16 @@ export type PaymentIntentRecord = {
   aggregate_confidence_score?: number
   constraints?: { execution_window?: string }
   beneficiary?: {
-    instrument?: { kind?: string }
+    country?: string
+    instrument?: { kind?: string; vpa_token?: string; ifsc_token?: string }
+    name_token?: string
   }
+  governance?: PaymentIntentGovernance
+  canonical_snapshot_ref?: string
+  nir_snapshot_ref?: string
+  governance_snapshot_ref?: string
+  governance_hash?: string
+  request_fingerprint?: string
 }
 
 export type IntentEngineBatchesListResponse = {

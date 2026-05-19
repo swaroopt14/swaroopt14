@@ -8,6 +8,7 @@ import {
   HOME_BODY_IMPERIAL,
   HOME_TITLE_BLACK,
 } from '../command-center/homeCommandCenterTokens'
+import { JOURNAL_DM_SANS } from './journalFonts'
 
 /** Page wash — matches Batch Command Center body. */
 export const JOURNAL_PAGE_BG = 'bg-[#f4f4f1]'
@@ -41,7 +42,7 @@ export function JournalOverviewStat({
   mono?: boolean
 }) {
   return (
-    <article className={`relative overflow-hidden ${COMMAND_CENTER_KPI_CARD} !p-4`}>
+    <article className={`relative overflow-hidden ${COMMAND_CENTER_KPI_CARD} !p-4 ${JOURNAL_DM_SANS}`}>
       <CommandCenterCardGlow />
       <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{label}</p>
       <p

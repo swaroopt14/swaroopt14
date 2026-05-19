@@ -27,6 +27,34 @@ export function Glyph({ name, className = '' }: { name: GlyphName; className?: s
       return <svg className={base} viewBox="0 0 20 20" fill="none"><path d="M10 2.5 4.5 4.8v4.5c0 4 2.3 6.3 5.5 8.2 3.2-1.9 5.5-4.2 5.5-8.2V4.8L10 2.5Z" stroke="currentColor" strokeWidth="1.6" /><path d="m7.3 10.1 1.8 1.8 3.6-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
     case 'grid':
       return <svg className={base} viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="5" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.5" /><rect x="12" y="3" width="5" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.5" /><rect x="3" y="12" width="5" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.5" /><rect x="12" y="12" width="5" height="5" rx="1.2" stroke="currentColor" strokeWidth="1.5" /></svg>
+    case 'settlement':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path
+            d="M3.5 11.5 7 8l3 2.5 3.5-3 3 2.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M6.5 14.5h7M8 16.5h4"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <circle cx="7" cy="8" r="1.1" fill="currentColor" />
+          <circle cx="13" cy="10.5" r="1.1" fill="currentColor" />
+        </svg>
+      )
+    case 'billing':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none" aria-hidden>
+          <rect x="3" y="5" width="14" height="10" rx="2" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M3 8.5h14" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M6.5 12h3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      )
     case 'eye':
       return <svg className={base} viewBox="0 0 20 20" fill="none"><path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z" stroke="currentColor" strokeWidth="1.6" /><circle cx="10" cy="10" r="2.4" fill="currentColor" /></svg>
     case 'zap':

@@ -16,7 +16,7 @@ const resourceCards = [
     title: 'Review controls, bank-side visibility, and finance-ready evidence',
     body:
       'Use this path when security, proof, auditability, and operational trust matter before rollout.',
-    href: '/final-landing#security',
+    href: '/#security',
     cta: 'Review security',
   },
   {
@@ -69,7 +69,7 @@ export default function ResourcesPageClient() {
       title="Everything teams need to evaluate, learn, and roll out ZORD."
       description="Use the resource layer to understand the operating model, security posture, commercial fit, and the fastest path to working with the Arealis team."
       primaryAction={{ label: 'Talk to the team', href: 'mailto:hello@arelais.com?subject=ZORD%20resources%20request' }}
-      secondaryAction={{ label: 'Back to product', href: '/final-landing' }}
+      secondaryAction={{ label: 'Back to product', href: '/' }}
       heroVisual={{
         src: '/final-landing/concepts/unified-control-system.png',
         alt: 'Unified control system showing layered operating infrastructure across financial workflows',

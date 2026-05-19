@@ -20,7 +20,7 @@ export function SolutionBrowsePanel({ compact = false }: { compact?: boolean }) 
 
   const activeSolution =
     visibleSolutions.find((entry) => entry.slug === hoveredSlug) ?? visibleSolutions[0] ?? solutionEntries[0]
-  const browseAllHref = '/final-landing#use-cases'
+  const browseAllHref = '/#use-cases'
   const shellClassName = compact
     ? 'p-3 backdrop-blur-[28px]'
     : 'bg-[linear-gradient(180deg,rgba(22,26,34,0.95)_0%,rgba(10,12,18,0.98)_100%)] p-4 sm:p-5'

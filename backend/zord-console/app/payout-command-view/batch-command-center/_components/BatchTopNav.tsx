@@ -31,7 +31,7 @@ export function BatchTopNav({ shell = 'live' }: { shell?: BatchTopNavShell }) {
       <div className="mx-auto grid w-full max-w-[1920px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 px-3 py-2.5 sm:gap-x-3 sm:px-5 sm:py-3 lg:gap-x-4 lg:px-8">
         <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-2.5">
           <Link
-            href="/final-landing"
+            href="/"
             className="flex h-10 shrink-0 items-center gap-2 rounded-lg pr-0.5 transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 sm:h-11 sm:gap-2.5"
             aria-label="Arealis Zord home"
           >

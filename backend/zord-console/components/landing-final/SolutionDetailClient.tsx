@@ -26,7 +26,7 @@ export function SolutionDetailClient({ solution }: { solution: SolutionItem }) {
           <section className="mx-auto max-w-6xl">
             <div className="grid gap-8 lg:grid-cols-[minmax(0,1.02fr)_minmax(340px,0.98fr)] lg:items-end">
               <motion.div initial={{ opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.55 }}>
-                <Link href="/final-landing#use-cases" className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-400 transition hover:text-white">
+                <Link href="/#use-cases" className="inline-flex items-center gap-2 text-[13px] font-semibold text-slate-400 transition hover:text-white">
                   <svg className="h-4 w-4" viewBox="0 0 20 20" fill="none" aria-hidden="true">
                     <path d="M16 10H5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                     <path d="m9.5 5-5 5 5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />

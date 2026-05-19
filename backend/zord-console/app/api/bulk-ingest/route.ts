@@ -41,6 +41,19 @@ export async function POST(req: NextRequest) {
     req.headers.get('batch-id') || req.headers.get('Batch-Id') || req.headers.get('batchid') || req.headers.get('BatchId')
   if (batchId?.trim()) headers['Batch-Id'] = batchId.trim()
 
+  const idempotencyKey =
+    req.headers.get('x-idempotency-key')?.trim() || req.headers.get('X-Idempotency-Key')?.trim()
+  if (idempotencyKey) headers['X-Idempotency-Key'] = idempotencyKey
+
+  const sourceSystem =
+    req.headers.get('x-zord-source-system')?.trim() || req.headers.get('X-Zord-Source-System')?.trim()
+  if (sourceSystem) headers['X-Zord-Source-System'] = sourceSystem
+
+  const forceReprocess =
+    req.headers.get('x-zord-force-reprocess')?.trim().toLowerCase() === 'true' ||
+    req.headers.get('X-Zord-Force-Reprocess')?.trim().toLowerCase() === 'true'
+  if (forceReprocess) headers['X-Zord-Force-Reprocess'] = 'true'
+
   const candidateUrls = candidateEdgeBases().map((base) => `${base.replace(/\/$/, '')}/v1/bulk-ingest`)
   let lastError: unknown = null
   let lastResponse: Response | null = null

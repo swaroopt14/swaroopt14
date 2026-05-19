@@ -63,7 +63,7 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
         {/* Column 1 — brand + mode (never shrinks) */}
         <div className="flex min-w-0 shrink-0 items-center gap-2 sm:gap-2.5">
           <Link
-            href="/final-landing"
+            href="/"
             className="flex h-10 shrink-0 items-center gap-2 rounded-lg pr-0.5 transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 sm:h-11 sm:gap-2.5"
             aria-label="Arealis Zord home"
           >

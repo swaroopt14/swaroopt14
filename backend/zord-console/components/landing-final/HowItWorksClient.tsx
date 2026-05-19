@@ -631,7 +631,7 @@ export default function HowItWorksClient() {
                 </a>
 
                 <Link
-                  href="/final-landing/page"
+                  href="/"
                   className="flex items-center gap-2.5 rounded-full border border-gray-200 bg-white px-6 py-3.5 text-[15px] font-medium text-slate-800 shadow-sm transition-all hover:-translate-y-0.5 hover:bg-gray-50"
                 >
                   Back to landing
@@ -957,7 +957,7 @@ export default function HowItWorksClient() {
 
               <div className="flex flex-wrap gap-4">
                 <Link
-                  href="/final-landing/page"
+                  href="/"
                   className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-6 py-3 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
                 >
                   Back to landing

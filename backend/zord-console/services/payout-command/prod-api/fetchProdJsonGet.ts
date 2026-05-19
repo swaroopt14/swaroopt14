@@ -3,6 +3,8 @@ export type ProdJsonGetResult<T> = {
   ok: boolean
   status: number
   url: string
+  /** Raw body when status is not OK (for UI diagnostics). */
+  errorText?: string
 }
 
 /**
@@ -16,7 +18,8 @@ export async function fetchProdJsonGetWithMeta<T>(url: string): Promise<ProdJson
       cache: 'no-store',
     })
     if (!response.ok) {
-      return { data: null, ok: false, status: response.status, url }
+      const errorText = await response.text()
+      return { data: null, ok: false, status: response.status, url, errorText }
     }
     const data = (await response.json()) as T
     return { data, ok: true, status: response.status, url }

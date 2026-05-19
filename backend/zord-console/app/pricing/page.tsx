@@ -319,7 +319,7 @@ const footerColumns = [
   {
     title: 'Company',
     links: [
-      { label: 'About Zord', href: '/final-landing' },
+      { label: 'About Zord', href: '/' },
       { label: 'Customers', href: '#trust' },
       { label: 'Book demo', href: 'mailto:hello@arelais.com?subject=Book%20Demo%20for%20Zord' },
       { label: 'Contact', href: 'mailto:hello@arelais.com' },
@@ -475,7 +475,7 @@ export default function PricingPage() {
           <div className="pointer-events-none absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-white/30 to-transparent" />
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.05),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(148,163,184,0.08),transparent_28%)]" />
 
-          <Link href="/final-landing" className="relative z-10 shrink-0" aria-label="Zord home">
+          <Link href="/" className="relative z-10 shrink-0" aria-label="Zord home">
             <ZordLogo size="lg" variant="dark" className="w-[170px] sm:w-[210px]" />
           </Link>
 

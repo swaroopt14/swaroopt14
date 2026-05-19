@@ -105,20 +105,73 @@ type Signature struct {
 // EvidencePack is the canonical committed proof bundle for one lifecycle.
 // Mode: INTELLIGENCE_ATTACH | SECONDARY_DISPATCH | FULL_CONTROL
 type EvidencePack struct {
-	EvidencePackID   string            `json:"evidence_pack_id"`
-	TenantID         string            `json:"tenant_id"`
-	IntentID         string            `json:"intent_id"`
-	ContractID       string            `json:"contract_id"`
-	BatchID          string            `json:"batch_id"`
-	Mode             string            `json:"mode"`
-	PackStatus       string            `json:"pack_status"`
-	Items            []EvidenceItem    `json:"items"`
-	MerkleRoot       string            `json:"merkle_root"`
-	RulesetVersion   string            `json:"ruleset_version"`
-	SchemaVersions   map[string]string `json:"schema_versions"`
-	Signatures       []Signature       `json:"signatures"`
-	SupersedesPackID string            `json:"supersedes_pack_id,omitempty"`
-	CreatedAt        time.Time         `json:"created_at"`
+	EvidencePackID                        string            `json:"evidence_pack_id"`
+	TenantID                              string            `json:"tenant_id"`
+	IntentID                              string            `json:"intent_id"`
+	ContractID                            string            `json:"contract_id"`
+	BatchID                               string            `json:"batch_id"`
+	Mode                                  string            `json:"mode"`
+	PackStatus                            string            `json:"pack_status"`
+	Items                                 []EvidenceItem    `json:"items"`
+	MerkleRoot                            string            `json:"merkle_root"`
+	RulesetVersion                        string            `json:"ruleset_version"`
+	SchemaVersions                        map[string]string `json:"schema_versions"`
+	Signatures                            []Signature       `json:"signatures"`
+	SupersedesPackID                      string            `json:"supersedes_pack_id,omitempty"`
+	PackCompletenessScore                 float64           `json:"pack_completeness_score"`
+	LeafCount                             int               `json:"leaf_count"`
+	RequiredLeafCount                     int               `json:"required_leaf_count"`
+	SettlementLeafPresentFlag             bool              `json:"settlement_leaf_present_flag"`
+	AttachmentDecisionLeafPresentFlag     bool              `json:"attachment_decision_leaf_present_flag"`
+	CreatedAt                             time.Time         `json:"created_at"`
+}
+
+func (p *EvidencePack) ComputeCompletenessMetadata() {
+	hasRawSettlementFile := false
+	hasRawSettlementLine := false
+	hasCanonicalSettlementObs := false
+	hasAttachmentDecision := false
+	hasVarianceDecision := false
+	hasBatchAttachmentSummary := false
+	hasBatchVarianceSummary := false
+
+	for _, item := range p.Items {
+		switch item.Type {
+		case LeafTypeRawSettlementFile:
+			hasRawSettlementFile = true
+		case LeafTypeRawSettlementLine:
+			hasRawSettlementLine = true
+		case LeafTypeCanonicalSettlementObservation:
+			hasCanonicalSettlementObs = true
+		case LeafTypeAttachmentDecision:
+			hasAttachmentDecision = true
+		case LeafTypeVarianceDecision:
+			hasVarianceDecision = true
+		case LeafTypeBatchAttachmentSummary:
+			hasBatchAttachmentSummary = true
+		case LeafTypeBatchVarianceSummary:
+			hasBatchVarianceSummary = true
+		}
+	}
+
+	p.LeafCount = len(p.Items)
+
+	if p.BatchID != "" {
+		p.RequiredLeafCount = 6
+		p.SettlementLeafPresentFlag = hasRawSettlementFile
+		p.AttachmentDecisionLeafPresentFlag = hasBatchAttachmentSummary && hasBatchVarianceSummary
+	} else {
+		p.RequiredLeafCount = 9
+		p.SettlementLeafPresentFlag = hasRawSettlementFile && hasRawSettlementLine && hasCanonicalSettlementObs
+		p.AttachmentDecisionLeafPresentFlag = hasAttachmentDecision && hasVarianceDecision
+	}
+
+	if p.RequiredLeafCount > 0 {
+		p.PackCompletenessScore = float64(p.LeafCount) / float64(p.RequiredLeafCount)
+		if p.PackCompletenessScore > 1.0 {
+			p.PackCompletenessScore = 1.0
+		}
+	}
 }
 
 // GenerateEvidenceRequest: upstream services supply all proof artifact items.
@@ -185,17 +238,22 @@ type ListPacksResponse struct {
 }
 
 type EvidencePackSummary struct {
-	EvidencePackID   string    `json:"evidence_pack_id"`
-	TenantID         string    `json:"tenant_id"`
-	IntentID         string    `json:"intent_id"`
-	ContractID       string    `json:"contract_id"`
-	BatchID          string    `json:"batch_id,omitempty"`
-	Mode             string    `json:"mode"`
-	PackStatus       string    `json:"pack_status"`
-	MerkleRoot       string    `json:"merkle_root"`
-	RulesetVersion   string    `json:"ruleset_version"`
-	SupersedesPackID string    `json:"supersedes_pack_id,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
+	EvidencePackID                        string    `json:"evidence_pack_id"`
+	TenantID                              string    `json:"tenant_id"`
+	IntentID                              string    `json:"intent_id"`
+	ContractID                            string    `json:"contract_id"`
+	BatchID                               string    `json:"batch_id,omitempty"`
+	Mode                                  string    `json:"mode"`
+	PackStatus                            string    `json:"pack_status"`
+	MerkleRoot                            string    `json:"merkle_root"`
+	RulesetVersion                        string    `json:"ruleset_version"`
+	SupersedesPackID                      string    `json:"supersedes_pack_id,omitempty"`
+	PackCompletenessScore                 float64   `json:"pack_completeness_score"`
+	LeafCount                             int       `json:"leaf_count"`
+	RequiredLeafCount                     int       `json:"required_leaf_count"`
+	SettlementLeafPresentFlag             bool      `json:"settlement_leaf_present_flag"`
+	AttachmentDecisionLeafPresentFlag     bool      `json:"attachment_decision_leaf_present_flag"`
+	CreatedAt                             time.Time `json:"created_at"`
 }
 
 // ReplayJob is the §14.5 evidence_replay_jobs row.

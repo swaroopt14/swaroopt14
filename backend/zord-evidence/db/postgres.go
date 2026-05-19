@@ -68,6 +68,11 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			supersedes_pack_id    TEXT,
 			replay_equivalence_status TEXT,
 			replay_notes          TEXT,
+			pack_completeness_score DOUBLE PRECISION NOT NULL DEFAULT 0,
+			leaf_count              INT NOT NULL DEFAULT 0,
+			required_leaf_count     INT NOT NULL DEFAULT 0,
+			settlement_leaf_present_flag BOOLEAN NOT NULL DEFAULT FALSE,
+			attachment_decision_leaf_present_flag BOOLEAN NOT NULL DEFAULT FALSE,
 			created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,

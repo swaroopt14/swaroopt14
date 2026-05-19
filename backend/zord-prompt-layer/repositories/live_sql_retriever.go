@@ -15,6 +15,7 @@ import (
 )
 
 var uuidRegex = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var batchHintRe = regexp.MustCompile(`(?i)\bbatch(?:_id| id)?\s*[:=]?\s*([A-Za-z0-9._:-]+)\b`)
 
 type LiveSQLRetriever struct {
 	edgeDB         *sql.DB
@@ -43,9 +44,27 @@ func isFailureQuery(q string) bool {
 		strings.Contains(s, "error") ||
 		strings.Contains(s, "dlq")
 }
+func isBatchQuery(q string) bool {
+	s := strings.ToLower(q)
+	return strings.Contains(s, "batch") || strings.Contains(s, "csv") || strings.Contains(s, "upload")
+}
 
+func extractBatchHint(q string) string {
+	m := batchHintRe.FindStringSubmatch(q)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
 func (r *LiveSQLRetriever) Retrieve(req dto.QueryRequest, intentID, traceID string, topK int, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
 	tenantID := ""
+	effectiveTopK := topK
+	if effectiveTopK <= 0 {
+		effectiveTopK = 5
+	}
+	if isBatchQuery(req.Query) && effectiveTopK < 25 {
+		effectiveTopK = 25
+	}
 	if strings.TrimSpace(req.TenantID) != "" {
 		resolved, err := r.resolveTenantID(req.TenantID)
 		if err != nil {
@@ -59,41 +78,51 @@ func (r *LiveSQLRetriever) Retrieve(req dto.QueryRequest, intentID, traceID stri
 	}
 
 	failureOnly := isFailureQuery(req.Query)
-	chunks := make([]model.RetrievedChunk, 0, topK*4)
+	chunks := make([]model.RetrievedChunk, 0, effectiveTopK*4)
 
 	if r.edgeDB != nil {
-		if c, err := r.fetchFromEdge(tenantID, traceID, topK, failureOnly, scope); err == nil {
+		if c, err := r.fetchFromEdge(tenantID, traceID, effectiveTopK, failureOnly, scope); err == nil {
 			chunks = append(chunks, c...)
 		}
 
 	}
 	if r.intentDB != nil {
-		if c, err := r.fetchFromIntent(tenantID, intentID, traceID, topK, failureOnly, scope); err == nil {
+		if c, err := r.fetchFromIntent(tenantID, intentID, traceID, effectiveTopK, failureOnly, scope); err == nil {
 			chunks = append(chunks, c...)
 		}
-		if d, err := r.fetchFromIntentDLQ(tenantID, topK, scope); err == nil {
+		if d, err := r.fetchFromIntentDLQ(tenantID, effectiveTopK, scope); err == nil {
 			chunks = append(chunks, d...)
+		}
+		if b, err := r.fetchBatchIntentSummary(tenantID, req.Query, scope); err == nil {
+			chunks = append(chunks, b...)
 		}
 	}
 	if r.relayDB != nil {
-		if c, err := r.fetchFromRelay(tenantID, intentID, traceID, topK, failureOnly, scope); err == nil {
+		if c, err := r.fetchFromRelay(tenantID, intentID, traceID, effectiveTopK, failureOnly, scope); err == nil {
 			chunks = append(chunks, c...)
 		}
 	}
 
 	if r.intelligenceDB != nil {
-		if c, err := r.fetchFromIntelligence(tenantID, topK, failureOnly, scope); err == nil {
+		if c, err := r.fetchFromIntelligence(tenantID, effectiveTopK, failureOnly, scope); err == nil {
 			chunks = append(chunks, c...)
 		}
 	}
 
 	if r.evidenceDB != nil {
-		if c, err := r.fetchFromEvidence(tenantID, topK, failureOnly, scope); err == nil {
+		if c, err := r.fetchFromEvidence(tenantID, effectiveTopK, failureOnly, scope); err == nil {
 			chunks = append(chunks, c...)
 		}
 	}
 
-	chunks = rankAndTrimBalanced(chunks, topK)
+	finalTopK := topK
+	if finalTopK <= 0 {
+		finalTopK = 5
+	}
+	if isBatchQuery(req.Query) && finalTopK < 20 {
+		finalTopK = 20
+	}
+	chunks = rankAndTrimBalanced(chunks, finalTopK)
 	return chunks, nil
 
 }
@@ -598,6 +627,152 @@ func (r *LiveSQLRetriever) fetchFromIntent(tenantID, intentID, traceID string, t
 		})
 	}
 	return out, rows2.Err()
+}
+func (r *LiveSQLRetriever) fetchBatchIntentSummary(tenantID, userQuery string, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
+	batchID := extractBatchHint(userQuery)
+	if tenantID == "" {
+		return []model.RetrievedChunk{}, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
+	defer cancel()
+
+	out := make([]model.RetrievedChunk, 0, 3)
+
+	if batchID != "" {
+		// Specific batch aggregate snapshot
+		{
+			var received, canonicalized, dlqCount, reviewCount, lowMatch, lowProof, dupRisk int
+			var successRate, avgQuality, batchQuality, updatedAt sql.NullString
+
+			err := r.intentDB.QueryRowContext(ctx, `
+				SELECT
+					received_count,
+					canonicalized_count,
+					dlq_count,
+					review_count,
+					low_matchability_count,
+					low_proof_readiness_count,
+					duplicate_risk_count,
+					canonicalization_success_rate::text,
+					avg_intent_quality_score::text,
+					batch_quality_score::text,
+					updated_at::text
+				FROM canonical_batches
+				WHERE tenant_id::text = $1 AND batch_id = $2
+				AND ($3::timestamptz IS NULL OR updated_at >= $3)
+				AND ($4::timestamptz IS NULL OR updated_at < $4)
+				LIMIT 1
+			`, tenantID, batchID, nullableTS(scope.StartUTC, scope.HasExplicitTime), nullableTS(scope.EndUTC, scope.HasExplicitTime)).Scan(
+				&received, &canonicalized, &dlqCount, &reviewCount, &lowMatch, &lowProof, &dupRisk,
+				&successRate, &avgQuality, &batchQuality, &updatedAt,
+			)
+
+			if err == nil {
+				out = append(out, model.RetrievedChunk{
+					SourceType: "intent_canonical_batches",
+					Score:      1.0,
+					Text: fmt.Sprintf(
+						"Batch quality summary: batch_id=%s received=%d canonicalized=%d dlq=%d review=%d low_matchability=%d low_proof_readiness=%d duplicate_risk_count=%d canonicalization_success_rate=%s avg_intent_quality_score=%s batch_quality_score=%s updated_at=%s",
+						batchID, received, canonicalized, dlqCount, reviewCount, lowMatch, lowProof, dupRisk,
+						nullText(successRate), nullText(avgQuality), nullText(batchQuality), nullText(updatedAt),
+					),
+				})
+			}
+		}
+	} else {
+		// No explicit batch_id in query: include latest tenant batch snapshots for broader batch CSV context.
+		rows, err := r.intentDB.QueryContext(ctx, `
+			SELECT batch_id, received_count, canonicalized_count, dlq_count, review_count, batch_quality_score::text, updated_at::text
+			FROM canonical_batches
+			WHERE tenant_id::text = $1
+			  AND ($2::timestamptz IS NULL OR updated_at >= $2)
+			  AND ($3::timestamptz IS NULL OR updated_at < $3)
+			ORDER BY updated_at DESC
+			LIMIT 5
+		`, tenantID, nullableTS(scope.StartUTC, scope.HasExplicitTime), nullableTS(scope.EndUTC, scope.HasExplicitTime))
+		if err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var id string
+				var received, canonicalized, dlqCount, reviewCount int
+				var batchQuality, updatedAt sql.NullString
+				if scanErr := rows.Scan(&id, &received, &canonicalized, &dlqCount, &reviewCount, &batchQuality, &updatedAt); scanErr != nil {
+					continue
+				}
+				out = append(out, model.RetrievedChunk{
+					SourceType: "intent_canonical_batches_recent",
+					Score:      0.98,
+					Text: fmt.Sprintf(
+						"Recent batch summary: batch_id=%s received=%d canonicalized=%d dlq=%d review=%d batch_quality_score=%s updated_at=%s",
+						id, received, canonicalized, dlqCount, reviewCount, nullText(batchQuality), nullText(updatedAt),
+					),
+				})
+			}
+		}
+	}
+
+	// Per-status distribution across intents (specific batch when provided, else tenant window)
+	{
+		var (
+			rows *sql.Rows
+			err  error
+		)
+		if batchID != "" {
+			rows, err = r.intentDB.QueryContext(ctx, `
+				SELECT status, COUNT(*)::int
+				FROM payment_intents
+				WHERE tenant_id::text = $1 AND batchid = $2
+				  AND ($3::timestamptz IS NULL OR created_at >= $3)
+				  AND ($4::timestamptz IS NULL OR created_at < $4)
+				GROUP BY status
+				ORDER BY COUNT(*) DESC
+			`, tenantID, batchID, nullableTS(scope.StartUTC, scope.HasExplicitTime), nullableTS(scope.EndUTC, scope.HasExplicitTime))
+		} else {
+			rows, err = r.intentDB.QueryContext(ctx, `
+				SELECT status, COUNT(*)::int
+				FROM payment_intents
+				WHERE tenant_id::text = $1
+				  AND ($2::timestamptz IS NULL OR created_at >= $2)
+				  AND ($3::timestamptz IS NULL OR created_at < $3)
+				GROUP BY status
+				ORDER BY COUNT(*) DESC
+			`, tenantID, nullableTS(scope.StartUTC, scope.HasExplicitTime), nullableTS(scope.EndUTC, scope.HasExplicitTime))
+		}
+		if err == nil {
+			defer rows.Close()
+			parts := make([]string, 0, 8)
+			total := 0
+			for rows.Next() {
+				var status string
+				var cnt int
+				if err := rows.Scan(&status, &cnt); err != nil {
+					continue
+				}
+				total += cnt
+				parts = append(parts, fmt.Sprintf("%s=%d", status, cnt))
+			}
+			if len(parts) > 0 {
+				label := "Tenant batch intent distribution"
+				if batchID != "" {
+					label = "Batch intent distribution: batch_id=" + batchID
+				}
+				out = append(out, model.RetrievedChunk{
+					SourceType: "intent_batch_status_distribution",
+					Score:      0.99,
+					Text:       fmt.Sprintf("%s total_intents=%d status_breakdown=%s", label, total, strings.Join(parts, ", ")),
+				})
+			}
+		}
+	}
+
+	return out, nil
+}
+
+func nullableTS(t time.Time, enabled bool) any {
+	if !enabled {
+		return nil
+	}
+	return t
 }
 func (r *LiveSQLRetriever) fetchFromIntentDLQ(tenantID string, topK int, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)

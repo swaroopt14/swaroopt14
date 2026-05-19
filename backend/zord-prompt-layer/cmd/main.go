@@ -46,7 +46,11 @@ func main() {
 	geminiClient := client.NewGeminiClient(keys, cfg.GeminiModel, cfg.GeminiBaseURL)
 
 	llmService := services.NewLLMService(geminiClient)
-
+	intelligenceClient := client.NewIntelligenceClient(cfg.IntelligenceAPIBaseURL, cfg.IntelligenceAPITimeoutS)
+	memoryStore, err := repositories.NewRedisChatMemoryStore(cfg.RedisURL, cfg.MemoryTTLSeconds, cfg.MemoryMaxTurns)
+	if err != nil {
+		log.Fatalf("failed connecting redis memory store: %v", err)
+	}
 	edgeDB := mustOpenReadOnlyDB("edge", cfg.EdgeReadDSN)
 	intentDB := mustOpenReadOnlyDB("intent-engine", cfg.IntentReadDSN)
 	relayDB := mustOpenReadOnlyDB("relay", cfg.RelayReadDSN)
@@ -54,7 +58,7 @@ func main() {
 	intelligenceDB := mustOpenReadOnlyDB("intelligence", cfg.IntelligenceReadDSN)
 	evidenceDB := mustOpenReadOnlyDB("evidence", cfg.EvidenceReadDSN)
 	retriever := repositories.NewLiveSQLRetriever(edgeDB, intentDB, relayDB, intelligenceDB, evidenceDB)
-	ragService := services.NewDefaultRAGService(cfg.GeminiModel, cfg.DefaultTopK, retriever, llmService)
+	ragService := services.NewDefaultRAGService(cfg.GeminiModel, cfg.DefaultTopK, retriever, llmService, intelligenceClient, memoryStore)
 	queryHandler := handler.NewQueryHandler(ragService)
 
 	routes.Register(router, healthHandler, queryHandler)
@@ -84,7 +88,7 @@ func corsMiddleware() gin.HandlerFunc {
 			c.Header("Vary", "Origin")
 		}
 		c.Header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tenant-ID")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Tenant-ID, X-User-ID, X-Session-ID")
 		c.Header("Access-Control-Allow-Credentials", "true")
 
 		if c.Request.Method == http.MethodOptions {

@@ -10,7 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const TenantIDContextKey = "tenant_id"
+const (
+	TenantIDContextKey = "tenant_id"
+	UserIDContextKey   = "user_id"
+)
 
 var tenantUUIDRe = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
@@ -45,10 +48,62 @@ func TenantContextMiddleware() gin.HandlerFunc {
 		}
 
 		c.Set(TenantIDContextKey, strings.ToLower(tenantID))
+		userID := strings.TrimSpace(c.GetHeader("X-User-ID"))
+		if userID == "" {
+			userID = extractUserFromBearer(c.GetHeader("Authorization"))
+		}
+		if strings.TrimSpace(userID) == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{
+				"error":   "unauthorized",
+				"details": "Missing user context. Please login again.",
+			})
+			c.Abort()
+			return
+		}
+		c.Set(UserIDContextKey, strings.ToLower(strings.TrimSpace(userID)))
 		c.Next()
 	}
 }
+func extractUserFromBearer(authHeader string) string {
+	authHeader = strings.TrimSpace(authHeader)
+	if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {
+		return ""
+	}
+	token := strings.TrimSpace(authHeader[len("Bearer "):])
+	parts := strings.Split(token, ".")
+	if len(parts) < 2 {
+		return ""
+	}
 
+	payloadJSON, err := decodeBase64URL(parts[1])
+	if err != nil {
+		return ""
+	}
+
+	var claims map[string]any
+	if err := json.Unmarshal(payloadJSON, &claims); err != nil {
+		return ""
+	}
+
+	candidates := []string{"user_id", "userId", "uid", "sub", "email"}
+	for _, key := range candidates {
+		if v, ok := claims[key]; ok {
+			if s, ok := v.(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+
+	if sess, ok := claims["session"].(map[string]any); ok {
+		if v, ok := sess["user_id"]; ok {
+			if s, ok := v.(string); ok {
+				return strings.TrimSpace(s)
+			}
+		}
+	}
+
+	return ""
+}
 func extractTenantFromBearer(authHeader string) string {
 	authHeader = strings.TrimSpace(authHeader)
 	if !strings.HasPrefix(strings.ToLower(authHeader), "bearer ") {

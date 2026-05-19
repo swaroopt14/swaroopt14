@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -62,6 +63,30 @@ type actionListResponse struct {
 		Confidence any    `json:"confidence"`
 	} `json:"actions"`
 }
+type RCAClustersResponse struct {
+	TenantID         string            `json:"tenant_id"`
+	IntelligenceMode string            `json:"intelligence_mode"`
+	SnapshotID       string            `json:"snapshot_id"`
+	ModelVersion     *string           `json:"model_version,omitempty"`
+	ClusterCount     int               `json:"cluster_count"`
+	ClusteredPoints  int               `json:"clustered_points"`
+	NoisePoints      int               `json:"noise_points"`
+	TotalPoints      int               `json:"total_points"`
+	ReturnedClusters int               `json:"returned_clusters"`
+	Clusters         []json.RawMessage `json:"clusters"`
+	DataAvailable    bool              `json:"data_available"`
+	Reason           string            `json:"reason,omitempty"`
+}
+type RCAOverviewResponse struct {
+	IntelligenceMode string          `json:"intelligence_mode"`
+	TenantID         string          `json:"tenant_id"`
+	SnapshotType     string          `json:"snapshot_type"`
+	SnapshotID       string          `json:"snapshot_id,omitempty"`
+	ModelVersion     *string         `json:"model_version,omitempty"`
+	DataAvailable    bool            `json:"data_available"`
+	Reason           string          `json:"reason,omitempty"`
+	Data             json.RawMessage `json:"data"`
+}
 
 func NewIntelligenceClient(baseURL string, timeoutSec int) *IntelligenceClient {
 	if timeoutSec <= 0 {
@@ -78,9 +103,11 @@ func (c *IntelligenceClient) doGetJSON(path string, q url.Values, out any) error
 	if len(q) > 0 {
 		u += "?" + q.Encode()
 	}
-
 	maxRetries := 2
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
+		start := time.Now()
+		log.Printf("[prompt-layer][intelligence] GET start path=%s query=%s attempt=%d", path, q.Encode(), attempt+1)
 		req, err := http.NewRequest(http.MethodGet, u, nil)
 		if err != nil {
 			return err
@@ -88,12 +115,16 @@ func (c *IntelligenceClient) doGetJSON(path string, q url.Values, out any) error
 
 		resp, err := c.HTTP.Do(req)
 		if err != nil {
+			log.Printf("[prompt-layer][intelligence] GET transport_error path=%s attempt=%d err=%v duration_ms=%d",
+				path, attempt+1, err, time.Since(start).Milliseconds())
 			if attempt < maxRetries {
 				time.Sleep(backoff(attempt))
 				continue
 			}
 			return err
 		}
+		log.Printf("[prompt-layer][intelligence] GET response path=%s status=%d attempt=%d duration_ms=%d",
+			path, resp.StatusCode, attempt+1, time.Since(start).Milliseconds())
 
 		raw, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
@@ -103,8 +134,10 @@ func (c *IntelligenceClient) doGetJSON(path string, q url.Values, out any) error
 				resp.StatusCode == http.StatusServiceUnavailable ||
 				resp.StatusCode == http.StatusBadGateway ||
 				resp.StatusCode == http.StatusGatewayTimeout
-
+			log.Printf("[prompt-layer][intelligence] GET failed path=%s status=%d retriable=%t attempt=%d body=%s",
+				path, resp.StatusCode, retriable, attempt+1, string(raw))
 			if retriable && attempt < maxRetries {
+				log.Printf("[prompt-layer][intelligence] GET retrying path=%s next_attempt=%d", path, attempt+2)
 				time.Sleep(backoff(attempt))
 				continue
 			}
@@ -223,4 +256,31 @@ func (c *IntelligenceClient) FetchPendingApprovalSummary(tenantID string) (*Pend
 		return nil, err
 	}
 	return &out.Summary, nil
+}
+func (c *IntelligenceClient) FetchRCAClusters(tenantID string) (*RCAClustersResponse, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, nil
+	}
+	q := url.Values{}
+	q.Set("tenant_id", tenantID)
+
+	var out RCAClustersResponse
+	if err := c.doGetJSON("/v1/intelligence/rca/clusters", q, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func (c *IntelligenceClient) FetchRCAOverview(tenantID string) (*RCAOverviewResponse, error) {
+	if strings.TrimSpace(tenantID) == "" {
+		return nil, nil
+	}
+	q := url.Values{}
+	q.Set("tenant_id", tenantID)
+
+	var out RCAOverviewResponse
+	if err := c.doGetJSON("/v1/intelligence/rca", q, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
 }

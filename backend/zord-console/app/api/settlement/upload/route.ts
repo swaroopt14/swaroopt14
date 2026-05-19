@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { applyAuthCookies } from '@/services/auth/server'
 import {
   applyRefreshedSessionCookies,
-  requireSessionTenantForProdProxy,
-  resolveProxyForwardAuthorization,
+  resolveSettlementUploadContext,
 } from '@/services/auth/resolvePayoutTenant.server'
 
 export const dynamic = 'force-dynamic'
@@ -27,25 +26,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Expected multipart/form-data with file.' }, { status: 400 })
   }
 
-  const gate = await requireSessionTenantForProdProxy(req)
-  if (!gate.ok) return gate.response
+  const ctx = await resolveSettlementUploadContext(
+    req,
+    process.env.ZORD_SETTLEMENT_API_KEY ?? process.env.ZORD_BULK_INGEST_API_KEY,
+  )
+  if (!ctx.ok) return ctx.response
 
   const psp = req.nextUrl.searchParams.get('psp')
   if (!psp?.trim()) {
     return NextResponse.json({ error: 'Query parameter psp is required.' }, { status: 400 })
   }
 
-  const authResolution = await resolveProxyForwardAuthorization(
-    req,
-    process.env.ZORD_SETTLEMENT_API_KEY ?? process.env.ZORD_BULK_INGEST_API_KEY,
-  )
-  if (!authResolution.ok) return authResolution.response
-
   const bodyBuffer = Buffer.from(await req.arrayBuffer())
   const batchId =
     req.headers.get('batch-id') || req.headers.get('Batch-Id') || req.headers.get('batchid') || req.headers.get('BatchId')
   const upstreamParams = new URLSearchParams({
-    tenant_id: gate.tenantId,
+    tenant_id: ctx.tenantId,
     psp: psp.trim(),
   })
   if (batchId?.trim()) upstreamParams.set('batch_id', batchId.trim())
@@ -53,7 +49,7 @@ export async function POST(req: NextRequest) {
 
   const headers: Record<string, string> = {
     'content-type': contentType,
-    authorization: authResolution.authorization,
+    authorization: ctx.authorization,
   }
 
   if (batchId?.trim()) headers['Batch-Id'] = batchId.trim()
@@ -80,10 +76,10 @@ export async function POST(req: NextRequest) {
         'cache-control': 'no-store, max-age=0',
       },
     })
-    if (authResolution.refreshedPayload) {
-      applyAuthCookies(res, authResolution.refreshedPayload)
+    if (ctx.refreshedPayload) {
+      applyAuthCookies(res, ctx.refreshedPayload)
     }
-    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    applyRefreshedSessionCookies(res, ctx.refreshedPayload)
     return res
   } catch (error) {
     lastError = error
@@ -97,7 +93,7 @@ export async function POST(req: NextRequest) {
     },
     { status: 502 },
   )
-  if (authResolution.refreshedPayload) applyAuthCookies(res, authResolution.refreshedPayload)
-  applyRefreshedSessionCookies(res, gate.refreshedPayload)
+  if (ctx.refreshedPayload) applyAuthCookies(res, ctx.refreshedPayload)
+  applyRefreshedSessionCookies(res, ctx.refreshedPayload)
   return res
 }

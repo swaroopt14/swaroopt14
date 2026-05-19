@@ -69,12 +69,25 @@ export async function postIntentBulkIngest(params: PostIntentBulkIngestParams): 
   if (sourceSystem) headers['X-Zord-Source-System'] = sourceSystem
   if (params.forceReprocess) headers['X-Zord-Force-Reprocess'] = 'true'
 
-  const response = await fetch(path, {
-    method: 'POST',
-    headers,
-    body: formData,
-    credentials: 'include',
-  })
+  let response: Response
+  try {
+    response = await fetch(path, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Network request failed'
+    return {
+      ok: false,
+      httpStatus: 0,
+      responseText: '',
+      batchIdFromBody: null,
+      errorMessage: `${msg}. Check zord-edge is running (default :8080) or set ZORD_EDGE_URL.`,
+      requestPath: path,
+    }
+  }
   const responseText = await response.text()
   const batchIdFromBody = extractBatchIdFromBulkIngestResponse(responseText)
 

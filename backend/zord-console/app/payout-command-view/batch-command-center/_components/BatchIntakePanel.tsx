@@ -109,22 +109,34 @@ export function BatchIntakePanel({
   const settlementCredentialsReady = useMemo(
     () =>
       tenantReady &&
+      tenantId.trim().length > 0 &&
       psp.trim().length > 0 &&
       settlementBatchIdResolved.length > 0 &&
       (intentIngestOk || hasManualOrServerBatchId),
-    [hasManualOrServerBatchId, intentIngestOk, psp, settlementBatchIdResolved, tenantReady],
+    [hasManualOrServerBatchId, intentIngestOk, psp, settlementBatchIdResolved, tenantId, tenantReady],
   )
 
   const settlementBlockedReason = useMemo(() => {
     if (settlementCredentialsReady) return null
-    if (!tenantReady) return 'Sign in (session tenant required) — use the scope bar above.'
+    if (!tenantReady) return 'Resolving session…'
+    if (!tenantId.trim()) {
+      return 'No tenant id — sign in, click Fetch tenant id in the scope bar, or paste your API key in Settings.'
+    }
     if (!psp.trim()) return 'Enter PSP (razorpay or cashfree).'
     if (!settlementBatchIdResolved) return 'Complete Step 1 or enter Batch-Id above.'
     if (!intentIngestOk && !hasManualOrServerBatchId) {
       return 'Finish Step 1 successfully, or type a server Batch-Id before settlement upload.'
     }
     return null
-  }, [hasManualOrServerBatchId, intentIngestOk, psp, settlementBatchIdResolved, settlementCredentialsReady, tenantReady])
+  }, [
+    hasManualOrServerBatchId,
+    intentIngestOk,
+    psp,
+    settlementBatchIdResolved,
+    settlementCredentialsReady,
+    tenantId,
+    tenantReady,
+  ])
   const settlementBusy = intakeStep === 'settlement_uploading'
   const settlementFilePickerEnabled = settlementCredentialsReady && !settlementBusy
   const settlementUploadEnabled =
@@ -195,7 +207,9 @@ export function BatchIntakePanel({
         forceReprocess: bulkForceReprocess,
       })
       if (!result.ok) {
-        throw new Error(result.errorMessage ?? `HTTP ${result.httpStatus}`)
+        const detail = result.errorMessage?.trim() || `HTTP ${result.httpStatus}`
+        const extra = result.responseText.trim().slice(0, 280)
+        throw new Error(extra && !detail.includes(extra) ? `${detail} — ${extra}` : detail)
       }
       const ingestAckParsed = parseBulkIngestAcceptedResponse(result.responseText)
       setIntentBulkIngestAck({

@@ -55,6 +55,13 @@ type OutboxEvent struct {
 	BatchID *string `json:"batchid,omitempty"`
 
 	FileContentHash *string `json:"file_content_hash,omitempty"`
+
+	DuplicateRiskFlag bool `json:"duplicate_risk_flag,omitempty"`
+	IntentQualityScore float64 `json:"intent_quality_score,omitempty"`
+	MatchabilityScore float64 `json:"matchability_score,omitempty"`
+	ProofReadinessScore float64 `json:"proof_readiness_score,omitempty"`
+	BeneficiaryFingerprint string `json:"beneficiary_fingerprint,omitempty"`
+	IntendedExecutionAt *time.Time `json:"intended_execution_at,omitempty"`
 }
 
 // LeaseResponse is what the upstream /lease endpoint returns.

@@ -210,6 +210,11 @@ type EvidencePackReadyEvent struct {
 	MerkleRoot     string    `json:"merkle_root"` // cryptographic proof of evidence contents
 	OccurredAt     time.Time `json:"occurred_at"`
 	TraceID        string    `json:"trace_id"`
+	PackCompletenessScore float64 `json:"pack_completeness_score"`
+	LeafCount int `json:"leaf_count"`
+	RequiredLeafCount int `json:"required_leaf_count"`
+	SettlementLeafPresentFlag bool `json:"settlement_leaf_present_flag"`
+	AttachmentDecisionLeafPresentFlag bool `json:"attachment_decision_leaf_present_flag"`
 }
 
 // ── Event 7: from any service's Dead Letter Queue ─────────────────────────────

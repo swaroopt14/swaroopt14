@@ -9,10 +9,17 @@ import {
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
+/** Outcome-engine settlement ingest (default local: :8081). */
 function settlementBase() {
   if (process.env.ZORD_SETTLEMENT_URL) return process.env.ZORD_SETTLEMENT_URL.replace(/\/$/, '')
   return 'http://localhost:8081'
 }
+
+/**
+ * Proxies browser multipart upload to:
+ * POST /v1/settlement/upload?tenant_id=<session>&psp=<query>&batch_id=<header optional>
+ * Headers: Batch-Id, X-Zord-Force-Reprocess, X-Zord-Force-Reprocess-Reason, Authorization
+ */
 
 export async function POST(req: NextRequest) {
   const contentType = req.headers.get('content-type')
@@ -35,15 +42,20 @@ export async function POST(req: NextRequest) {
   if (!authResolution.ok) return authResolution.response
 
   const bodyBuffer = Buffer.from(await req.arrayBuffer())
-  const url = `${settlementBase()}/v1/settlement/upload?tenant_id=${encodeURIComponent(gate.tenantId)}&psp=${encodeURIComponent(psp.trim())}`
+  const batchId =
+    req.headers.get('batch-id') || req.headers.get('Batch-Id') || req.headers.get('batchid') || req.headers.get('BatchId')
+  const upstreamParams = new URLSearchParams({
+    tenant_id: gate.tenantId,
+    psp: psp.trim(),
+  })
+  if (batchId?.trim()) upstreamParams.set('batch_id', batchId.trim())
+  const url = `${settlementBase()}/v1/settlement/upload?${upstreamParams.toString()}`
 
   const headers: Record<string, string> = {
     'content-type': contentType,
     authorization: authResolution.authorization,
   }
 
-  const batchId =
-    req.headers.get('batch-id') || req.headers.get('Batch-Id') || req.headers.get('batchid') || req.headers.get('BatchId')
   if (batchId?.trim()) headers['Batch-Id'] = batchId.trim()
 
   const force = req.headers.get('x-zord-force-reprocess') ?? 'true'

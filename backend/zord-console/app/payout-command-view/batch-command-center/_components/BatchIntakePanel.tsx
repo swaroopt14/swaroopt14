@@ -12,7 +12,10 @@ import {
 import { parseUploadedSheet, type BatchRow, type ZordPipelineIntake } from '@/services/payout-command/batch-model'
 import { postIntentBulkIngest } from '@/services/payout-command/batch-intake/postIntentBulkIngest'
 import { parseBulkIngestAcceptedResponse, type ParsedBulkIngestAccepted } from '@/services/payout-command/batch-intake/intakeHttpShared'
-import { postSettlementFileUpload } from '@/services/payout-command/batch-intake/postSettlementFileUpload'
+import {
+  postSettlementFileUpload,
+  SETTLEMENT_FILE_ACCEPT,
+} from '@/services/payout-command/batch-intake/postSettlementFileUpload'
 import { CreatePaymentRequestForm } from '../../../customer/intents/create/page'
 
 function bulkIngestSourceTypeFromFilename(filename: string): string {
@@ -97,10 +100,31 @@ export function BatchIntakePanel({
     [batchIdInput, settlementBatchId],
   )
 
+  const hasManualOrServerBatchId = useMemo(() => {
+    if (batchIdInput.trim()) return true
+    if (settlementBatchId && !settlementBatchId.startsWith('LOCAL-')) return true
+    return false
+  }, [batchIdInput, settlementBatchId])
+
   const settlementCredentialsReady = useMemo(
-    () => tenantReady && psp.trim().length > 0 && settlementBatchIdResolved.length > 0,
-    [psp, settlementBatchIdResolved, tenantReady],
+    () =>
+      tenantReady &&
+      psp.trim().length > 0 &&
+      settlementBatchIdResolved.length > 0 &&
+      (intentIngestOk || hasManualOrServerBatchId),
+    [hasManualOrServerBatchId, intentIngestOk, psp, settlementBatchIdResolved, tenantReady],
   )
+
+  const settlementBlockedReason = useMemo(() => {
+    if (settlementCredentialsReady) return null
+    if (!tenantReady) return 'Sign in (session tenant required) — use the scope bar above.'
+    if (!psp.trim()) return 'Enter PSP (razorpay or cashfree).'
+    if (!settlementBatchIdResolved) return 'Complete Step 1 or enter Batch-Id above.'
+    if (!intentIngestOk && !hasManualOrServerBatchId) {
+      return 'Finish Step 1 successfully, or type a server Batch-Id before settlement upload.'
+    }
+    return null
+  }, [hasManualOrServerBatchId, intentIngestOk, psp, settlementBatchIdResolved, settlementCredentialsReady, tenantReady])
   const settlementBusy = intakeStep === 'settlement_uploading'
   const settlementFilePickerEnabled = settlementCredentialsReady && !settlementBusy
   const settlementUploadEnabled =
@@ -242,12 +266,13 @@ export function BatchIntakePanel({
   const onSettlementBatchUpload = useCallback(async () => {
     const file = selectedSettlementFile
     if (!file) return
-    const pspVal = psp.trim()
+    const pspVal = psp.trim().toLowerCase()
     const bid = (settlementBatchId ?? batchIdInput.trim()).trim()
     if (!tenantReady || !pspVal || !bid) {
       setUploadRelayState('failed')
       setUploadRelayMessage(
-        'Settlement batch upload needs an active session, PSP, and Batch-Id (complete Step 1 or enter Batch-Id above).',
+        settlementBlockedReason ??
+          'Settlement batch upload needs an active session, PSP, and Batch-Id (complete Step 1 or enter Batch-Id above).',
       )
       return
     }
@@ -263,7 +288,12 @@ export function BatchIntakePanel({
         batchId: bid,
       })
       if (!result.ok) {
-        throw new Error(result.errorMessage ?? `HTTP ${result.httpStatus}`)
+        const detail = result.errorMessage?.trim() || `HTTP ${result.httpStatus || 'error'}`
+        const extra = result.responseText.trim().slice(0, 400)
+        const parts = [detail]
+        if (extra && !detail.includes(extra)) parts.push(extra)
+        if (result.httpStatus) parts.unshift(`[${result.httpStatus}]`)
+        throw new Error(parts.join(' — '))
       }
       setSettlementIngestOk(true)
       setUploadRelayState('synced')
@@ -275,15 +305,25 @@ export function BatchIntakePanel({
       onSettlementIngestSuccess()
     } catch (error) {
       setUploadRelayState('failed')
+      const detail = error instanceof Error ? error.message.trim() : ''
       setUploadRelayMessage(
-        `Settlement batch upload failed (${error instanceof Error ? error.message : 'unknown error'}).`,
+        detail ? `Settlement upload failed: ${detail}` : 'Settlement upload failed. Sign in, confirm outcome-engine is up, and retry.',
       )
       setIntakeStep('intent_ready')
     } finally {
       const el = settlementFileInputRef.current
       if (el) el.value = ''
     }
-  }, [apiKey, batchIdInput, onSettlementIngestSuccess, psp, selectedSettlementFile, settlementBatchId, tenantReady])
+  }, [
+    apiKey,
+    batchIdInput,
+    onSettlementIngestSuccess,
+    psp,
+    selectedSettlementFile,
+    settlementBatchId,
+    settlementBlockedReason,
+    tenantReady,
+  ])
 
   return (
     <>
@@ -372,7 +412,7 @@ export function BatchIntakePanel({
                   Force reprocess
                 </span>
               </label>
-              <label className="flex flex-col gap-1">
+              <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">PSP</span>
                 <input
                   value={psp}
@@ -472,8 +512,11 @@ export function BatchIntakePanel({
                   ) : (
                     'from Step 1'
                   )}
-                  .
+                  . CSV or spreadsheet (XLS / XLSX).
                 </p>
+                {settlementBlockedReason && !settlementCredentialsReady ? (
+                  <p className="mt-2 text-[12px] font-medium text-amber-800">{settlementBlockedReason}</p>
+                ) : null}
                 {settlementIngestOk && settlementBatchIdResolved && !settlementBatchIdResolved.startsWith('LOCAL-') && isSandboxRoute ? (
                   <Link
                     href={`/sandbox?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchIdResolved)}`}
@@ -503,7 +546,7 @@ export function BatchIntakePanel({
                 <input
                   ref={settlementFileInputRef}
                   type="file"
-                  accept=".csv,.xls,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  accept={SETTLEMENT_FILE_ACCEPT}
                   className="hidden"
                   aria-label="Settlement batch file"
                   onChange={(e) => {

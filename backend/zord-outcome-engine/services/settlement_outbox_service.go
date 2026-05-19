@@ -115,6 +115,7 @@ func (s *SettlementOutboxService) EmitForJob(
 			"attachment_readiness": obs.AttachmentReadinessScore,
 			"status_observation":   obs.SettlementStatus,
 			"ingest_run_id":        obs.IngestRunID,
+			"mapping_confidence":   obs.MappingConfidence,
 		}
 
 		if err := s.insertEvent(ctx, eventID, eventTenantID, eventTraceID, jobID, settlementBatchID, "settlement_observation", obs.SettlementObservationID, "canonical.settlement.created", payload); err != nil {

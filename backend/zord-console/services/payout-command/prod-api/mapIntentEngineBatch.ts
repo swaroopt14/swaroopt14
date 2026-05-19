@@ -1,6 +1,7 @@
 import type { IntentEngineBatchSidebarItem, PaymentIntentRecord } from './getProdIntentEngineBatches'
 import type { ApiDlqRow } from './prodApiTypes'
 import type { IntelligenceBatchRow } from './intelligenceTypes'
+import { apiTrimmedString } from './coerceApiField'
 
 export type JournalBatchType = 'Disbursement' | 'Settlement'
 export type JournalIntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
@@ -166,7 +167,9 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
   return {
     batchId,
     requestId: intent.intent_id,
-    reference: intent.client_payout_ref?.trim() || (intent.envelope_id ? `env_${String(intent.envelope_id).slice(-8)}` : `ref_${String(intent.intent_id).slice(-8)}`),
+    reference:
+      apiTrimmedString(intent.client_payout_ref) ||
+      (intent.envelope_id ? `env_${String(intent.envelope_id).slice(-8)}` : `ref_${String(intent.intent_id).slice(-8)}`),
     amount: safe,
     method,
     status,
@@ -176,12 +179,12 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
     bank: instrument || '—',
     paymentMethodDetail,
     engineStatus: [stRaw, gov, biz].filter(Boolean).join(' · ') || undefined,
-    currency: (intent.currency ?? 'INR').trim() || 'INR',
+    currency: apiTrimmedString(intent.currency ?? 'INR') || 'INR',
   }
 }
 
 export function mapDlqToFailureRow(row: ApiDlqRow): JournalFailureRow {
-  const batchFromIngest = (row.client_batch_ref ?? '').trim()
+  const batchFromIngest = apiTrimmedString(row.client_batch_ref)
   const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
   const stageRaw = (row.stage ?? '').toLowerCase()
   let failureStage: JournalFailureRow['failureStage'] = 'Processing'

@@ -1,4 +1,5 @@
 import { fetchProdJsonGetWithMeta, type ProdJsonGetResult } from './fetchProdJsonGet'
+import { apiTrimmedString } from './coerceApiField'
 
 export type SettlementObservationBatchListItem = {
   client_batch_id: string
@@ -206,7 +207,7 @@ function parseMoney(raw: string | number | null | undefined): number {
 }
 
 function formatObsTime(iso: string | undefined): string {
-  if (!iso?.trim()) return '—'
+  if (!apiTrimmedString(iso)) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso
   return d.toLocaleString('en-IN', {
@@ -229,7 +230,7 @@ export function mapObservationToTableRow(
 ): SettlementObservationTableRow {
   const full = obs as CanonicalSettlementObservation
   const slim = obs as SettlementObservationBatchDetailItem
-  const statusRaw = (full.settlement_status ?? slim.settlement_status ?? '').trim()
+  const statusRaw = apiTrimmedString(full.settlement_status ?? slim.settlement_status)
   const settlementBatchId = displayOrDash(full.settlement_batch_id ?? slim.settlement_batch_id)
   const sourceRowRef = displayOrDash(full.source_row_ref ?? slim.source_row_ref)
   const createdAt = formatObsTime(full.created_at ?? slim.created_at)
@@ -251,7 +252,7 @@ export function mapObservationToTableRow(
     settledAmount: parseMoney(full.settled_amount ?? slim.settled_amount),
     feeAmount: parseMoney(full.fee_amount ?? slim.fee_amount),
     deductionAmount: parseMoney(full.deduction_amount ?? slim.deduction_amount),
-    currency: (full.currency_code ?? slim.currency_code ?? 'INR').trim() || 'INR',
+    currency: apiTrimmedString(full.currency_code ?? slim.currency_code ?? 'INR') || 'INR',
     statusRaw,
     status: statusRaw ? statusRaw.replace(/_/g, ' ') : '—',
     sourceSystem: displayOrDash(full.source_system ?? slim.source_system),

@@ -63,9 +63,10 @@ function formatIsoDate(iso: string): string {
   }
 }
 
-function formatMinorInrLabel(minor: string | undefined): string {
-  if (!minor?.trim()) return '—'
-  const n = BigInt(minor.replace(/\D/g, '') || '0')
+function formatMinorInrLabel(minor: string | number | undefined | null): string {
+  const s = apiTrimmedString(minor)
+  if (!s) return '—'
+  const n = BigInt(s.replace(/\D/g, '') || '0')
   const rupees = Number(n) / 100
   if (!Number.isFinite(rupees)) return '—'
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(

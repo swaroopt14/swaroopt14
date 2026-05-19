@@ -28,6 +28,7 @@ import {
   type SettlementObservationTableRow,
 } from '@/services/payout-command/prod-api/settlementObservations'
 import { summaryFromIntelligenceBatchRow } from '@/services/payout-command/batch-model'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import type { BatchSummary } from '@/services/payout-command/batch-model'
 
 export const BATCH_OPERATIONS_POLL_MS = 8_000
@@ -310,7 +311,7 @@ export function useBatchOperationsFeed(options: {
 
   const intelligenceSummary = ((): BatchSummary | null => {
     if (!operatorIntelBatchId || !intelBatchDetail?.batch) return null
-    const loadedId = intelBatchDetail.batch.batch_id?.trim()
+    const loadedId = apiTrimmedString(intelBatchDetail.batch.batch_id)
     if (loadedId !== operatorIntelBatchId) return null
     return summaryFromIntelligenceBatchRow(intelBatchDetail.batch)
   })()

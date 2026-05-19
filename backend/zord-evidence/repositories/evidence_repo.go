@@ -42,8 +42,9 @@ func (r *EvidenceRepository) SavePack(ctx context.Context, pack *models.Evidence
 INSERT INTO evidence_packs(
 	evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status, merkle_root,
 	ruleset_version, schema_versions_json, signature_alg, signature_value, object_ref,
-	supersedes_pack_id, created_at, updated_at
-) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+	supersedes_pack_id, pack_completeness_score, leaf_count, required_leaf_count,
+	settlement_leaf_present_flag, attachment_decision_leaf_present_flag, created_at, updated_at
+) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
 		pack.EvidencePackID,
 		pack.TenantID,
 		nullStr(pack.IntentID),
@@ -58,6 +59,11 @@ INSERT INTO evidence_packs(
 		pack.Signatures[0].Sig,
 		objectRef,
 		nullStr(pack.SupersedesPackID),
+		pack.PackCompletenessScore,
+		pack.LeafCount,
+		pack.RequiredLeafCount,
+		pack.SettlementLeafPresentFlag,
+		pack.AttachmentDecisionLeafPresentFlag,
 		pack.CreatedAt,
 		pack.CreatedAt,
 	)
@@ -138,12 +144,17 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 
 	q := `SELECT tenant_id, intent_id, contract_id, batch_id, mode, pack_status, merkle_root,
 	             ruleset_version, schema_versions_json, signature_alg, signature_value,
-	             object_ref, supersedes_pack_id, created_at
+	             object_ref, supersedes_pack_id, pack_completeness_score, leaf_count,
+	             required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+	             created_at
 	      FROM evidence_packs WHERE evidence_pack_id=$1`
 	err := r.db.QueryRowContext(ctx, q, packID).Scan(
 		&pack.TenantID, &intentID, &contractID, &batchID, &pack.Mode, &pack.PackStatus,
 		&pack.MerkleRoot, &pack.RulesetVersion, &schemaVersionsJSON,
-		&sigAlg, &signature, &objectRef, &supersedesPackID, &createdAt,
+		&sigAlg, &signature, &objectRef, &supersedesPackID,
+		&pack.PackCompletenessScore, &pack.LeafCount, &pack.RequiredLeafCount,
+		&pack.SettlementLeafPresentFlag, &pack.AttachmentDecisionLeafPresentFlag,
+		&createdAt,
 	)
 	if err != nil {
 		return nil, "", err
@@ -182,6 +193,11 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 		}
 		pack.Items = append(pack.Items, item)
 	}
+
+	if pack.LeafCount == 0 && len(pack.Items) > 0 {
+		pack.ComputeCompletenessMetadata()
+	}
+
 	return pack, objectRef, nil
 }
 
@@ -189,7 +205,9 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, intentID string) ([]models.EvidencePackSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
-		       merkle_root, ruleset_version, supersedes_pack_id, created_at
+		       merkle_root, ruleset_version, supersedes_pack_id, pack_completeness_score, leaf_count,
+		       required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+		       created_at
 		FROM evidence_packs
 		WHERE tenant_id=$1 AND intent_id=$2
 		ORDER BY created_at DESC`, tenantID, intentID)
@@ -202,8 +220,13 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 	for rows.Next() {
 		var s models.EvidencePackSummary
 		var iid, cid, bid, spid sql.NullString
-		if err := rows.Scan(&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
-			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid, &s.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
+			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid,
+			&s.PackCompletenessScore, &s.LeafCount, &s.RequiredLeafCount,
+			&s.SettlementLeafPresentFlag, &s.AttachmentDecisionLeafPresentFlag,
+			&s.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		if iid.Valid {
@@ -227,7 +250,9 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchID string) ([]models.EvidencePackSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
-		       merkle_root, ruleset_version, supersedes_pack_id, created_at
+		       merkle_root, ruleset_version, supersedes_pack_id, pack_completeness_score, leaf_count,
+		       required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+		       created_at
 		FROM evidence_packs
 		WHERE tenant_id=$1 AND batch_id=$2
 		ORDER BY created_at DESC`, tenantID, batchID)
@@ -240,8 +265,13 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 	for rows.Next() {
 		var s models.EvidencePackSummary
 		var iid, cid, bid, spid sql.NullString
-		if err := rows.Scan(&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
-			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid, &s.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
+			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid,
+			&s.PackCompletenessScore, &s.LeafCount, &s.RequiredLeafCount,
+			&s.SettlementLeafPresentFlag, &s.AttachmentDecisionLeafPresentFlag,
+			&s.CreatedAt,
+		); err != nil {
 			return nil, err
 		}
 		if iid.Valid {

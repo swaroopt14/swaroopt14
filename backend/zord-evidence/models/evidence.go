@@ -132,6 +132,8 @@ func (p *EvidencePack) ComputeCompletenessMetadata() {
 	hasCanonicalSettlementObs := false
 	hasAttachmentDecision := false
 	hasVarianceDecision := false
+	hasBatchAttachmentSummary := false
+	hasBatchVarianceSummary := false
 
 	for _, item := range p.Items {
 		switch item.Type {
@@ -145,17 +147,23 @@ func (p *EvidencePack) ComputeCompletenessMetadata() {
 			hasAttachmentDecision = true
 		case LeafTypeVarianceDecision:
 			hasVarianceDecision = true
+		case LeafTypeBatchAttachmentSummary:
+			hasBatchAttachmentSummary = true
+		case LeafTypeBatchVarianceSummary:
+			hasBatchVarianceSummary = true
 		}
 	}
 
-	p.SettlementLeafPresentFlag = hasRawSettlementFile && hasRawSettlementLine && hasCanonicalSettlementObs
-	p.AttachmentDecisionLeafPresentFlag = hasAttachmentDecision && hasVarianceDecision
 	p.LeafCount = len(p.Items)
 
 	if p.BatchID != "" {
 		p.RequiredLeafCount = 6
+		p.SettlementLeafPresentFlag = hasRawSettlementFile
+		p.AttachmentDecisionLeafPresentFlag = hasBatchAttachmentSummary && hasBatchVarianceSummary
 	} else {
 		p.RequiredLeafCount = 9
+		p.SettlementLeafPresentFlag = hasRawSettlementFile && hasRawSettlementLine && hasCanonicalSettlementObs
+		p.AttachmentDecisionLeafPresentFlag = hasAttachmentDecision && hasVarianceDecision
 	}
 
 	if p.RequiredLeafCount > 0 {

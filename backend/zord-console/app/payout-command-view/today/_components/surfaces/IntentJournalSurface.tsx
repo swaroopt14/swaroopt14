@@ -17,6 +17,7 @@ import type { ApiProdIntentDetailPayload } from '@/services/payout-command/prod-
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
 import { markSandboxSetupStep, openSandboxSetupPanel } from '@/services/payout-command/sandbox-setup-guide'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
+import { SessionTenantScopeBar } from '../layout/SessionTenantScopeBar'
 import { dockItems } from '@/services/payout-command/model'
 import {
   COMMAND_CENTER_KPI_CARD,
@@ -27,21 +28,20 @@ import {
   HOME_INSIGHT_PROSE_STRONG,
   HOME_TITLE_BLACK,
 } from '../command-center/homeCommandCenterTokens'
+import { CommandCenterCardGlow } from '../command-center/CommandCenterCardGlow'
+import {
+  JOURNAL_PAGE_BG,
+  JournalOverviewStat,
+  JournalPageHeader,
+} from '../journal/JournalCommandCenterPrimitives'
 import { LiveDataHint } from '../shared'
 
 const JOURNAL_PAGE_SUMMARY = dockItems.find((d) => d.id === 'grid')?.summary ?? ''
-
-const JOURNAL_SHELL_CARD =
-  'rounded-[12px] border border-slate-200/90 bg-white/95 shadow-[0_2px_12px_rgba(15,23,42,0.04)]'
-
-const JOURNAL_PILL =
-  'inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30'
 
 const JOURNAL_FILTER_LABEL =
   'mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]'
 
 /** Cool blue-grey shell (replaces warm beige #f4f4f1 family). */
-const JOURNAL_PAGE_BG = 'bg-[#e8eef5]'
 const JOURNAL_PANEL_BG = 'bg-[#f1f5f9]'
 const JOURNAL_SUBTLE_BG = 'bg-slate-50'
 const JOURNAL_BORDER = 'border-slate-200/90'
@@ -131,8 +131,71 @@ const CONNECTOR_OPTIONS: Array<'All' | string> = ['All', 'Razorpay', 'Cashfree',
 
 const DISPATCH_OPTIONS: Array<'All' | IntentRow['method']> = ['All', 'Bank Transfer', 'LSM', 'NACH']
 
-const AMOUNT_RANGE_OPTIONS = ['All', 'Under $1,500', '$1,500 – $2,000', 'Over $2,000'] as const
+const AMOUNT_RANGE_OPTIONS = [
+  'All',
+  'Under ₹10,000',
+  '₹10,000 – ₹1,00,000',
+  'Over ₹1,00,000',
+] as const
 type AmountRangeFilter = (typeof AMOUNT_RANGE_OPTIONS)[number]
+
+function intentInDateRange(lastUpdated: string, preset: DateRangePreset): boolean {
+  if (preset === 'all') return true
+  const parsed = Date.parse(lastUpdated)
+  if (!Number.isFinite(parsed)) return true
+  const observed = new Date(parsed)
+  const now = new Date()
+  const start = new Date(now)
+  if (preset === '7d') start.setDate(now.getDate() - 7)
+  else if (preset === '30d') start.setDate(now.getDate() - 30)
+  else if (preset === '90d') start.setDate(now.getDate() - 90)
+  else if (preset === 'ytd') start.setMonth(0, 1)
+  start.setHours(0, 0, 0, 0)
+  return observed >= start
+}
+
+function matchesIntentAmountRange(amount: number, range: AmountRangeFilter): boolean {
+  if (range === 'All') return true
+  if (range === 'Under ₹10,000') return amount < 10_000
+  if (range === '₹10,000 – ₹1,00,000') return amount >= 10_000 && amount <= 100_000
+  return amount > 100_000
+}
+
+function failuresToCsv(rows: FailureRow[]) {
+  const header = [
+    'Request ID',
+    'Batch ID',
+    'Stage',
+    'Reason',
+    'Amount',
+    'Payment partner',
+    'Last updated',
+  ]
+  const lines = rows.map((row) =>
+    [
+      row.requestId,
+      row.batchId,
+      row.failureStage,
+      row.failureReason,
+      row.amount,
+      row.paymentPartner,
+      row.lastUpdated,
+    ]
+      .map((value) => `"${String(value).replaceAll('"', '""')}"`)
+      .join(','),
+  )
+  return [header.join(','), ...lines].join('\n')
+}
+
+function downloadFailuresCsv(rows: FailureRow[], batchId: string) {
+  const blob = new Blob([failuresToCsv(rows)], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `intent-journal-failures${batchId ? `-${batchId}` : ''}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 const filterSelectClass =
   'h-9 w-full min-w-[7.5rem] rounded-xl border border-slate-200/90 bg-slate-50 px-2.5 text-[14px] text-slate-900 outline-none transition focus:border-sky-400/55 focus:bg-white focus:ring-2 focus:ring-sky-400/15'
@@ -243,6 +306,20 @@ function batchStatus(score: number): BatchStatus {
   return 'Critical'
 }
 
+/** Intent-engine sidebar: API `highConfidenceCount` 0.48 → 48%. < 30% = Risk; < 80% = Risk; >= 80 Stable; > 95 Strong. */
+function confidencePctFromBatch(batch: BatchRecord): number | null {
+  if (!batch.engineSidebar || typeof batch.avgConfidenceScore !== 'number' || !Number.isFinite(batch.avgConfidenceScore)) {
+    return null
+  }
+  return Math.min(100, Math.max(0, Math.round(batch.avgConfidenceScore * 100)))
+}
+
+function batchStatusFromConfidencePct(pct: number): BatchStatus {
+  if (pct > 95) return 'Strong'
+  if (pct >= 80) return 'Stable'
+  return 'Risk'
+}
+
 /** Map intelligence `finality_status` to sidebar health pill (live batches). */
 function batchStatusFromFinality(fs: string | undefined): BatchStatus {
   const u = (fs ?? '').toUpperCase()
@@ -278,6 +355,9 @@ function resolveBatchHealthStatus(
     const fromFinality = batchStatusFromFinality(fs)
     if (fromFinality === 'Critical' || fromFinality === 'Risk') return fromFinality
   }
+
+  const confPct = confidencePctFromBatch(batch)
+  if (confPct != null) return batchStatusFromConfidencePct(confPct)
 
   return batchStatus(batchQualityScore(batch))
 }
@@ -768,12 +848,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       const byConnector = connectorFilter === 'All' || row.paymentPartner === connectorFilter
       const byDispatch = dispatchModeFilter === 'All' || row.method === dispatchModeFilter
       const byStatus = intentStatusFilter === 'All' || row.status === intentStatusFilter
-      const byAmount =
-        amountRangeFilter === 'All' ||
-        (amountRangeFilter === 'Under $1,500' && row.amount < 1500) ||
-        (amountRangeFilter === '$1,500 – $2,000' && row.amount >= 1500 && row.amount <= 2000) ||
-        (amountRangeFilter === 'Over $2,000' && row.amount > 2000)
-      return bySearch && bySidebarBatch && byBatchFilter && byConnector && byDispatch && byStatus && byAmount
+      const byDate = intentInDateRange(row.lastUpdated, dateRange)
+      const byAmount = matchesIntentAmountRange(row.amount, amountRangeFilter)
+      return bySearch && bySidebarBatch && byBatchFilter && byConnector && byDispatch && byStatus && byDate && byAmount
     })
   }, [
     journalUsesBackendFeed,
@@ -784,6 +861,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     connectorFilter,
     dispatchModeFilter,
     intentStatusFilter,
+    dateRange,
     amountRangeFilter,
   ])
 
@@ -799,12 +877,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       const byConnector = connectorFilter === 'All' || row.paymentPartner === connectorFilter
       const byDispatch = dispatchModeFilter === 'All' || row.method === dispatchModeFilter
       const byStage = failureStageFilter === 'All' || row.failureStage === failureStageFilter
-      const byAmount =
-        amountRangeFilter === 'All' ||
-        (amountRangeFilter === 'Under $1,500' && row.amount < 1500) ||
-        (amountRangeFilter === '$1,500 – $2,000' && row.amount >= 1500 && row.amount <= 2000) ||
-        (amountRangeFilter === 'Over $2,000' && row.amount > 2000)
-      return bySearch && bySidebarBatch && byBatch && byConnector && byDispatch && byStage && byAmount
+      const byDate = intentInDateRange(row.lastUpdated, dateRange)
+      const byAmount = matchesIntentAmountRange(row.amount, amountRangeFilter)
+      return bySearch && bySidebarBatch && byBatch && byConnector && byDispatch && byStage && byDate && byAmount
     })
   }, [
     journalUsesBackendFeed,
@@ -815,6 +890,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     connectorFilter,
     dispatchModeFilter,
     failureStageFilter,
+    dateRange,
     amountRangeFilter,
   ])
 
@@ -1010,27 +1086,32 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 : batch.engineSidebar
                   ? batch.confirmedCount
                   : batch.transactions
+              const engineConfPct = confidencePctFromBatch(batch)
               const status = resolveBatchHealthStatus(batch, {
                 dlqCount,
                 intentCount,
                 finality: liveFinality,
               })
               const sidebarScoreDisplay =
-                status === 'Critical' || status === 'Risk'
-                  ? status
-                  : journalUsesBackendFeed && liveSuccess !== null
-                    ? liveSuccess.toLocaleString('en-US')
-                    : String(score)
-              const progressWidthPct =
-                status === 'Critical'
-                  ? Math.min(100, dlqCount > 0 ? 100 : 15)
-                  : status === 'Risk'
-                    ? 45
+                engineConfPct != null
+                  ? `${engineConfPct}%`
+                  : status === 'Critical' || status === 'Risk'
+                    ? status
                     : journalUsesBackendFeed && liveSuccess !== null
-                      ? liveTotal === 0
-                        ? 0
-                        : Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
-                      : score
+                      ? liveSuccess.toLocaleString('en-US')
+                      : String(score)
+              const progressWidthPct =
+                engineConfPct != null
+                  ? engineConfPct
+                  : status === 'Critical'
+                    ? Math.min(100, dlqCount > 0 ? 100 : 15)
+                    : status === 'Risk'
+                      ? 45
+                      : journalUsesBackendFeed && liveSuccess !== null
+                        ? liveTotal === 0
+                          ? 0
+                          : Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
+                        : score
               const tone = statusTone(status)
               const dotColor =
                 status === 'Strong' || status === 'Stable'
@@ -1067,13 +1148,15 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     <span
                       className={`shrink-0 text-[15px] font-semibold tabular-nums ${tone.text}`}
                       title={
-                        journalUsesBackendFeed
-                          ? batch.intelligenceCounts
-                            ? 'success_count from intelligence batch (detail when selected)'
-                            : batch.engineSidebar
-                              ? 'Confirmed-style count from intent-engine batch aggregates (sidebar)'
-                              : 'Batch quality score'
-                          : 'Batch quality score'
+                        engineConfPct != null
+                          ? 'Avg aggregate confidence from intent-engine sidebar (0–1 API → percent)'
+                          : journalUsesBackendFeed
+                            ? batch.intelligenceCounts
+                              ? 'success_count from intelligence batch (detail when selected)'
+                              : batch.engineSidebar
+                                ? 'Confirmed-style count from intent-engine batch aggregates (sidebar)'
+                                : 'Batch quality score'
+                            : 'Batch quality score'
                       }
                     >
                       {sidebarScoreDisplay}
@@ -1165,10 +1248,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
         <main className="flex h-full min-w-0 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-            <div className={`mb-4 ${JOURNAL_SHELL_CARD} px-3 py-2.5 backdrop-blur-sm sm:px-3.5`}>
-              <h2 className={JOURNAL_PILL}>Intent journal · command center</h2>
-              <p className={`mt-0.5 max-w-2xl ${HOME_BODY_IMPERIAL}`}>{JOURNAL_PAGE_SUMMARY}</p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <JournalPageHeader label="Intent journal" summary={JOURNAL_PAGE_SUMMARY}>
                 <LiveDataHint
                   isLive={Boolean(journalUsesBackendFeed && liveFeedLoaded)}
                   source="intelligence"
@@ -1183,7 +1263,14 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     {feedRefreshing ? 'Refreshing…' : 'Refresh'}
                   </button>
                 ) : null}
-              </div>
+            </JournalPageHeader>
+
+            <div className="mb-4">
+              <SessionTenantScopeBar
+                batchId={selectedBatchId}
+                onBatchIdChange={(id) => selectBatch(id)}
+                onAfterFetch={() => void refreshFeed()}
+              />
             </div>
 
             {journalUsesBackendFeed && !tenantReady ? (
@@ -1307,8 +1394,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             ) : null}
             {selectedBatch ? (
               <>
-            <section className={`mb-4 overflow-hidden ${COMMAND_CENTER_KPI_CARD}`}>
-              <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+            <section className={`relative mb-4 overflow-hidden ${COMMAND_CENTER_KPI_CARD}`}>
+              <CommandCenterCardGlow />
+              <div className="relative flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0 flex-1">
                   <p className={COMMAND_CENTER_LABEL_GREEN}>Batch overview</p>
                   <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -1366,31 +1454,21 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     { label: 'Batch type', value: selectedBatch.type },
                     { label: 'Batch ID', value: selectedBatch.batchId, mono: true as const },
                   ]).map((stat) => (
-                  <article
+                  <JournalOverviewStat
                     key={stat.label}
-                    className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3"
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">
-                      {stat.label}
-                    </p>
-                    <p
-                      className={`mt-1 font-semibold tabular-nums tracking-tight text-[#0f172a] ${
-                        'mono' in stat && stat.mono
-                          ? 'break-all font-mono text-[14px]'
-                          : 'text-[22px]'
-                      }`}
-                    >
-                      {stat.value}
-                    </p>
-                  </article>
+                    label={stat.label}
+                    value={stat.value}
+                    mono={'mono' in stat && stat.mono}
+                  />
                 ))}
               </div>
             </section>
               </>
             ) : (
-              <section className="mb-4 rounded-[20px] border border-dashed border-slate-200/90 bg-slate-50/60 px-6 py-8 text-center shadow-[0_2px_12px_rgba(15,23,42,0.04)]">
-                <h2 className="text-[18px] font-semibold tracking-tight text-[#0f172a]">Batch overview</h2>
-                <p className="mx-auto mt-2 max-w-xl text-[15px] leading-relaxed text-[#64748b]">
+              <section className={`relative mb-4 ${COMMAND_CENTER_KPI_CARD} px-6 py-8 text-center`}>
+                <CommandCenterCardGlow />
+                <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Batch overview</p>
+                <p className={`relative mx-auto mt-2 max-w-xl ${HOME_BODY_IMPERIAL_SM}`}>
                   Select a batch from the sidebar to view batch totals and intent rows for your session tenant.
                 </p>
               </section>
@@ -1413,7 +1491,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               ))}
             </nav>
 
-            <div className={`mb-4 ${COMMAND_CENTER_KPI_CARD} p-4`}>
+            <div className={`relative mb-4 overflow-hidden ${COMMAND_CENTER_KPI_CARD} p-4`}>
+              <CommandCenterCardGlow />
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <label htmlFor="journal-table-search" className={JOURNAL_FILTER_LABEL}>
@@ -1753,13 +1832,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
-                      className="h-8 rounded-lg border border-[#e2e8f0] bg-white px-2.5 text-[15px] font-medium text-[#475569] shadow-sm"
-                    >
-                      Columns
-                    </button>
-                    <button
-                      type="button"
-                      className="h-8 rounded-lg border border-[#e2e8f0] bg-white px-2.5 text-[15px] font-medium text-[#475569] shadow-sm"
+                      disabled={filteredFailures.length === 0}
+                      onClick={() => downloadFailuresCsv(filteredFailures, selectedBatchId)}
+                      className="h-8 rounded-lg border border-[#e2e8f0] bg-white px-2.5 text-[15px] font-medium text-[#475569] shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Export
                     </button>
@@ -1769,7 +1844,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[14px] text-amber-950">
                     <p className="font-semibold">Review — DLQ row</p>
                     <p className="mt-1 text-[13px] leading-relaxed">
-                      {failureRows.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
+                      {failures.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
                     </p>
                     <button
                       type="button"

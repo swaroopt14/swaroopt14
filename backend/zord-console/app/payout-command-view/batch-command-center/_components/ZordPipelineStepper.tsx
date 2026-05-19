@@ -97,8 +97,8 @@ export function ZordPipelineStepper({
             Intake → disbursement → bank confirmation
           </h2>
           <p className={`mt-1 max-w-2xl ${HOME_BODY_IMPERIAL_SM}`}>
-            Upload intent or settlement files to advance intake stages. The grid timer keeps simulating disbursement
-            until every row reaches a terminal status.
+            Upload intent or settlement files to advance intake stages. Counts refresh from intent-engine and
+            intelligence every few seconds for the active Batch-Id.
           </p>
         </div>
         {busy ? (

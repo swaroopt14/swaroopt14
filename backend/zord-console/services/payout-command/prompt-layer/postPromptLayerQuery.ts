@@ -4,8 +4,28 @@
  */
 export const PROMPT_LAYER_QUERY_PATH = '/api/prompt-layer/query'
 
-/** Demo tenant used when the workspace has no tenant picker wired yet. */
-export const PROMPT_LAYER_DEMO_TENANT_ID = '11111111-1111-4111-8111-111111111111'
+/** Session tenant required for prompt-layer — no demo / mock fallback. */
+export function sessionTenantForPromptLayer(
+  tenantId: string,
+  tenantReady: boolean,
+): { ok: true; tenantId: string } | { ok: false; title: string; body: string } {
+  if (!tenantReady) {
+    return {
+      ok: false,
+      title: 'Resolving tenant',
+      body: 'Loading your workspace tenant from the signed-in session…',
+    }
+  }
+  const tid = tenantId.trim()
+  if (!tid) {
+    return {
+      ok: false,
+      title: 'Sign in required',
+      body: 'Ask Zord needs a session tenant_id from /api/auth/me. Sign in to sandbox or live, then try again.',
+    }
+  }
+  return { ok: true, tenantId: tid }
+}
 
 export type PostPromptLayerQueryBody = {
   query: string
@@ -23,9 +43,24 @@ export async function postPromptLayerQuery(body: PostPromptLayerQueryBody): Prom
   const response = await fetch(PROMPT_LAYER_QUERY_PATH, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
+    credentials: 'include',
     cache: 'no-store',
     body: JSON.stringify(body),
   })
   const payload = await response.json().catch(() => null)
   return { ok: response.ok, httpStatus: response.status, payload }
+}
+
+/** Maps prompt-layer JSON (`answer` at root or under `response`). */
+export function mapPromptLayerAnswer(
+  raw: unknown,
+  title = 'Ask Zord',
+): { title: string; body: string } | null {
+  if (!raw || typeof raw !== 'object') return null
+  const root = (raw as { response?: unknown }).response ?? raw
+  if (!root || typeof root !== 'object') return null
+  const res = root as Record<string, unknown>
+  const answer = typeof res.answer === 'string' ? res.answer.trim() : ''
+  if (!answer) return null
+  return { title, body: answer }
 }

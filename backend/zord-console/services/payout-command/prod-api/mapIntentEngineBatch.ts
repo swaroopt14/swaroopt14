@@ -62,6 +62,17 @@ function inferBatchSource(batchId: string, finality?: string): string {
   return 'Intelligence'
 }
 
+/** Engine in-flight only — used for Billing “processing in Zord” count (GET, no POST). */
+export function isZordProcessingPaymentIntent(intent: PaymentIntentRecord): boolean {
+  const st = String(intent.status ?? '').toUpperCase()
+  const biz = String(intent.business_state ?? '').toUpperCase()
+  const gov = String(intent.governance_state ?? '').toUpperCase()
+  if (st.includes('FAIL') || st.includes('REJECT') || st.includes('ERROR') || gov === 'FLAGGED') return false
+  if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') return false
+  if (st.includes('PROCESS') || st.includes('DISPAT') || st === 'IN_FLIGHT' || biz === 'PROCESSING') return true
+  return false
+}
+
 export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): JournalBatchRecord {
   const typeUpper = (it.type ?? '').toUpperCase()
   const batchType: JournalBatchType = typeUpper.includes('SETTLEMENT') ? 'Settlement' : 'Disbursement'
@@ -125,7 +136,9 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
   } else if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') {
     status = 'Ready to Process'
   } else if (st.includes('PROCESS') || st.includes('DISPAT') || st === 'IN_FLIGHT' || biz === 'PROCESSING') {
-    status = 'Ready to Process'
+    status = 'In Progress'
+  } else if (st.includes('PEND') || st.includes('CREAT')) {
+    status = 'Pending'
   }
 
   const conf = intent.aggregate_confidence_score

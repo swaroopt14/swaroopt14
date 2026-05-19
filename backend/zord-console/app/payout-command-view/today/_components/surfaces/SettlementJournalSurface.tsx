@@ -4,26 +4,32 @@ import Link from 'next/link'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
 import { useSettlementJournalFeed } from '../settlement-journal/useSettlementJournalFeed'
+import { CommandCenterCardGlow } from '../command-center/CommandCenterCardGlow'
 import {
   COMMAND_CENTER_KPI_CARD,
   COMMAND_CENTER_LABEL_GREEN,
-  HOME_BODY_IMPERIAL,
   HOME_BODY_IMPERIAL_SM,
   HOME_TITLE_BLACK,
 } from '../command-center/homeCommandCenterTokens'
+import {
+  JOURNAL_PAGE_BG,
+  JournalOverviewStat,
+  JournalPageHeader,
+} from '../journal/JournalCommandCenterPrimitives'
+import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
 import { dockItems } from '@/services/payout-command/model'
-import { observationSearchHaystack } from '@/services/payout-command/prod-api/settlementObservations'
+import {
+  observationSearchHaystack,
+  type SettlementObservationTableRow,
+} from '@/services/payout-command/prod-api/settlementObservations'
+import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
+import { SessionTenantScopeBar } from '../layout/SessionTenantScopeBar'
 import { LiveDataHint } from '../shared'
 
 const SETTLEMENT_PAGE_SUMMARY = dockItems.find((d) => d.id === 'settlement')?.summary ?? ''
 
-const JOURNAL_PAGE_BG = 'bg-[#e8eef5]'
 const JOURNAL_BORDER = 'border-slate-200/90'
-const JOURNAL_SHELL_CARD =
-  'rounded-[12px] border border-slate-200/90 bg-white/95 shadow-[0_2px_12px_rgba(15,23,42,0.04)]'
-const JOURNAL_PILL =
-  'inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30'
 const JOURNAL_FILTER_LABEL =
   'mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]'
 
@@ -45,13 +51,6 @@ const TABLE_TH =
   'px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-[#888888] whitespace-nowrap'
 
 const TABLE_COL_COUNT = 10
-
-const SETTLEMENT_KPI_STAT_CARD =
-  'rounded-xl border border-white/12 bg-[#0A0A0A] px-4 py-3.5 shadow-[0_10px_32px_rgba(0,0,0,0.28)] ring-1 ring-white/10'
-const SETTLEMENT_KPI_STAT_LABEL =
-  'text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55'
-const SETTLEMENT_KPI_STAT_VALUE =
-  'mt-1 text-[22px] font-semibold tabular-nums tracking-tight text-white'
 
 type DateRangePreset = 'all' | '7d' | '30d' | '90d' | 'ytd'
 
@@ -93,6 +92,78 @@ function matchesAmountRange(amount: number, range: AmountRangeFilter): boolean {
   return amount > 100_000
 }
 
+type SettlementSidebarOutcome = {
+  total: number
+  settled: number
+  failed: number
+  settledPct: number | null
+  label: 'Settled' | 'Partial' | 'Failed'
+  dotClass: string
+  progressPct: number
+  toneText: string
+  barClass: string
+}
+
+function isSettledObservationStatus(statusRaw: string): boolean {
+  const u = statusRaw.toUpperCase()
+  return u.includes('SETTLED') || u.includes('SUCCESS')
+}
+
+function isFailedObservationStatus(statusRaw: string): boolean {
+  const u = statusRaw.toUpperCase()
+  return u.includes('FAIL') || u.includes('REJECT')
+}
+
+function outcomeFromObservationRows(rows: SettlementObservationTableRow[]): SettlementSidebarOutcome {
+  const total = rows.length
+  if (total === 0) {
+    return {
+      total: 0,
+      settled: 0,
+      failed: 0,
+      settledPct: null,
+      label: 'Partial',
+      dotClass: 'bg-slate-300',
+      progressPct: 0,
+      toneText: 'text-slate-600',
+      barClass: 'bg-slate-400',
+    }
+  }
+  const settled = rows.filter((r) => isSettledObservationStatus(r.statusRaw)).length
+  const failed = rows.filter((r) => isFailedObservationStatus(r.statusRaw)).length
+  const settledPct = Math.round((settled / total) * 100)
+  let label: SettlementSidebarOutcome['label'] = 'Partial'
+  if (failed > 0 && failed >= settled) label = 'Failed'
+  else if (settled === total) label = 'Settled'
+
+  const failedRatio = failed / total
+  const settledRatio = settled / total
+  let dotClass = 'bg-amber-500'
+  let toneText = 'text-amber-700'
+  let barClass = 'bg-amber-500'
+  if (failedRatio >= 0.5 || (failed > 0 && settled === 0)) {
+    dotClass = 'bg-rose-500'
+    toneText = 'text-rose-700'
+    barClass = 'bg-rose-500'
+  } else if (settledRatio >= 0.8 && failed === 0) {
+    dotClass = 'bg-emerald-500'
+    toneText = 'text-emerald-700'
+    barClass = 'bg-emerald-500'
+  }
+
+  return {
+    total,
+    settled,
+    failed,
+    settledPct,
+    label,
+    dotClass,
+    progressPct: settledPct,
+    toneText,
+    barClass,
+  }
+}
+
 function settlementStatusBadgeClass(statusRaw: string) {
   const u = statusRaw.toUpperCase()
   if (u.includes('SETTLED') || u.includes('SUCCESS')) {
@@ -121,11 +192,18 @@ export function SettlementJournalSurface({
     feedLoaded,
     detailLoading,
     syncAt,
-    feedError,
     feedMeta,
     selectClientBatch,
     refreshFeed,
   } = useSettlementJournalFeed({ enabled: true, initialClientBatchId })
+
+  const { mode } = useEnvironment()
+
+  useEffect(() => {
+    if (mode === 'sandbox' && feedLoaded && observationRows.length > 0) {
+      markSandboxSetupStep('settlement-journal')
+    }
+  }, [mode, feedLoaded, observationRows.length])
 
   const [tableSearch, setTableSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'All' | string>('All')
@@ -141,8 +219,15 @@ export function SettlementJournalSurface({
   const [sidebarPage, setSidebarPage] = useState(1)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [feedRefreshing, setFeedRefreshing] = useState(false)
+  const [batchOutcomeCache, setBatchOutcomeCache] = useState<Record<string, SettlementSidebarOutcome>>({})
 
   const batchCommandCenterHref = payoutBatchCommandCenterHref(true)
+
+  useEffect(() => {
+    if (!selectedClientBatchId || observationRows.length === 0) return
+    const outcome = outcomeFromObservationRows(observationRows)
+    setBatchOutcomeCache((prev) => ({ ...prev, [selectedClientBatchId]: outcome }))
+  }, [selectedClientBatchId, observationRows])
 
   useEffect(() => {
     setPage(1)
@@ -262,9 +347,7 @@ export function SettlementJournalSurface({
   }
 
   const feedMetaLine = [
-    tenantId ? `tenant ${tenantId}` : null,
-    feedMeta ? `HTTP ${feedMeta.status}` : null,
-    feedMeta ? `${feedMeta.batchCount} batch${feedMeta.batchCount === 1 ? '' : 'es'}` : null,
+    feedMeta?.ok ? `${feedMeta.batchCount} batch${feedMeta.batchCount === 1 ? '' : 'es'}` : null,
     syncAt ? `synced ${syncAt.toLocaleTimeString()}` : null,
   ]
     .filter(Boolean)
@@ -277,9 +360,9 @@ export function SettlementJournalSurface({
       <div className="grid h-full grid-cols-[272px,minmax(0,1fr)]">
         <aside className={`flex h-full flex-col overflow-hidden border-r ${JOURNAL_BORDER} bg-white`}>
           <div className="border-b border-slate-200/90 px-4 pb-3 pt-4">
-            <h2 className={`text-[14px] font-semibold tracking-tight ${HOME_TITLE_BLACK}`}>Client batches</h2>
+            <h2 className={`text-[14px] font-semibold tracking-tight ${HOME_TITLE_BLACK}`}>Batches</h2>
             <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
-              {clientBatches.length} batch{clientBatches.length === 1 ? '' : 'es'} · settlement observations
+              {clientBatches.length} batch{clientBatches.length === 1 ? '' : 'es'}
             </p>
           </div>
 
@@ -300,30 +383,53 @@ export function SettlementJournalSurface({
 
             {sidebarRows.map((batchId) => {
               const selected = batchId === selectedClientBatchId
+              const cached = batchOutcomeCache[batchId]
+              const liveOutcome =
+                selected && observationRows.length > 0
+                  ? outcomeFromObservationRows(observationRows)
+                  : cached
+              const dotClass = liveOutcome?.dotClass ?? 'bg-slate-300'
+              const countLine = liveOutcome
+                ? `${liveOutcome.total.toLocaleString('en-US')} observations${
+                    liveOutcome.settledPct != null ? ` · ${liveOutcome.settledPct}% settled` : ''
+                  }`
+                : '—'
+
               return (
                 <button
                   key={batchId}
                   type="button"
                   onClick={() => selectClientBatch(batchId)}
-                  className={`mb-1.5 w-full rounded-[10px] border px-3 py-2.5 text-left transition ${
+                  className={`mb-1.5 w-full rounded-[10px] border px-3 py-2 text-left transition ${
                     selected
-                      ? 'border-[#111111] bg-slate-100 shadow-sm'
+                      ? 'border-[#111111] bg-slate-100'
                       : 'border-transparent hover:border-slate-200/90 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${selected ? 'bg-indigo-500' : 'bg-slate-300'}`}
-                      aria-hidden
-                    />
-                    <span className={`block truncate font-mono text-[13px] font-medium ${HOME_TITLE_BLACK}`}>
-                      {batchId}
-                    </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-2">
+                      <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} aria-hidden />
+                      <span className={`truncate font-mono text-[13px] font-medium ${HOME_TITLE_BLACK}`}>
+                        {batchId}
+                      </span>
+                    </div>
+                    {liveOutcome?.settledPct != null ? (
+                      <span className={`shrink-0 text-[14px] font-semibold tabular-nums ${liveOutcome.toneText}`}>
+                        {liveOutcome.settledPct}%
+                      </span>
+                    ) : null}
                   </div>
-                  {selected ? (
-                    <span className="mt-1.5 inline-flex rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-100">
-                      Selected
-                    </span>
+                  <p className="mt-0.5 pl-4 text-[13px] text-[#64748b]">{countLine}</p>
+                  {selected && liveOutcome ? (
+                    <div className="mt-2 space-y-1.5 pl-4">
+                      <div className="h-1 w-full overflow-hidden rounded-full bg-[#E5E5E5]">
+                        <div
+                          className={`h-full rounded-full ${liveOutcome.barClass}`}
+                          style={{ width: `${liveOutcome.progressPct}%` }}
+                        />
+                      </div>
+                      <p className={`text-[13px] font-semibold ${liveOutcome.toneText}`}>{liveOutcome.label}</p>
+                    </div>
                   ) : null}
                 </button>
               )
@@ -359,46 +465,38 @@ export function SettlementJournalSurface({
 
         <main className="flex h-full min-w-0 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-            <div className={`mb-4 ${JOURNAL_SHELL_CARD} px-3 py-2.5 backdrop-blur-sm sm:px-3.5`}>
-              <h2 className={JOURNAL_PILL}>Settlement journal · sandbox</h2>
-              <p className={`mt-0.5 max-w-2xl ${HOME_BODY_IMPERIAL}`}>{SETTLEMENT_PAGE_SUMMARY}</p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <LiveDataHint isLive={Boolean(tenantReady && feedLoaded)} source="settlement" />
-                <button
-                  type="button"
-                  disabled={feedRefreshing || !tenantReady}
-                  onClick={() => void handleRefresh()}
-                  className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {feedRefreshing ? 'Refreshing…' : 'Refresh'}
-                </button>
-                <Link
-                  href={batchCommandCenterHref}
-                  className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
-                >
-                  Batch Command Center
-                </Link>
-              </div>
-              {feedMetaLine ? (
-                <p className={`mt-2 font-mono text-[12px] text-slate-500`}>{feedMetaLine}</p>
-              ) : null}
+            <JournalPageHeader label="Settlement journal" summary={SETTLEMENT_PAGE_SUMMARY}>
+              <LiveDataHint isLive={Boolean(tenantReady && feedLoaded)} source="settlement" />
+              <button
+                type="button"
+                disabled={feedRefreshing || !tenantReady}
+                onClick={() => void handleRefresh()}
+                className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {feedRefreshing ? 'Refreshing…' : 'Refresh'}
+              </button>
+              <Link
+                href={batchCommandCenterHref}
+                className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+              >
+                Batch Command Center
+              </Link>
+            </JournalPageHeader>
+            <div className="mb-4">
+              <SessionTenantScopeBar
+                batchId={selectedClientBatchId}
+                onBatchIdChange={(id) => selectClientBatch(id)}
+                onAfterFetch={() => void handleRefresh()}
+              />
             </div>
-
-            {feedError ? (
-              <p className="mb-4 rounded-xl border border-rose-200/90 bg-rose-50 px-3.5 py-2.5 text-[14px] leading-relaxed text-rose-900">
-                {feedError}
-                {tenantId ? (
-                  <span className="mt-2 block text-[13px] text-rose-800/90">
-                    UI uses session tenant <span className="font-mono">{tenantId}</span> via the BFF — match Postman{' '}
-                    <span className="font-mono">tenant_id</span> to this value when comparing.
-                  </span>
-                ) : null}
-              </p>
+            {feedMetaLine ? (
+              <p className={`mb-4 font-mono text-[12px] text-slate-500`}>{feedMetaLine}</p>
             ) : null}
 
             {selectedClientBatchId ? (
-              <section className={`mb-4 overflow-hidden ${COMMAND_CENTER_KPI_CARD}`}>
-                <div className="border-b border-slate-100 px-5 py-4">
+              <section className={`relative mb-4 overflow-hidden ${COMMAND_CENTER_KPI_CARD}`}>
+                <CommandCenterCardGlow />
+                <div className="relative border-b border-slate-100 px-5 py-4">
                   <p className={COMMAND_CENTER_LABEL_GREEN}>Batch overview</p>
                   <h2 className={`mt-1 font-mono text-[20px] font-semibold tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
                     {selectedClientBatchId}
@@ -416,23 +514,22 @@ export function SettlementJournalSurface({
                     { label: 'Settled amount', value: formatJournalMoney(totalSettled) },
                     { label: 'Fees (sum)', value: formatJournalMoney(totalFees) },
                   ].map((stat) => (
-                    <article key={stat.label} className={SETTLEMENT_KPI_STAT_CARD}>
-                      <p className={SETTLEMENT_KPI_STAT_LABEL}>{stat.label}</p>
-                      <p className={SETTLEMENT_KPI_STAT_VALUE}>{stat.value}</p>
-                    </article>
+                    <JournalOverviewStat key={stat.label} label={stat.label} value={stat.value} />
                   ))}
                 </div>
               </section>
             ) : (
-              <section className="mb-4 rounded-[20px] border border-dashed border-slate-200/90 bg-slate-50/60 px-6 py-8 text-center shadow-[0_2px_12px_rgba(15,23,42,0.04)]">
-                <h2 className="text-[18px] font-semibold tracking-tight text-[#0f172a]">Settlement journal</h2>
-                <p className="mx-auto mt-2 max-w-xl text-[15px] leading-relaxed text-[#64748b]">
+              <section className={`relative mb-4 ${COMMAND_CENTER_KPI_CARD} px-6 py-8 text-center`}>
+                <CommandCenterCardGlow />
+                <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Settlement journal</p>
+                <p className={`relative mx-auto mt-2 max-w-xl ${HOME_BODY_IMPERIAL_SM}`}>
                   Select a client batch from the sidebar to browse canonical settlement observations.
                 </p>
               </section>
             )}
 
-            <div className={`mb-4 ${COMMAND_CENTER_KPI_CARD} p-4`}>
+            <div className={`relative mb-4 overflow-hidden ${COMMAND_CENTER_KPI_CARD} p-4`}>
+              <CommandCenterCardGlow />
               <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                 <div className="min-w-0 flex-1">
                   <label htmlFor="settlement-journal-search" className={JOURNAL_FILTER_LABEL}>

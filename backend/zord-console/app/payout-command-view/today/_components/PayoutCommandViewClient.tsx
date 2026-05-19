@@ -6,7 +6,6 @@ import {
   DASHBOARD_FONT_STACK,
   dockItems,
   workspacePromptCopy,
-  workspaceSimulationScenarios,
   type DockId,
   type WorkspaceTab,
 } from '@/services/payout-command/model'
@@ -44,8 +43,6 @@ const manropeHome = Manrope({
   display: 'swap',
 })
 
-const WORKSPACE_LIVE_ANSWER_TITLE = 'Latest answer'
-
 type PayoutCommandViewClientProps = {
   /** When set, pins sandbox vs live for this route (`/sandbox` vs `/today`). */
   forceMode?: EnvMode
@@ -55,10 +52,15 @@ type PayoutCommandViewClientProps = {
    * `window` / `location` only on the client for this value.
    */
   initialDock?: DockId
-  /** Deep-link from Batch Command Center → Intent Journal (`?batch_id=`). */
+  /** Deep-link from Batch Command Center → Intent Journal / Evidence / patterns (`?batch_id=`). */
   initialJournalBatchId?: string
   /** Deep-link → Settlement Journal (`?client_batch_id=`). */
   initialSettlementClientBatchId?: string
+}
+
+/** Shared URL batch scope for journal, evidence, and patterns KPIs. */
+function resolveSharedBatchId(initial?: string) {
+  return initial?.trim() || undefined
 }
 
 export default function PayoutCommandViewClient({
@@ -72,9 +74,9 @@ export default function PayoutCommandViewClient({
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('Today')
   const [selectedSuggestion, setSelectedSuggestion] = useState<string | null>(null)
   const [activateWizardOpen, setActivateWizardOpen] = useState(false)
-
   const activeSurface = dockItems.find((item) => item.id === activeDock) ?? dockItems[0]
   const activePrompt = useMemo(() => workspacePromptCopy[activeTab], [activeTab])
+  const sharedBatchId = resolveSharedBatchId(initialJournalBatchId)
 
   const pageHeaderMeta = useMemo(() => {
     const label = activeSurface.label
@@ -83,7 +85,10 @@ export default function PayoutCommandViewClient({
     return {
       pageEyebrow: same ? undefined : label,
       pageTitle: title,
-      pageSubtitle: activeDock === 'workspace' ? `Workspace · ${activeTab}` : undefined,
+      pageSubtitle:
+        activeDock === 'workspace'
+          ? `${activeTab} context · grounded on session tenant evidence`
+          : undefined,
     }
   }, [activeSurface, activeDock, activeTab])
 
@@ -91,6 +96,18 @@ export default function PayoutCommandViewClient({
   const home = useHomeState(activeDock === 'home')
   const workspace = useWorkspaceState(activeTab, setSelectedSuggestion)
   const askZord = useAskZordState(activeSurface.title)
+
+  const handleAskZordQuickPrompt = useCallback(
+    (prompt: string) => {
+      if (activeDock === 'home') home.applyScopeFromPrompt(prompt)
+      askZord.run(prompt)
+    },
+    [activeDock, askZord, home],
+  )
+
+  const handleAskZordToggle = useCallback(() => {
+    askZord.toggle()
+  }, [askZord])
 
   // ── Navigation handlers ────────────────────────────────────────────────────
   const handleDockChange = useCallback(
@@ -101,11 +118,8 @@ export default function PayoutCommandViewClient({
         setActiveTab('Today')
         workspace.resetForTab('Today')
       }
-      if (id === 'home') {
-        home.clearInput()
-      }
     },
-    [home, workspace],
+    [workspace],
   )
 
   const handleTabChange = useCallback(
@@ -123,6 +137,7 @@ export default function PayoutCommandViewClient({
       return (
         <div className={manropeHome.className}>
           <HomeSurface
+          batchId={sharedBatchId}
           scenario={home.scenario}
           snapshot={home.snapshot}
           timeframe={home.timeframe}
@@ -134,13 +149,6 @@ export default function PayoutCommandViewClient({
           }}
           activeChartPoint={home.activeChartPoint}
           onActiveChartPointChange={home.setActiveChartPoint}
-          promptInput={home.promptInput}
-          onPromptInputChange={home.setPromptInput}
-          onPromptSubmit={() => home.runSimulation(home.promptInput)}
-          onQuickPrompt={home.runSimulation}
-          commandResponse={home.commandResponse}
-          commandStatus={home.commandStatus}
-          onDismissCommandResponse={home.dismissCommandResponse}
         />
         </div>
       )
@@ -151,21 +159,9 @@ export default function PayoutCommandViewClient({
         <WorkspaceSurface
           activeTab={activeTab}
           setActiveTab={handleTabChange}
-          scenario={workspace.scenario}
+          workspace={workspace}
           selectedPromptLabel={selectedSuggestion}
           suggestions={activePrompt.suggestions}
-          onSuggestionClick={workspace.runSimulation}
-          promptInput={workspace.promptInput}
-          onPromptInputChange={workspace.setPromptInput}
-          onPromptSubmit={() => workspace.runSimulation(workspace.promptInput)}
-          latestAnswerStatus={workspace.answerStatus}
-          latestAnswerTitle={workspace.liveAnswer?.title ?? WORKSPACE_LIVE_ANSWER_TITLE}
-          latestAnswerBody={workspace.liveAnswer?.body ?? workspace.scenario.assistant}
-          latestAnswerConfidence={workspace.liveAnswer?.confidence ?? null}
-          latestAnswerCitationSnippet={workspace.liveAnswer?.citations[0]?.snippet ?? null}
-          latestAnswerHasVisualization={workspace.liveAnswer?.visualization != null}
-          connectionState={workspace.connectionState}
-          conversation={workspace.conversation}
         />
       )
     }
@@ -174,22 +170,16 @@ export default function PayoutCommandViewClient({
     if (activeDock === 'ambiguity') return <AmbiguitySurface />
     if (activeDock === 'grid') return <IntentJournalSurface initialBatchId={initialJournalBatchId} />
     if (activeDock === 'settlement') {
-      if (forceMode === 'sandbox') {
-        return <SettlementJournalSurface initialClientBatchId={initialSettlementClientBatchId} />
-      }
-      return (
-        <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-[15px] text-slate-600">
-          Settlement Journal is available in sandbox only. Switch to sandbox mode to browse canonical settlement
-          observations.
-        </p>
-      )
+      return <SettlementJournalSurface initialClientBatchId={initialSettlementClientBatchId} />
     }
     if (activeDock === 'connectors') {
       return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
     }
     if (activeDock === 'sync') return <LiveSyncSurface />
-    if (activeDock === 'proof') return <EvidenceSurface />
-    if (activeDock === 'billing') return <BillingSurface />
+    if (activeDock === 'proof') return <EvidenceSurface initialBatchId={sharedBatchId} />
+    if (activeDock === 'billing') {
+      return <BillingSurface onActivateClick={() => setActivateWizardOpen(true)} />
+    }
     return <ProofSurface />
   }, [
     activeDock,
@@ -198,7 +188,10 @@ export default function PayoutCommandViewClient({
     forceMode,
     initialJournalBatchId,
     initialSettlementClientBatchId,
+    sharedBatchId,
     handleTabChange,
+    askZord,
+    handleAskZordQuickPrompt,
     home,
     selectedSuggestion,
     workspace,
@@ -219,25 +212,34 @@ export default function PayoutCommandViewClient({
             showSandboxStrip={forceMode === 'sandbox'}
           />
 
-          <section className="relative p-4 sm:p-5 lg:p-6">
+          <section
+            className={`relative ${activeDock === 'workspace' ? 'px-3 py-3 sm:px-4 sm:py-4 lg:px-5' : 'p-4 sm:p-5 lg:p-6'}`}
+          >
             <PageHeader
               pageEyebrow={pageHeaderMeta.pageEyebrow}
               pageTitle={pageHeaderMeta.pageTitle}
               pageSubtitle={pageHeaderMeta.pageSubtitle}
-              onAskZordToggle={askZord.toggle}
+              onAskZordToggle={handleAskZordToggle}
+              hideAskZordButton={activeDock === 'workspace'}
+              showUtilityIconButtons={activeDock !== 'workspace'}
             />
 
             {surfaceBody}
 
-            <AskZordPanel
-              isOpen={askZord.isOpen}
-              close={askZord.close}
-              input={askZord.input}
-              setInput={askZord.setInput}
-              status={askZord.status}
-              response={askZord.response}
-              run={askZord.run}
-            />
+            {activeDock !== 'workspace' ? (
+              <AskZordPanel
+                isOpen={askZord.isOpen}
+                close={askZord.close}
+                input={askZord.input}
+                setInput={askZord.setInput}
+                status={askZord.status}
+                response={askZord.response}
+                lastUserPrompt={askZord.lastUserPrompt}
+                archivedTurns={askZord.archivedTurns}
+                onSubmit={() => handleAskZordQuickPrompt(askZord.input)}
+                onQuickPrompt={handleAskZordQuickPrompt}
+              />
+            ) : null}
           </section>
         </div>
       </main>

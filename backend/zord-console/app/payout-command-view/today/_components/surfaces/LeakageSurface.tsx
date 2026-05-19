@@ -2,17 +2,18 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useMemo } from 'react'
+import { Glyph, LiveDataHint } from '../shared'
+import { CommandCenterCardGlow } from '../command-center/CommandCenterCardGlow'
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import { ClientChart, Glyph, LiveDataHint } from '../shared'
+  COMMAND_CENTER_KPI_CARD,
+  COMMAND_CENTER_LABEL_GREEN,
+  HOME_BODY_IMPERIAL,
+  HOME_BODY_IMPERIAL_MD,
+  HOME_BODY_IMPERIAL_SM,
+  HOME_INSIGHT_PROSE,
+  HOME_INSIGHT_PROSE_STRONG,
+  HOME_TITLE_BLACK,
+} from '../command-center/homeCommandCenterTokens'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
@@ -63,34 +64,6 @@ function ambiguityDrivenLeakageShare(leak: LeakageKpiResolved, amb: AmbiguityKpi
   return Math.min(100, Math.round((varMinor / leakAmt) * 100))
 }
 
-function buildLeakageTrendSeries(leakageFrac: number): { day: string; pct: number }[] {
-  const out: { day: string; pct: number }[] = []
-  const today = new Date()
-  const base = Math.max(0, Math.min(0.2, leakageFrac))
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(today)
-    d.setDate(d.getDate() - i)
-    const noise = Math.sin(i * 0.55) * 0.004
-    const drift = ((29 - i) / 29) * 0.006
-    const pctFrac = Math.max(0.001, Math.min(0.18, base - drift + noise))
-    out.push({
-      day: d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }),
-      pct: pctFrac * 100,
-    })
-  }
-  return out
-}
-
-function trendInsightFromSeries(series: { pct: number }[], currentFrac: number): string {
-  if (series.length < 14) return ''
-  const last7 = series.slice(-7)
-  const prev7 = series.slice(-14, -7)
-  const avg = (a: typeof series) => a.reduce((s, x) => s + x.pct, 0) / a.length
-  const d = avg(last7) - avg(prev7)
-  const dir = d > 0.08 ? '▲ increased' : d < -0.08 ? '▼ decreased' : '— flat vs'
-  return `Your leakage rate has ${dir} ${Math.abs(d).toFixed(2)}pp vs the prior week (modelled daily series anchored to ${(currentFrac * 100).toFixed(1)}% today). Unmatched payments are the usual primary driver when this drifts up.`
-}
-
 function leakageActionNarrative(leak: LeakageKpiResolved): { headline: string; body: string } {
   const u = Number(leak.unmatched_amount_minor) || 0
   const us = Number(leak.under_settlement_amount_minor) || 0
@@ -135,8 +108,6 @@ export function LeakageSurface() {
       : null
 
   const bridgePct = leak && amb ? ambiguityDrivenLeakageShare(leak, amb) : null
-  const trendData = useMemo(() => buildLeakageTrendSeries(leakageFrac), [leakageFrac])
-  const trendCopy = useMemo(() => trendInsightFromSeries(trendData, leakageFrac), [trendData, leakageFrac])
   const action = leak ? leakageActionNarrative(leak) : null
 
   const dockHref = `${pathname}?dock=ambiguity`
@@ -145,11 +116,8 @@ export function LeakageSurface() {
   return (
     <div className="space-y-6">
       <div className="space-y-3">
-        <p className="inline-flex w-max items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-[#fafafa] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6f716d]">
-          <Glyph name="zap" className="h-2.5 w-2.5 shrink-0" aria-hidden />
-          CFO · Finance · leakage
-        </p>
-        <p className="max-w-3xl text-[15px] leading-relaxed text-[#475569]">
+        <p className={COMMAND_CENTER_LABEL_GREEN}>CFO · Finance · leakage</p>
+        <p className={`max-w-3xl ${HOME_BODY_IMPERIAL}`}>
           How much of your payment volume is bleeding — and exactly where. KPI 6{' '}
           <span className="font-mono text-[13px]">leakage_percentage</span> is the headline risk number; everything below
           decomposes it in rupees.
@@ -159,20 +127,20 @@ export function LeakageSurface() {
 
       {/* Top — three headline numbers */}
       <section className="grid gap-4 lg:grid-cols-3">
-        <article className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#94a3b8]">Total intended</p>
-          <p className="mt-2 text-[11px] font-medium text-[#64748b]">Total value you tried to move this period</p>
-          <p className="mt-3 text-[2rem] font-semibold tabular-nums tracking-tight text-[#0f172a]">
+        <article className={COMMAND_CENTER_KPI_CARD}>
+          <CommandCenterCardGlow />
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Total intended</p>
+          <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>Total value you tried to move this period</p>
+          <p className={`relative mt-3 text-[2.5rem] font-extrabold tabular-nums tracking-[-0.03em] leading-none ${HOME_TITLE_BLACK}`}>
             {formatINR(intendedMinor)}
           </p>
-          <p className="mt-2 text-[12px] text-[#64748b]">
-            KPI 1 · <span className="font-mono">total_intended_amount_minor</span>
-          </p>
+          <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>KPI 1 · total_intended_amount_minor</p>
         </article>
 
-        <article className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#94a3b8]">Total leakage</p>
-          <p className="mt-2 text-[11px] font-medium text-[#64748b]">Share of intended flow not fully recovered</p>
+        <article className={COMMAND_CENTER_KPI_CARD}>
+          <CommandCenterCardGlow />
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Total leakage</p>
+          <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>Share of intended flow not fully recovered</p>
           <div className="mt-3 flex items-baseline gap-2">
             <p className={`text-[2rem] font-semibold tabular-nums tracking-tight ${pctStyle.label}`}>
               {(leakageFrac * 100).toFixed(2)}%
@@ -195,23 +163,21 @@ export function LeakageSurface() {
           </p>
         </article>
 
-        <article className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#94a3b8]">Risk tier</p>
-          <p className="mt-2 text-[11px] font-medium text-[#64748b]">Modelled exposure band</p>
-          <p className="mt-3 text-[2rem] font-semibold tabular-nums tracking-tight text-[#0f172a]">
+        <article className={COMMAND_CENTER_KPI_CARD}>
+          <CommandCenterCardGlow />
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Risk tier</p>
+          <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>Modelled exposure band</p>
+          <p className={`relative mt-3 text-[2.5rem] font-extrabold tabular-nums tracking-[-0.03em] leading-none ${HOME_TITLE_BLACK}`}>
             {leak?.risk_tier ?? '—'}
           </p>
-          <p className="mt-3 text-[13px] leading-relaxed text-[#475569]">{leak ? riskTierExplainer(leak.risk_tier) : '—'}</p>
-          <p className="mt-2 text-[12px] text-[#94a3b8]">
-            From API · <span className="font-mono">risk_tier</span>
-          </p>
+          <p className={`relative mt-3 ${HOME_BODY_IMPERIAL_SM}`}>{leak ? riskTierExplainer(leak.risk_tier) : '—'}</p>
         </article>
       </section>
 
       {/* Middle — four breakdown cards */}
       <section>
-        <h2 className="text-[15px] font-semibold text-[#111111]">Leakage breakdown</h2>
-        <p className="mt-1 max-w-3xl text-[13px] text-[#64748b]">Where the rupees are — each card maps to a leakage KPI field.</p>
+        <h2 className={`text-[1.1rem] font-semibold tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>Leakage breakdown</h2>
+        <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>Where the rupees are — each card maps to a leakage KPI field.</p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <BreakdownMoneyCard
             title="Unmatched payments"
@@ -250,65 +216,55 @@ export function LeakageSurface() {
 
       {/* Bottom — trend + bridge / action */}
       <section className="grid gap-4 lg:grid-cols-2">
-        <article className="rounded-2xl border border-black/10 bg-white p-5 shadow-sm">
-          <h2 className="text-[15px] font-semibold text-[#111111]">Leakage % · last 30 days</h2>
-          <p className="mt-1 text-[12px] text-[#64748b]">
-            Daily model anchored to today&apos;s KPI 6 (no historical leakage API yet — curve is deterministic noise for
-            ops context).
+        <article className={COMMAND_CENTER_KPI_CARD}>
+          <CommandCenterCardGlow />
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Time series</p>
+          <h2 className={`mt-2 text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>Leakage trend</h2>
+          <p className={`mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
+            Historical leakage time series is not exposed by the intelligence API yet. Use the headline KPIs above for
+            this period; when upstream adds a daily series endpoint, this card will chart it automatically.
           </p>
-          <ClientChart className="mt-4 h-[14rem]">
-            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={160}>
-              <LineChart data={trendData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="day" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} tickLine={false} />
-                <YAxis
-                  tick={{ fontSize: 10, fill: '#64748b' }}
-                  axisLine={false}
-                  tickLine={false}
-                  tickFormatter={(v) => `${v.toFixed(1)}%`}
-                  domain={['auto', 'auto']}
-                />
-                <Tooltip
-                  contentStyle={{ borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 12 }}
-                  formatter={(v: number) => [`${v.toFixed(2)}%`, 'Leakage']}
-                />
-                <Line type="monotone" dataKey="pct" stroke="#2563eb" strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </ClientChart>
-          <p className="mt-3 text-[13px] leading-relaxed text-[#475569]">{trendCopy}</p>
+          {leak ? (
+            <p className="mt-4 text-[1.35rem] font-semibold tabular-nums text-[#0f172a]">
+              Current window: {(leakageFrac * 100).toFixed(2)}% · {leak.risk_tier} risk
+            </p>
+          ) : (
+            <p className="mt-4 text-[14px] text-slate-600">No leakage snapshot for this tenant yet.</p>
+          )}
         </article>
 
         <article className="flex flex-col gap-4">
-          <div className="rounded-2xl border border-sky-200/80 bg-sky-50/90 p-5 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-sky-900">Ambiguity bridge</p>
+          <div className={COMMAND_CENTER_KPI_CARD}>
+            <CommandCenterCardGlow />
+            <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Ambiguity bridge</p>
             {bridgePct != null ? (
-              <p className="mt-2 text-[15px] font-semibold leading-snug text-sky-950">
-                ~{bridgePct}% of your leakage-weighted exposure overlaps same-period{' '}
-                <span className="font-mono">value_at_risk_minor</span> from ambiguous signals.
+              <p className={`relative mt-2 text-[15px] font-semibold leading-snug ${HOME_TITLE_BLACK}`}>
+                ~{bridgePct}% of your leakage-weighted exposure overlaps same-period value_at_risk_minor from ambiguous
+                signals.
               </p>
             ) : (
-              <p className="mt-2 text-[14px] text-sky-950">
+              <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
                 Connect live ambiguity + leakage payloads to surface the overlap percentage automatically.
               </p>
             )}
-            <p className="mt-2 text-[13px] leading-relaxed text-sky-900/90">
+            <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
               Ambiguity is an ops / engineering conversation; leakage is finance. We keep them separate — this is the
               single cross-link CFOs asked for.
             </p>
             <Link
               href={dockHref}
-              className="mt-4 inline-flex items-center gap-1.5 text-[14px] font-semibold text-sky-800 underline decoration-sky-300 underline-offset-4 hover:text-sky-950"
+              className={`relative mt-4 inline-flex items-center gap-1.5 text-[14px] font-semibold underline decoration-[#d0d0cc] underline-offset-4 hover:decoration-[#000000] ${HOME_TITLE_BLACK}`}
             >
               View ambiguity analysis
               <Glyph name="arrow-up-right" className="h-3.5 w-3.5" />
             </Link>
           </div>
 
-          <div className="flex flex-1 flex-col rounded-2xl border border-[#E5E5E5] bg-[#fafafa] p-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#64748b]">Recommended action</p>
-            <p className="mt-2 text-[15px] font-semibold text-[#111111]">{action?.headline ?? '—'}</p>
-            <p className="mt-2 flex-1 text-[13px] leading-relaxed text-[#475569]">{action?.body}</p>
+          <article className={`${COMMAND_CENTER_KPI_CARD} flex flex-1 flex-col`}>
+            <CommandCenterCardGlow />
+            <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Recommended action</p>
+            <p className={`relative mt-2 text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>{action?.headline ?? '—'}</p>
+            <p className={`relative mt-2 flex-1 ${HOME_BODY_IMPERIAL_SM}`}>{action?.body}</p>
             <button
               type="button"
               className="mt-4 inline-flex w-fit items-center gap-2 rounded-xl bg-[#111111] px-4 py-2.5 text-[13px] font-semibold text-white transition hover:bg-black"
@@ -316,8 +272,8 @@ export function LeakageSurface() {
               Apply action contract
               <Glyph name="arrow-up-right" className="h-3.5 w-3.5" />
             </button>
-            <p className="mt-2 text-[11px] text-[#94a3b8]">Confirmation-gated · wires to recommendations service when enabled.</p>
-          </div>
+            <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>Confirmation-gated · wires to recommendations service when enabled.</p>
+          </article>
         </article>
       </section>
     </div>
@@ -348,12 +304,13 @@ function BreakdownMoneyCard({
           ? 'border-violet-200/80'
           : 'border-slate-200/80'
   return (
-    <article className={`rounded-2xl border bg-white p-5 shadow-sm ${ring}`}>
-      <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-[#94a3b8]">{title}</p>
-      <p className="mt-1 font-mono text-[10px] text-[#94a3b8]">{kpi}</p>
-      <p className="mt-3 text-[1.65rem] font-semibold tabular-nums text-[#0f172a]">{amount}</p>
-      <p className="mt-1 text-[12px] font-medium text-[#64748b]">{share}</p>
-      <p className="mt-3 text-[13px] leading-relaxed text-[#475569]">{body}</p>
+    <article className={`${COMMAND_CENTER_KPI_CARD} ${ring}`}>
+      <CommandCenterCardGlow />
+      <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{title}</p>
+      <p className={`relative mt-1 font-mono text-[10px] ${HOME_BODY_IMPERIAL_SM}`}>{kpi}</p>
+      <p className={`relative mt-3 text-[1.65rem] font-semibold tabular-nums ${HOME_TITLE_BLACK}`}>{amount}</p>
+      <p className={`relative mt-1 ${HOME_BODY_IMPERIAL_MD}`}>{share}</p>
+      <p className={`relative mt-3 ${HOME_BODY_IMPERIAL_SM}`}>{body}</p>
     </article>
   )
 }

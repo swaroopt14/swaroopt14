@@ -1,8 +1,17 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { NavyMetricHero } from '../today/_components/command-center/NavyMetricHero'
+import { CommandCenterCardGlow } from '../today/_components/command-center/CommandCenterCardGlow'
+import { LiveDataHint } from '../today/_components/shared'
+import {
+  COMMAND_CENTER_KPI_CARD,
+  COMMAND_CENTER_LABEL_GREEN,
+  HOME_BODY_IMPERIAL_SM,
+  HOME_TITLE_BLACK,
+} from '../today/_components/command-center/homeCommandCenterTokens'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
@@ -269,26 +278,45 @@ export default function ConnectorIntelligenceClient() {
   const router = useRouter()
   const firePrompt = makeFirePrompt((path) => router.push(path))
   const { tenantId, tenantReady } = useSessionTenant()
-  const { leakage, defensibility, patterns, lastFetchedAt } = useIntelligenceKpis({ tenantReady })
+  const { leakage, defensibility, patterns, ambiguity, lastFetchedAt } = useIntelligenceKpis({ tenantReady })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const defData = isDataAvailable(defensibility) ? defensibility : null
   const patternsData = isDataAvailable(patterns) ? patterns : null
+  const ambiguityData = isDataAvailable(ambiguity) ? ambiguity : null
 
-  // Live "Total defensibility exposure" hero. Until per-connector endpoint (H)
-  // ships, we use the tenant-wide exposure = (100 - defensibility) × intended.
-  const intendedMinor = leakageData?.total_intended_amount_minor
   const defScore = defData?.defensibility_score ?? null
-  const exposureMinor =
+  const intendedMinor = leakageData?.total_intended_amount_minor
+  const exposureFromLeakage =
     intendedMinor && defScore !== null
       ? Math.round((Number(intendedMinor) * (100 - defScore)) / 100)
       : null
-  const heroValue = exposureMinor !== null ? formatINR(exposureMinor) : '₹8.7L'
+  const exposureFromAmbiguity = ambiguityData?.value_at_risk_minor
+    ? Number(ambiguityData.value_at_risk_minor)
+    : null
+  const exposureMinor =
+    exposureFromLeakage != null && Number.isFinite(exposureFromLeakage) && exposureFromLeakage > 0
+      ? exposureFromLeakage
+      : exposureFromAmbiguity != null && Number.isFinite(exposureFromAmbiguity) && exposureFromAmbiguity > 0
+        ? exposureFromAmbiguity
+        : null
+
+  const hasLiveExposure = exposureMinor !== null
+  const hasAnyKpi = Boolean(defData || leakageData || patternsData || ambiguityData)
+  const heroValue = hasLiveExposure ? formatINR(exposureMinor) : hasAnyKpi ? 'Pending' : '—'
+  const heroSuffix = hasLiveExposure ? '/mo est.' : undefined
   const heroDelta = patternsData
     ? `${patternsData.anomaly_level} anomaly · ${patternsData.risk_tier} risk`
-    : '↓ 1.6pp vs prior period'
+    : defData
+      ? `Tier ${defData.defensibility_tier} · ${defData.defensibility_score.toFixed(1)}% defensibility`
+      : tenantReady
+        ? 'Ingest a batch in Batch Command Center to populate intelligence KPIs for this tenant.'
+        : 'Sign in to load tenant-scoped connector metrics.'
   const syncLabel = lastFetchedAt
     ? `Sync ${Math.max(0, Math.round((Date.now() - lastFetchedAt.getTime()) / 1000))}s ago`
-    : 'Sync 38s ago'
+    : tenantReady
+      ? 'Awaiting intelligence sync'
+      : 'Sign in for live KPIs'
+  const hasLiveHero = hasLiveExposure
 
   const [activeConnector, setActiveConnector] = useState('PayU')
   const [sortBy, setSortBy] = useState<keyof ComparisonRow>('ambiguity')
@@ -322,338 +350,133 @@ export default function ConnectorIntelligenceClient() {
   }
 
   return (
-    <div className="payout-command-console -mx-3 -my-4 mt-2 rounded-[20px] bg-gradient-to-b from-[#fafaf9] via-white to-[#fafaf9] px-3 py-4 text-[15px] leading-[1.55] text-neutral-950 sm:-mx-4 sm:px-4 lg:-mx-5 lg:px-5">
-      {/* 24h delta strip — monochrome */}
-      <div className="mb-5 flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2.5">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Last 24h · ambiguity delta</span>
-        {sortedConnectors.map((c) => {
-          const dot =
-            c.delta24hKind === 'up' ? 'bg-rose-500' : c.delta24hKind === 'down' ? 'bg-emerald-500' : 'bg-sky-400'
-          const arrow = c.delta24hKind === 'up' ? '↑' : c.delta24hKind === 'down' ? '↓' : '→'
-          return (
-            <span
-              key={c.name}
-              className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[12px] font-medium text-neutral-600"
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
-              <span aria-hidden>{arrow}</span>
-              <span className="font-semibold text-neutral-900">{c.name}</span>
-              <span className="tabular-nums">{c.delta24h}</span>
-            </span>
-          )
-        })}
-        <span className="ml-auto text-[12px] text-neutral-500">{syncLabel}</span>
+    <div className="space-y-5 pb-6 text-[15px] leading-[1.55]">
+      <div className={`${COMMAND_CENTER_KPI_CARD} flex flex-wrap items-center justify-between gap-2 !p-4`}>
+        <CommandCenterCardGlow />
+        <LiveDataHint isLive={hasLiveHero} source="intelligence" />
+        <span className={`relative text-[12px] ${HOME_BODY_IMPERIAL_SM}`}>{syncLabel}</span>
       </div>
 
-      {/* Summary — dark navy hero (matches Leakage page) for fintech weight */}
-      <NavyMetricHero
-        className="mb-6"
-        eyebrow="Total defensibility exposure · this period"
-        value={heroValue}
-        valueSuffix="/mo"
-        deltaPill={heroDelta}
-        subcopy="Aggregated across connectors where signals were late or conflicting. Use the per-connector cards and comparison table below to attribute exposure before a PSP conversation."
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => firePrompt('Summarize connector exposure for executive PSP review')}
-              className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[#0f172a] transition hover:bg-white/90"
-            >
-              Executive brief
-            </button>
-            <button
-              type="button"
-              onClick={() => firePrompt('Schedule QBR with PayU connector negotiation pack')}
-              className="rounded-lg border border-white/30 bg-transparent px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-white/10"
-            >
-              Schedule PayU QBR
-            </button>
-          </>
-        }
-        buckets={[
-          { label: 'Highest-exposure connector', value: 'PayU', sub: '₹4.8L/mo · 6.0% ambiguity — primary negotiation lever' },
-          { label: 'Network ambiguity rate', value: '3.2%', sub: 'Conflicting or late signals on attributed connector' },
-          { label: 'Recovered this period', value: '₹11.2L', sub: 'Retry + manual closure · 82.4% recovery rate' },
-        ]}
-      />
-
-      {/* Per-connector cards */}
-      <section>
-        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <h2 className="text-[12px] font-semibold uppercase tracking-[0.12em] text-neutral-500">Per-connector performance</h2>
-            <p className="mt-1 text-[13px] text-neutral-600">One card per PSP / rail cluster · cost and risk, not a generic health score</p>
-          </div>
-          <p className="text-[12px] text-neutral-500">Sorted: worst posture first</p>
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          {sortedConnectors.map((c) => {
-            const badge = statusBadge(c.status)
-            const isActive = activeConnector === c.name
-            const barColor = defensibilityGray(c.defensibility)
-            return (
+      {hasLiveExposure ? (
+        <NavyMetricHero
+          className="mb-2"
+          eyebrow="Total defensibility exposure · this period"
+          value={heroValue}
+          valueSuffix={heroSuffix}
+          deltaPill={heroDelta}
+          subcopy="Estimated from leakage-weighted intended volume and defensibility score (or ambiguity value at risk when leakage is empty). Per-PSP attribution arrives when the connector breakdown API ships."
+          footer={
+            <>
               <button
-                key={c.name}
                 type="button"
-                onClick={() => {
-                  setActiveConnector(c.name)
-                  firePrompt(`Drill down ${c.name}: ambiguity, signal latency, and defensibility exposure`)
-                }}
-                className={`group relative flex flex-col overflow-hidden rounded-2xl border border-neutral-200 p-5 text-left shadow-[0_4px_16px_-4px_rgba(15,23,42,0.06),0_1px_2px_rgba(15,23,42,0.04)] transition hover:shadow-[0_10px_30px_-8px_rgba(15,23,42,0.1),0_2px_4px_rgba(15,23,42,0.04)] ${badge.cardTint} ${
-                  isActive ? 'ring-1 ring-neutral-950' : 'hover:border-neutral-300'
-                }`}
+                onClick={() => firePrompt('Summarize connector exposure for executive PSP review')}
+                className="rounded-lg bg-white px-3 py-1.5 text-[12px] font-semibold text-[#0f172a] transition hover:bg-white/90"
               >
-                {/* Top status accent strip */}
-                <span
-                  aria-hidden
-                  className={`absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r ${badge.strip}`}
-                />
-
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="text-[16px] font-semibold text-neutral-950">{c.name}</p>
-                      <span className="rounded-full border border-neutral-200 bg-neutral-50 px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
-                        PSP
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-[12px] text-neutral-500">{c.rails.join(' · ')}</p>
-                  </div>
-                  <span className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badge.wrap}`}>
-                    <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} aria-hidden />
-                    {c.status}
-                  </span>
-                </div>
-
-                <div className="mt-3 flex items-baseline justify-between gap-3 rounded-lg border border-neutral-200 bg-gradient-to-br from-neutral-50 to-white px-3 py-2">
-                  <div>
-                    <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">Exposure attributed</p>
-                    <p className="mt-0.5 text-[19px] font-semibold tabular-nums tracking-[-0.02em] text-neutral-950">{c.exposure}</p>
-                  </div>
-                  <span className="text-[11px] text-neutral-500">{c.volume} routed</span>
-                </div>
-
-                <div className="mt-4">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">Defensibility contribution</span>
-                    <span className="text-[21px] font-semibold tabular-nums text-neutral-950">{c.defensibility}</span>
-                  </div>
-                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-neutral-100">
-                    <div className="h-full rounded-full transition-all" style={{ width: `${c.defensibility}%`, background: barColor }} />
-                  </div>
-                  <p className="mt-1 text-[11px] text-neutral-500">How strongly this connector strengthens or weakens the evidence chain</p>
-                </div>
-
-                <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-3 text-[12px] sm:grid-cols-3">
-                  <div>
-                    <dt className="text-neutral-500">Volume (period)</dt>
-                    <dd className="mt-0.5 font-semibold tabular-nums text-neutral-950">{c.volume}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-500">Signal closure rate</dt>
-                    <dd className="mt-0.5 font-semibold tabular-nums text-neutral-950">{c.signalRate}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-500">Ambiguity rate</dt>
-                    <dd className="mt-0.5 font-semibold tabular-nums text-neutral-950">{c.ambiguity}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-500">Avg signal arrival</dt>
-                    <dd className="mt-0.5 font-semibold tabular-nums text-neutral-950">{c.avgSignal}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-neutral-500">Governance rejection</dt>
-                    <dd className="mt-0.5 font-semibold tabular-nums text-neutral-950">{c.govReject}</dd>
-                  </div>
-                </dl>
-
-                <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2">
-                  <div className="flex items-center justify-between text-[11px] font-medium uppercase tracking-[0.08em] text-neutral-500">
-                    <span>Ambiguity · 14d</span>
-                    <span className="tabular-nums text-neutral-700">
-                      {c.delta24hKind === 'up' ? '↑' : c.delta24hKind === 'down' ? '↓' : '→'} {c.delta24h}
-                    </span>
-                  </div>
-                  <Sparkline values={c.ambiguity14d} ariaLabel={`${c.name} ambiguity trend, last 14 days`} />
-                </div>
-
-                <p className="mt-3 rounded-lg border border-neutral-200 bg-neutral-50 p-3 text-[12px] leading-relaxed text-neutral-600">
-                  {c.insight}
-                </p>
-
-                <div className="mt-3 flex items-center justify-between gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-[12px] font-medium text-neutral-800">
-                  <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="text-neutral-500">Next</span>
-                    <span className="truncate">{c.action}</span>
-                  </span>
-                  <span className="text-neutral-400" aria-hidden>
-                    →
-                  </span>
-                </div>
+                Executive brief
               </button>
-            )
-          })}
-        </div>
-      </section>
-
-      {/* PSP comparison — spec columns only */}
-      <section className="mt-8 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-[0_4px_16px_-4px_rgba(15,23,42,0.06),0_1px_2px_rgba(15,23,42,0.04)]">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-200 px-4 py-4 sm:px-5">
-          <div>
-            <h2 className="text-[14px] font-semibold text-neutral-950">PSP comparison</h2>
-            <p className="mt-0.5 text-[12px] text-neutral-600">
-              Sortable. Exportable. Connector · Volume · Signal closure rate · Ambiguity % · Avg signal time · Defensibility score.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => exportComparisonCsv(sortedRows)}
-              className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-neutral-800 transition hover:bg-neutral-50"
-            >
-              Export CSV
-            </button>
-            <button
-              type="button"
-              onClick={() => firePrompt('Reroute advice from connector comparison table')}
-              className="rounded-lg border border-neutral-900 bg-neutral-950 px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-black"
-            >
-              Reroute advice
-            </button>
-          </div>
-        </header>
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left text-[13px]">
-            <thead className="border-b border-neutral-200 bg-neutral-50 text-[11px] font-semibold uppercase tracking-[0.08em] text-neutral-500">
-              <tr>
-                {(
-                  [
-                    ['connector', 'Connector', 'left'],
-                    ['volume', 'Volume (₹L)', 'right'],
-                    ['signalRate', 'Signal closure rate', 'right'],
-                    ['ambiguity', 'Ambiguity %', 'right'],
-                    ['avgSignal', 'Avg signal time', 'right'],
-                    ['defensibility', 'Defensibility score', 'right'],
-                  ] as const
-                ).map(([k, label, align]) => (
-                  <th
-                    key={k}
-                    scope="col"
-                    className={`cursor-pointer select-none px-3 py-3 transition hover:text-neutral-900 sm:px-4 ${
-                      align === 'right' ? 'text-right' : 'text-left'
-                    }`}
-                    onClick={() => toggleSort(k as keyof ComparisonRow)}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      {label}
-                      {sortBy === k ? <span aria-hidden>{sortDir === 'desc' ? '↓' : '↑'}</span> : null}
-                    </span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="text-neutral-900">
-              {sortedRows.map((r) => {
-                const ambPct = Math.min(100, (r.ambiguity / 8) * 100)
-                const ambBar = r.ambiguity <= 2 ? '#10b981' : r.ambiguity <= 4 ? '#f59e0b' : '#e11d48'
-                const defBar = defensibilityGray(r.defensibility)
-                return (
-                  <tr key={r.connector} className="border-t border-neutral-100 transition hover:bg-neutral-50/80">
-                    <td className="px-3 py-2.5 font-semibold sm:px-4">{r.connector}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums sm:px-4">₹{r.volume.toFixed(1)}L</td>
-                    <td className="px-3 py-2.5 text-right font-medium tabular-nums sm:px-4">{r.signalRate.toFixed(1)}%</td>
-                    <td className="px-3 py-2.5 sm:px-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <span className="hidden h-1.5 w-14 overflow-hidden rounded-full bg-neutral-100 sm:block">
-                          <span className="block h-full rounded-full" style={{ width: `${ambPct}%`, background: ambBar }} />
-                        </span>
-                        <span className="min-w-[3rem] text-right font-semibold tabular-nums">{r.ambiguity.toFixed(1)}%</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-medium tabular-nums sm:px-4">{r.avgSignal.toFixed(1)}s</td>
-                    <td className="px-3 py-2.5 sm:px-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <span className="hidden h-1.5 w-14 overflow-hidden rounded-full bg-neutral-100 sm:block">
-                          <span className="block h-full rounded-full" style={{ width: `${r.defensibility}%`, background: defBar }} />
-                        </span>
-                        <span className="min-w-[2.5rem] text-right font-semibold tabular-nums">{r.defensibility}</span>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {/* Gantt-style health timeline — 30d, grayscale */}
-      <section className="mt-8 rounded-2xl border border-neutral-200 bg-white p-4 shadow-[0_4px_16px_-4px_rgba(15,23,42,0.06),0_1px_2px_rgba(15,23,42,0.04)] sm:p-5">
-        <div className="mb-4">
-          <h2 className="text-[14px] font-semibold text-neutral-950">Connector health timeline</h2>
-          <p className="mt-0.5 text-[12px] text-neutral-600">
-            Last 30 days · one column per day · darker segments = worse posture · vertical bar = anomaly event
+              <Link
+                href="/payout-command-view/today?dock=ambiguity"
+                className="rounded-lg border border-white/30 bg-transparent px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-white/10"
+              >
+                Ambiguity analysis
+              </Link>
+            </>
+          }
+          buckets={[
+            {
+              label: 'Defensibility score',
+              value: defScore !== null ? `${defScore.toFixed(1)}%` : '—',
+              sub: defData?.defensibility_tier ? `Tier ${defData.defensibility_tier}` : 'Tenant-wide intelligence',
+            },
+            {
+              label: 'Leakage rate',
+              value: leakageData ? `${((leakageData.leakage_percentage ?? 0) * 100).toFixed(2)}%` : '—',
+              sub: leakageData?.risk_tier ? `Risk ${leakageData.risk_tier}` : 'Leakage KPI 1–6',
+            },
+            {
+              label: 'Patterns',
+              value: patternsData?.anomaly_level ?? '—',
+              sub: patternsData?.risk_tier
+                ? `Risk ${patternsData.risk_tier}`
+                : 'Set ?batch_id= on Today for batch-scoped patterns',
+            },
+          ]}
+        />
+      ) : (
+        <section className={`relative mb-2 overflow-hidden ${COMMAND_CENTER_KPI_CARD}`}>
+          <CommandCenterCardGlow />
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Connector intelligence</p>
+          <p className={`relative mt-2 text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>
+            {tenantReady ? 'Exposure will appear after batch ingest' : 'Sign in to load connector KPIs'}
           </p>
-        </div>
-        <div className="space-y-2.5">
-          {TIMELINE_30D.map(({ name, days, anomalyAt }) => (
-            <div key={name} className="flex items-center gap-3">
-              <span className="w-[5.5rem] shrink-0 text-[12px] font-medium text-neutral-600 sm:w-28">{name}</span>
-              <div className="relative flex flex-1 gap-px rounded-sm bg-neutral-100 p-px">
-                {days.map((s, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => firePrompt(`${name} health · day ${idx + 1} of 30`)}
-                    title={`${name} · day ${idx + 1} · ${s === 'g' ? 'Nominal' : s === 'a' ? 'Degraded' : s === 'r' ? 'Critical' : 'Monitoring'}`}
-                    className={`h-7 min-w-0 flex-1 rounded-[1px] transition hover:opacity-80 ${dayBg(s)}`}
-                  />
-                ))}
-                {anomalyAt != null ? (
-                  <span
-                    aria-label={`Anomaly · day ${anomalyAt + 1}`}
-                    className="pointer-events-none absolute -top-0.5 h-8 w-px bg-neutral-950"
-                    style={{ left: `calc(${(anomalyAt / days.length) * 100}% )` }}
-                  />
-                ) : null}
+          <p className={`relative mt-2 max-w-2xl ${HOME_BODY_IMPERIAL_SM}`}>{heroDelta}</p>
+          <div className="relative mt-4 grid gap-3 sm:grid-cols-3">
+            {[
+              {
+                label: 'Defensibility score',
+                value: defScore !== null ? `${defScore.toFixed(1)}%` : '—',
+                sub: defData?.defensibility_tier ? `Tier ${defData.defensibility_tier}` : 'KPI 11–13',
+              },
+              {
+                label: 'Leakage rate',
+                value: leakageData ? `${((leakageData.leakage_percentage ?? 0) * 100).toFixed(2)}%` : '—',
+                sub: leakageData?.risk_tier ? `Risk ${leakageData.risk_tier}` : 'KPI 1–6',
+              },
+              {
+                label: 'Ambiguity VaR',
+                value: ambiguityData ? formatINR(ambiguityData.value_at_risk_minor) : '—',
+                sub: ambiguityData
+                  ? `${(ambiguityData.ambiguity_rate * 100).toFixed(2)}% ambiguity rate`
+                  : 'KPI 7–10',
+              },
+            ].map((b) => (
+              <div
+                key={b.label}
+                className="rounded-xl border border-slate-100 bg-slate-50/80 px-4 py-3 ring-1 ring-black/[0.03]"
+              >
+                <p className={COMMAND_CENTER_LABEL_GREEN}>{b.label}</p>
+                <p className={`mt-2 text-[1.65rem] font-extrabold tabular-nums leading-none ${HOME_TITLE_BLACK}`}>
+                  {b.value}
+                </p>
+                <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>{b.sub}</p>
               </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 flex items-center gap-3">
-          <span className="w-[5.5rem] shrink-0 sm:w-28" aria-hidden />
-          <div className="flex flex-1 justify-between text-[11px] text-neutral-500">
-            <span>30d ago</span>
-            <span>21d</span>
-            <span>14d</span>
-            <span>7d</span>
-            <span>Today</span>
+            ))}
           </div>
-        </div>
-        <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-neutral-200 pt-4 text-[12px] text-neutral-600">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-4 rounded-[1px] bg-emerald-400" aria-hidden />
-            Nominal
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-4 rounded-[1px] bg-amber-400" aria-hidden />
-            Degraded
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-4 rounded-[1px] bg-sky-400" aria-hidden />
-            Monitoring
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-2.5 w-4 rounded-[1px] bg-rose-500" aria-hidden />
-            Critical
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-3 w-px bg-neutral-950" aria-hidden />
-            Anomaly marker
-          </span>
-        </div>
+          <div className="relative mt-4 flex flex-wrap gap-2">
+            <Link
+              href="/payout-command-view/batch-command-center"
+              className="inline-flex h-9 items-center rounded-xl bg-[#111111] px-4 text-[13px] font-semibold text-white transition hover:bg-black"
+            >
+              Batch Command Center
+            </Link>
+            <Link
+              href="/payout-command-view/today?dock=home"
+              className={`inline-flex h-9 items-center rounded-xl border border-slate-200 bg-white px-4 text-[13px] font-semibold ${HOME_TITLE_BLACK} transition hover:bg-slate-50`}
+            >
+              Today overview
+            </Link>
+          </div>
+        </section>
+      )}
+
+      <section className="space-y-4">
+        <article className={COMMAND_CENTER_KPI_CARD}>
+          <CommandCenterCardGlow />
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Per-connector breakdown</p>
+          <p className={`relative mt-2 text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>Not available yet</p>
+          <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
+            Tenant-wide defensibility exposure is shown in the hero above. When upstream exposes per-PSP connector metrics,
+            cards and the comparison table will populate from the BFF — static demo connectors are not shown in live mode.
+          </p>
+          <Link
+            href="/payout-command-view/today?dock=ambiguity"
+            className={`relative mt-4 inline-flex text-[13px] font-semibold underline decoration-[#d0d0cc] underline-offset-4 hover:decoration-[#000000] ${HOME_TITLE_BLACK}`}
+          >
+            Open ambiguity analysis →
+          </Link>
+        </article>
       </section>
+
     </div>
   )
 }

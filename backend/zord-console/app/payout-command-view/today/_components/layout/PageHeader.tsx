@@ -24,6 +24,8 @@ type PageHeaderProps = {
   /** Optional second line under title (e.g. Ask workspace tab) */
   pageSubtitle?: string
   onAskZordToggle: () => void
+  /** Workspace dock uses inline chat — hide header popup trigger. */
+  hideAskZordButton?: boolean
   /** When false, hides refresh / eye / menu on Disbursement Command Center only. */
   showUtilityIconButtons?: boolean
   /** Command center (home): filter toggle + expandable panel below the header row */
@@ -44,6 +46,7 @@ export function PageHeader({
   pageTitle,
   pageSubtitle,
   onAskZordToggle,
+  hideAskZordButton = false,
   showUtilityIconButtons = true,
   homeCommandFilters,
   homeSystemKnowledgeFlow,
@@ -131,14 +134,16 @@ export function PageHeader({
           </button>
         ) : null}
 
-        <button
-          type="button"
-          onClick={onAskZordToggle}
-          className="flex h-9 items-center gap-1.5 rounded-[8px] border border-[#111111] bg-[#111111] px-2.5 text-[14px] font-semibold text-white"
-        >
-          <span className="h-2 w-2 rounded-full bg-white/90" />
-          Ask Zord
-        </button>
+        {!hideAskZordButton ? (
+          <button
+            type="button"
+            onClick={onAskZordToggle}
+            className="flex h-9 items-center gap-1.5 rounded-[8px] border border-[#111111] bg-[#111111] px-2.5 text-[14px] font-semibold text-white"
+          >
+            <span className="h-2 w-2 rounded-full bg-white/90" />
+            Ask Zord
+          </button>
+        ) : null}
 
         <Link
           href={batchCenterHref}

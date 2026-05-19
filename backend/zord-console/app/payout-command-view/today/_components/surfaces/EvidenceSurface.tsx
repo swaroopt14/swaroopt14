@@ -3,6 +3,14 @@
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import { Glyph, LiveDataHint } from '../shared'
+import { CommandCenterCardGlow } from '../command-center/CommandCenterCardGlow'
+import {
+  COMMAND_CENTER_KPI_CARD,
+  COMMAND_CENTER_LABEL_GREEN,
+  HOME_BODY_IMPERIAL,
+  HOME_BODY_IMPERIAL_SM,
+  HOME_TITLE_BLACK,
+} from '../command-center/homeCommandCenterTokens'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
@@ -96,20 +104,16 @@ function tierChipLabel(tier: DefensibilityTier): string {
 
 function DefensibilityTierPlaceholder() {
   return (
-    <div
-      className={`flex w-full max-w-md flex-col rounded-[0.85rem] border ${ASK.border} bg-white px-4 py-3 shadow-sm lg:ml-auto`}
-    >
+    <div className={`relative flex w-full max-w-md flex-col rounded-xl border border-slate-100 bg-white px-4 py-3 shadow-sm lg:ml-auto`}>
       <div className="flex items-start gap-3">
-        <span
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border ${ASK.border} ${ASK.field} text-[#111111]`}
-        >
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-slate-100 bg-slate-50 text-[#111111]">
           <Glyph name="shield" className="h-4 w-4 opacity-80" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[14px] font-semibold text-[#111111]">Tier appears when data is live</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-[#6f716d]">
-            <span className="font-medium text-[#111111]">Excellent → Poor</span> is derived from your tenant&apos;s
-            defensibility KPIs. Ingest a batch or connect intelligence so this badge can update in real time.
+          <p className={`text-[14px] font-semibold ${HOME_TITLE_BLACK}`}>Tier appears when data is live</p>
+          <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
+            <span className={HOME_TITLE_BLACK}>Excellent → Poor</span> is derived from your tenant&apos;s defensibility
+            KPIs. Ingest a batch or connect intelligence so this badge can update in real time.
           </p>
         </div>
       </div>
@@ -117,10 +121,10 @@ function DefensibilityTierPlaceholder() {
   )
 }
 
-export function EvidenceSurface() {
+export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const [search, setSearch] = useState('')
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
-  const [batchId, setBatchId] = useState<string>('')
+  const [batchId, setBatchId] = useState<string>(() => initialBatchId?.trim() ?? '')
   const [packRows, setPackRows] = useState<EvidencePackRow[]>([])
   const [packListError, setPackListError] = useState<string | null>(null)
   const [packsLoading, setPacksLoading] = useState(false)
@@ -142,9 +146,14 @@ export function EvidenceSurface() {
   )
 
   useEffect(() => {
+    const fromUrl = initialBatchId?.trim()
+    if (fromUrl) setBatchId(fromUrl)
+  }, [initialBatchId])
+
+  useEffect(() => {
     if (!tenantReady) {
       setBatches([])
-      setBatchId('')
+      if (!initialBatchId?.trim()) setBatchId('')
       return
     }
     let cancelled = false
@@ -177,7 +186,7 @@ export function EvidenceSurface() {
       if (cancelled) return
       if (!list) {
         setPackListError(
-          'Evidence packs list failed. Confirm zord-evidence GET /v1/evidence/packs accepts tenant_id + batch_id (or intent_id per service contract).',
+          'Evidence packs list failed. Try another batch or confirm your tenant has ingested packs for this batch.',
         )
         setPackRows([])
         setPacksLoading(false)
@@ -248,33 +257,26 @@ export function EvidenceSurface() {
   }, [packRows, search])
 
   return (
-    <div
-      className={`-mx-4 space-y-5 ${ASK.canvas} px-4 pb-10 pt-0.5 sm:-mx-5 sm:px-5 lg:-mx-6 lg:px-6`}
-    >
-      {/* ── Hero (white shell — matches Ask / command cards) ───────── */}
-      <header className={`overflow-hidden ${ASK.radius} border ${ASK.border} bg-white ${ASK.shadow}`}>
-        <div className="p-5 sm:p-6">
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full border ${ASK.border} bg-white px-2.5 py-0.5 text-[14px] font-semibold uppercase tracking-[0.1em] ${ASK.muted}`}
-          >
-            <Glyph name="shield" className="h-2.5 w-2.5 text-[#111111]" />
-            Compliance · Legal
-          </span>
-          <p className="mt-3 max-w-2xl text-[17px] leading-relaxed text-[#6f716d]">
+    <div className="space-y-5 pb-6">
+      <header className={COMMAND_CENTER_KPI_CARD}>
+        <CommandCenterCardGlow />
+        <div className="relative p-5 sm:p-6">
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Compliance · Legal</p>
+          <p className={`relative mt-3 max-w-2xl ${HOME_BODY_IMPERIAL}`}>
             Every intent that is cryptographically proven, and every one that isn&apos;t. Pull, download, and submit
             evidence in seconds — no screenshots, no chasing PSP logs.
           </p>
         </div>
-        <div className={`border-t ${ASK.border} ${ASK.inset} px-5 py-4 sm:px-6`}>
+        <div className="relative border-t border-slate-100 px-5 py-4 sm:px-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between lg:gap-6">
             <div className="min-w-0">
-              <p className={`text-[10px] font-semibold uppercase tracking-[0.12em] ${ASK.muted}`}>Data source</p>
+              <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Data source</p>
               <div className="mt-2">
                 <LiveDataHint isLive={anyKpiLive} source="intelligence + evidence" variant="command" />
               </div>
             </div>
             <div className="min-w-0 lg:max-w-[26rem] lg:text-right">
-              <p className={`text-[10px] font-semibold uppercase tracking-[0.12em] ${ASK.muted}`}>Defensibility tier</p>
+              <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Defensibility tier</p>
               <div className="mt-2 flex flex-wrap items-center gap-2 lg:justify-end">
                 {defensibilityData ? (
                   <TierChip tier={defensibilityData.defensibility_tier} label={tierChipLabel(defensibilityData.defensibility_tier)} />
@@ -295,25 +297,19 @@ export function EvidenceSurface() {
       </section>
 
       {/* ── Defensibility breakdown (funnel) ────────────────────────── */}
-      <section className={`overflow-hidden ${ASK.radius} border ${ASK.border} bg-white ${ASK.shadow}`}>
-        <div className={`border-b ${ASK.border} ${ASK.inset} px-5 py-4`}>
+      <section className={COMMAND_CENTER_KPI_CARD}>
+        <CommandCenterCardGlow />
+        <div className={`relative border-b border-slate-100 px-5 py-4`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex gap-3">
-              <span
-                className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border ${ASK.border} ${ASK.field} text-[#111111]`}
-              >
-                <Glyph name="chart" className="h-4 w-4" />
-              </span>
-              <div>
-                <p className="text-[17px] font-semibold text-[#111111]">Defensibility breakdown</p>
-                <p className="mt-0.5 max-w-xl text-[15px] leading-relaxed text-[#6f716d]">
+            <div>
+              <p className={`text-[17px] font-semibold ${HOME_TITLE_BLACK}`}>Defensibility breakdown</p>
+              <p className={`mt-0.5 max-w-xl ${HOME_BODY_IMPERIAL_SM}`}>
                   The gap between dispatched and fully evidenced is the live exposure Zord is closing.
                 </p>
-              </div>
             </div>
           </div>
         </div>
-        <div className="p-5 pt-4">
+        <div className="relative p-5 pt-4">
           <Waterfall
             defensibility={defensibilityData}
             patterns={patternsData}
@@ -324,18 +320,13 @@ export function EvidenceSurface() {
       </section>
 
       {/* ── Evidence pack browser ───────────────────────────────────── */}
-      <section className={`overflow-hidden ${ASK.radius} border ${ASK.border} bg-white ${ASK.shadow}`}>
-        <div className={`border-b ${ASK.border} ${ASK.inset} px-5 py-4`}>
+      <section className={COMMAND_CENTER_KPI_CARD}>
+        <CommandCenterCardGlow />
+        <div className="relative border-b border-slate-100 px-5 py-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="flex min-w-0 gap-3">
-              <span
-                className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border ${ASK.border} ${ASK.field} text-[#111111]`}
-              >
-                <Glyph name="folder" className="h-4 w-4" />
-              </span>
-              <div className="min-w-0">
-                <p className="text-[17px] font-semibold text-[#111111]">Evidence pack browser</p>
-                <p className="mt-0.5 max-w-xl text-[15px] leading-relaxed text-[#6f716d]">
+            <div className="min-w-0">
+              <p className={`text-[17px] font-semibold ${HOME_TITLE_BLACK}`}>Evidence pack browser</p>
+              <p className={`mt-0.5 max-w-xl ${HOME_BODY_IMPERIAL_SM}`}>
                   Pull any pack by Intent ID, beneficiary ref, batch, or Merkle root.
                 </p>
                 <p className={`mt-2 text-[13px] tabular-nums ${ASK.muted}`}>
@@ -355,7 +346,6 @@ export function EvidenceSurface() {
                 </p>
                 {packListError ? <p className="mt-2 text-[13px] font-medium text-amber-800">{packListError}</p> : null}
               </div>
-            </div>
             <div className="flex w-full shrink-0 flex-col gap-2 lg:max-w-[24rem] lg:items-end">
               <label className={`flex w-full flex-col gap-1 text-left text-[11px] font-semibold uppercase tracking-[0.1em] ${ASK.muted} lg:items-end`}>
                 Intelligence batch
@@ -423,6 +413,7 @@ export function EvidenceSurface() {
                   key={row.summary.evidence_pack_id}
                   row={row}
                   tenantDefensibilityScore={defensibilityData?.defensibility_score ?? null}
+                  batchId={batchId}
                 />
               ))}
               {filteredPacks.length === 0 ? (
@@ -439,7 +430,7 @@ export function EvidenceSurface() {
                         {tenantId
                           ? search.trim()
                             ? `Nothing for "${search}". Try another Merkle prefix or batch.`
-                            : 'Pick a batch with intelligence data, or confirm GET /v1/evidence/packs returns rows for tenant_id + batch_id.'
+                            : 'Pick a batch with intelligence data, or ingest a batch that has evidence packs for your tenant.'
                           : 'Tenant id is required for /api/prod/evidence/packs and intelligence batches.'}
                       </p>
                     </div>
@@ -450,87 +441,7 @@ export function EvidenceSurface() {
           </table>
         </div>
       </section>
-
-      {/* ── Backend gaps (Ask Zord) ─────────────────────────────────── */}
-      <section className={`overflow-hidden ${ASK.radius} border ${ASK.border} bg-white ${ASK.shadow}`}>
-        <div className={`border-b ${ASK.border} ${ASK.inset} px-5 py-4`}>
-          <p className="text-[17px] font-semibold text-[#111111]">Ask backend / Zord</p>
-          <p className="mt-0.5 max-w-xl text-[15px] leading-relaxed text-[#6f716d]">
-            Surfaces we still cannot fill from the browser alone — copy the contract below into your service tracker.
-          </p>
-        </div>
-        <div className="space-y-4 p-5">
-          <AskBackendCallout
-            title="Per-tenant dispute ledger"
-            body="This page removed mock dispute rows. We need a disputes (or chargeback) API keyed by tenant_id with evidence attachment status and aging."
-            method="GET"
-            path="/v1/disputes?tenant_id={uuid}&status=OPEN"
-            exampleResponse={`{
-  "disputes": [
-    {
-      "dispute_id": "dsp_…",
-      "amount_minor": "1480000",
-      "evidence_pack_id": "bep_…",
-      "evidence_status": "COMPLETE | PARTIAL | INSUFFICIENT",
-      "days_open": 2
-    }
-  ],
-  "total": 1
-}`}
-          />
-          <AskBackendCallout
-            title="Evidence list filter parity"
-            body="OpenAPI in repo lists GET /v1/evidence/packs with tenant_id + intent_id. Your console forwards batch_id as well — confirm zord-evidence persists batch_id on packs and implements ListByBatch, or keep intent_id as the required secondary key."
-            method="GET"
-            path="/v1/evidence/packs?tenant_id={uuid}&batch_id=444"
-            exampleResponse={`{
-  "packs": [
-    {
-      "evidence_pack_id": "bep_…",
-      "tenant_id": "…",
-      "batch_id": "444",
-      "mode": "BATCH_ATTACH",
-      "pack_status": "ACTIVE",
-      "merkle_root": "sha256:…",
-      "ruleset_version": "v1",
-      "created_at": "2026-05-12T10:13:51.744562Z"
-    }
-  ],
-  "total": 1
-}`}
-          />
-        </div>
-      </section>
     </div>
-  )
-}
-
-// ─── Subcomponents ────────────────────────────────────────────────────────────
-
-function AskBackendCallout({
-  title,
-  body,
-  method,
-  path,
-  exampleResponse,
-}: {
-  title: string
-  body: string
-  method: string
-  path: string
-  exampleResponse: string
-}) {
-  return (
-    <article className={`rounded-[0.95rem] border ${ASK.border} ${ASK.inset} p-4`}>
-      <p className="text-[16px] font-semibold text-[#111111]">{title}</p>
-      <p className="mt-1 text-[15px] leading-relaxed text-[#6f716d]">{body}</p>
-      <p className="mt-3 font-mono text-[13px] font-semibold text-[#111111]">
-        {method} <span className="text-[#475569]">{path}</span>
-      </p>
-      <pre className="mt-2 max-h-48 overflow-auto rounded-[8px] border border-[#E5E5E5] bg-[#111111] p-3 font-mono text-[12px] leading-relaxed text-[#e2e8f0]">
-        {exampleResponse.trim()}
-      </pre>
-    </article>
   )
 }
 
@@ -553,15 +464,16 @@ function TierChip({ tier, label }: { tier: DefensibilityTier; label: string }) {
 
 function HeroStat({ label, value, sub, accent = false }: { label: string; value: string; sub: string; accent?: boolean }) {
   return (
-    <article className={`${ASK.radius} border ${ASK.border} bg-white p-5 ${ASK.shadow}`}>
-      <div className="flex items-center gap-2">
+    <article className={COMMAND_CENTER_KPI_CARD}>
+      <CommandCenterCardGlow />
+      <div className="relative flex items-center gap-2">
         {accent ? <span className="h-1.5 w-1.5 rounded-full bg-[#4ADE80]" aria-hidden /> : null}
-        <p className={`text-[14px] font-semibold uppercase tracking-[0.1em] ${ASK.muted}`}>{label}</p>
+        <p className={COMMAND_CENTER_LABEL_GREEN}>{label}</p>
       </div>
-      <p className="mt-2 text-[36px] font-light leading-none tracking-[-0.02em] tabular-nums text-[#111111]">
+      <p className={`relative mt-3 text-[2.5rem] font-extrabold tabular-nums tracking-[-0.03em] leading-none ${HOME_TITLE_BLACK}`}>
         {value}
       </p>
-      <p className="mt-2 text-[15px] leading-relaxed text-[#6f716d]">{sub}</p>
+      <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>{sub}</p>
     </article>
   )
 }
@@ -569,9 +481,11 @@ function HeroStat({ label, value, sub, accent = false }: { label: string; value:
 function PackTableRow({
   row,
   tenantDefensibilityScore,
+  batchId,
 }: {
   row: EvidencePackRow
   tenantDefensibilityScore: number | null
+  batchId: string
 }) {
   const s = row.summary
   const status = packProofStatusFromSummary(s, row.itemCount)
@@ -676,7 +590,7 @@ function PackTableRow({
       </td>
       <td className="px-5 py-4 text-right align-middle">
         <Link
-          href={`/payout-command-view/evidence-pack/${encodeURIComponent(s.evidence_pack_id)}`}
+          href={`/payout-command-view/evidence-pack/${encodeURIComponent(s.evidence_pack_id)}${batchId ? `?batch_id=${encodeURIComponent(batchId)}` : ''}`}
           className={`inline-flex items-center gap-1.5 rounded-[0.85rem] border ${ASK.border} ${ASK.field} px-3 py-2 text-[14px] font-semibold text-[#111111] transition hover:border-[#4ADE80]/30 hover:text-[#111111] group-hover:border-[#111111]/20 group-hover:bg-[#111111] group-hover:text-white group-hover:shadow-none`}
         >
           <Glyph name="grid" className="h-3.5 w-3.5 opacity-70 group-hover:opacity-100" />

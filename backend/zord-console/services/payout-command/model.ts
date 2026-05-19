@@ -41,8 +41,14 @@ export type DockId =
   | 'sandbox'
   | 'billing'
 
-/** Dock IDs in sandbox top nav: Today → Intent Journal → Settlement Journal → Billing. */
+/** Dock IDs in sandbox top nav: Today → Intent → Settlement → Billing. */
 export const SANDBOX_DOCK_IDS: DockId[] = ['home', 'grid', 'settlement', 'billing']
+
+/** Short labels for sandbox dock pills only (page titles stay full names). */
+export const SANDBOX_DOCK_DISPLAY_LABELS: Partial<Record<DockId, string>> = {
+  grid: 'Intent',
+  settlement: 'Settlement',
+}
 export type WorkspaceTab = 'Today' | 'Routing' | 'Proof' | 'Banks'
 /** Command center time window. 'Quarter' is set by the `onQuarterChange` handler
  * in PayoutCommandViewClient when the user picks a specific quarter. */

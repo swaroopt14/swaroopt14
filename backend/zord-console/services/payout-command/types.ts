@@ -2,15 +2,33 @@
 // prompt-layer API shapes. Kept separate from model.ts (simulation data) so
 // each file has a single clear responsibility.
 
+export type WorkspaceLoadingPhase =
+  | 'understanding'
+  | 'fetching'
+  | 'listing'
+  | 'checking'
+  | 'summarizing'
+
 export type WorkspaceConversationMessage = {
   id: string
   role: 'user' | 'assistant'
   body: string
   timestamp: string
   status: 'typing' | 'done' | 'error'
+  loadingPhase?: WorkspaceLoadingPhase | null
   confidence?: string | null
   citationSnippet?: string | null
+  citations?: PromptLayerCitation[]
   hasVisualization?: boolean
+}
+
+export type WorkspaceChatThread = {
+  id: string
+  tab: string
+  title: string
+  createdAt: string
+  updatedAt: string
+  messages: WorkspaceConversationMessage[]
 }
 
 export type PromptLayerCitation = {

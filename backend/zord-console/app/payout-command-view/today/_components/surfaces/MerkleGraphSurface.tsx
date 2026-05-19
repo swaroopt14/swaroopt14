@@ -1,7 +1,9 @@
 'use client'
 
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { LiveDataHint } from '../shared'
 import { Glyph } from '../shared'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
@@ -186,6 +188,23 @@ function packsForBatch(batchId: string): EvidencePackGraph[] {
 
 const ALL_BATCH_IDS = Object.keys(SAMPLE_BATCHES)
 
+/** Safe graph shell when live pack is not loaded (hooks must not see null). */
+const EMPTY_LIVE_PACK: EvidencePackGraph = {
+  packId: '—',
+  intentId: '—',
+  contractId: '—',
+  batchId: '—',
+  tenantId: '—',
+  mode: 'INTELLIGENCE_ATTACH',
+  rulesetVersion: '—',
+  schemaVersions: SHARED_SCHEMAS,
+  createdAt: new Date(0).toISOString(),
+  defensibilityScore: 0,
+  leaves: [],
+  intermediates: [],
+  root: { id: 'root', hashFull: '', hashShort: '—', status: 'partial', tamper: 'no-changes' },
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 type SelectedNode =
@@ -202,6 +221,8 @@ export type MerkleGraphSurfaceProps = {
 }
 
 export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_PACK }: MerkleGraphSurfaceProps = {}) {
+  const searchParams = useSearchParams()
+  const urlBatchId = searchParams.get('batch_id')?.trim() ?? ''
   const { tenantReady } = useSessionTenant()
   const useLive = tenantReady
 
@@ -215,6 +236,11 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   const { defensibility } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId })
   const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
   const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
+
+  useEffect(() => {
+    if (!useLive || !urlBatchId) return
+    setActiveBatchId(urlBatchId)
+  }, [useLive, urlBatchId])
 
   useEffect(() => {
     if (!useLive) return
@@ -310,10 +336,16 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     return graphs
   }, [packSummaries, liveGraphs])
 
-  const pack = useLive
-    ? liveGraphs[activePackId] ?? liveBatchPacks[0] ?? Object.values(liveGraphs)[0] ?? demoPack
-    : demoPack
+  const livePack =
+    liveGraphs[activePackId] ??
+    liveBatchPacks.find((p) => p.packId === activePackId) ??
+    liveBatchPacks[0] ??
+    null
+
+  const livePackMissing = useLive && livePack === null
+  const pack = (useLive ? livePack : demoPack) ?? EMPTY_LIVE_PACK
   const batchPacks = useLive ? liveBatchPacks : demoBatchPacks
+  const showGraph = !useLive || (tenantReady && !livePackMissing)
 
   useEffect(() => {
     if (!useLive) return
@@ -464,6 +496,25 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
         </div>
       ) : null}
 
+      {!tenantReady && useLive ? (
+        <section className="rounded-[16px] border border-slate-200 bg-white p-6 text-[15px] text-slate-600">
+          Sign in to load evidence packs from your session tenant. Demo graph data is not shown in live mode.
+        </section>
+      ) : null}
+
+      {tenantReady && livePackMissing ? (
+        <section className="rounded-[16px] border border-slate-200 bg-white p-6">
+          <LiveDataHint isLive={false} source="evidence" />
+          <p className="mt-3 text-[15px] text-slate-600">
+            {initialPackId?.trim()
+              ? `Pack ${initialPackId} was not found for batch ${activeBatchId || '—'}. Confirm GET /v1/evidence/packs and pack detail for your tenant.`
+              : `No evidence packs for batch ${activeBatchId || '—'}. Select a batch with ingested packs or open from the Evidence dock.`}
+          </p>
+        </section>
+      ) : null}
+
+      {showGraph ? (
+      <>
       {/* ── Top context bar ─────────────────────────────────────────── */}
       <section className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[16px] border border-[#E5E5E5] bg-white px-5 py-3">
         <div>
@@ -653,6 +704,8 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
           setSelected(null)
         }}
       />
+      </>
+      ) : null}
     </div>
   )
 }

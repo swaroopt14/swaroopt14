@@ -314,7 +314,8 @@ export function FinalLandingNavbar({
         <ZordLogo
           size="hero"
           variant="dark"
-          className="w-[190px] sm:w-[250px] lg:w-[340px]"
+          fitToHeight
+          className="!w-auto max-w-[11rem] sm:max-w-[14rem] lg:max-w-[18rem]"
         />
       </Link>
 

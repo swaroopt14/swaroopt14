@@ -29,6 +29,16 @@ export const COMMAND_CENTER_LABEL_GREEN =
 export const COMMAND_CENTER_KPI_CARD =
   'relative flex flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_10px_44px_rgba(15,23,42,0.07)] ring-1 ring-black/[0.03]'
 
+/** Black stat tiles inside journal batch overview (Intent + Settlement). */
+export const JOURNAL_KPI_STAT_CARD =
+  'rounded-xl border border-white/12 bg-[#0A0A0A] px-4 py-3.5 shadow-[0_10px_32px_rgba(0,0,0,0.28)] ring-1 ring-white/10'
+export const JOURNAL_KPI_STAT_LABEL =
+  'text-[11px] font-semibold uppercase tracking-[0.08em] text-white/55'
+export const JOURNAL_KPI_STAT_VALUE =
+  'mt-1 text-[22px] font-semibold tabular-nums tracking-tight text-white'
+export const JOURNAL_KPI_STAT_VALUE_MONO =
+  'mt-1 break-all font-mono text-[14px] font-semibold tabular-nums tracking-tight text-white'
+
 /** Green insight callout (white copy) — batch trend / ops hints. */
 export const COMMAND_CENTER_INSIGHT_GREEN_CARD =
   'rounded-xl bg-gradient-to-br from-[#166534] via-[#16a34a] to-[#22c55e] px-4 py-3.5 shadow-[0_8px_28px_rgba(22,163,74,0.32)] ring-1 ring-white/25'

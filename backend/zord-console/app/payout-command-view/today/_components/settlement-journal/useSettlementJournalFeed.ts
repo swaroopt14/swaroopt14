@@ -42,21 +42,6 @@ function mergeBatchIds(apiIds: string[], pinned?: string): string[] {
   return out
 }
 
-function formatBffError(status: number, errorText?: string): string {
-  const snippet = errorText?.trim().slice(0, 240)
-  const statusHint =
-    status === 401
-      ? ' Sign in required (BFF uses session tenant from cookies, not Postman headers).'
-      : status === 403
-        ? ' Tenant mismatch — session tenant must match the data in settlement DB.'
-        : status === 502
-          ? ' Settlement service unreachable from Next.js (check ZORD_SETTLEMENT_URL, default http://localhost:8081).'
-          : status === 0
-            ? ' Network error reaching the BFF.'
-            : ''
-  return `Could not load settlement batches (HTTP ${status}).${statusHint}${snippet ? ` ${snippet}` : ''}`
-}
-
 export function useSettlementJournalFeed(options: {
   enabled: boolean
   initialClientBatchId?: string
@@ -98,13 +83,10 @@ export function useSettlementJournalFeed(options: {
     })
 
     if (!fetchRes.ok) {
-      setFeedError(formatBffError(fetchRes.status, fetchRes.errorText))
+      setFeedError(null)
       if (pinned) {
         setClientBatches([pinned])
         setSelectedClientBatchId(pinned)
-        setFeedError(
-          `${formatBffError(fetchRes.status, fetchRes.errorText)} Showing deep-linked batch ${pinned} — list fetch failed.`,
-        )
       } else {
         setClientBatches([])
       }
@@ -112,13 +94,7 @@ export function useSettlementJournalFeed(options: {
     }
 
     setClientBatches(ids)
-    setFeedError(
-      ids.length === 0
-        ? tenantId
-          ? `No client batches for session tenant ${tenantId}. Postman may use a different tenant_id.`
-          : 'No client batches returned.'
-        : null,
-    )
+    setFeedError(null)
     setSelectedClientBatchId((prev) => {
       if (pinned && ids.includes(pinned)) return pinned
       if (prev && ids.includes(prev)) return prev
@@ -137,17 +113,13 @@ export function useSettlementJournalFeed(options: {
     try {
       const res = await getSettlementObservationsForClientBatch(bid)
       if (!res.ok || !res.data) {
-        setFeedError(
-          res.status === 502
-            ? `Settlement observations upstream unavailable.${res.errorText ? ` ${res.errorText.slice(0, 200)}` : ''}`
-            : `Could not load observations for batch ${bid} (HTTP ${res.status}).`,
-        )
+        setFeedError(null)
         setObservationRows([])
         return
       }
       const items = res.data.items ?? []
       if (items.length === 0) {
-        setFeedError(`No observations returned for client batch ${bid}.`)
+        setFeedError(null)
         setObservationRows([])
         return
       }
@@ -158,7 +130,7 @@ export function useSettlementJournalFeed(options: {
         ),
       )
     } catch {
-      setFeedError('Could not load settlement observations.')
+      setFeedError(null)
       setObservationRows([])
     } finally {
       setDetailLoading(false)
@@ -196,7 +168,7 @@ export function useSettlementJournalFeed(options: {
           if (bid) await loadObservations(bid)
         }
       } catch {
-        if (!cancelled) setFeedError('Could not refresh settlement journal.')
+        if (!cancelled) setFeedError(null)
       }
       if (!cancelled) {
         setFeedLoaded(true)

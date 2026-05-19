@@ -1,224 +1,408 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { workspacePromptCopy, type WorkspaceTab } from '@/services/payout-command/model'
 import {
-  resolvePromptScenario,
-  workspacePromptCopy,
-  workspaceSimulationScenarios,
-  type HomeCommandStatus,
-  type WorkspaceSimulation,
-  type WorkspaceTab,
-} from '@/services/payout-command/model'
+  mapPromptLayerAnswer,
+  postPromptLayerQuery,
+  sessionTenantForPromptLayer,
+} from '@/services/payout-command/prompt-layer/postPromptLayerQuery'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import type {
   PromptLayerCitation,
+  WorkspaceChatThread,
   WorkspaceConversationMessage,
+  WorkspaceLoadingPhase,
   WorkspaceLiveAnswer,
 } from '@/services/payout-command/types'
 
-// ── Prompt-layer API constants ───────────────────────────────────────────────
-const PROMPT_LAYER_DEMO_TENANT_ID = '11111111-1111-4111-8111-111111111111'
-const WORKSPACE_LIVE_ANSWER_TITLE = 'Latest answer'
+const WORKSPACE_LIVE_ANSWER_TITLE = 'Zord'
+const THREADS_STORAGE_PREFIX = 'zord:workspace-threads:'
 
-// ── Module-private helpers ───────────────────────────────────────────────────
-function formatChatTimestamp(): string {
+const LOADING_PHASES: WorkspaceLoadingPhase[] = [
+  'understanding',
+  'fetching',
+  'listing',
+  'checking',
+  'summarizing',
+]
+
+const LOADING_PHASE_LABEL: Record<WorkspaceLoadingPhase, string> = {
+  understanding: 'Understanding your question…',
+  fetching: 'Fetching evidence from prompt-layer…',
+  listing: 'Listing related payout records…',
+  checking: 'Checking signals and posture…',
+  summarizing: 'Summarizing answer…',
+}
+
+function formatChatTimestamp(date = new Date()) {
   return new Intl.DateTimeFormat('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true,
-  }).format(new Date())
+  }).format(date)
 }
 
-function buildIntroConversation(tab: WorkspaceTab): WorkspaceConversationMessage[] {
+function newThreadId() {
+  return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+function threadTitleFromPrompt(prompt: string) {
+  const t = prompt.trim()
+  if (t.length <= 48) return t
+  return `${t.slice(0, 45)}…`
+}
+
+function loadThreads(storageKey: string): WorkspaceChatThread[] {
+  if (typeof window === 'undefined') return []
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as WorkspaceChatThread[]
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveThreads(storageKey: string, threads: WorkspaceChatThread[]) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(threads.slice(0, 40)))
+  } catch {
+    /* quota */
+  }
+}
+
+function welcomeMessages(tab: WorkspaceTab): WorkspaceConversationMessage[] {
   const copy = workspacePromptCopy[tab]
+  const ts = formatChatTimestamp()
   return [
-    { id: `${tab}-intro-question`, role: 'assistant', body: copy.question, timestamp: '11:32 AM', status: 'done' },
-    { id: `${tab}-intro-supporting`, role: 'assistant', body: copy.supporting, timestamp: '11:32 AM', status: 'done' },
+    {
+      id: `${tab}-welcome`,
+      role: 'assistant',
+      body: `${copy.question}\n\n${copy.supporting}`,
+      timestamp: ts,
+      status: 'done',
+    },
   ]
 }
 
 function mapLiveAnswer(raw: unknown): WorkspaceLiveAnswer | null {
-  if (!raw || typeof raw !== 'object') return null
+  const mapped = mapPromptLayerAnswer(raw, WORKSPACE_LIVE_ANSWER_TITLE)
+  if (!mapped) return null
   const root = (raw as { response?: unknown }).response ?? raw
-  if (!root || typeof root !== 'object') return null
-  const res = root as Record<string, unknown>
-  const answer = typeof res.answer === 'string' ? res.answer.trim() : ''
-  if (!answer) return null
+  const res = root && typeof root === 'object' ? (root as Record<string, unknown>) : {}
   return {
-    title: WORKSPACE_LIVE_ANSWER_TITLE,
-    body: answer,
+    title: mapped.title,
+    body: mapped.body,
     confidence: typeof res.confidence === 'string' ? res.confidence : null,
     citations: Array.isArray(res.citations) ? (res.citations as PromptLayerCitation[]) : [],
     visualization: 'visualization' in res ? res.visualization : null,
   }
 }
 
-// ── Public types ─────────────────────────────────────────────────────────────
 export type WorkspaceState = {
-  scenario: WorkspaceSimulation
   promptInput: string
   setPromptInput: (value: string) => void
-  answerStatus: HomeCommandStatus
-  liveAnswer: WorkspaceLiveAnswer | null
+  isSubmitting: boolean
   connectionState: 'idle' | 'connected' | 'error'
   conversation: WorkspaceConversationMessage[]
-  runSimulation: (prompt: string) => Promise<void>
+  threads: WorkspaceChatThread[]
+  activeThreadId: string | null
+  startNewChat: () => void
+  selectThread: (threadId: string) => void
+  deleteThread: (threadId: string) => void
+  submitPrompt: (prompt: string) => Promise<void>
   resetForTab: (tab: WorkspaceTab) => void
 }
 
-// ── Hook ─────────────────────────────────────────────────────────────────────
 export function useWorkspaceState(
   activeTab: WorkspaceTab,
   setSelectedSuggestion: (label: string | null) => void,
 ): WorkspaceState {
-  const [scenario, setScenario] = useState<WorkspaceSimulation>(
-    () => workspaceSimulationScenarios[activeTab][0],
+  const { tenantId, tenantReady } = useSessionTenant()
+  const storageKey = `${THREADS_STORAGE_PREFIX}${tenantId.trim() || 'anonymous'}`
+
+  const [threads, setThreads] = useState<WorkspaceChatThread[]>([])
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
+  const [conversation, setConversation] = useState<WorkspaceConversationMessage[]>(() =>
+    welcomeMessages(activeTab),
   )
   const [promptInput, setPromptInput] = useState('')
-  const [answerStatus, setAnswerStatus] = useState<HomeCommandStatus>('idle')
-  const [liveAnswer, setLiveAnswer] = useState<WorkspaceLiveAnswer | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const [connectionState, setConnectionState] = useState<'idle' | 'connected' | 'error'>('idle')
-  const [conversation, setConversation] = useState<WorkspaceConversationMessage[]>(
-    () => buildIntroConversation(activeTab),
-  )
+
   const requestIdRef = useRef(0)
+  const phaseTimerRef = useRef<number | null>(null)
 
-  const resetForTab = useCallback((tab: WorkspaceTab) => {
-    setScenario(workspaceSimulationScenarios[tab][0])
+  useEffect(() => {
+    setThreads(loadThreads(storageKey))
+  }, [storageKey])
+
+  const persistThreads = useCallback(
+    (next: WorkspaceChatThread[]) => {
+      setThreads(next)
+      saveThreads(storageKey, next)
+    },
+    [storageKey],
+  )
+
+  const upsertActiveThread = useCallback(
+    (messages: WorkspaceConversationMessage[], threadId: string, title?: string) => {
+      const now = new Date().toISOString()
+      setThreads((prev) => {
+        const existing = prev.find((t) => t.id === threadId)
+        const next = existing
+          ? prev.map((t) =>
+              t.id === threadId
+                ? {
+                    ...t,
+                    messages,
+                    title: title ?? t.title,
+                    updatedAt: now,
+                    tab: activeTab,
+                  }
+                : t,
+            )
+          : [
+              {
+                id: threadId,
+                tab: activeTab,
+                title: title ?? 'New conversation',
+                createdAt: now,
+                updatedAt: now,
+                messages,
+              },
+              ...prev,
+            ]
+        saveThreads(storageKey, next)
+        return next
+      })
+    },
+    [activeTab, storageKey],
+  )
+
+  const startNewChat = useCallback(() => {
+    if (phaseTimerRef.current) window.clearInterval(phaseTimerRef.current)
+    setActiveThreadId(null)
+    setConversation(welcomeMessages(activeTab))
     setPromptInput('')
-    setAnswerStatus('idle')
-    setLiveAnswer(null)
+    setIsSubmitting(false)
     setConnectionState('idle')
-    setConversation(buildIntroConversation(tab))
-  }, [])
+    setSelectedSuggestion(null)
+  }, [activeTab, setSelectedSuggestion])
 
-  const runSimulation = useCallback(
-    async (prompt: string) => {
-      const cleaned = prompt.trim()
-      if (!cleaned) return
+  const selectThread = useCallback(
+    (threadId: string) => {
+      const thread = threads.find((t) => t.id === threadId)
+      if (!thread) return
+      setActiveThreadId(threadId)
+      setConversation(thread.messages.length > 0 ? thread.messages : welcomeMessages(activeTab))
+      setConnectionState('idle')
+      setSelectedSuggestion(null)
+    },
+    [activeTab, setSelectedSuggestion, threads],
+  )
 
-      // Forward to injected sendPrompt bridge if present (SDK integration hook)
-      if (typeof window !== 'undefined') {
-        const win = window as Window & { sendPrompt?: (msg: string) => void | Promise<void> }
-        if (typeof win.sendPrompt === 'function') {
-          void Promise.resolve(win.sendPrompt(cleaned)).catch(() => {})
-        }
-      }
+  const deleteThread = useCallback(
+    (threadId: string) => {
+      persistThreads(threads.filter((t) => t.id !== threadId))
+      if (activeThreadId === threadId) startNewChat()
+    },
+    [activeThreadId, persistThreads, startNewChat, threads],
+  )
 
-      const scenarios = workspaceSimulationScenarios[activeTab]
-      const nextScenario = resolvePromptScenario(cleaned, scenarios, scenarios[0])
-      setScenario(nextScenario)
+  const resetForTab = useCallback(
+    (tab: WorkspaceTab) => {
+      startNewChat()
+      setConversation(welcomeMessages(tab))
+    },
+    [startNewChat],
+  )
+
+  const submitPrompt = useCallback(
+    async (rawPrompt: string) => {
+      const cleaned = rawPrompt.trim()
+      if (!cleaned || isSubmitting) return
 
       const suggestions = workspacePromptCopy[activeTab].suggestions as readonly string[]
       setSelectedSuggestion(suggestions.includes(cleaned) ? cleaned : null)
-
       setPromptInput('')
-      setConnectionState('idle')
-      setAnswerStatus('loading')
+
+      const threadId = activeThreadId ?? newThreadId()
+      if (!activeThreadId) setActiveThreadId(threadId)
 
       const requestId = ++requestIdRef.current
       const assistantMessageId = `assistant-${requestId}`
       const timestamp = formatChatTimestamp()
 
-      setConversation((prev) => [
-        ...prev,
-        { id: `user-${requestId}`, role: 'user', body: cleaned, timestamp, status: 'done' },
+      const userMessage: WorkspaceConversationMessage = {
+        id: `user-${requestId}`,
+        role: 'user',
+        body: cleaned,
+        timestamp,
+        status: 'done',
+      }
+
+      const baseMessages = conversation.filter((m) => !m.id.endsWith('-welcome'))
+      const withUser = [...baseMessages, userMessage]
+
+      setConversation([
+        ...withUser,
         {
           id: assistantMessageId,
           role: 'assistant',
-          body: 'Reading routed value, callback timing, and proof readiness from prompt-layer evidence…',
+          body: LOADING_PHASE_LABEL.understanding,
           timestamp,
           status: 'typing',
+          loadingPhase: 'understanding',
         },
       ])
+      setIsSubmitting(true)
+      setConnectionState('idle')
+
+      let phaseIndex = 0
+      if (phaseTimerRef.current) window.clearInterval(phaseTimerRef.current)
+      phaseTimerRef.current = window.setInterval(() => {
+        phaseIndex = (phaseIndex + 1) % LOADING_PHASES.length
+        const phase = LOADING_PHASES[phaseIndex]
+        if (requestIdRef.current !== requestId) return
+        setConversation((prev) =>
+          prev.map((msg) =>
+            msg.id === assistantMessageId
+              ? { ...msg, body: LOADING_PHASE_LABEL[phase], loadingPhase: phase, status: 'typing' }
+              : msg,
+          ),
+        )
+      }, 1400)
+
+      const tenantGate = sessionTenantForPromptLayer(tenantId, tenantReady)
+      if (!tenantGate.ok) {
+        if (phaseTimerRef.current) window.clearInterval(phaseTimerRef.current)
+        if (requestIdRef.current !== requestId) return
+        const finalMessages: WorkspaceConversationMessage[] = [
+          ...withUser,
+          {
+            id: assistantMessageId,
+            role: 'assistant',
+            body: tenantGate.body,
+            timestamp,
+            status: 'error',
+            loadingPhase: null,
+          },
+        ]
+        setConversation(finalMessages)
+        upsertActiveThread(finalMessages, threadId, threadTitleFromPrompt(cleaned))
+        setConnectionState('error')
+        setIsSubmitting(false)
+        return
+      }
 
       try {
-        const response = await fetch('/api/prompt-layer/query', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          cache: 'no-store',
-          body: JSON.stringify({ query: cleaned, tenant_id: PROMPT_LAYER_DEMO_TENANT_ID, top_k: 6 }),
+        const result = await postPromptLayerQuery({
+          query: cleaned,
+          tenant_id: tenantGate.tenantId,
+          top_k: 6,
         })
 
-        const payload = await response.json()
+        if (phaseTimerRef.current) window.clearInterval(phaseTimerRef.current)
         if (requestIdRef.current !== requestId) return
 
-        if (!response.ok) {
+        if (!result.ok) {
+          const detail =
+            typeof result.payload === 'object' &&
+            result.payload &&
+            'details' in result.payload &&
+            typeof (result.payload as { details?: string }).details === 'string'
+              ? (result.payload as { details: string }).details
+              : `HTTP ${result.httpStatus}`
+
           throw new Error(
-            typeof payload?.details === 'string' ? payload.details : 'Prompt-layer request failed',
+            `Prompt-layer returned an error (${detail}). Ensure zord-prompt-layer is running on port 8086.`,
           )
         }
 
-        const mapped = mapLiveAnswer(payload)
-        const finalBody = mapped?.body ?? nextScenario.assistant
-        const citationSnippet = mapped?.citations[0]?.snippet ?? null
-        const hasVisualization = mapped?.visualization != null
+        const mapped = mapLiveAnswer(result.payload)
+        if (!mapped?.body.trim()) {
+          throw new Error('Prompt-layer returned an empty answer. Try a more specific payout question.')
+        }
 
-        setConversation((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? {
-                  ...msg,
-                  body: finalBody,
-                  status: 'done',
-                  confidence: mapped?.confidence ?? null,
-                  citationSnippet,
-                  hasVisualization,
-                }
-              : msg,
-          ),
-        )
-        setLiveAnswer(
-          mapped ?? {
-            title: WORKSPACE_LIVE_ANSWER_TITLE,
-            body: nextScenario.assistant,
-            confidence: null,
-            citations: [],
-            visualization: null,
-          },
-        )
+        const citationSnippet = mapped.citations[0]?.snippet ?? null
+        const assistantMessage: WorkspaceConversationMessage = {
+          id: assistantMessageId,
+          role: 'assistant',
+          body: mapped.body,
+          timestamp: formatChatTimestamp(),
+          status: 'done',
+          loadingPhase: null,
+          confidence: mapped.confidence,
+          citationSnippet,
+          citations: mapped.citations,
+          hasVisualization: mapped.visualization != null,
+        }
+
+        const finalMessages = [...withUser, assistantMessage]
+        setConversation(finalMessages)
+        upsertActiveThread(finalMessages, threadId, threadTitleFromPrompt(cleaned))
         setConnectionState('connected')
-        setAnswerStatus('complete')
-      } catch {
+      } catch (error) {
+        if (phaseTimerRef.current) window.clearInterval(phaseTimerRef.current)
         if (requestIdRef.current !== requestId) return
 
-        const fallbackBody = `Prompt-layer was unavailable, so showing simulation insight.\n\n${nextScenario.assistant}`
-        setConversation((prev) =>
-          prev.map((msg) =>
-            msg.id === assistantMessageId
-              ? {
-                  ...msg,
-                  body: fallbackBody,
-                  status: 'error',
-                  confidence: null,
-                  citationSnippet: null,
-                  hasVisualization: false,
-                }
-              : msg,
-          ),
-        )
-        setLiveAnswer({
-          title: WORKSPACE_LIVE_ANSWER_TITLE,
-          body: nextScenario.assistant,
-          confidence: null,
-          citations: [],
-          visualization: null,
-        })
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Could not reach prompt-layer. Start the service on port 8086 or set PROMPT_LAYER_URL.'
+
+        const finalMessages: WorkspaceConversationMessage[] = [
+          ...withUser,
+          {
+            id: assistantMessageId,
+            role: 'assistant',
+            body: message,
+            timestamp: formatChatTimestamp(),
+            status: 'error',
+            loadingPhase: null,
+          },
+        ]
+        setConversation(finalMessages)
+        upsertActiveThread(finalMessages, threadId, threadTitleFromPrompt(cleaned))
         setConnectionState('error')
-        setAnswerStatus('complete')
+      } finally {
+        if (requestIdRef.current === requestId) setIsSubmitting(false)
       }
     },
-    [activeTab, setSelectedSuggestion],
+    [
+      activeTab,
+      activeThreadId,
+      conversation,
+      isSubmitting,
+      setSelectedSuggestion,
+      tenantId,
+      tenantReady,
+      upsertActiveThread,
+    ],
   )
 
+  useEffect(() => {
+    return () => {
+      if (phaseTimerRef.current) window.clearInterval(phaseTimerRef.current)
+    }
+  }, [])
+
   return {
-    scenario,
     promptInput,
     setPromptInput,
-    answerStatus,
-    liveAnswer,
+    isSubmitting,
     connectionState,
     conversation,
-    runSimulation,
+    threads: threads.filter((t) => t.tab === activeTab),
+    activeThreadId,
+    startNewChat,
+    selectThread,
+    deleteThread,
+    submitPrompt,
     resetForTab,
   }
 }

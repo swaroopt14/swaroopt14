@@ -797,15 +797,15 @@ func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req mode
 		gov.SemanticErrors = append(gov.SemanticErrors, "UPI_REQUIRES_VPA")
 	}
 	// BANK + VPA -> error
-	if req.Beneficiary.Instrument.Kind == "BANK" && req.Beneficiary.Instrument.VPA != "" {
-		gov.SemanticValid = false
-		gov.SemanticErrors = append(gov.SemanticErrors, "BANK_WITH_VPA_INVALID")
-	}
-	// UPI + IFSC -> error
-	if req.Beneficiary.Instrument.Kind == "UPI" && req.Beneficiary.Instrument.IFSC != "" {
-		gov.SemanticValid = false
-		gov.SemanticErrors = append(gov.SemanticErrors, "UPI_WITH_IFSC_INVALID")
-	}
+	// if req.Beneficiary.Instrument.Kind == "BANK" && req.Beneficiary.Instrument.VPA != "" {
+	// 	gov.SemanticValid = false
+	// 	gov.SemanticErrors = append(gov.SemanticErrors, "BANK_WITH_VPA_INVALID")
+	// }
+	// // UPI + IFSC -> error
+	// if req.Beneficiary.Instrument.Kind == "UPI" && req.Beneficiary.Instrument.IFSC != "" {
+	// 	gov.SemanticValid = false
+	// 	gov.SemanticErrors = append(gov.SemanticErrors, "UPI_WITH_IFSC_INVALID")
+	// }
 
 	// source vs provider_hint: UPI -> UPI_RAIL, BANK -> BANK_RAIL
 	// REMOVED: Making provider_hint flexible
@@ -1245,8 +1245,6 @@ func (s *IntentService) ProcessIncomingIntent(
 			CreatedAt:              time.Now().UTC(),
 		}
 	}
-
-
 
 	// Score requires partial intent for signals
 	tempIntent := &models.CanonicalIntent{

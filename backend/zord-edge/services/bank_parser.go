@@ -40,12 +40,12 @@ func (p *BankParser) parseRow(rowNum int, row []string, colIndex map[string]int)
 	shape.IntentType = get("intent_type", "PAYOUT")
 
 	// Service 2 expects account_number at TOP LEVEL
-	shape.AccountNumber = get("account_number", "account number", "beneficiary.instrument.account_number", "")
+	shape.AccountNumber = get("account_number", "account number", "beneficiary.instrument.account_number", "beneficiary_account_number")
 
-	shape.Beneficiary.Name = get("beneficiary.name", "beneficiary name", "name")
+	shape.Beneficiary.Name = get("beneficiary.name", "beneficiary name", "name", "beneficiary_name")
 	shape.Beneficiary.Instrument.Kind = get("beneficiary.instrument.kind", "instrument_kind", "BANK_ACCOUNT")
-	shape.Beneficiary.Instrument.IFSC = get("beneficiary.instrument.ifsc", "ifsc", "ifsc code")
-	shape.Beneficiary.Instrument.VPA = get("beneficiary.instrument.vpa", "vpa")
+	shape.Beneficiary.Instrument.IFSC = get("beneficiary.instrument.ifsc", "ifsc", "ifsc code", "beneficiary_ifsc")
+	shape.Beneficiary.Instrument.VPA = get("beneficiary.instrument.vpa", "vpa", "beneficiary_vpa")
 	shape.Beneficiary.Country = get("beneficiary.country", "country", "IN")
 
 	shape.Remitter.Phone = get("remitter.phone", "remitter_phone")

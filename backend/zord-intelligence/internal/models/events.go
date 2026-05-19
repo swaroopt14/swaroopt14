@@ -19,15 +19,21 @@ import (
 // published by zord-relay to Kafka. All ZPI incoming events from
 // services 2, 4, 5, 6 are wrapped in this envelope.
 type RelayEvent struct {
-	EventID       string          `json:"event_id"`
-	EnvelopeID    string          `json:"envelope_id"`
-	TenantID      string          `json:"tenant_id"`
-	AggregateType string          `json:"aggregate_type"`
-	AggregateID   string          `json:"aggregate_id"`
-	ContractID    string          `json:"contract_id,omitempty"`
-	EventType     string          `json:"event_type"`
-	Payload       json.RawMessage `json:"payload"`
-	TraceID       string          `json:"trace_id"`
+	EventID                string          `json:"event_id"`
+	EnvelopeID             string          `json:"envelope_id"`
+	TenantID               string          `json:"tenant_id"`
+	AggregateType          string          `json:"aggregate_type"`
+	AggregateID            string          `json:"aggregate_id"`
+	ContractID             string          `json:"contract_id,omitempty"`
+	EventType              string          `json:"event_type"`
+	Payload                json.RawMessage `json:"payload"`
+	TraceID                string          `json:"trace_id"`
+	DuplicateRiskFlag      bool            `json:"duplicate_risk_flag"`
+	IntentQualityScore     float64         `json:"intent_quality_score"`
+	MatchabilityScore      float64         `json:"matchability_score"`
+	ProofReadinessScore    float64         `json:"proof_readiness_score"`
+	BeneficiaryFingerprint string          `json:"beneficiary_fingerprint"`
+	IntendedExecutionAt    *time.Time      `json:"intended_execution_at"`
 }
 
 // ── Event 1: from Service 2 ───────────────────────────────────────────────────
@@ -38,15 +44,21 @@ type RelayEvent struct {
 //   - Increment the pending backlog count for this corridor
 
 type IntentCreatedEvent struct {
-	EventID    string    `json:"event_id"`
-	TenantID   string    `json:"tenant_id"`
-	IntentID   string    `json:"intent_id"`
-	ContractID string    `json:"contract_id"`
-	CorridorID string    `json:"corridor_id"` // e.g. "razorpay.UPI", "cashfree.IMPS"
-	Amount     string    `json:"amount"`      // stored as string, never float (money rule)
-	Currency   string    `json:"currency"`    // "INR", "USD"
-	CreatedAt  time.Time `json:"created_at"`
-	TraceID    string    `json:"trace_id"`
+	EventID                string     `json:"event_id"`
+	TenantID               string     `json:"tenant_id"`
+	IntentID               string     `json:"intent_id"`
+	ContractID             string     `json:"contract_id"`
+	CorridorID             string     `json:"corridor_id"` // e.g. "razorpay.UPI", "cashfree.IMPS"
+	Amount                 string     `json:"amount"`      // stored as string, never float (money rule)
+	Currency               string     `json:"currency"`    // "INR", "USD"
+	CreatedAt              time.Time  `json:"created_at"`
+	TraceID                string     `json:"trace_id"`
+	DuplicateRiskFlag      bool       `json:"duplicate_risk_flag"`
+	IntentQualityScore     float64    `json:"intent_quality_score"`
+	MatchabilityScore      float64    `json:"matchability_score"`
+	ProofReadinessScore    float64    `json:"proof_readiness_score"`
+	BeneficiaryFingerprint string     `json:"beneficiary_fingerprint"`
+	IntendedExecutionAt    *time.Time `json:"intended_execution_at"`
 }
 
 // ── Event 2: from Service 4 ───────────────────────────────────────────────────
@@ -327,6 +339,8 @@ type CanonicalSettlementCreatedEvent struct {
 	// ── Status observation ────────────────────────────────────────────────────
 	StatusObservation string `json:"status_observation"` // "SETTLED", "REVERSED", "PENDING", "UNKNOWN"
 	IngestRunID       string `json:"ingest_run_id"`
+
+	MappingConfidence float64 `json:"mapping_confidence"`
 }
 
 // ── NEW EVENT B: from Service 5C ─────────────────────────────────────────────

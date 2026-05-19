@@ -325,6 +325,8 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		CreatedAt: now,
 	}
 
+	pack.ComputeCompletenessMetadata()
+
 	// --- Step 10a: encrypt and store archive body (§14.3 / §15.2) ---
 	archive, err := json.Marshal(pack)
 	if err != nil {
@@ -491,6 +493,8 @@ func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.Gene
 		}},
 		CreatedAt: now,
 	}
+
+	pack.ComputeCompletenessMetadata()
 
 	archive, err := json.Marshal(pack)
 	if err != nil {

@@ -1056,9 +1056,40 @@ func (s *IntentService) ProcessIncomingIntent(
 			}
 		}
 
+		// Re-compute lowConfCount and average confidence dynamically based on fieldsMap
+		totalConf := 0.0
+		cnt := 0
+		lowConfCount = 0
+		for _, field := range fieldsMap {
+			totalConf += field.ConfidenceScore
+			cnt++
+			if field.ConfidenceScore > 0 && field.ConfidenceScore < 0.8 {
+				lowConfCount++
+			}
+		}
+		avgConf := 1.0
+		if cnt > 0 {
+			avgConf = totalConf / float64(cnt)
+		}
+
+		nir.LowConfidenceFieldCount = lowConfCount
+		confSummaryBytes, _ := json.Marshal(map[string]any{
+			"avg_confidence":             avgConf,
+			"overall":                    avgConf,
+			"low_confidence_field_count": lowConfCount,
+		})
+		nir.FieldConfidenceSummary = confSummaryBytes
+
 		// Update FieldsJSON after adding provenance
 		updatedFieldsJSON, _ := json.Marshal(fieldsMap)
 		nir.FieldsJSON = updatedFieldsJSON
+	} else {
+		confSummaryBytes, _ := json.Marshal(map[string]any{
+			"avg_confidence":             1.0,
+			"overall":                    1.0,
+			"low_confidence_field_count": 0,
+		})
+		nir.FieldConfidenceSummary = confSummaryBytes
 	}
 
 	// -------- STEP 6.5: APPLY GOVERNANCE POLICY (NEW) --------
@@ -1079,6 +1110,11 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 	governanceJSON := s.aggregateGovernanceReasons(tempGovCanonical, nir)
 	governanceHash := s.computeGovernanceHashInternal("VALID", string(governanceJSON), "v1", intentID)
+
+	parsed.PayloadHash = in.PayloadHash
+	parsed.FieldConfidenceSummary = nir.FieldConfidenceSummary
+	parsed.LowConfidenceFieldCount = nir.LowConfidenceFieldCount
+	parsed.RequiredFieldGapCount = nir.RequiredFieldGapCount
 
 	// -------- STEP 5.5: Idempotency guard --------
 
@@ -1132,6 +1168,10 @@ func (s *IntentService) ProcessIncomingIntent(
 	// Governance hash computed early at step 6.5
 	canonicalInput.GovernanceHash = governanceHash
 	canonicalInput.IntentID = intentID // Ensure intent_id is passed to Kafka if needed
+	canonicalInput.PayloadHash = in.PayloadHash
+	canonicalInput.FieldConfidenceSummary = nir.FieldConfidenceSummary
+	canonicalInput.LowConfidenceFieldCount = nir.LowConfidenceFieldCount
+	canonicalInput.RequiredFieldGapCount = nir.RequiredFieldGapCount
 
 	// -------- STEP 8: TOKENIZATION --------
 
@@ -1248,18 +1288,61 @@ func (s *IntentService) ProcessIncomingIntent(
 
 
 
+	var executionAt *time.Time
+
+	if canonicalInput.IntendedExecutionAt != "" {
+		t, err := time.Parse(time.RFC3339, canonicalInput.IntendedExecutionAt)
+		if err == nil {
+			executionAt = &t
+		}
+	}
+
+	// FIX: Deterministic Request Fingerprint
+	reqFingerprint := s.computeRequestFingerprint(
+		canonicalInput.Beneficiary.Name,
+		amount,
+		canonicalInput.AccountNumber,
+		canonicalInput.Beneficiary.Instrument.VPA,
+		canonicalInput.Amount.Currency,
+	)
+
 	// Score requires partial intent for signals
 	tempIntent := &models.CanonicalIntent{
-		BeneficiaryFingerprint: bFingerprint,
+		TraceID:                in.TraceID.String(),
+		IntentID:               intentID,
+		EnvelopeID:             in.EnvelopeID.String(),
+		TenantID:               in.TenantID.String(),
+		IdempotencyKey:         in.IdempotencyKey,
+		SalientHash:            "NA",
+		PayloadHash:            in.PayloadHash,
+		IntentType:             canonicalInput.IntentType,
+		CanonicalVersion:       "v1",
+		SchemaVersion:          canonicalInput.SchemaVersion,
 		Amount:                 amount,
 		Currency:               canonicalInput.Amount.Currency,
-		TraceID:                in.TraceID.String(),
-		EnvelopeID:             in.EnvelopeID.String(),
-		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
-		ClientBatchRef:         batchIDStr,
-		ProviderHint:           canonicalInput.ProviderHint,
+		IntendedExecutionAt:    executionAt,
+		Constraints:            constraintsJSON,
+		BeneficiaryType:        canonicalInput.Beneficiary.Instrument.Kind,
+		PIITokens:              piiJSON,
+		Beneficiary:            beneficiaryJSON,
+		Status:                 "CREATED",
 		CreatedAt:              time.Now().UTC(),
+		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
+		ProviderHint:           canonicalInput.ProviderHint,
+		ClientBatchRef:         batchIDStr,
+		RequestFingerprint:     reqFingerprint,
+		RoutingHintsJSON:       json.RawMessage(`{}`),
+		GovernanceState:        "PENDING",
+		BusinessState:          "NEW",
 		DuplicateRiskFlag:      dupRisk,
+		MappingProfileID:       nir.ProfileID,
+		MappingProfileVersion:  nir.ProfileVersion,
+		SourceSystem:           in.SourceSystem,
+		GovernanceHash:         governanceHash,
+		BusinessIdempotencyKey: bIdemKey,
+		BeneficiaryFingerprint: bFingerprint,
+		DuplicateReasonCode:    dupReason,
+		BatchID:                in.BatchID,
 		ValidationAnomalies:    anomalies,
 	}
 
@@ -1282,26 +1365,6 @@ func (s *IntentService) ProcessIncomingIntent(
 	scoredAt := time.Now().UTC()
 	scoreBreakdown := buildScoreBreakdown(schemaScore, mapScore, refQualityScore, mScore, pScore, dupRiskScore, iScore)
 	scoreReasonCodesJSON, _ := json.Marshal(scoreReasonCodes)
-
-	// FIX: Deterministic Request Fingerprint
-	reqFingerprint := s.computeRequestFingerprint(
-		canonicalInput.Beneficiary.Name,
-		amount,
-		canonicalInput.AccountNumber,
-		canonicalInput.Beneficiary.Instrument.VPA,
-		canonicalInput.Amount.Currency,
-	)
-
-	// -------- STEP 9: BUILD CANONICAL INTENT --------
-
-	var executionAt *time.Time
-
-	if canonicalInput.IntendedExecutionAt != "" {
-		t, err := time.Parse(time.RFC3339, canonicalInput.IntendedExecutionAt)
-		if err == nil {
-			executionAt = &t
-		}
-	}
 
 	// Link registry entry to intent if it's a new entry
 	if registryEntry != nil {
@@ -1563,6 +1626,13 @@ func (s *IntentService) ProcessTokenizeResult(
 		profileVersion = canonicalInput.SchemaVersion
 	}
 
+	fieldConfSummary := json.RawMessage(`{"overall": 0.9}`)
+	if len(canonicalInput.FieldConfidenceSummary) > 0 {
+		fieldConfSummary = canonicalInput.FieldConfidenceSummary
+	}
+	lowConfCount := canonicalInput.LowConfidenceFieldCount
+	gapCount := canonicalInput.RequiredFieldGapCount
+
 	nir := &models.NormalizedIngestRecord{
 		NIRID:                   uuid.New(),
 		EnvelopeID:              uuid.MustParse(event.EnvelopeID),
@@ -1571,11 +1641,11 @@ func (s *IntentService) ProcessTokenizeResult(
 		ProfileID:               profileID,
 		ProfileVersion:          profileVersion,
 		FieldsJSON:              fieldsJSON,
-		FieldConfidenceSummary:  json.RawMessage(`{"overall": 0.9}`),
+		FieldConfidenceSummary:  fieldConfSummary,
 		UnmappedJSON:            json.RawMessage(`{}`),
 		MappingUncertainFlag:    false,
-		RequiredFieldGapCount:   0,
-		LowConfidenceFieldCount: 0,
+		RequiredFieldGapCount:   gapCount,
+		LowConfidenceFieldCount: lowConfCount,
 		CreatedAt:               time.Now().UTC(),
 	}
 
@@ -1624,18 +1694,71 @@ func (s *IntentService) ProcessTokenizeResult(
 		}
 	}
 
+	intentID := uuid.NewString()
+
+	if registryEntry != nil {
+		registryEntry.IntentID = uuid.MustParse(intentID)
+	}
+
+	var executionAt *time.Time
+	if canonicalInput.IntendedExecutionAt != "" {
+		t, err := time.Parse(time.RFC3339, canonicalInput.IntendedExecutionAt)
+		if err == nil {
+			executionAt = &t
+		}
+	}
+
+	idempotencyKey := event.IdempotencyKey
+	if idempotencyKey == "" {
+		idempotencyKey = canonicalInput.IdempotencyKey
+	}
+
+	// FIX: Deterministic Request Fingerprint (Replacing KAFKA_TOKENIZED)
+	reqFingerprint := s.computeRequestFingerprint(
+		canonicalInput.Beneficiary.Name,
+		amount,
+		canonicalInput.AccountNumber,
+		canonicalInput.Beneficiary.Instrument.VPA,
+		canonicalInput.Amount.Currency,
+	)
+
 	// Score requires partial intent for signals
 	tempIntent := &models.CanonicalIntent{
-		BeneficiaryFingerprint: bFingerprint,
+		TraceID:                event.TraceID,
+		IntentID:               intentID,
+		EnvelopeID:             event.EnvelopeID,
+		TenantID:               event.TenantID,
+		IdempotencyKey:         idempotencyKey,
+		SalientHash:            "NA",
+		PayloadHash:            canonicalInput.PayloadHash,
+		IntentType:             canonicalInput.IntentType,
+		CanonicalVersion:       "v1",
+		SchemaVersion:          canonicalInput.SchemaVersion,
 		Amount:                 amount,
 		Currency:               canonicalInput.Amount.Currency,
-		TraceID:                event.TraceID,
-		EnvelopeID:             event.EnvelopeID,
-		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
-		ClientBatchRef:         batchIDStr,
-		ProviderHint:           canonicalInput.ProviderHint,
+		IntendedExecutionAt:    executionAt,
+		Constraints:            constraintsJSON,
+		BeneficiaryType:        canonicalInput.Beneficiary.Instrument.Kind,
+		PIITokens:              piiJSON,
+		Beneficiary:            beneficiaryJSON,
+		Status:                 "CREATED",
 		CreatedAt:              time.Now().UTC(),
+		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
+		ProviderHint:           canonicalInput.ProviderHint,
+		ClientBatchRef:         batchIDStr,
+		RequestFingerprint:     reqFingerprint,
+		RoutingHintsJSON:       json.RawMessage(`{}`),
+		GovernanceState:        "PENDING",
+		BusinessState:          "NEW",
 		DuplicateRiskFlag:      dupRisk,
+		MappingProfileID:       nir.ProfileID,
+		MappingProfileVersion:  nir.ProfileVersion,
+		SourceSystem:           event.SourceSystem,
+		GovernanceHash:         canonicalInput.GovernanceHash,
+		BusinessIdempotencyKey: bIdemKey,
+		BeneficiaryFingerprint: bFingerprint,
+		DuplicateReasonCode:    dupReason,
+		BatchID:                event.BatchID,
 		ValidationAnomalies:    anomalies,
 	}
 
@@ -1658,36 +1781,6 @@ func (s *IntentService) ProcessTokenizeResult(
 	scoredAt := time.Now().UTC()
 	scoreBreakdown := buildScoreBreakdown(schemaScore, mapScore, refQualityScore, mScore, pScore, dupRiskScore, iScore)
 	scoreReasonCodesJSON, _ := json.Marshal(scoreReasonCodes)
-
-	idempotencyKey := event.IdempotencyKey
-	if idempotencyKey == "" {
-		idempotencyKey = canonicalInput.IdempotencyKey
-	}
-
-	// FIX: Deterministic Request Fingerprint (Replacing KAFKA_TOKENIZED)
-	reqFingerprint := s.computeRequestFingerprint(
-		canonicalInput.Beneficiary.Name,
-		amount,
-		canonicalInput.AccountNumber,
-		canonicalInput.Beneficiary.Instrument.VPA,
-		canonicalInput.Amount.Currency,
-	)
-
-	// -------- Build CanonicalIntent --------
-
-	intentID := uuid.NewString()
-
-	if registryEntry != nil {
-		registryEntry.IntentID = uuid.MustParse(intentID)
-	}
-
-	var executionAt *time.Time
-	if canonicalInput.IntendedExecutionAt != "" {
-		t, err := time.Parse(time.RFC3339, canonicalInput.IntendedExecutionAt)
-		if err == nil {
-			executionAt = &t
-		}
-	}
 
 	intent := models.CanonicalIntent{
 		TraceID:        event.TraceID,
@@ -1950,10 +2043,14 @@ func (s *IntentService) computeGovernanceHashInternal(state, reasonsJSON, versio
 }
 
 func canonicalPathToFieldName(path string) string {
-	// "amount.value" → "amount", "beneficiary.name" → "beneficiary_name"
-	parts := strings.Split(path, ".")
-	if len(parts) == 1 {
+	switch path {
+	case "amount.value":
+		return "amount"
+	case "amount.currency":
+		return "currency"
+	case "beneficiary.name":
+		return "beneficiary_name"
+	default:
 		return path
 	}
-	return strings.Join(parts[:len(parts)-1], "_")
 }

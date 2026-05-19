@@ -44,6 +44,10 @@ type ParsedIncomingIntent struct {
 	SourceSystem        string         `json:"source_system,omitempty"`
 	GovernanceHash      string         `json:"governance_hash,omitempty"`
 	IntentID            string         `json:"intent_id,omitempty"`
+	PayloadHash            string          `json:"payload_hash,omitempty"`
+	FieldConfidenceSummary json.RawMessage `json:"field_confidence_summary,omitempty"`
+	LowConfidenceFieldCount int             `json:"low_confidence_field_count,omitempty"`
+	RequiredFieldGapCount   int             `json:"required_field_gap_count,omitempty"`
 }
 
 // type IncomingIntent struct {

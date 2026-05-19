@@ -124,9 +124,9 @@ func validateInstrumentParsed(intent models.ParsedIncomingIntent) error {
 			return semanticError("invalid IFSC format")
 		}
 		// FIX: Reject invalid combinations
-		if intent.Beneficiary.Instrument.VPA != "" {
-			return semanticError("VPA not allowed for BANK instrument")
-		}
+		// if intent.Beneficiary.Instrument.VPA != "" {
+		// 	return semanticError("VPA not allowed for BANK instrument")
+		// }
 		// FIX: Routing alignment
 		// if intent.ProviderHint != "" && intent.ProviderHint != "BANK_RAIL" {
 		// 	return semanticError("BANK instrument requires BANK_RAIL provider_hint")
@@ -140,9 +140,9 @@ func validateInstrumentParsed(intent models.ParsedIncomingIntent) error {
 			return semanticError("invalid UPI VPA")
 		}
 		// FIX: Reject invalid combinations
-		if intent.AccountNumber != "" || intent.Beneficiary.Instrument.IFSC != "" {
-			return semanticError("AccountNumber/IFSC not allowed for UPI instrument")
-		}
+		// if intent.AccountNumber != "" || intent.Beneficiary.Instrument.IFSC != "" {
+		// 	return semanticError("AccountNumber/IFSC not allowed for UPI instrument")
+		// }
 		// FIX: Routing alignment
 		// if intent.ProviderHint != "" && intent.ProviderHint != "UPI_RAIL" {
 		// 	return semanticError("UPI instrument requires UPI_RAIL provider_hint")

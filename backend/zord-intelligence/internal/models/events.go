@@ -339,6 +339,8 @@ type CanonicalSettlementCreatedEvent struct {
 	// ── Status observation ────────────────────────────────────────────────────
 	StatusObservation string `json:"status_observation"` // "SETTLED", "REVERSED", "PENDING", "UNKNOWN"
 	IngestRunID       string `json:"ingest_run_id"`
+
+	MappingConfidence float64 `json:"mapping_confidence"`
 }
 
 // ── NEW EVENT B: from Service 5C ─────────────────────────────────────────────

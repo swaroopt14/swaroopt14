@@ -34,3 +34,13 @@ func FallbackLRResult() LRResult {
 		Level:       "MEDIUM",
 	}
 }
+
+// FallbackRCAResult returns a safe empty result when the Python ML service is
+// unavailable or times out.  Empty TopClusters means no RCA clusters are surfaced
+// — callers treat this as "no clustering available yet" and never panic.
+func FallbackRCAResult() RCAClusterResult {
+	return RCAClusterResult{
+		TopClusters:            []RCAClusterSummary{},
+		FeatureContractVersion: "rca_v1",
+	}
+}

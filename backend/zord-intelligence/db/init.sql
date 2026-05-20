@@ -622,7 +622,8 @@ CREATE TABLE IF NOT EXISTS intelligence_snapshots (
         'LEAKAGE',       -- money-loss analysis (Section 10.1 of new spec)
         'AMBIGUITY',     -- attachment confidence quality (Section 10.2)
         'DEFENSIBILITY', -- evidence and proof strength (Section 10.3)
-        'RCA',           -- root cause analysis (Section 10.4)
+        'RCA',           -- root cause analysis (Section 10.4, legacy)
+        'RCA_CLUSTER',   -- HDBSCAN cluster results (Section 10.4, current)
         'PATTERN',       -- pre-dispatch quality patterns (Section 10.5)
         'RECOMMENDATION' -- actionable next steps (Section 10.6)
     )),
@@ -1257,3 +1258,18 @@ CREATE INDEX IF NOT EXISTS idx_ml_predictions_tenant_family
 
 CREATE INDEX IF NOT EXISTS idx_ml_predictions_scope
     ON ml_predictions (tenant_id, scope_type, scope_ref, prediction_family, created_at DESC);
+
+-- ── RCA Cluster indexes (added for HDBSCAN clustering feature) ─────────────
+--
+-- 1. Fast lookup of RCA_CLUSTER snapshots by tenant + scope (BATCH or TENANT).
+--    Enables GET /rca/clusters?tenant_id=X&batch_id=Y to resolve in a single index scan.
+CREATE INDEX IF NOT EXISTS idx_intelligence_snapshots_rca_cluster
+    ON intelligence_snapshots (tenant_id, snapshot_type, scope_type, scope_ref, created_at DESC)
+    WHERE snapshot_type = 'RCA_CLUSTER';
+
+-- 2. Fast prefix scan for RCA fragment accumulation.
+--    Enables GetAllByProjectionKeyPrefix with pattern "rca.frag.{batch_id}.%".
+--    text_pattern_ops is required for LIKE prefix queries on non-C-locale databases.
+CREATE INDEX IF NOT EXISTS idx_projection_state_rca_frag
+    ON projection_state (tenant_id, projection_key text_pattern_ops)
+    WHERE projection_key LIKE 'rca.frag.%';

@@ -8,6 +8,7 @@ const (
 	EventZScore    = "ZSCORE_DETECT"
 	EventLRPredict = "LOGISTIC_REGRESSION_PREDICT"
 	EventLRTrain   = "LOGISTIC_REGRESSION_TRAIN"
+	EventRCACluster = "RCA_CLUSTER_SUMMARIZE"
 )
 
 // MLRequest is the envelope published to ml.request.events.
@@ -118,6 +119,90 @@ func BuildLRFeatures(
 		clamp(1.0 - avgConfidence),
 		f3,
 	}
+}
+
+// ── RCA Clustering types ──────────────────────────────────────────────────────
+
+// RCACandidate is one payment intent with all merged signals from Services 2, 5B, 5C, 6, 7.
+// Field names must stay in sync with Python schemas.RCACandidate exactly.
+type RCACandidate struct {
+	IntentID              string  `json:"intent_id"`
+	ReasonText            string  `json:"reason_text"`
+	IntendedAmountMinor   int64   `json:"intended_amount_minor"`
+	// Categorical
+	SourceStrengthClass   string  `json:"source_strength_class"`
+	ObservationKind       string  `json:"observation_kind"`
+	DecisionType          string  `json:"decision_type"`
+	GovernanceState       string  `json:"governance_state"`
+	// Numeric
+	ParseConfidence       float64 `json:"parse_confidence"`
+	MappingConfidence     float64 `json:"mapping_confidence"`
+	CarrierRichnessScore  float64 `json:"carrier_richness_score"`
+	AttachmentReadiness   float64 `json:"attachment_readiness_score"`
+	AmbiguityScore        float64 `json:"ambiguity_score"`
+	ConfidenceScore       float64 `json:"confidence_score"`
+	AmountVariancePct     float64 `json:"amount_variance_pct"`
+	SettlementDelayDays   int     `json:"settlement_delay_days"`
+	ProofReadinessScore   float64 `json:"proof_readiness_score"`
+	MatchabilityScore     float64 `json:"matchability_score"`
+	PackCompletenessScore float64 `json:"pack_completeness_score"`
+	CandidateCount        int     `json:"candidate_count"`
+	MissingLeafCount      int     `json:"missing_leaf_count"`
+	// Binary flags (0/1)
+	MissingClientRef      int `json:"missing_client_ref"`
+	MissingProviderRef    int `json:"missing_provider_ref"`
+	MissingBankRef        int `json:"missing_bank_ref"`
+	ReversalFlag          int `json:"reversal_flag"`
+	ReturnFlag            int `json:"return_flag"`
+	DuplicateRowDetected  int `json:"duplicate_row_detected"`
+	ValueDateMismatch     int `json:"value_date_mismatch_flag"`
+	CrossPeriodFlag       int `json:"cross_period_flag"`
+	DuplicateRiskFlag     int `json:"duplicate_risk_flag"`
+	MissingEvidencePack   int `json:"missing_evidence_pack"`
+	GovernanceLeafMissing int `json:"governance_leaf_missing"`
+	IdempotencyKeyMissing int `json:"idempotency_key_missing"`
+	WeakBatchRefFlag      int `json:"weak_batch_ref_flag"`
+}
+
+// RCARequest is the payload sent to the Python ML service for clustering.
+type RCARequest struct {
+	TenantID               string         `json:"tenant_id"`
+	BatchID                string         `json:"batch_id"`
+	Candidates             []RCACandidate `json:"candidates"`
+	FeatureContractVersion string         `json:"feature_contract_version"`
+	FinalityLabel          string         `json:"finality_label,omitempty"`
+}
+
+// RCAClusterSummary is one cluster in the result, fully enriched from the taxonomy.
+type RCAClusterSummary struct {
+	ClusterCode           string   `json:"cluster_code"`
+	ClusterLabel          string   `json:"cluster_label"`
+	Category              string   `json:"category"`
+	Severity              string   `json:"severity"`
+	RecommendedAction     string   `json:"recommended_action"`
+	UserExplanation       string   `json:"user_explanation"`
+	BusinessImpact        string   `json:"business_impact"`
+	TriggerCondition      string   `json:"trigger_condition"`
+	DefaultActionContract string   `json:"default_action_contract"`
+	IntelligenceLayer     string   `json:"intelligence_layer"`
+	InternalOnly          bool     `json:"internal_only"`
+	Size                  int      `json:"size"`
+	AffectedAmountMinor   int64    `json:"affected_amount_minor"`
+	SharePct              float64  `json:"share_pct"`
+	MembershipConfidence  float64  `json:"membership_confidence"`
+	RepresentativeReasons []string `json:"representative_reasons"`
+	TopScope              string   `json:"top_scope"`
+}
+
+// RCAClusterResult is the full response from the Python RCA clustering service.
+type RCAClusterResult struct {
+	TopClusters              []RCAClusterSummary `json:"top_clusters"`
+	ClusterCount             int                 `json:"cluster_count"`
+	ClusteredPoints          int                 `json:"clustered_points"`
+	NoisePoints              int                 `json:"noise_points"`
+	TotalPoints              int                 `json:"total_points"`
+	TotalAffectedAmountMinor int64               `json:"total_affected_amount_minor"`
+	FeatureContractVersion   string              `json:"feature_contract_version"`
 }
 
 func clamp(v float64) float64 {

@@ -29,8 +29,13 @@ COPY --from=builder /install /usr/local
 COPY main.py .
 COPY app/ app/
 COPY healthcheck.py .
+COPY scripts/ scripts/
 
-# Create data directory for LR model persistence
+# Copy entrypoint (auto-trains RCA model on first deploy if no .pkl exists)
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+# Create data directory for model persistence
 RUN mkdir -p /data && chmod 777 /data
 
 # Run as non-root
@@ -42,7 +47,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 EXPOSE 8091
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
     CMD python /app/healthcheck.py
 
-ENTRYPOINT ["python", "main.py"]
+ENTRYPOINT ["/entrypoint.sh"]

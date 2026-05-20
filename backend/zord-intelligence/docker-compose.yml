@@ -67,6 +67,8 @@ services:
       - ML_REQUEST_TOPIC=ml.request.events
       - ML_RESULT_TOPIC=ml.result.events
       - LR_MODEL_PATH=/data/lr_model.json
+      - RCA_MODEL_PATH=/data/rca_model.pkl
+      - RCA_RETRAIN_THRESHOLD=50
     volumes:
       - ml_model_data:/data
     networks:
@@ -78,6 +80,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 90s
       start_period: 30s
 
   postgres:

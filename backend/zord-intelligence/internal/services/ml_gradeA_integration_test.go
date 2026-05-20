@@ -140,7 +140,7 @@ func TestGradeA_AmbiguityService_LogisticRegression(t *testing.T) {
 	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
 	predRepo := persistence.NewMLPredictionRepo(pool)
 
-	svc := NewAmbiguityIntelligenceService(ctx, projRepo, snapshotRepo, mlRepo, predRepo)
+	svc := NewAmbiguityIntelligenceService(ctx, projRepo, snapshotRepo, mlRepo, predRepo, nil)
 	err := svc.ComputeAndSave(ctx, tenantID, now.Add(-24*time.Hour), now)
 	if err != nil {
 		t.Fatalf("ComputeAndSave: %v", err)
@@ -220,7 +220,7 @@ func TestGradeA_LeakageService_ZScore_ColdStart(t *testing.T) {
 	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
 	predRepo := persistence.NewMLPredictionRepo(pool)
 
-	svc := NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
+	svc := NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo, nil)
 	if err := svc.ComputeAndSave(ctx, tenantID, now.Add(-24*time.Hour), now); err != nil {
 		t.Fatalf("ComputeAndSave: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestGradeA_LeakageService_ZScore_WithHistory(t *testing.T) {
 	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
 	predRepo := persistence.NewMLPredictionRepo(pool)
 
-	svc := NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo)
+	svc := NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo, nil)
 	if err := svc.ComputeAndSave(ctx, tenantID, now.Add(-24*time.Hour), now); err != nil {
 		t.Fatalf("ComputeAndSave: %v", err)
 	}
@@ -436,7 +436,7 @@ func TestGradeA_PatternService_IsolationForest_ColdStart(t *testing.T) {
 	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
 	predRepo := persistence.NewMLPredictionRepo(pool)
 
-	svc := NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo)
+	svc := NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo, nil)
 	if err := svc.ComputeAndSave(ctx, tenantID, batchID, now.Add(-24*time.Hour), now); err != nil {
 		t.Fatalf("ComputeAndSave: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestGradeA_PatternService_IsolationForest_WithHistory(t *testing.T) {
 	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
 	predRepo := persistence.NewMLPredictionRepo(pool)
 
-	svc := NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo)
+	svc := NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo, nil)
 	if err := svc.ComputeAndSave(ctx, tenantID, batchID, now.Add(-24*time.Hour), now); err != nil {
 		t.Fatalf("ComputeAndSave: %v", err)
 	}

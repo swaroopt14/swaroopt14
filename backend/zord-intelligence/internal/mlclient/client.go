@@ -169,6 +169,39 @@ func (c *Client) InvokeLogisticRegression(ctx context.Context, req LRRequest) (L
 	return LRResult{Probability: prob, Level: level}, nil
 }
 
+// InvokeRCAClustering sends payment candidates to the Python service for HDBSCAN
+// clustering and blocks until a result arrives or the default timeout elapses.
+// On timeout/error returns FallbackRCAResult — business logic is never blocked.
+func (c *Client) InvokeRCAClustering(ctx context.Context, req RCARequest) (RCAClusterResult, error) {
+	payload := map[string]interface{}{
+		"candidates":               req.Candidates,
+		"batch_id":                 req.BatchID,
+		"feature_contract_version": req.FeatureContractVersion,
+		"finality_label":           req.FinalityLabel,
+	}
+
+	result, err := c.roundTrip(ctx, EventRCACluster, req.TenantID, payload)
+	if err != nil {
+		log.Printf("mlclient: InvokeRCAClustering failed tenant=%s batch=%s: %v",
+			req.TenantID, req.BatchID, err)
+		return FallbackRCAResult(), err
+	}
+
+	// model_outputs is the full RCAClusterResult dict — marshal then unmarshal
+	// into the typed struct so we get proper type safety without manual field extraction.
+	raw, err := json.Marshal(result.ModelOutputs)
+	if err != nil {
+		log.Printf("mlclient: InvokeRCAClustering marshal outputs tenant=%s: %v", req.TenantID, err)
+		return FallbackRCAResult(), err
+	}
+	var clusterResult RCAClusterResult
+	if err := json.Unmarshal(raw, &clusterResult); err != nil {
+		log.Printf("mlclient: InvokeRCAClustering unmarshal tenant=%s: %v", req.TenantID, err)
+		return FallbackRCAResult(), err
+	}
+	return clusterResult, nil
+}
+
 // SendLRTrain publishes a training event to the Python service (fire-and-forget).
 // The Go side does not wait for a response.  Errors are logged only.
 func (c *Client) SendLRTrain(ctx context.Context, req LRTrainRequest) {

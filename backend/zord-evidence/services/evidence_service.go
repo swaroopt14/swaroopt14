@@ -388,6 +388,56 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		}
 	}
 
+	// --- Compute Completeness Metadata for Event ---
+	hasRawSettlementFile := false
+	hasRawSettlementLine := false
+	hasCanonicalSettlementObs := false
+	hasAttachmentDecision := false
+	hasVarianceDecision := false
+	hasBatchAttachmentSummary := false
+	hasBatchVarianceSummary := false
+
+	for _, item := range pack.Items {
+		switch item.Type {
+		case models.LeafTypeRawSettlementFile:
+			hasRawSettlementFile = true
+		case models.LeafTypeRawSettlementLine:
+			hasRawSettlementLine = true
+		case models.LeafTypeCanonicalSettlementObservation:
+			hasCanonicalSettlementObs = true
+		case models.LeafTypeAttachmentDecision:
+			hasAttachmentDecision = true
+		case models.LeafTypeVarianceDecision:
+			hasVarianceDecision = true
+		case models.LeafTypeBatchAttachmentSummary:
+			hasBatchAttachmentSummary = true
+		case models.LeafTypeBatchVarianceSummary:
+			hasBatchVarianceSummary = true
+		}
+	}
+
+	leafCount := len(pack.Items)
+	var requiredLeafCount int
+	var settlementLeafFlag, attachmentDecisionLeafFlag bool
+
+	if req.IntentID != "" {
+		requiredLeafCount = 9
+		settlementLeafFlag = hasRawSettlementFile && hasRawSettlementLine && hasCanonicalSettlementObs
+		attachmentDecisionLeafFlag = hasAttachmentDecision && hasVarianceDecision
+	} else if req.BatchID != "" {
+		requiredLeafCount = 6
+		settlementLeafFlag = hasRawSettlementFile
+		attachmentDecisionLeafFlag = hasBatchAttachmentSummary && hasBatchVarianceSummary
+	}
+
+	var packCompletenessScore float64
+	if requiredLeafCount > 0 {
+		packCompletenessScore = float64(leafCount) / float64(requiredLeafCount)
+		if packCompletenessScore > 1.0 {
+			packCompletenessScore = 1.0
+		}
+	}
+
 	// --- Step 11: prepare outbox event for relay polling ---
 	eventType := kafka.EventPackCreated
 	if req.SupersedesPackID != "" {
@@ -404,6 +454,11 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		MerkleRoot:     merkleRoot,
 		RulesetVersion: req.RulesetVersion,
 		OccurredAt:     now,
+		PackCompletenessScore: packCompletenessScore,
+		LeafCount: leafCount,
+		RequiredLeafCount: requiredLeafCount,
+		SettlementLeafPresentFlag: settlementLeafFlag,
+		AttachmentDecisionLeafPresentFlag: attachmentDecisionLeafFlag,
 	}
 	payloadBytes, _ := json.Marshal(packEvent)
 

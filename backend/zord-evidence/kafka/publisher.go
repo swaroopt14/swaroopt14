@@ -30,6 +30,11 @@ type PackEvent struct {
 	MerkleRoot     string    `json:"merkle_root"`
 	RulesetVersion string    `json:"ruleset_version"`
 	OccurredAt     time.Time `json:"occurred_at"`
+	PackCompletenessScore float64 `json:"pack_completeness_score"`
+	LeafCount int `json:"leaf_count"`
+	RequiredLeafCount int `json:"required_leaf_count"`
+	SettlementLeafPresentFlag bool `json:"settlement_leaf_present_flag"`
+	AttachmentDecisionLeafPresentFlag bool `json:"attachment_decision_leaf_present_flag"`
 	// Extra metadata for specific event types.
 	Extra map[string]any `json:"extra,omitempty"`
 }

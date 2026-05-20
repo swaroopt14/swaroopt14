@@ -174,95 +174,91 @@ func getIntParam(r *http.Request, key string, defaultValue int) int {
 	return intVal
 }
 
-// ENDPOINT 3: LIST BATCH SIDEBAR — GET /api/prod/intents/batches?tenant_id=...
-func (h *IntentHandler) ListBatchesSidebar(w http.ResponseWriter, r *http.Request) {
+func (h *IntentHandler) ListBatchIDs(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	tenantID := strings.TrimSpace(r.URL.Query().Get("tenant_id"))
+	tenantID := strings.TrimSpace(r.Header.Get("tenant_id"))
 	if tenantID == "" {
-		respondError(w, "INVALID_REQUEST", "tenant_id is required", http.StatusBadRequest, nil)
+		respondError(w, "INVALID_REQUEST", "tenant_id header is required", http.StatusBadRequest, nil)
 		return
 	}
 
-	// Sidebar summaries (existing behavior)
-	items, err := h.queryRepo.ListBatchesForSidebar(ctx, tenantID)
+	items, err := h.queryRepo.ListBatchIDsByTenant(ctx, tenantID)
 	if err != nil {
-		respondError(w, "DATABASE_ERROR", "Failed to fetch batches sidebar data", http.StatusInternalServerError, err)
+		respondError(w, "DATABASE_ERROR", "Failed to fetch batch ids", http.StatusInternalServerError, err)
 		return
 	}
 	if items == nil {
-		items = []models.BatchSidebarItem{}
-	}
-
-	// Mode 1: sidebar only
-	batchID := strings.TrimSpace(r.URL.Query().Get("batch_id"))
-	if batchID == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(BatchSidebarResponse{Items: items})
-		return
-	}
-
-	// Mode 2: selected batch details
-	page := getIntParam(r, "page", 1)
-	pageSize := getIntParam(r, "page_size", 20)
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 20
-	}
-	if pageSize > 200 {
-		pageSize = 200
-	}
-
-	piItems, piTotal, err := h.queryRepo.ListPaymentIntentsByBatch(ctx, tenantID, batchID, page, pageSize)
-	if err != nil {
-		respondError(w, "DATABASE_ERROR", "Failed to fetch payment intent details", http.StatusInternalServerError, err)
-		return
-	}
-	if piItems == nil {
-		piItems = []models.CanonicalIntent{}
-	}
-
-	dlqItems, dlqTotal, err := h.queryRepo.ListDLQItemsByBatch(ctx, tenantID, batchID, page, pageSize)
-	if err != nil {
-		respondError(w, "DATABASE_ERROR", "Failed to fetch DLQ details", http.StatusInternalServerError, err)
-		return
-	}
-	if dlqItems == nil {
-		dlqItems = []models.DLQEntry{}
-	}
-
-	resp := struct {
-		Items        []models.BatchSidebarItem `json:"items"`
-		BatchDetails BatchDetailsPayload       `json:"batchDetails"`
-	}{
-		Items: items,
-		BatchDetails: BatchDetailsPayload{
-			BatchID: batchID,
-			PaymentIntents: PaymentIntentDetailsSection{
-				Items: piItems,
-				Pagination: TablePagination{
-					Page:     page,
-					PageSize: pageSize,
-					Total:    piTotal,
-				},
-			},
-			DLQItems: DLQDetailsSection{
-				Items: dlqItems,
-				Pagination: TablePagination{
-					Page:     page,
-					PageSize: pageSize,
-					Total:    dlqTotal,
-				},
-			},
-		},
+		items = []models.BatchIDItem{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
+	_ = json.NewEncoder(w).Encode(struct {
+		Items []models.BatchIDItem `json:"items"`
+	}{Items: items})
+}
+
+func (h *IntentHandler) ListPaymentIntentLiteByBatch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	tenantID := strings.TrimSpace(r.Header.Get("tenant_id"))
+	batchID := strings.TrimSpace(r.Header.Get("batch_id"))
+
+	if tenantID == "" {
+		respondError(w, "INVALID_REQUEST", "tenant_id header is required", http.StatusBadRequest, nil)
+		return
+	}
+	if batchID == "" {
+		respondError(w, "INVALID_REQUEST", "batch_id header is required", http.StatusBadRequest, nil)
+		return
+	}
+
+	items, err := h.queryRepo.ListPaymentIntentLiteByBatch(ctx, tenantID, batchID)
+	if err != nil {
+		respondError(w, "DATABASE_ERROR", "Failed to fetch payment intent data", http.StatusInternalServerError, err)
+		return
+	}
+	if items == nil {
+		items = []models.PaymentIntentLite{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(struct {
+		Items []models.PaymentIntentLite `json:"items"`
+	}{Items: items})
+}
+
+func (h *IntentHandler) ListDLQItemsByBatchSimple(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	tenantID := strings.TrimSpace(r.Header.Get("tenant_id"))
+	batchID := strings.TrimSpace(r.Header.Get("batch_id"))
+
+	if tenantID == "" {
+		respondError(w, "INVALID_REQUEST", "tenant_id header is required", http.StatusBadRequest, nil)
+		return
+	}
+	if batchID == "" {
+		respondError(w, "INVALID_REQUEST", "batch_id header is required", http.StatusBadRequest, nil)
+		return
+	}
+
+	items, err := h.queryRepo.ListDLQItemsByBatchSimple(ctx, tenantID, batchID)
+	if err != nil {
+		respondError(w, "DATABASE_ERROR", "Failed to fetch dlq data", http.StatusInternalServerError, err)
+		return
+	}
+	if items == nil {
+		items = []models.DLQEntry{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(struct {
+		Items []models.DLQEntry `json:"items"`
+	}{Items: items})
 }
 func respondError(w http.ResponseWriter, code, message string, httpStatus int, err error) {
 	w.Header().Set("Content-Type", "application/json")

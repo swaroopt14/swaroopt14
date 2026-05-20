@@ -15,7 +15,9 @@ import (
 type IntentQueryRepository interface {
 	ListIntents(ctx context.Context, filter IntentFilter) ([]models.CanonicalIntent, int, error)
 	GetIntentByID(ctx context.Context, intentID string) (models.CanonicalIntent, error)
-	ListBatchesForSidebar(ctx context.Context, tenantID string) ([]models.BatchSidebarItem, error)
+	ListBatchIDsByTenant(ctx context.Context, tenantID string) ([]models.BatchIDItem, error)
+	ListPaymentIntentLiteByBatch(ctx context.Context, tenantID, batchID string) ([]models.PaymentIntentLite, error)
+	ListDLQItemsByBatchSimple(ctx context.Context, tenantID, batchID string) ([]models.DLQEntry, error)
 
 	ListPaymentIntentsByBatch(ctx context.Context, tenantID, batchID string, page, pageSize int) ([]models.CanonicalIntent, int, error)
 	ListDLQItemsByBatch(ctx context.Context, tenantID, batchID string, page, pageSize int) ([]models.DLQEntry, int, error)
@@ -537,4 +539,150 @@ func (r *IntentQueryRepo) ListDLQItemsByBatch(
 	}
 
 	return items, total, nil
+}
+func (r *IntentQueryRepo) ListBatchIDsByTenant(
+	ctx context.Context,
+	tenantID string,
+) ([]models.BatchIDItem, error) {
+	const q = `
+		SELECT DISTINCT batchid
+		FROM payment_intents
+		WHERE tenant_id = $1
+		  AND batchid IS NOT NULL
+		  AND batchid <> ''
+		ORDER BY batchid
+	`
+
+	rows, err := r.db.QueryContext(ctx, q, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch batch ids: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.BatchIDItem, 0)
+	for rows.Next() {
+		var it models.BatchIDItem
+		if err := rows.Scan(&it.BatchID); err != nil {
+			return nil, fmt.Errorf("failed to scan batch id: %w", err)
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating batch ids: %w", err)
+	}
+
+	return items, nil
+}
+
+func (r *IntentQueryRepo) ListPaymentIntentLiteByBatch(
+	ctx context.Context,
+	tenantID, batchID string,
+) ([]models.PaymentIntentLite, error) {
+	const q = `
+		SELECT
+			tenant_id::text,
+			amount::text,
+			currency,
+			intended_execution_at,
+			COALESCE(provider_hint, '') AS provider_hint,
+			intent_quality_score
+		FROM payment_intents
+		WHERE tenant_id = $1
+		  AND batchid = $2
+		ORDER BY created_at DESC, intent_id DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, q, tenantID, batchID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch payment intent lite rows: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.PaymentIntentLite, 0)
+	for rows.Next() {
+		var row models.PaymentIntentLite
+		var execAt sql.NullTime
+		var quality sql.NullFloat64
+
+		if err := rows.Scan(
+			&row.TenantID,
+			&row.Amount,
+			&row.Currency,
+			&execAt,
+			&row.ProviderHint,
+			&quality,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan payment intent lite row: %w", err)
+		}
+
+		if execAt.Valid {
+			t := execAt.Time
+			row.IntendedExecutionAt = &t
+		}
+		if quality.Valid {
+			v := quality.Float64
+			row.IntentQualityScore = &v
+		}
+
+		items = append(items, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating payment intent lite rows: %w", err)
+	}
+
+	return items, nil
+}
+
+func (r *IntentQueryRepo) ListDLQItemsByBatchSimple(
+	ctx context.Context,
+	tenantID, batchID string,
+) ([]models.DLQEntry, error) {
+	const q = `
+		SELECT
+			dlq_id,
+			tenant_id::text,
+			envelope_id::text,
+			stage,
+			reason_code,
+			COALESCE(error_detail, '') AS error_detail,
+			replayable,
+			COALESCE(client_batch_ref, '') AS client_batch_ref,
+			created_at,
+			COALESCE(batch_id, '') AS batch_id
+		FROM dlq_items
+		WHERE tenant_id = $1
+		  AND (client_batch_ref = $2 OR batch_id = $2)
+		ORDER BY created_at DESC, dlq_id DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, q, tenantID, batchID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch dlq rows by batch: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]models.DLQEntry, 0)
+	for rows.Next() {
+		var e models.DLQEntry
+		if err := rows.Scan(
+			&e.DLQID,
+			&e.TenantID,
+			&e.EnvelopeID,
+			&e.Stage,
+			&e.ReasonCode,
+			&e.ErrorDetail,
+			&e.Replayable,
+			&e.ClientBatchRef,
+			&e.CreatedAt,
+			&e.BatchID,
+		); err != nil {
+			return nil, fmt.Errorf("failed to scan dlq row: %w", err)
+		}
+		items = append(items, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating dlq rows: %w", err)
+	}
+
+	return items, nil
 }

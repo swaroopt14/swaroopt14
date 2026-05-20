@@ -1,4 +1,4 @@
-import { fetchProdJsonGet } from './fetchProdJsonGet'
+import { fetchProdJsonGet, fetchProdJsonGetWithMeta } from './fetchProdJsonGet'
 import { apiTrimmedString } from './coerceApiField'
 import type { EvidencePackFull, ListPacksResponse } from './evidenceTypes'
 
@@ -25,7 +25,14 @@ export async function listEvidencePacks(opts: ListEvidencePacksOptions = {}): Pr
   const intentId = apiTrimmedString(opts.intentId)
   if (batchId) extra.batch_id = batchId
   if (intentId) extra.intent_id = intentId
-  return fetchProdJsonGet<ListPacksResponse>(evidenceQueryPath(`${EVIDENCE_BASE}/packs`, extra))
+  const path = evidenceQueryPath(`${EVIDENCE_BASE}/packs`, extra)
+  const res = await fetchProdJsonGetWithMeta<ListPacksResponse>(path)
+  if (!res.ok && res.status === 401) {
+    console.warn('[evidence] packs list unauthorized — sign in so BFF can inject session tenant', res.url)
+  } else if (!res.ok) {
+    console.warn('[evidence] packs list failed', res.status, res.errorText?.slice(0, 200) ?? res.url)
+  }
+  return res.data
 }
 
 export async function getEvidencePackFull(packId: string): Promise<EvidencePackFull | null> {

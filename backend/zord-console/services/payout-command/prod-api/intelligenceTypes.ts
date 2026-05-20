@@ -2,7 +2,7 @@
 // All endpoints return `data_available: false` with a `reason` when the tenant has no events
 // yet — the frontend uses that to render empty-state cards instead of zeros.
 
-export type RiskTier = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+export type RiskTier = 'CLEAN' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
 
 export type EmptyKpiResponse = {
   data_available: false
@@ -14,15 +14,23 @@ type Resolved<T> = T & {
   tenant_id: string
   snapshot_id?: string
   computed_at?: string
+  window_start?: string
+  window_end?: string
 }
 
 // ── KPIs 1–6: Leakage ──────────────────────────────────────────────────────
+/** Minor amounts may arrive as JSON strings or numbers from zord-intelligence. */
+export type MinorAmountField = string | number
+
 export type LeakageKpiResolved = Resolved<{
-  total_intended_amount_minor: string
-  unmatched_amount_minor: string
-  under_settlement_amount_minor: string
-  orphan_amount_minor: string
-  reversal_exposure_minor: string
+  total_intended_amount_minor: MinorAmountField
+  unmatched_amount_minor: MinorAmountField
+  under_settlement_amount_minor: MinorAmountField
+  orphan_amount_minor: MinorAmountField
+  reversal_exposure_minor: MinorAmountField
+  total_observed_settled_amount_minor?: MinorAmountField
+  ambiguous_value_at_risk_minor?: MinorAmountField
+  risk_adjusted_leakage_minor?: MinorAmountField
   leakage_percentage: number
   risk_tier: RiskTier
 }>

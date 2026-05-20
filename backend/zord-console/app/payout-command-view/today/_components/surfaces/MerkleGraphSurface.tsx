@@ -7,6 +7,10 @@ import { LiveDataHint } from '../shared'
 import { Glyph } from '../shared'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import {
+  intelligenceBatchesForSelector,
+  pickEvidenceBatchId,
+} from '@/services/payout-command/prod-api/evidenceBatchScope'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
@@ -224,7 +228,7 @@ export type MerkleGraphSurfaceProps = {
 export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_PACK }: MerkleGraphSurfaceProps = {}) {
   const searchParams = useSearchParams()
   const urlBatchId = searchParams.get('batch_id')?.trim() ?? ''
-  const { tenantReady } = useSessionTenant()
+  const { tenantId, tenantReady } = useSessionTenant()
   const useLive = tenantReady
 
   const [activePackId, setActivePackId] = useState(() => apiTrimmedString(initialPackId) || initialPack.packId)
@@ -247,13 +251,12 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     if (!useLive) return
     let cancelled = false
     void getIntelligenceBatches({ limit: 80 }).then((res) => {
-      if (cancelled || !res?.batches?.length) return
-      setIntelBatches(res.batches)
-      setActiveBatchId((prev) => {
-        const prevId = apiTrimmedString(prev)
-        const match = res.batches.find((b) => apiTrimmedString(b.batch_id) === prevId)
-        return match ? prevId : apiTrimmedString(res.batches[0]?.batch_id)
-      })
+      if (cancelled) return
+      const intelBatches = res?.batches ?? []
+      setIntelBatches(intelBatches)
+      setActiveBatchId((prev) =>
+        pickEvidenceBatchId(intelBatches, apiTrimmedString(prev) || urlBatchId),
+      )
     })
     return () => {
       cancelled = true
@@ -448,6 +451,11 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     setSelected({ kind: 'root', node: pack.root })
   }, [pack.root])
 
+  const intelBatchOptions = useMemo(
+    () => intelligenceBatchesForSelector(intelBatches, activeBatchId, tenantId),
+    [intelBatches, activeBatchId, tenantId],
+  )
+
   const batchMetaResolved = useMemo((): BatchMeta | undefined => {
     if (!useLive) return SAMPLE_BATCHES[activeBatchId]
     const row = intelBatches.find((b) => b.batch_id === activeBatchId)
@@ -531,15 +539,12 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
               className="mt-0.5 cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[17px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa]"
             >
               {useLive
-                ? (
-                    intelBatches.length
-                      ? intelBatches
-                      : activeBatchId
-                        ? ([{ batch_id: activeBatchId }] as Pick<IntelligenceBatchRow, 'batch_id'>[])
-                        : []
-                  ).map((b) => (
+                ? intelBatchOptions.map((b) => (
                     <option key={b.batch_id} value={b.batch_id}>
                       {b.batch_id}
+                      {intelBatches.some((x) => apiTrimmedString(x.batch_id) === apiTrimmedString(b.batch_id))
+                        ? ''
+                        : ' (evidence)'}
                     </option>
                   ))
                 : ALL_BATCH_IDS.map((b) => (

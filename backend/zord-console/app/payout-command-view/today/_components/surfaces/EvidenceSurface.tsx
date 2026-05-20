@@ -12,6 +12,10 @@ import {
   HOME_TITLE_BLACK,
 } from '../command-center/homeCommandCenterTokens'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
+import {
+  intelligenceBatchesForSelector,
+  pickEvidenceBatchId,
+} from '@/services/payout-command/prod-api/evidenceBatchScope'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
@@ -161,22 +165,16 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     let cancelled = false
     void getIntelligenceBatches({ limit: 80 }).then((res) => {
       if (cancelled) return
-      if (!res?.batches?.length) {
-        setBatches([])
-        setBatchId('')
-        return
-      }
-      setBatches(res.batches)
-      setBatchId((prev) => {
-        const prevId = apiTrimmedString(prev)
-        const match = res.batches.find((b) => apiTrimmedString(b.batch_id) === prevId)
-        return match ? prevId : apiTrimmedString(res.batches[0]?.batch_id)
-      })
+      const intelBatches = res?.batches ?? []
+      setBatches(intelBatches)
+      setBatchId((prev) =>
+        pickEvidenceBatchId(intelBatches, apiTrimmedString(prev) || apiTrimmedString(initialBatchId)),
+      )
     })
     return () => {
       cancelled = true
     }
-  }, [tenantReady])
+  }, [tenantReady, initialBatchId])
 
   useEffect(() => {
     if (!tenantReady || !batchId) {
@@ -249,6 +247,11 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     : recommendationsData
       ? `${recommendationsData.total_actions} actions tracked in recommendations`
       : 'Patterns dashboard (KPI 14) surfaces batch finality and counts.'
+
+  const batchOptions = useMemo(
+    () => intelligenceBatchesForSelector(batches, batchId, tenantId),
+    [batches, batchId, tenantId],
+  )
 
   const filteredPacks = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -360,20 +363,24 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
                 Intelligence batch
                 <select
                   value={batchId}
-                  disabled={!tenantReady || batches.length === 0}
+                  disabled={!tenantReady || (!batchId && batchOptions.length === 0)}
                   onChange={(e) => setBatchId(e.target.value)}
                   className={`h-10 w-full rounded-[0.85rem] border ${ASK.border} ${ASK.field} px-3 font-mono text-[14px] font-semibold text-[#111111] outline-none lg:max-w-[20rem]`}
                 >
                   {!tenantReady ? (
                     <option value="">Sign in (tenant)</option>
-                  ) : batches.length === 0 ? (
-                    <option value="">No batches from /v1/intelligence/batches</option>
+                  ) : batchOptions.length === 0 ? (
+                    <option value="">No batch — set ?batch_id= or ingest intelligence</option>
                   ) : (
-                    batches.map((b) => (
-                      <option key={b.batch_id} value={b.batch_id}>
-                        {b.batch_id} · {b.finality_status}
-                      </option>
-                    ))
+                    batchOptions.map((b) => {
+                      const inIntel = batches.some((x) => apiTrimmedString(x.batch_id) === apiTrimmedString(b.batch_id))
+                      return (
+                        <option key={b.batch_id} value={b.batch_id}>
+                          {b.batch_id}
+                          {inIntel ? ` · ${b.finality_status}` : ' · evidence only'}
+                        </option>
+                      )
+                    })
                   )}
                 </select>
               </label>

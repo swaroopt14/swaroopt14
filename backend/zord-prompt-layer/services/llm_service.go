@@ -110,6 +110,12 @@ type AnswerWithConfidence struct {
 	ContradictionRisk float64 `json:"contradiction_risk"` // 0.0 - 1.0
 	Ambiguity         float64 `json:"ambiguity"`          // 0.0 - 1.0
 }
+type QueryClassDecision struct {
+	Class              string  `json:"class"` // operational_data_query | general_product_or_greeting | out_of_scope
+	Confidence         float64 `json:"confidence"`
+	NeedsCitation      bool    `json:"needs_citation"`
+	NeedsVisualization bool    `json:"needs_visualization"`
+}
 
 func (s *LLMService) GenerateFromContextScopedWithConfidence(userQuery string, context string, wantsVisualization bool) (AnswerWithConfidence, error) {
 	visRule := "Do not include visualization section."
@@ -160,6 +166,43 @@ func (s *LLMService) GenerateFromContextScopedWithConfidence(userQuery string, c
 		out.Confidence = "medium"
 	}
 
+	return out, nil
+}
+func (s *LLMService) ClassifyQueryIntent(userQuery string) (QueryClassDecision, error) {
+	prompt := "You are a strict classifier for Zord prompt-layer.\n" +
+		"Return JSON only with keys: class, confidence, needs_citation, needs_visualization.\n" +
+		"Allowed class values: operational_data_query, general_product_or_greeting, out_of_scope.\n" +
+		"Rules:\n" +
+		"- operational_data_query: asks about tenant operations, intents, failures, retries, SLA, payouts, status, trends.\n" +
+		"- general_product_or_greeting: greetings, basic product questions like what is zord/how it works.\n" +
+		"- out_of_scope: unrelated personal/general chatter not relevant to project context.\n" +
+		"- confidence must be 0..1.\n" +
+		"- needs_citation true only for operational_data_query.\n" +
+		"- needs_visualization true only if user explicitly asks chart/graph/trend/visualization and class is operational_data_query.\n\n" +
+		"USER QUERY:\n" + userQuery
+
+	raw, err := s.gemini.Generate(prompt)
+	if err != nil {
+		return QueryClassDecision{}, err
+	}
+
+	clean := strings.TrimSpace(raw)
+	clean = strings.TrimPrefix(clean, "```json")
+	clean = strings.TrimPrefix(clean, "```")
+	clean = strings.TrimSuffix(clean, "```")
+	clean = strings.TrimSpace(clean)
+
+	var out QueryClassDecision
+	if err := json.Unmarshal([]byte(clean), &out); err != nil {
+		return QueryClassDecision{}, err
+	}
+
+	out.Confidence = clamp01(out.Confidence)
+	switch out.Class {
+	case "operational_data_query", "general_product_or_greeting", "out_of_scope":
+	default:
+		out.Class = "general_product_or_greeting"
+	}
 	return out, nil
 }
 func clamp01(v float64) float64 {

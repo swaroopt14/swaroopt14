@@ -1,12 +1,16 @@
 package services
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"zord-prompt-layer/client"
 	"zord-prompt-layer/dto"
 	"zord-prompt-layer/model"
 	"zord-prompt-layer/utils"
@@ -22,10 +26,12 @@ var sensitiveExtractionRe = regexp.MustCompile(`(?i)\b(api[_\s-]?key|password|se
 var corridorIDRe = regexp.MustCompile(`(?i)\bcorridor[_\s-]?id\s*[:=]?\s*([A-Za-z0-9._-]+)\b`)
 
 type DefaultRAGService struct {
-	model     string
-	retriever EvidenceRetriever
-	llm       *LLMService
-	defaultK  int
+	model        string
+	retriever    EvidenceRetriever
+	llm          *LLMService
+	defaultK     int
+	intelligence *client.IntelligenceClient
+	memory       ChatMemoryStore
 }
 type vizKind string
 
@@ -34,6 +40,15 @@ const (
 	vizTopFailures    vizKind = "top_failures"
 	vizSLABreach      vizKind = "sla_breach"
 	vizApprovalMix    vizKind = "approval_mix"
+)
+
+type queryClass string
+
+const (
+	classOperational queryClass = "operational_data_query"
+	classGeneral     queryClass = "general_product_or_greeting"
+	classOutOfScope  queryClass = "out_of_scope"
+	classUnknown     queryClass = "unknown"
 )
 
 func detectVizKind(q string) vizKind {
@@ -49,17 +64,120 @@ func detectVizKind(q string) vizKind {
 		return vizCorridorHealth
 	}
 }
-func NewDefaultRAGService(model string, defaultK int, retriever EvidenceRetriever, llm *LLMService) *DefaultRAGService {
-
+func NewDefaultRAGService(model string, defaultK int, retriever EvidenceRetriever, llm *LLMService, intelligence *client.IntelligenceClient, memory ChatMemoryStore) *DefaultRAGService {
 	return &DefaultRAGService{
-		model:     model,
-		defaultK:  defaultK,
-		retriever: retriever,
-		llm:       llm,
+		model:        model,
+		defaultK:     defaultK,
+		retriever:    retriever,
+		llm:          llm,
+		intelligence: intelligence,
+		memory:       memory,
+	}
+}
+func classifyDeterministic(q string) queryClass {
+	s := strings.ToLower(strings.TrimSpace(q))
+	if s == "" {
+		return classOutOfScope
+	}
+	if strings.Contains(s, "hello") || strings.Contains(s, "hi ") || s == "hi" ||
+		strings.Contains(s, "good morning") || strings.Contains(s, "good evening") ||
+		strings.Contains(s, "how are you") {
+		return classGeneral
+	}
+	if strings.Contains(s, "what is zord") || strings.Contains(s, "how does zord work") ||
+		strings.Contains(s, "how it works") || strings.Contains(s, "what is payment intent") ||
+		strings.Contains(s, "what are payment intents") {
+		return classGeneral
+	}
+	operationalHints := []string{"intent", "payment", "payout", "retry", "failure", "status", "sla", "batch", "csv", "callback", "proof", "tenant"}
+	for _, h := range operationalHints {
+		if strings.Contains(s, h) {
+			return classOperational
+		}
+	}
+	return classUnknown
+}
+
+func mapLLMClass(c string) queryClass {
+	switch c {
+	case "operational_data_query":
+		return classOperational
+	case "general_product_or_greeting":
+		return classGeneral
+	case "out_of_scope":
+		return classOutOfScope
+	default:
+		return classGeneral
 	}
 }
 
+func buildGeneralResponse() dto.QueryResponse {
+	return dto.QueryResponse{
+		Answer:        "Hello. I can help with Zord payout operations, intent flow, failures, retries, and proof readiness. Ask me a specific business question and I will keep it clear and simple.",
+		Confidence:    "high",
+		EntitiesFound: dto.EntitiesFound{},
+		Citations:     []dto.Citation{},
+		NextActions:   []string{},
+	}
+}
+
+func buildOutOfScopeResponse() dto.QueryResponse {
+	return dto.QueryResponse{
+		Answer:        "That question is outside this project context. I can help with payout operations, intent behavior, callbacks, failures, and readiness insights.",
+		Confidence:    "high",
+		EntitiesFound: dto.EntitiesFound{},
+		Citations:     []dto.Citation{},
+		NextActions:   []string{},
+	}
+}
+
+func shouldReturnCitations(class queryClass, chunks []model.RetrievedChunk, confidence string) bool {
+	if class != classOperational {
+		return false
+	}
+	if len(chunks) == 0 {
+		return false
+	}
+	return confidence == "high" || confidence == "medium"
+}
+
+func buildRCAContextBlock(rca *client.RCAClustersResponse) string {
+	if rca == nil {
+		return "RCA: unavailable"
+	}
+	modelVersion := "-"
+	if rca.ModelVersion != nil && strings.TrimSpace(*rca.ModelVersion) != "" {
+		modelVersion = strings.TrimSpace(*rca.ModelVersion)
+	}
+	return fmt.Sprintf(
+		"RCA tenant summary: data_available=%t model_version=%s cluster_count=%d clustered_points=%d noise_points=%d total_points=%d returned_clusters=%d reason=%s",
+		rca.DataAvailable, modelVersion, rca.ClusterCount, rca.ClusteredPoints, rca.NoisePoints, rca.TotalPoints, rca.ReturnedClusters, strings.TrimSpace(rca.Reason),
+	)
+}
+
+func buildRCAOverviewBlock(overview *client.RCAOverviewResponse) string {
+	if overview == nil {
+		return "RCA overview: unavailable"
+	}
+	modelVersion := "-"
+	if overview.ModelVersion != nil && strings.TrimSpace(*overview.ModelVersion) != "" {
+		modelVersion = strings.TrimSpace(*overview.ModelVersion)
+	}
+	data := strings.TrimSpace(string(overview.Data))
+	if data == "" {
+		data = "{}"
+	}
+	return fmt.Sprintf(
+		"RCA overview: data_available=%t snapshot_type=%s model_version=%s reason=%s data=%s",
+		overview.DataAvailable,
+		strings.TrimSpace(overview.SnapshotType),
+		modelVersion,
+		strings.TrimSpace(overview.Reason),
+		data,
+	)
+}
 func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, error) {
+	ctx := context.Background()
 	topK := req.TopK
 	if topK <= 0 {
 		topK = s.defaultK
@@ -77,7 +195,26 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 			NextActions:   []string{},
 		}, nil
 	}
+	class := classifyDeterministic(req.Query)
+	if class == classUnknown {
+		dec, err := s.llm.ClassifyQueryIntent(req.Query)
+		if err != nil {
+			log.Printf("[prompt-layer][classify] llm-classifier failed err=%v; defaulting general", err)
+			class = classGeneral
+		} else if dec.Confidence >= 0.60 {
+			class = mapLLMClass(dec.Class)
+		} else {
+			class = classGeneral
+		}
+	}
+	log.Printf("[prompt-layer][classify] class=%s tenant=%s", class, req.TenantID)
 
+	if class == classGeneral {
+		return buildGeneralResponse(), nil
+	}
+	if class == classOutOfScope {
+		return buildOutOfScopeResponse(), nil
+	}
 	intentID := req.IntentID
 	traceID := req.TraceID
 	if intentID == "" {
@@ -142,8 +279,56 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 			NextActions:   nextActions,
 		}, nil
 	}
+	rcaContext := ""
+	if s.intelligence != nil {
+		log.Printf("[prompt-layer][rca] fetching tenant RCA context tenant=%s", req.TenantID)
+		parts := make([]string, 0, 2)
+		rcaClusters, rcaErr := s.intelligence.FetchRCAClusters(req.TenantID)
+		if rcaErr != nil {
+			log.Printf("[prompt-layer][rca] clusters fetch failed tenant=%s err=%v", req.TenantID, rcaErr)
+		} else {
+			log.Printf("[prompt-layer][rca] clusters fetched tenant=%s data_available=%t clusters=%d", req.TenantID, rcaClusters.DataAvailable, rcaClusters.ReturnedClusters)
+			parts = append(parts, buildRCAContextBlock(rcaClusters))
+			if len(rcaClusters.Clusters) > 0 {
+				parts = append(parts, "RCA clusters payload="+string(mustJSON(rcaClusters.Clusters)))
+			}
+		}
 
-	context := buildContext(chunks)
+		rcaOverview, ovErr := s.intelligence.FetchRCAOverview(req.TenantID)
+		if ovErr != nil {
+			log.Printf("[prompt-layer][rca] overview fetch failed tenant=%s err=%v", req.TenantID, ovErr)
+		} else {
+			log.Printf("[prompt-layer][rca] overview fetched tenant=%s data_available=%t snapshot_type=%s", req.TenantID, rcaOverview.DataAvailable, rcaOverview.SnapshotType)
+			parts = append(parts, buildRCAOverviewBlock(rcaOverview))
+		}
+		rcaContext = strings.Join(parts, "\n")
+	}
+	historyContext := ""
+	if s.memory != nil {
+		history, memErr := s.memory.GetRecent(ctx, req.TenantID, req.UserID, req.SessionID)
+		if memErr != nil {
+			log.Printf("[prompt-layer][memory] read failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, memErr)
+		} else if len(history) > 0 {
+			var hb strings.Builder
+			for i, t := range history {
+				hb.WriteString(fmt.Sprintf("[%d] at=%s user=%s assistant=%s\n",
+					i+1,
+					t.Timestamp.UTC().Format(time.RFC3339),
+					utils.SanitizeAnswerText(t.UserMessage),
+					utils.SanitizeAnswerText(t.AssistantSummary),
+				))
+			}
+			historyContext = hb.String()
+		}
+	}
+	context := ""
+	if strings.TrimSpace(historyContext) != "" {
+		context += "[CHAT_HISTORY_CONTEXT]\n" + historyContext + "\n"
+	}
+	context += buildContext(chunks)
+	if strings.TrimSpace(rcaContext) != "" {
+		context += "\n[RCA_CONTEXT]\n" + rcaContext + "\n"
+	}
 	llmOut, err := s.llm.GenerateFromContextScopedWithConfidence(req.Query, context, scope.WantsVisualization)
 	if err != nil {
 		return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", err)
@@ -177,15 +362,34 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		}
 	}
 
+	finalCitations := []dto.Citation{}
+	if shouldReturnCitations(class, chunks, conf) {
+		finalCitations = citations
+	}
+	if s.memory != nil {
+		summary := SummarizeAssistantAnswer(answer, 280)
+		if err := s.memory.AppendTurn(ctx, req.TenantID, req.UserID, req.SessionID, req.Query, summary, time.Now().UTC()); err != nil {
+			log.Printf("[prompt-layer][memory] write failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, err)
+		}
+	}
+
 	return dto.QueryResponse{
 		Answer:        answer,
 		Confidence:    conf,
 		EntitiesFound: entities,
-		Citations:     citations,
+		Citations:     finalCitations,
 		NextActions:   nextActions,
 		Visualization: viz,
 	}, nil
 
+}
+
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return []byte("[]")
+	}
+	return b
 }
 
 func buildContext(chunks []model.RetrievedChunk) string {

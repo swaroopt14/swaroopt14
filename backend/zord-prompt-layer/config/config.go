@@ -20,9 +20,14 @@ type AppConfig struct {
 
 	DefaultTopK int
 
-	IntelligenceReadDSN string
-	EvidenceReadDSN     string
-	GeminiAPIKeys       []string
+	IntelligenceReadDSN     string
+	EvidenceReadDSN         string
+	GeminiAPIKeys           []string
+	IntelligenceAPIBaseURL  string
+	IntelligenceAPITimeoutS int
+	RedisURL                string
+	MemoryTTLSeconds        int
+	MemoryMaxTurns          int
 }
 
 func parseCSVKeys(v string) []string {
@@ -52,7 +57,25 @@ func Load() AppConfig {
 			topK = n
 		}
 	}
+	intelTimeout := 3
+	if v := os.Getenv("INTELLIGENCE_API_TIMEOUT_SEC"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			intelTimeout = n
+		}
+	}
+	memTTL := 3600
+	if v := os.Getenv("MEMORY_TTL_SECONDS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			memTTL = n
+		}
+	}
 
+	memTurns := 8
+	if v := os.Getenv("MEMORY_MAX_TURNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			memTurns = n
+		}
+	}
 	return AppConfig{
 		ServiceName: get("SERVICE_NAME", "zord-prompt-layer"),
 		HTTPPort:    get("HTTP_PORT", "8086"),
@@ -67,7 +90,12 @@ func Load() AppConfig {
 
 		DefaultTopK: topK,
 
-		IntelligenceReadDSN: os.Getenv("INTELLIGENCE_READ_DSN"),
-		EvidenceReadDSN:     os.Getenv("EVIDENCE_READ_DSN"),
+		IntelligenceReadDSN:     os.Getenv("INTELLIGENCE_READ_DSN"),
+		EvidenceReadDSN:         os.Getenv("EVIDENCE_READ_DSN"),
+		IntelligenceAPIBaseURL:  get("INTELLIGENCE_API_BASE_URL", "http://zord-intelligence:8089"),
+		IntelligenceAPITimeoutS: intelTimeout,
+		RedisURL:                get("REDIS_URL", "redis://zord-prompt-layer-redis:6379/0"),
+		MemoryTTLSeconds:        memTTL,
+		MemoryMaxTurns:          memTurns,
 	}
 }

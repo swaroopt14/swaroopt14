@@ -8,6 +8,20 @@ services:
       - "8086:8086"
     env_file:
       - .env
+    environment:
+      - REDIS_URL=redis://zord-prompt-layer-redis:6379/0
+      - MEMORY_TTL_SECONDS=3600
+      - MEMORY_MAX_TURNS=8
+    networks:
+      - zord-network
+    depends_on:
+      - zord-prompt-layer-redis
+    restart: unless-stopped
+
+  zord-prompt-layer-redis:
+    image: redis:7-alpine
+    container_name: zord-prompt-layer-redis
+    command: ["redis-server", "--appendonly", "no"]
     networks:
       - zord-network
     restart: unless-stopped

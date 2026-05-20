@@ -2,261 +2,416 @@ package services
 
 // rca_intelligence_service.go
 //
-// Implements spec Section 10.4 — Root Cause Intelligence.
+// Implements HDBSCAN-based RCA clustering (Grade A).
 //
-// WHAT THIS SERVICE DOES:
-// Reads failure taxonomy projections (maintained by AtomicIncrementFailureReason
-// for corridor-level failure codes) and produces a materialised RCA snapshot.
+// Entry point: ComputeAndSaveGradeA — called from HandleBatchSummaryUpdated
+// after all batch signals are finalised.
 //
-// RCA answers: WHY are failures, leakages, and ambiguities happening?
+// Fragment accumulation: as settlement, attachment, variance, intent, and
+// evidence events arrive, Accumulate* methods merge signals into a single
+// RCAFragment per intent stored in projection_state under:
+//   rca.frag.{batch_id}.{intent_id}
 //
-// DETERMINISTIC FIRST (spec §10.4):
-//   "Build RCA trees / taxonomies such as:
-//    missing reference family, duplicate-risk family, parser weakness family,
-//    batch hygiene family, provider status inconsistency family,
-//    value-date mismatch family, deduction/TDS family, reversal/return family"
+// At clustering time, all fragments for the batch are retrieved, batch-level
+// aggregate signals are denormalised onto each candidate, then the full
+// candidate slice is sent to the Python ML service via Kafka.
 //
-// The spec also mentions TF-IDF + HDBSCAN for failure reason clustering.
-// That is Phase 8 ML. Phase 4 uses deterministic bucket taxonomy.
-//
-// TAXONOMY MAPPING:
-// We classify raw reason codes into semantic families using keyword matching.
-// This is simpler and more auditable than ML clustering for v1, and gives
-// finance/ops a stable vocabulary to work with.
+// Two snapshots are written per batch trigger:
+//   scope_type=BATCH  scope_ref=batch_id
+//   scope_type=TENANT scope_ref=nil  (tenant-level rollup)
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/zord/zord-intelligence/internal/mlclient"
 	"github.com/zord/zord-intelligence/internal/models"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
 
-// RCAIntelligenceService computes RCA snapshots from failure taxonomy projections.
+// MLClient is the interface used to invoke the Python RCA clustering service.
+// Satisfied by *mlclient.Client; accept an interface so tests can mock it.
+type MLClient interface {
+	InvokeRCAClustering(ctx context.Context, req mlclient.RCARequest) (mlclient.RCAClusterResult, error)
+}
+
+// RCAIntelligenceService handles HDBSCAN-based RCA clustering.
 type RCAIntelligenceService struct {
 	projRepo     *persistence.ProjectionRepo
 	snapshotRepo *persistence.IntelligenceSnapshotRepo
+	mlClient     MLClient // nil → clustering disabled, non-fatal
 }
 
 // NewRCAIntelligenceService creates an RCAIntelligenceService.
+// mlClient may be nil — if so, ComputeAndSaveGradeA is a no-op.
 func NewRCAIntelligenceService(
 	projRepo *persistence.ProjectionRepo,
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
+	mlClient MLClient,
 ) *RCAIntelligenceService {
 	return &RCAIntelligenceService{
 		projRepo:     projRepo,
 		snapshotRepo: snapshotRepo,
+		mlClient:     mlClient,
 	}
 }
 
-// RCASnapshot is the shape written into intelligence_snapshots.snapshot_json
-// for snapshot_type = RCA.
-type RCASnapshot struct {
-	// ── Top failure drivers (spec §10.4 output) ───────────────────────────
-	// "Top 5 ambiguity drivers, leakage drivers, reversal/return drivers"
-	TopFailureDrivers []RCABucket `json:"top_failure_drivers"` // sorted by count desc
+// ── Signal value types ────────────────────────────────────────────────────────
 
-	// ── Taxonomy family breakdown ─────────────────────────────────────────
-	// Key: family name (e.g. "MISSING_REFERENCE")
-	// Value: aggregate count across all corridors
-	FamilyBreakdown map[string]int `json:"family_breakdown"`
-
-	// ── Total failures counted ────────────────────────────────────────────
-	TotalFailures int `json:"total_failures"`
-
-	// ── Top corridor by failures ──────────────────────────────────────────
-	TopFailureCorridorID string `json:"top_failure_corridor_id,omitempty"`
-	TopFailureCount      int    `json:"top_failure_count"`
-
-	// ── Narrative (deterministic template) ────────────────────────────────
-	// Phase 4 uses a template-based narrative.
-	// Phase 7 (explanation layer) will replace this with LLM-generated text.
-	Narrative string `json:"narrative"`
-
-	// ── Recommended action ────────────────────────────────────────────────
-	RecommendedAction string `json:"recommended_action,omitempty"`
-
-	ComputedAt time.Time `json:"computed_at"`
+// SettlementSignals holds the settlement-observation fields relevant to RCA.
+type SettlementSignals struct {
+	SourceStrengthClass  string
+	ObservationKind      string
+	ParseConfidence      float64
+	MappingConfidence    float64
+	CarrierRichnessScore float64
+	ReasonText           string
+	IntendedAmountMinor  int64
+	SettledAmountMinor   int64
+	AmountVarianceMinor  int64
+	SettlementDate       time.Time
+	IntendedDate         time.Time
+	MissingClientRef     bool
+	MissingProviderRef   bool
+	MissingBankRef       bool
+	ReversalFlag         bool
+	ReturnFlag           bool
+	DuplicateRowDetected bool
+	ValueDateMismatch    bool
+	CrossPeriodFlag      bool
 }
 
-// RCABucket is one row in the RCA top-drivers list.
-type RCABucket struct {
-	ReasonCode   string  `json:"reason_code"`   // raw reason code from PSP
-	Family       string  `json:"family"`        // semantic family (e.g. "MISSING_REFERENCE")
-	Count        int     `json:"count"`
-	CorridorID   string  `json:"corridor_id"`
-	SharePct     float64 `json:"share_pct"` // this bucket's share of total_failures
+// AttachmentSignals holds the attachment-decision fields relevant to RCA.
+type AttachmentSignals struct {
+	DecisionType        string
+	AmbiguityScore      float64
+	ConfidenceScore     float64
+	AttachmentReadiness float64
+	CandidateCount      int
 }
 
-// rcaFamilies maps semantic families to keyword patterns.
-// When a reason_code matches a family's keywords, it's bucketed into that family.
-// This is the deterministic taxonomy from spec §10.4.
-var rcaFamilies = map[string][]string{
-	"MISSING_REFERENCE":            {"MISSING_REF", "NO_UTR", "NO_RRN", "MISSING_CLIENT_REF", "REF_NOT_FOUND"},
-	"INSUFFICIENT_FUNDS":           {"INSUFFICIENT_FUNDS", "BALANCE_LOW", "CREDIT_LIMIT", "FUNDS"},
-	"ACCOUNT_ISSUES":               {"INVALID_ACCOUNT", "ACCOUNT_FROZEN", "ACCOUNT_CLOSED", "BENEFICIARY"},
-	"TIMEOUT_NETWORK":              {"TIMEOUT", "NETWORK_ERROR", "CONNECTION", "GATEWAY_TIMEOUT"},
-	"DUPLICATE_RISK":               {"DUPLICATE", "ALREADY_PROCESSED", "IDEMPOTENCY"},
-	"VALUE_DATE_MISMATCH":          {"VALUE_DATE", "DATE_MISMATCH", "CROSS_PERIOD"},
-	"DEDUCTION_TDS":                {"TDS", "DEDUCTION", "FEE_DEDUCTED", "GST"},
-	"PSP_SYSTEM_ERROR":             {"SYSTEM_ERROR", "INTERNAL_ERROR", "PSP_ERROR", "BANK_ERROR"},
-	"REVERSAL_RETURN":              {"REVERSAL", "RETURNED", "CHARGEBACK", "RECALLED"},
-	"COMPLIANCE_BLOCK":             {"COMPLIANCE", "AML_HOLD", "KYC_FAILED", "REGULATORY"},
-	"PARSER_WEAKNESS":              {"PARSE_ERROR", "MAPPING_FAILURE", "UNKNOWN_FORMAT"},
+// VarianceSignals holds the variance-record fields relevant to RCA.
+type VarianceSignals struct {
+	VarianceType        string
+	AmountVarianceMinor int64
+	ValueDateMismatch   bool
+	CrossPeriodFlag     bool
 }
 
-// ComputeAndSave reads failure taxonomy projections for a corridor and builds
-// an RCA snapshot.
-//
-// Called after every OutcomeNormalizedEvent (via HandleOutcomeNormalized).
-// The corridorID is passed so we can read the corridor-specific failure taxonomy.
-func (s *RCAIntelligenceService) ComputeAndSave(
+// IntentSignals holds the canonical-intent fields from Service 2 relevant to RCA.
+type IntentSignals struct {
+	GovernanceState       string
+	ProofReadinessScore   float64
+	MatchabilityScore     float64
+	DuplicateRiskFlag     bool
+	IdempotencyKeyMissing bool
+}
+
+// EvidenceSignals holds the evidence-pack fields from Service 6 relevant to RCA.
+type EvidenceSignals struct {
+	PackCompletenessScore float64
+	MissingLeafCount      int
+	EvidencePackMissing   bool
+	GovernanceLeafMissing bool
+}
+
+// ── Fragment accumulation ─────────────────────────────────────────────────────
+
+func rcaFragKey(batchID, intentID string) string {
+	return fmt.Sprintf("rca.frag.%s.%s", batchID, intentID)
+}
+
+func rcaFragPrefix(batchID string) string {
+	return fmt.Sprintf("rca.frag.%s.", batchID)
+}
+
+// AccumulateSettlementFragment merges settlement signals into the RCAFragment
+// for this intent.  Non-fatal: errors are logged, never propagated to caller.
+func (s *RCAIntelligenceService) AccumulateSettlementFragment(
 	ctx context.Context,
-	tenantID, corridorID string,
+	tenantID, batchID, intentID string,
+	sig SettlementSignals,
+) error {
+	key := rcaFragKey(batchID, intentID)
+	return s.projRepo.UpsertRCAFragment(ctx, tenantID, key, func(f *models.RCAFragment) {
+		f.IntentID = intentID
+		f.BatchID = batchID
+		f.SourceStrengthClass = sig.SourceStrengthClass
+		f.ObservationKind = sig.ObservationKind
+		f.ParseConfidence = sig.ParseConfidence
+		f.MappingConfidence = sig.MappingConfidence
+		f.CarrierRichnessScore = sig.CarrierRichnessScore
+		f.IntendedAmountMinor = sig.IntendedAmountMinor
+		f.SettledAmountMinor = sig.SettledAmountMinor
+		f.AmountVariorMinor = sig.AmountVarianceMinor
+		f.MissingClientRef = sig.MissingClientRef
+		f.MissingProviderRef = sig.MissingProviderRef
+		f.MissingBankRef = sig.MissingBankRef
+		f.ReversalFlag = sig.ReversalFlag
+		f.ReturnFlag = sig.ReturnFlag
+		f.DuplicateRowDetected = sig.DuplicateRowDetected
+		f.ValueDateMismatch = sig.ValueDateMismatch
+		f.CrossPeriodFlag = sig.CrossPeriodFlag
+		if sig.ReasonText != "" {
+			f.ReasonText = sig.ReasonText
+		}
+		if !sig.SettlementDate.IsZero() && !sig.IntendedDate.IsZero() {
+			days := int(sig.SettlementDate.Sub(sig.IntendedDate).Hours() / 24)
+			if days > 0 {
+				f.SettlementDelayDays = days
+			}
+		}
+	})
+}
+
+// AccumulateAttachmentFragment merges attachment-decision signals into the fragment.
+func (s *RCAIntelligenceService) AccumulateAttachmentFragment(
+	ctx context.Context,
+	tenantID, batchID, intentID string,
+	sig AttachmentSignals,
+) error {
+	key := rcaFragKey(batchID, intentID)
+	return s.projRepo.UpsertRCAFragment(ctx, tenantID, key, func(f *models.RCAFragment) {
+		f.IntentID = intentID
+		f.BatchID = batchID
+		f.DecisionType = sig.DecisionType
+		f.AmbiguityScore = sig.AmbiguityScore
+		f.ConfidenceScore = sig.ConfidenceScore
+		f.AttachmentReadiness = sig.AttachmentReadiness
+		f.CandidateCount = sig.CandidateCount
+		// Enrich reason_text from decision type if not already set from settlement
+		if f.ReasonText == "" && sig.DecisionType != "" {
+			f.ReasonText = sig.DecisionType
+		}
+	})
+}
+
+// AccumulateVarianceFragment merges variance-record signals into the fragment.
+func (s *RCAIntelligenceService) AccumulateVarianceFragment(
+	ctx context.Context,
+	tenantID, batchID, intentID string,
+	sig VarianceSignals,
+) error {
+	key := rcaFragKey(batchID, intentID)
+	return s.projRepo.UpsertRCAFragment(ctx, tenantID, key, func(f *models.RCAFragment) {
+		f.IntentID = intentID
+		f.BatchID = batchID
+		f.AmountVariorMinor = sig.AmountVarianceMinor
+		f.ValueDateMismatch = sig.ValueDateMismatch
+		f.CrossPeriodFlag = sig.CrossPeriodFlag
+		if f.IntendedAmountMinor > 0 {
+			f.AmountVariorMinor = sig.AmountVarianceMinor
+		}
+		// Append variance type to reason text
+		if sig.VarianceType != "" {
+			if f.ReasonText != "" {
+				f.ReasonText = f.ReasonText + " " + sig.VarianceType
+			} else {
+				f.ReasonText = sig.VarianceType
+			}
+		}
+	})
+}
+
+// AccumulateIntentFragment merges Service 2 intent signals into the fragment.
+func (s *RCAIntelligenceService) AccumulateIntentFragment(
+	ctx context.Context,
+	tenantID, batchID, intentID string,
+	sig IntentSignals,
+) error {
+	key := rcaFragKey(batchID, intentID)
+	return s.projRepo.UpsertRCAFragment(ctx, tenantID, key, func(f *models.RCAFragment) {
+		f.IntentID = intentID
+		f.BatchID = batchID
+		f.GovernanceState = sig.GovernanceState
+		f.ProofReadinessScore = sig.ProofReadinessScore
+		f.MatchabilityScore = sig.MatchabilityScore
+		f.DuplicateRiskFlag = sig.DuplicateRiskFlag
+		f.IdempotencyKeyMissing = sig.IdempotencyKeyMissing
+	})
+}
+
+// AccumulateEvidenceFragment merges Service 6 evidence signals into the fragment.
+func (s *RCAIntelligenceService) AccumulateEvidenceFragment(
+	ctx context.Context,
+	tenantID, batchID, intentID string,
+	sig EvidenceSignals,
+) error {
+	key := rcaFragKey(batchID, intentID)
+	return s.projRepo.UpsertRCAFragment(ctx, tenantID, key, func(f *models.RCAFragment) {
+		f.IntentID = intentID
+		f.BatchID = batchID
+		f.PackCompletenessScore = sig.PackCompletenessScore
+		f.MissingLeafCount = sig.MissingLeafCount
+		f.MissingEvidencePack = sig.EvidencePackMissing
+		f.GovernanceLeafMissing = sig.GovernanceLeafMissing
+	})
+}
+
+// ── Clustering ────────────────────────────────────────────────────────────────
+
+// ComputeAndSaveGradeA is the HDBSCAN RCA entry point.
+// Called non-fatally from HandleBatchSummaryUpdated after all batch signals are final.
+//
+// Steps:
+//  1. Retrieve all RCAFragments for the batch from projection_state.
+//  2. Skip if fewer than 2 candidates (HDBSCAN needs at least 2 points).
+//  3. Denormalise batch-level aggregate signals onto each candidate.
+//  4. Build mlclient.RCARequest and call InvokeRCAClustering.
+//  5. Persist two snapshots: BATCH-scoped and TENANT-scoped.
+func (s *RCAIntelligenceService) ComputeAndSaveGradeA(
+	ctx context.Context,
+	tenantID, batchID, finalityLabel string,
 	windowStart, windowEnd time.Time,
 ) error {
-	// Step 1: read failure taxonomy for this corridor
-	taxKey := fmt.Sprintf("corridor.failure_taxonomy.%s", corridorID)
-	var taxVal models.FailureTaxonomyValue
-	if err := s.projRepo.GetValueAs(ctx, tenantID, taxKey, &taxVal); err != nil {
-		return fmt.Errorf("rca_svc.ComputeAndSave GetValueAs corridor=%s: %w", corridorID, err)
-	}
-	if taxVal.TotalFails == 0 {
-		return nil // no failures yet
+	if s.mlClient == nil {
+		return nil
 	}
 
-	// Step 2: build snapshot
-	snap := s.buildSnapshot(&taxVal, corridorID)
-
-	// Step 3: persist
-	projRefs := []string{taxKey}
-	projRefsJSON, _ := json.Marshal(projRefs)
-	snapJSON, err := json.Marshal(snap)
+	// Step 1: retrieve fragments
+	frags, err := s.projRepo.GetAllByProjectionKeyPrefix(ctx, tenantID, rcaFragPrefix(batchID))
 	if err != nil {
-		return fmt.Errorf("rca_svc.ComputeAndSave marshal corridor=%s: %w", corridorID, err)
+		log.Printf("rca_svc.ComputeAndSaveGradeA GetFragments batch=%s: %v", batchID, err)
+		return nil // non-fatal
+	}
+	if len(frags) < 2 {
+		log.Printf("rca_svc.ComputeAndSaveGradeA: too few candidates (%d) batch=%s — skipping", len(frags), batchID)
+		return nil
 	}
 
-	scopeRef := corridorID
-	snapID := "snap_" + uuid.New().String()
-	modelVer := "deterministic_v1"
-	if err := s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
+	// Step 2: compute batch-level aggregates for denormalisation
+	missingRefCount := 0
+	totalMatchability := 0.0
+	for _, f := range frags {
+		if f.MissingClientRef {
+			missingRefCount++
+		}
+		totalMatchability += f.MatchabilityScore
+	}
+	n := len(frags)
+	missingClientRefRate := float64(missingRefCount) / float64(n)
+	avgMatchability := totalMatchability / float64(n)
+	weakBatchRef := missingClientRefRate > 0.30 || avgMatchability < 0.50
+
+	// Step 3: build candidates with denormalised batch signals
+	candidates := make([]mlclient.RCACandidate, 0, n)
+	for _, f := range frags {
+		amountVariancePct := 0.0
+		if f.IntendedAmountMinor > 0 {
+			amountVariancePct = float64(f.AmountVariorMinor) / float64(f.IntendedAmountMinor)
+		}
+		c := mlclient.RCACandidate{
+			IntentID:              f.IntentID,
+			ReasonText:            f.ReasonText,
+			IntendedAmountMinor:   f.IntendedAmountMinor,
+			SourceStrengthClass:   f.SourceStrengthClass,
+			ObservationKind:       f.ObservationKind,
+			DecisionType:          f.DecisionType,
+			GovernanceState:       f.GovernanceState,
+			ParseConfidence:       f.ParseConfidence,
+			MappingConfidence:     f.MappingConfidence,
+			CarrierRichnessScore:  f.CarrierRichnessScore,
+			AttachmentReadiness:   f.AttachmentReadiness,
+			AmbiguityScore:        f.AmbiguityScore,
+			ConfidenceScore:       f.ConfidenceScore,
+			AmountVariancePct:     amountVariancePct,
+			SettlementDelayDays:   f.SettlementDelayDays,
+			ProofReadinessScore:   f.ProofReadinessScore,
+			MatchabilityScore:     f.MatchabilityScore,
+			PackCompletenessScore: f.PackCompletenessScore,
+			CandidateCount:        f.CandidateCount,
+			MissingLeafCount:      f.MissingLeafCount,
+			WeakBatchRefFlag:      boolToInt(weakBatchRef),
+		}
+		c.MissingClientRef = boolToInt(f.MissingClientRef)
+		c.MissingProviderRef = boolToInt(f.MissingProviderRef)
+		c.MissingBankRef = boolToInt(f.MissingBankRef)
+		c.ReversalFlag = boolToInt(f.ReversalFlag)
+		c.ReturnFlag = boolToInt(f.ReturnFlag)
+		c.DuplicateRowDetected = boolToInt(f.DuplicateRowDetected)
+		c.ValueDateMismatch = boolToInt(f.ValueDateMismatch)
+		c.CrossPeriodFlag = boolToInt(f.CrossPeriodFlag)
+		c.DuplicateRiskFlag = boolToInt(f.DuplicateRiskFlag)
+		c.MissingEvidencePack = boolToInt(f.MissingEvidencePack)
+		c.GovernanceLeafMissing = boolToInt(f.GovernanceLeafMissing)
+		c.IdempotencyKeyMissing = boolToInt(f.IdempotencyKeyMissing)
+		candidates = append(candidates, c)
+	}
+
+	// Step 4: invoke ML service
+	req := mlclient.RCARequest{
+		TenantID:               tenantID,
+		BatchID:                batchID,
+		Candidates:             candidates,
+		FeatureContractVersion: "rca_v1",
+		FinalityLabel:          finalityLabel,
+	}
+	result, err := s.mlClient.InvokeRCAClustering(ctx, req)
+	if err != nil {
+		log.Printf("rca_svc.ComputeAndSaveGradeA InvokeRCAClustering batch=%s tenant=%s: %v",
+			batchID, tenantID, err)
+		return nil // fallback already applied in mlclient; never propagate
+	}
+
+	if result.TotalPoints == 0 {
+		return nil
+	}
+
+	// Step 5: persist BATCH snapshot
+	if err := s.saveSnapshot(ctx, tenantID, batchID, "BATCH", &batchID, windowStart, windowEnd, result); err != nil {
+		log.Printf("rca_svc.ComputeAndSaveGradeA save BATCH snapshot batch=%s: %v", batchID, err)
+	}
+
+	// Step 5b: persist TENANT rollup snapshot
+	if err := s.saveSnapshot(ctx, tenantID, batchID, "TENANT", nil, windowStart, windowEnd, result); err != nil {
+		log.Printf("rca_svc.ComputeAndSaveGradeA save TENANT snapshot batch=%s: %v", batchID, err)
+	}
+
+	log.Printf("rca_svc.ComputeAndSaveGradeA: ok batch=%s candidates=%d clusters=%d noise=%d tenant=%s",
+		batchID, result.TotalPoints, result.ClusterCount, result.NoisePoints, tenantID)
+	return nil
+}
+
+func (s *RCAIntelligenceService) saveSnapshot(
+	ctx context.Context,
+	tenantID, batchID, scopeType string,
+	scopeRef *string,
+	windowStart, windowEnd time.Time,
+	result mlclient.RCAClusterResult,
+) error {
+	snapJSON, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("marshal: %w", err)
+	}
+	projRefs := []string{rcaFragPrefix(batchID)}
+	projRefsJSON, _ := json.Marshal(projRefs)
+	modelVer := result.FeatureContractVersion
+	if modelVer == "" {
+		modelVer = "rca_hdbscan_v1"
+	}
+	snapID := "snap_rca_" + uuid.New().String()
+	return s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
 		SnapshotID:         snapID,
 		TenantID:           tenantID,
-		SnapshotType:       "RCA",
-		ScopeType:          "CORRIDOR",
-		ScopeRef:           &scopeRef,
+		SnapshotType:       "RCA_CLUSTER",
+		ScopeType:          scopeType,
+		ScopeRef:           scopeRef,
 		WindowStart:        windowStart,
 		WindowEnd:          windowEnd,
 		ProjectionRefsJSON: projRefsJSON,
 		SnapshotJSON:       snapJSON,
 		ModelVersion:       &modelVer,
 		CreatedAt:          time.Now().UTC(),
-	}); err != nil {
-		return fmt.Errorf("rca_svc.ComputeAndSave Create snapshot corridor=%s: %w", corridorID, err)
-	}
-
-	return nil
+	})
 }
 
-// buildSnapshot converts a FailureTaxonomyValue into an RCASnapshot.
-func (s *RCAIntelligenceService) buildSnapshot(tv *models.FailureTaxonomyValue, corridorID string) RCASnapshot {
-	snap := RCASnapshot{
-		TotalFailures:        tv.TotalFails,
-		TopFailureCorridorID: corridorID,
-		FamilyBreakdown:      make(map[string]int),
-		ComputedAt:           time.Now().UTC(),
+func boolToInt(b bool) int {
+	if b {
+		return 1
 	}
-
-	// Build RCA buckets from top reasons
-	var buckets []RCABucket
-	for _, rc := range tv.TopReasons {
-		family := classifyReasonCode(rc.ReasonCode)
-		snap.FamilyBreakdown[family] += rc.Count
-		buckets = append(buckets, RCABucket{
-			ReasonCode: rc.ReasonCode,
-			Family:     family,
-			Count:      rc.Count,
-			CorridorID: corridorID,
-			SharePct:   rc.Rate,
-		})
-	}
-
-	// Sort by count desc (top 5)
-	for i := 1; i < len(buckets); i++ {
-		for j := i; j > 0 && buckets[j].Count > buckets[j-1].Count; j-- {
-			buckets[j], buckets[j-1] = buckets[j-1], buckets[j]
-		}
-	}
-	if len(buckets) > 5 {
-		buckets = buckets[:5]
-	}
-	snap.TopFailureDrivers = buckets
-	snap.TopFailureCount = tv.TotalFails
-	snap.Narrative = s.buildNarrative(snap.TopFailureDrivers, corridorID, tv.TotalFails)
-	snap.RecommendedAction = s.recommendedAction(snap.TopFailureDrivers)
-
-	return snap
-}
-
-// classifyReasonCode maps a raw PSP reason code to a semantic family.
-// Unknown codes are bucketed as "OTHER".
-func classifyReasonCode(code string) string {
-	upper := strings.ToUpper(code)
-	for family, keywords := range rcaFamilies {
-		for _, kw := range keywords {
-			if strings.Contains(upper, kw) {
-				return family
-			}
-		}
-	}
-	return "OTHER"
-}
-
-// buildNarrative generates a deterministic natural-language summary.
-// Phase 7 will replace this with LLM-generated text from intelligence_explanations.
-func (s *RCAIntelligenceService) buildNarrative(
-	drivers []RCABucket,
-	corridorID string,
-	total int,
-) string {
-	if len(drivers) == 0 {
-		return fmt.Sprintf("No failures detected for corridor %s.", corridorID)
-	}
-
-	parts := make([]string, 0, len(drivers))
-	for _, d := range drivers {
-		pct := int(d.SharePct * 100)
-		parts = append(parts, fmt.Sprintf("%d%% from %s (%s)", pct, d.Family, d.ReasonCode))
-	}
-
-	return fmt.Sprintf(
-		"Corridor %s had %d total failures. Top drivers: %s.",
-		corridorID, total, strings.Join(parts, "; "),
-	)
-}
-
-func (s *RCAIntelligenceService) recommendedAction(drivers []RCABucket) string {
-	if len(drivers) == 0 {
-		return ""
-	}
-	switch drivers[0].Family {
-	case "MISSING_REFERENCE":
-		return "REQUEST_SOURCE_PATCH: dominant failure cause is missing reference fields"
-	case "TIMEOUT_NETWORK":
-		return "NOTIFY: PSP connectivity issues detected — monitor provider health"
-	case "PSP_SYSTEM_ERROR":
-		return "ESCALATE: PSP system errors are the top failure driver"
-	case "COMPLIANCE_BLOCK":
-		return "ESCALATE: compliance blocks are causing failures — legal review required"
-	case "REVERSAL_RETURN":
-		return "ESCALATE: reversals/returns are the top failure driver — finance review required"
-	case "DUPLICATE_RISK":
-		return "REQUEST_SOURCE_PATCH: duplicate submissions detected — fix source system idempotency"
-	default:
-		return ""
-	}
+	return 0
 }

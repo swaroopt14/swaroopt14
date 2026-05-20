@@ -24,8 +24,8 @@ package handlers
 //   GET  /v1/intelligence/defensibility?tenant_id=X
 //        → Evidence & Defensibility intelligence snapshot. Grade A + B.
 //
-//   GET  /v1/intelligence/rca?tenant_id=X[&corridor_id=Y]
-//        → Root Cause Analysis intelligence snapshot. Grade A + B.
+//   GET  /v1/intelligence/rca/clusters?tenant_id=X[&batch_id=Y][&limit=10]
+//        → HDBSCAN RCA cluster results. Grade A.
 //
 //   GET  /v1/intelligence/pattern?tenant_id=X
 //        → Pattern & Pre-Dispatch Quality intelligence snapshot. Grade A + B.
@@ -142,7 +142,7 @@ func NewRouter(
 		r.Get("/leakage", leakageH.GetLeakage)
 		r.Get("/ambiguity", ambiguityH.GetAmbiguity)
 		r.Get("/defensibility", defensibilityH.GetDefensibility)
-		r.Get("/rca", rcaH.GetRCA)
+		r.Get("/rca/clusters", rcaH.GetRCAClusters)
 		r.Get("/pattern", patternH.GetPattern)
 		r.Get("/recommendation", recommendationH.GetRecommendation)
 

@@ -2713,3 +2713,127 @@ func (r *ProjectionRepo) UpsertPatternTenantSummary(
 	}
 	return nil
 }
+
+// ── RCA fragment methods ──────────────────────────────────────────────────────
+
+// GetAllByProjectionKeyPrefix returns all RCAFragment values whose projection_key
+// starts with the given prefix for this tenant.
+// Used by ComputeAndSaveGradeA to retrieve all fragment rows for a batch before clustering.
+//
+// Key convention: rca.frag.{batch_id}.{intent_id}
+// Prefix passed:  "rca.frag.{batch_id}."
+func (r *ProjectionRepo) GetAllByProjectionKeyPrefix(
+	ctx context.Context,
+	tenantID, prefix string,
+) ([]models.RCAFragment, error) {
+	const sql = `
+		SELECT value_json
+		FROM projection_state
+		WHERE tenant_id = $1
+		  AND projection_key LIKE $2
+	`
+	rows, err := r.pool.Query(ctx, sql, tenantID, prefix+"%")
+	if err != nil {
+		return nil, fmt.Errorf("projection_repo.GetAllByProjectionKeyPrefix tenant=%s prefix=%s: %w",
+			tenantID, prefix, err)
+	}
+	defer rows.Close()
+
+	var fragments []models.RCAFragment
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return nil, fmt.Errorf("projection_repo.GetAllByProjectionKeyPrefix scan: %w", err)
+		}
+		var frag models.RCAFragment
+		if err := json.Unmarshal(raw, &frag); err != nil {
+			// Skip malformed rows rather than aborting the whole clustering run
+			continue
+		}
+		fragments = append(fragments, frag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("projection_repo.GetAllByProjectionKeyPrefix rows: %w", err)
+	}
+	return fragments, nil
+}
+
+// UpsertRCAFragment reads the existing RCAFragment for (tenantID, key), applies
+// mergeFn to it, and writes it back — all inside a single serializable transaction
+// to prevent lost-update races when multiple events arrive concurrently.
+//
+// If no row exists, mergeFn receives a zero-value RCAFragment.
+func (r *ProjectionRepo) UpsertRCAFragment(
+	ctx context.Context,
+	tenantID, key string,
+	mergeFn func(*models.RCAFragment),
+) error {
+	return withTx(ctx, r.pool, func(tx pgx.Tx) error {
+		// SELECT FOR UPDATE so concurrent calls for the same intent_id serialize
+		const selSQL = `
+			SELECT value_json
+			FROM projection_state
+			WHERE tenant_id = $1 AND projection_key = $2
+			FOR UPDATE
+		`
+		var raw []byte
+		var frag models.RCAFragment
+		err := tx.QueryRow(ctx, selSQL, tenantID, key).Scan(&raw)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("projection_repo.UpsertRCAFragment select tenant=%s key=%s: %w",
+				tenantID, key, err)
+		}
+		if err == nil {
+			if jsonErr := json.Unmarshal(raw, &frag); jsonErr != nil {
+				// Row exists but is corrupt — start fresh
+				frag = models.RCAFragment{}
+			}
+		}
+
+		// Apply the caller's merge logic (sets specific fields from the new event)
+		mergeFn(&frag)
+
+		updated, marshalErr := json.Marshal(frag)
+		if marshalErr != nil {
+			return fmt.Errorf("projection_repo.UpsertRCAFragment marshal: %w", marshalErr)
+		}
+
+		const upsertSQL = `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version)
+			VALUES ($1, $2, now(), now() + interval '7 days', $3::jsonb, now(), 1)
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET
+				value_json  = EXCLUDED.value_json,
+				computed_at = now()
+		`
+		if _, execErr := tx.Exec(ctx, upsertSQL, tenantID, key, updated); execErr != nil {
+			return fmt.Errorf("projection_repo.UpsertRCAFragment upsert tenant=%s key=%s: %w",
+				tenantID, key, execErr)
+		}
+		return nil
+	})
+}
+
+// withTx is a helper that runs fn inside a pgx transaction, committing on success
+// and rolling back on any error or panic.
+func withTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) (err error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("withTx begin: %w", err)
+	}
+	defer func() {
+		if p := recover(); p != nil {
+			_ = tx.Rollback(ctx)
+			panic(p)
+		}
+		if err != nil {
+			_ = tx.Rollback(ctx)
+		}
+	}()
+	if err = fn(tx); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}

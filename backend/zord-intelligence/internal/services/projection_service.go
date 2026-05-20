@@ -298,12 +298,6 @@ func (s *ProjectionService) HandleOutcomeNormalized(
 			e.CorridorID, e.ReasonCode, err)
 	}
 
-	// PHASE 4: Recompute RCA snapshot after failure taxonomy is updated.
-	// rcaSvc reads the failure taxonomy projection we just incremented.
-	if err := s.rcaSvc.ComputeAndSave(ctx, e.TenantID, e.CorridorID, window.start, window.end); err != nil {
-		log.Printf("HandleOutcomeNormalized: rcaSvc failed corridor=%s: %v", e.CorridorID, err)
-	}
-
 	// Did this failure spike trigger any policy rules?
 	if err := s.policyService.EvaluateForEvent(
 		ctx, e.TenantID, e.CorridorID, "outcome.event.normalized", e.EventID,
@@ -854,6 +848,29 @@ func (s *ProjectionService) HandleSettlementCreated(
 	log.Printf("HandleSettlementCreated: settlement_id=%s tenant=%s source=%s readiness=%s(score=%.2f) carrier=%s(richness=%.2f) confidence=%.2f",
 		e.SettlementID, e.TenantID, e.SourceSystemID, readiness, e.AttachmentReadiness, carrierTier, e.CarrierRichness, e.ParseConfidence)
 
+	// Accumulate settlement signals into RCA fragment for this intent.
+	// SettlementDate is a string ("2026-04-08"); intended amount lives on the intent event.
+	if e.BatchID != "" && e.SettlementID != "" {
+		sigS := SettlementSignals{
+			SourceStrengthClass:  e.SourceStrength,
+			ObservationKind:      "SETTLEMENT",
+			ParseConfidence:      e.ParseConfidence,
+			MappingConfidence:    e.MappingConfidence,
+			CarrierRichnessScore: e.CarrierRichness,
+			ReasonText:           e.StatusObservation,
+			IntendedAmountMinor:  0, // populated from intent event, not settlement
+			SettledAmountMinor:   e.SettledAmountMinor.IntPart(),
+			MissingClientRef:     e.ClientRef == "",
+			MissingProviderRef:   e.ProviderRef == "",
+			MissingBankRef:       e.BankRef == "" && e.UTR == "" && e.RRN == "",
+			SettlementDate:       time.Time{}, // string field; zero time used for duration math
+			IntendedDate:         time.Time{},
+		}
+		if err := s.rcaSvc.AccumulateSettlementFragment(ctx, e.TenantID, e.BatchID, e.SettlementID, sigS); err != nil {
+			log.Printf("HandleSettlementCreated: AccumulateSettlementFragment failed settlement=%s: %v", e.SettlementID, err)
+		}
+	}
+
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleSettlementCreated MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
@@ -984,6 +1001,19 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	); err != nil {
 		log.Printf("HandleAttachmentDecision: EvaluateForEvent failed decision=%s: %v",
 			e.DecisionID, err)
+	}
+
+	// Accumulate attachment signals into RCA fragment for this intent.
+	if e.BatchID != "" && e.IntentID != "" {
+		sigA := AttachmentSignals{
+			DecisionType:    e.DecisionType,
+			AmbiguityScore:  e.AmbiguityScore,
+			ConfidenceScore: e.ConfidenceScore,
+			CandidateCount:  e.CandidateSetSize,
+		}
+		if err := s.rcaSvc.AccumulateAttachmentFragment(ctx, e.TenantID, e.BatchID, e.IntentID, sigA); err != nil {
+			log.Printf("HandleAttachmentDecision: AccumulateAttachmentFragment failed decision=%s: %v", e.DecisionID, err)
+		}
 	}
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
@@ -1130,6 +1160,19 @@ func (s *ProjectionService) HandleVarianceRecord(
 	log.Printf("HandleVarianceRecord: variance_id=%s type=%s amount=%s corridor=%s batch=%s intended=%s settled=%s reason=%s whitelisted=%v cross_period=%v tenant=%s",
 		e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.CorridorID, e.BatchID, e.IntendedAmountMinor, e.SettledAmountMinor, e.DeductionReason, e.IsWhitelisted, e.CrossPeriodFlag, e.TenantID)
 
+	// Accumulate variance signals into RCA fragment for this intent.
+	if e.BatchID != "" && e.IntentID != "" {
+		sigV := VarianceSignals{
+			VarianceType:        e.VarianceType,
+			AmountVarianceMinor: e.VarianceAmountMinor.IntPart(),
+			ValueDateMismatch:   e.ExpectedValueDate != "" && e.ActualValueDate != "" && e.ExpectedValueDate != e.ActualValueDate,
+			CrossPeriodFlag:     e.CrossPeriodFlag,
+		}
+		if err := s.rcaSvc.AccumulateVarianceFragment(ctx, e.TenantID, e.BatchID, e.IntentID, sigV); err != nil {
+			log.Printf("HandleVarianceRecord: AccumulateVarianceFragment failed variance=%s: %v", e.VarianceID, err)
+		}
+	}
+
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleVarianceRecord MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
@@ -1260,6 +1303,14 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 	log.Printf("HandleBatchSummaryUpdated: batch_id=%s status=%s total=%d pending=%d variance=%s ambiguity=%.2f tenant=%s",
 		e.BatchID, e.BatchFinalityStatus, e.TotalCount, e.PendingCount,
 		e.TotalVarianceMinor, e.AmbiguityScore, e.TenantID)
+
+	// Trigger HDBSCAN RCA clustering after all batch signals are accumulated.
+	// Non-fatal: a clustering failure never blocks batch finality processing.
+	if err := s.rcaSvc.ComputeAndSaveGradeA(
+		ctx, e.TenantID, e.BatchID, e.BatchFinalityStatus, window.start, window.end,
+	); err != nil {
+		log.Printf("HandleBatchSummaryUpdated: rcaSvc.ComputeAndSaveGradeA failed batch=%s: %v", e.BatchID, err)
+	}
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleBatchSummaryUpdated MarkProcessed event_id=%s: %w", e.EventID, err)

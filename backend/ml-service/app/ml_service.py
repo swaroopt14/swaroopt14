@@ -1,9 +1,13 @@
 """
 MLService — routes incoming ML requests to the correct model and returns results.
 
-Owns the single in-process AmbiguityModel instance so online LR training is
-persistent across requests within one process lifetime.  The model is also
-persisted to disk every 10 training steps so it survives restarts.
+Owns all in-process model instances:
+  - AmbiguityModel   (online SGD LR, persistent across requests)
+  - RCAModel         (HDBSCAN bundle loaded from disk, async background retrain)
+
+The LR model is persisted to disk every 10 training steps so it survives restarts.
+The RCA bundle is loaded once at startup; retraining happens in a background thread
+when enough labeled batches have been buffered.
 """
 
 from __future__ import annotations
@@ -13,10 +17,12 @@ from typing import Optional
 
 from app import config
 from app.models import isolation_forest, logistic_regression, zscore
+from app.models import rca_hdbscan
 from app.schemas import (
     EVENT_TYPE_IF_SCORE,
     EVENT_TYPE_LR_PREDICT,
     EVENT_TYPE_LR_TRAIN,
+    EVENT_TYPE_RCA_CLUSTER,
     EVENT_TYPE_ZSCORE,
     MLRequest,
     MLResult,
@@ -30,6 +36,7 @@ _SAVE_EVERY_N_STEPS = 10
 class MLService:
     def __init__(self) -> None:
         self._lr_model = logistic_regression.AmbiguityModel.load(config.LR_MODEL_PATH)
+        self._rca_model = rca_hdbscan.RCAModel(config.RCA_MODEL_PATH)
         self._steps_since_save = 0
 
     def process(self, req: MLRequest) -> Optional[MLResult]:
@@ -48,10 +55,18 @@ class MLService:
             if req.event_type == EVENT_TYPE_LR_TRAIN:
                 self._handle_lr_train(req)
                 return None
-            logger.warning("ml_service: unknown event_type=%s event_id=%s", req.event_type, req.event_id)
+            if req.event_type == EVENT_TYPE_RCA_CLUSTER:
+                return self._handle_rca_cluster(req)
+            logger.warning(
+                "ml_service: unknown event_type=%s event_id=%s",
+                req.event_type, req.event_id,
+            )
             return None
         except Exception as exc:
-            logger.exception("ml_service: error processing event_id=%s event_type=%s", req.event_id, req.event_type)
+            logger.exception(
+                "ml_service: error processing event_id=%s event_type=%s",
+                req.event_id, req.event_type,
+            )
             return MLResult(
                 event_id=req.event_id,
                 event_type=req.event_type,
@@ -146,3 +161,76 @@ class MLService:
         if self._steps_since_save >= _SAVE_EVERY_N_STEPS:
             self._lr_model.save(config.LR_MODEL_PATH)
             self._steps_since_save = 0
+
+    def _handle_rca_cluster(self, req: MLRequest) -> MLResult:
+        """
+        Run HDBSCAN RCA clustering on the submitted payment candidates.
+
+        Payload shape (from Go InvokeRCAClustering):
+          {
+            "candidates": [ { ...RCACandidate fields... }, ... ],
+            "batch_id": "BATCH_2026_04_21",
+            "feature_contract_version": "rca_v1",
+          }
+
+        If the model bundle is not loaded (no .pkl), returns an empty result
+        so Go falls back cleanly — business logic is never blocked.
+
+        When a finality_label is present in the payload (sent by Go after a batch
+        reaches FULLY_SETTLED or FAILED), the candidates are buffered for retrain.
+        """
+        payload = req.payload
+        raw_candidates: list[dict] = payload.get("candidates") or []
+        batch_id: str = payload.get("batch_id", "")
+        finality_label: str = payload.get("finality_label", "")
+
+        if not raw_candidates:
+            logger.info(
+                "rca_cluster: no candidates in payload event_id=%s tenant=%s",
+                req.event_id, req.tenant_id,
+            )
+            return MLResult(
+                event_id=req.event_id,
+                event_type=req.event_type,
+                tenant_id=req.tenant_id,
+                model_outputs=rca_hdbscan._empty_result(),
+                model_version=config.MODEL_VERSION_RCA,
+            )
+
+        assignments = self._rca_model.predict(raw_candidates)
+
+        model_outputs = rca_hdbscan.summarize_clusters(
+            assignments=assignments,
+            batch_id=batch_id,
+            tenant_id=req.tenant_id,
+        )
+
+        # Buffer for retrain when batch has reached finality (ground truth available)
+        if finality_label in ("FULLY_SETTLED", "FAILED") and assignments:
+            true_labels = [a["cluster_code"] for a in assignments]
+            self._rca_model.maybe_retrain_async(
+                candidates=raw_candidates,
+                true_labels=true_labels,
+                threshold=config.RCA_RETRAIN_THRESHOLD,
+            )
+            logger.info(
+                "rca_cluster: buffered %d examples for retrain batch=%s label=%s tenant=%s",
+                len(raw_candidates), batch_id, finality_label, req.tenant_id,
+            )
+
+        logger.info(
+            "rca_cluster: ok batch=%s candidates=%d clusters=%d noise=%d tenant=%s",
+            batch_id,
+            model_outputs["total_points"],
+            model_outputs["cluster_count"],
+            model_outputs["noise_points"],
+            req.tenant_id,
+        )
+
+        return MLResult(
+            event_id=req.event_id,
+            event_type=req.event_type,
+            tenant_id=req.tenant_id,
+            model_outputs=model_outputs,
+            model_version=config.MODEL_VERSION_RCA,
+        )

@@ -9,6 +9,51 @@ EVENT_TYPE_IF_SCORE = "ISOLATION_FOREST_SCORE"
 EVENT_TYPE_ZSCORE = "ZSCORE_DETECT"
 EVENT_TYPE_LR_PREDICT = "LOGISTIC_REGRESSION_PREDICT"
 EVENT_TYPE_LR_TRAIN = "LOGISTIC_REGRESSION_TRAIN"
+EVENT_TYPE_RCA_CLUSTER = "RCA_CLUSTER_SUMMARIZE"
+
+
+@dataclass
+class RCACandidate:
+    """
+    One payment intent with all merged signals from Services 2, 5B, 5C, 6, 7.
+    Field names and order must stay in sync with Go mlclient.RCACandidate.
+    """
+    intent_id: str = ""
+    reason_text: str = ""
+    intended_amount_minor: int = 0
+    # Categorical
+    source_strength_class: str = "UNKNOWN"
+    observation_kind: str = "UNKNOWN"
+    decision_type: str = "UNKNOWN"
+    governance_state: str = "UNKNOWN"
+    # Numeric
+    parse_confidence: float = 0.0
+    mapping_confidence: float = 0.0
+    carrier_richness_score: float = 0.0
+    attachment_readiness_score: float = 0.0
+    ambiguity_score: float = 0.0
+    confidence_score: float = 0.0
+    amount_variance_pct: float = 0.0
+    settlement_delay_days: int = 0
+    proof_readiness_score: float = 0.0
+    matchability_score: float = 0.0
+    pack_completeness_score: float = 0.0
+    candidate_count: int = 0
+    missing_leaf_count: int = 0
+    # Binary flags
+    missing_client_ref: int = 0
+    missing_provider_ref: int = 0
+    missing_bank_ref: int = 0
+    reversal_flag: int = 0
+    return_flag: int = 0
+    duplicate_row_detected: int = 0
+    value_date_mismatch_flag: int = 0
+    cross_period_flag: int = 0
+    duplicate_risk_flag: int = 0
+    missing_evidence_pack: int = 0
+    governance_leaf_missing: int = 0
+    idempotency_key_missing: int = 0
+    weak_batch_ref_flag: int = 0
 
 
 @dataclass

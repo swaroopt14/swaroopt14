@@ -49,6 +49,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
+	"github.com/zord/zord-intelligence/internal/mlclient"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
 
@@ -184,9 +185,8 @@ func (s *RecommendationIntelligenceService) ComputeAndSave(
 		cards = append(cards, s.cardsFromDefensibility(defSnap)...)
 	}
 
-	// ── Read RCA snapshot ─────────────────────────────────────────────────
-	// We query CORRIDOR scope for RCA. To make this global, we look for the most recent one across any corridor.
-	rcaSnap, err := s.snapshotRepo.GetLatestByType(ctx, tenantID, "RCA", "CORRIDOR", nil)
+	// ── Read RCA_CLUSTER snapshot (HDBSCAN) ──────────────────────────────
+	rcaSnap, err := s.snapshotRepo.GetLatestByTypeAnyScope(ctx, tenantID, "RCA_CLUSTER", "TENANT")
 	if err == nil && rcaSnap != nil {
 		sourceIDs = append(sourceIDs, rcaSnap.SnapshotID)
 		if card := s.cardFromRCA(rcaSnap); card != nil {
@@ -338,40 +338,43 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 	return cards
 }
 
-// cardFromRCA extracts a recommendation card from an RCA snapshot.
+// cardFromRCA extracts a recommendation card from an RCA_CLUSTER (HDBSCAN) snapshot.
+// Uses the highest-severity cluster as the primary card signal.
 func (s *RecommendationIntelligenceService) cardFromRCA(
 	snap *persistence.IntelligenceSnapshot,
 ) *RecommendationCard {
-	var rsnap RCASnapshot
-	if err := json.Unmarshal(snap.SnapshotJSON, &rsnap); err != nil {
+	var result mlclient.RCAClusterResult
+	if err := json.Unmarshal(snap.SnapshotJSON, &result); err != nil {
 		return nil
 	}
 
-	if rsnap.RecommendedAction == "" {
+	// Find the first public, non-empty cluster to surface.
+	var top *mlclient.RCAClusterSummary
+	for i := range result.TopClusters {
+		c := &result.TopClusters[i]
+		if !c.InternalOnly && c.Size > 0 {
+			top = c
+			break
+		}
+	}
+	if top == nil {
 		return nil
 	}
 
-	if len(rsnap.TopFailureDrivers) == 0 {
-		return nil
-	}
-
-	// RecommendedAction comes formatted like: "ESCALATE: PSP system errors..."
-	// We'll split it or just use it as the reason.
-	action := "NOTIFY"
-	if len(rsnap.RecommendedAction) > 8 {
-		// Crude extraction for the UI card, assuming Phase 4 formatting
-		action = "ESCALATE" // Default fallback
+	priority := top.Severity
+	if priority == "" {
+		priority = "HIGH"
 	}
 
 	return &RecommendationCard{
 		CardID:           "rec_" + uuid.New().String(),
-		Priority:         "HIGH",
-		Action:           action,
-		Title:            fmt.Sprintf("Top Failure Driver: %s", rsnap.TopFailureDrivers[0].Family),
-		Reason:           rsnap.RecommendedAction,
+		Priority:         priority,
+		Action:           top.DefaultActionContract,
+		Title:            fmt.Sprintf("RCA Cluster: %s (%s)", top.ClusterCode, top.ClusterLabel),
+		Reason:           top.RecommendedAction,
 		SourceLayer:      "RCA",
 		SourceSnapshotID: snap.SnapshotID,
-		PriorityScore:    s.computePriorityScore("HIGH", decimal.Zero),
+		PriorityScore:    s.computePriorityScore(priority, decimal.NewFromInt(top.AffectedAmountMinor)),
 	}
 }
 

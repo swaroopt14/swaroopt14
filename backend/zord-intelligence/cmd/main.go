@@ -116,7 +116,7 @@ func main() {
 	leakageSvc := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
 	ambiguitySvc := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
 	defensibilitySvc := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
-	rcaSvc := services.NewRCAIntelligenceService(projRepo, snapshotRepo)
+	rcaSvc := services.NewRCAIntelligenceService(projRepo, snapshotRepo, mlClient)
 	patternSvc := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo, mlClient)
 	recommendationSvc := services.NewRecommendationIntelligenceService(snapshotRepo)
 	explSvc := services.NewExplanationService(explRepo, snapshotRepo, batchRepo)

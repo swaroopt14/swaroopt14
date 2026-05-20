@@ -5,7 +5,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { ZordLogo } from '@/components/ZordLogo'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
-import { dockItems, SANDBOX_DOCK_IDS, type DockId } from '@/services/payout-command/model'
+import {
+  dockItems,
+  SANDBOX_DOCK_DISPLAY_LABELS,
+  SANDBOX_DOCK_IDS,
+  type DockId,
+} from '@/services/payout-command/model'
 import { AlertsDropdownPanel } from '../command-center/AlertsDropdownPanel'
 import { InsightAlertListRow } from '../command-center/InsightAlertListRow'
 import type { OpsInsightAlert } from '../command-center/types'
@@ -67,8 +72,7 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
             className="flex h-10 shrink-0 items-center gap-2 rounded-lg pr-0.5 transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 sm:h-11 sm:gap-2.5"
             aria-label="Arealis Zord home"
           >
-            <ZordLogo size="sm" variant="light" className="!w-auto max-w-[6rem] [&_img]:max-h-9 sm:max-w-[7rem] sm:[&_img]:max-h-10" />
-            <span className="hidden text-[15px] font-semibold tracking-tight text-neutral-900 md:inline">Zord</span>
+            <ZordLogo size="sm" variant="light" fitToHeight className="!w-auto max-w-[12rem] sm:max-w-[13rem]" />
           </Link>
           <ModeTogglePill onActivateClick={onActivateClick} compact />
         </div>
@@ -81,6 +85,10 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
           >
             {visibleDockItems.map((item) => {
               const active = activeDock === item.id
+              const displayLabel =
+                mode === 'sandbox'
+                  ? (SANDBOX_DOCK_DISPLAY_LABELS[item.id] ?? item.label)
+                  : item.label
               return (
                 <button
                   key={item.id}
@@ -115,7 +123,7 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
                         : 'max-w-[7rem] pr-1.5 text-neutral-900 opacity-100 md:max-w-0 md:pr-0 md:opacity-0 md:group-hover:max-w-[7rem] md:group-hover:pr-1.5 md:group-hover:opacity-100 md:group-focus-visible:max-w-[7rem] md:group-focus-visible:pr-1.5 md:group-focus-visible:opacity-100'
                     }`}
                   >
-                    {item.label}
+                    {displayLabel}
                   </span>
                 </button>
               )

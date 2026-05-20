@@ -3480,7 +3480,7 @@ function SiteFooter() {
       <div className="mx-auto max-w-6xl">
         <div className="grid gap-12 border-t border-white/10 pt-10 md:grid-cols-2 lg:grid-cols-[1.5fr_repeat(4,1fr)]">
           <div>
-            <ZordLogo size="sm" variant="dark" className="text-white" />
+            <ZordLogo size="md" variant="dark" className="!w-auto max-w-[9rem]" />
             <p className="mt-6 max-w-[320px] text-[14px] leading-7 text-slate-400">
               ZORD by Arealis helps businesses route payouts reliably, track every state, and stay proof-ready when money movement gets messy.
             </p>

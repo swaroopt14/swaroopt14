@@ -1,0 +1,174 @@
+import { fetchProdJsonGetWithMeta } from '../prod-api/fetchProdJsonGet'
+import type {
+  AmbiguityKpiResponse,
+  BatchesListResponse,
+  DefensibilityKpiResponse,
+  LeakageKpiResponse,
+  PatternsKpiResponse,
+  RecommendationsKpiResponse,
+} from '../prod-api/intelligenceTypes'
+import type { DisbursementTrendResponse } from '../prod-api/disbursementTrendTypes'
+import type { ListPacksResponse } from '../prod-api/evidenceTypes'
+
+export type LiveApiCheckStatus = 'ok' | 'empty' | 'error' | 'skipped'
+
+export type LiveApiCheckResult = {
+  id: string
+  label: string
+  status: LiveApiCheckStatus
+  httpStatus: number
+  detail: string
+  url: string
+}
+
+export type RunLiveApiChecksOptions = {
+  batchId?: string
+  /** When false, checks are not run (e.g. tenant not ready). */
+  enabled?: boolean
+}
+
+function summarizeDataAvailable(
+  payload: { data_available?: boolean; reason?: string } | null,
+  ok: boolean,
+): { status: LiveApiCheckStatus; detail: string } {
+  if (!ok || !payload) return { status: 'error', detail: 'Request failed or unreachable' }
+  if (payload.data_available === true) return { status: 'ok', detail: 'data_available: true' }
+  const reason = payload.reason?.trim() || 'data_available: false'
+  return { status: 'empty', detail: reason }
+}
+
+function checkFromMeta(
+  id: string,
+  label: string,
+  meta: Awaited<ReturnType<typeof fetchProdJsonGetWithMeta<unknown>>>,
+  summarize: (data: unknown) => { status: LiveApiCheckStatus; detail: string },
+): LiveApiCheckResult {
+  const { status, detail } = summarize(meta.data)
+  return {
+    id,
+    label,
+    status: meta.ok ? status : 'error',
+    httpStatus: meta.status,
+    detail: meta.ok ? detail : meta.errorText?.slice(0, 120) || 'HTTP error',
+    url: meta.url,
+  }
+}
+
+/**
+ * Probes live BFF routes for the signed-in session (credentials: include).
+ * Tenant is injected server-side; client does not send tenant_id.
+ */
+export async function runLiveApiChecks(options: RunLiveApiChecksOptions = {}): Promise<LiveApiCheckResult[]> {
+  const { batchId, enabled = true } = options
+  if (!enabled) {
+    return [{ id: 'skipped', label: 'Checks', status: 'skipped', httpStatus: 0, detail: 'Tenant not ready', url: '' }]
+  }
+
+  const bid = batchId?.trim() ?? ''
+  const patternsQs = bid ? `?batch_id=${encodeURIComponent(bid)}` : ''
+  const evidenceQs = bid ? `?batch_id=${encodeURIComponent(bid)}` : ''
+
+  const probes: Array<{
+    id: string
+    label: string
+    url: string
+    summarize: (data: unknown) => { status: LiveApiCheckStatus; detail: string }
+  }> = [
+    {
+      id: 'leakage',
+      label: 'Intelligence · leakage',
+      url: '/api/prod/intelligence/leakage',
+      summarize: (d) => summarizeDataAvailable(d as LeakageKpiResponse | null, true),
+    },
+    {
+      id: 'ambiguity',
+      label: 'Intelligence · ambiguity',
+      url: '/api/prod/intelligence/ambiguity',
+      summarize: (d) => summarizeDataAvailable(d as AmbiguityKpiResponse | null, true),
+    },
+    {
+      id: 'patterns',
+      label: `Intelligence · patterns${bid ? ` (${bid})` : ''}`,
+      url: `/api/prod/intelligence/patterns${patternsQs}`,
+      summarize: (d) => summarizeDataAvailable(d as PatternsKpiResponse | null, true),
+    },
+    {
+      id: 'defensibility',
+      label: 'Intelligence · defensibility',
+      url: '/api/prod/intelligence/defensibility',
+      summarize: (d) => summarizeDataAvailable(d as DefensibilityKpiResponse | null, true),
+    },
+    {
+      id: 'recommendations',
+      label: 'Intelligence · recommendations',
+      url: '/api/prod/intelligence/recommendations',
+      summarize: (d) => summarizeDataAvailable(d as RecommendationsKpiResponse | null, true),
+    },
+    {
+      id: 'intel-batches',
+      label: 'Intelligence · batches',
+      url: '/api/prod/intelligence/batches?limit=5',
+      summarize: (d) => {
+        const list = d as BatchesListResponse | null
+        if (!list) return { status: 'error', detail: 'No response' }
+        const n = list.batches?.length ?? 0
+        if (list.intelligence_mode === 'offline') return { status: 'empty', detail: 'intelligence offline' }
+        return { status: n > 0 ? 'ok' : 'empty', detail: n > 0 ? `${n} batch(es)` : 'empty batch list' }
+      },
+    },
+    {
+      id: 'evidence-packs',
+      label: `Evidence · packs${bid ? ` (${bid})` : ''}`,
+      url: `/api/prod/evidence/packs${evidenceQs}`,
+      summarize: (d) => {
+        const list = d as ListPacksResponse | null
+        if (!list) return { status: 'error', detail: 'No response' }
+        const n = list.packs?.length ?? 0
+        return { status: n > 0 ? 'ok' : 'empty', detail: n > 0 ? `${n} pack(s)` : 'no packs' }
+      },
+    },
+    {
+      id: 'intent-batches',
+      label: 'Intent engine · batches',
+      url: '/api/prod/intents/batches?page=1&page_size=5',
+      summarize: (d) => {
+        const body = d as { batches?: unknown[] } | null
+        if (!body) return { status: 'error', detail: 'No response' }
+        const n = body.batches?.length ?? 0
+        return { status: n > 0 ? 'ok' : 'empty', detail: n > 0 ? `${n} batch(es)` : 'empty batch list' }
+      },
+    },
+    {
+      id: 'settlement',
+      label: 'Settlement · observations',
+      url: '/api/prod/settlement/observations/batches',
+      summarize: (d) => {
+        const body = d as { batches?: unknown[]; observations?: unknown[] } | null
+        if (!body) return { status: 'error', detail: 'No response' }
+        const n = (body.batches?.length ?? 0) + (body.observations?.length ?? 0)
+        return { status: 'ok', detail: n > 0 ? `${n} row(s)` : 'reachable (empty)' }
+      },
+    },
+    {
+      id: 'disbursement-trend',
+      label: 'Home · disbursement trend',
+      url: '/api/prod/home/disbursement-trend?range=month',
+      summarize: (d) => {
+        const trend = d as DisbursementTrendResponse | null
+        if (!trend) return { status: 'error', detail: 'No response' }
+        if (trend.data_available === true) {
+          const buckets = trend.buckets?.length ?? 0
+          return { status: buckets > 0 ? 'ok' : 'empty', detail: `${buckets} bucket(s)` }
+        }
+        return { status: 'empty', detail: 'data_available: false' }
+      },
+    },
+  ]
+
+  const results: LiveApiCheckResult[] = []
+  for (const probe of probes) {
+    const meta = await fetchProdJsonGetWithMeta(probe.url)
+    results.push(checkFromMeta(probe.id, probe.label, meta, probe.summarize))
+  }
+  return results
+}

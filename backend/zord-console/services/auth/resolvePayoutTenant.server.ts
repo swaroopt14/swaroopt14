@@ -60,6 +60,60 @@ export async function getTenantIdForBearerAuthorizationHeader(authHeader: string
   return payload?.tenant_id?.trim() || null
 }
 
+export type SettlementUploadContext =
+  | {
+      ok: true
+      tenantId: string
+      authorization: string
+      refreshedPayload?: BackendAuthEnvelope
+    }
+  | { ok: false; response: NextResponse }
+
+/**
+ * Settlement upload needs tenant_id on the upstream query (like Postman).
+ * Resolves tenant from session cookies first, then from Bearer / env ingest key principal.
+ */
+export async function resolveSettlementUploadContext(
+  request: NextRequest,
+  envFallbackKey?: string,
+): Promise<SettlementUploadContext> {
+  const { tenantId: sessionTenant, refreshedPayload: sessionRefresh } =
+    await getSessionTenantIdFromRequest(request)
+
+  const authResolution = await resolveProxyForwardAuthorization(request, envFallbackKey)
+  if (!authResolution.ok) return { ok: false, response: authResolution.response }
+
+  const bearerTenant = await getTenantIdForBearerAuthorizationHeader(authResolution.authorization)
+  const sessionTid = sessionTenant?.trim() ?? ''
+  const bearerTid = bearerTenant?.trim() ?? ''
+
+  if (sessionTid && bearerTid && sessionTid !== bearerTid) {
+    return { ok: false, response: NextResponse.json(TENANT_MISMATCH_BODY, { status: 403 }) }
+  }
+
+  const tenantId = sessionTid || bearerTid
+  if (!tenantId) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        {
+          code: 'UNAUTHORIZED',
+          message:
+            'Could not resolve tenant_id. Sign in with a session tenant, send Authorization Bearer (same as Postman), or set ZORD_SETTLEMENT_API_KEY / ZORD_BULK_INGEST_API_KEY in the console env.',
+        },
+        { status: 401 },
+      ),
+    }
+  }
+
+  return {
+    ok: true,
+    tenantId,
+    authorization: authResolution.authorization,
+    refreshedPayload: authResolution.refreshedPayload ?? sessionRefresh,
+  }
+}
+
 export async function requireSessionTenantForProdProxy(
   request: NextRequest,
 ): Promise<
@@ -110,19 +164,13 @@ export async function resolveProxyForwardAuthorization(
 
   if (incoming) {
     const keyTid = await getTenantIdForBearerAuthorizationHeader(incoming)
-    if (!keyTid) {
-      return {
-        ok: false,
-        response: NextResponse.json(
-          { code: 'UNAUTHORIZED', message: 'Invalid or unrecognized ingest credentials.' },
-          { status: 401 },
-        ),
+    if (keyTid) {
+      if (sessionTenant && keyTid !== sessionTenant) {
+        return { ok: false, response: NextResponse.json(TENANT_MISMATCH_BODY, { status: 403 }) }
       }
+      return { ok: true, authorization: incoming, refreshedPayload }
     }
-    if (sessionTenant && keyTid !== sessionTenant) {
-      return { ok: false, response: NextResponse.json(TENANT_MISMATCH_BODY, { status: 403 }) }
-    }
-    return { ok: true, authorization: incoming, refreshedPayload }
+    // Stale/wrong client Authorization — fall through to session cookie or server env key.
   }
 
   if (cookieBearer) {

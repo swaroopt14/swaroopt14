@@ -1,14 +1,21 @@
 'use client'
 
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { LiveDataHint } from '../shared'
 import { Glyph } from '../shared'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import {
+  intelligenceBatchesForSelector,
+  pickEvidenceBatchId,
+} from '@/services/payout-command/prod-api/evidenceBatchScope'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { buildEvidencePackGraphFromApi } from './evidencePackGraphFromApi'
 import type {
@@ -186,6 +193,23 @@ function packsForBatch(batchId: string): EvidencePackGraph[] {
 
 const ALL_BATCH_IDS = Object.keys(SAMPLE_BATCHES)
 
+/** Safe graph shell when live pack is not loaded (hooks must not see null). */
+const EMPTY_LIVE_PACK: EvidencePackGraph = {
+  packId: '—',
+  intentId: '—',
+  contractId: '—',
+  batchId: '—',
+  tenantId: '—',
+  mode: 'INTELLIGENCE_ATTACH',
+  rulesetVersion: '—',
+  schemaVersions: SHARED_SCHEMAS,
+  createdAt: new Date(0).toISOString(),
+  defensibilityScore: 0,
+  leaves: [],
+  intermediates: [],
+  root: { id: 'root', hashFull: '', hashShort: '—', status: 'partial', tamper: 'no-changes' },
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 type SelectedNode =
@@ -202,11 +226,13 @@ export type MerkleGraphSurfaceProps = {
 }
 
 export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_PACK }: MerkleGraphSurfaceProps = {}) {
-  const { tenantReady } = useSessionTenant()
+  const searchParams = useSearchParams()
+  const urlBatchId = searchParams.get('batch_id')?.trim() ?? ''
+  const { tenantId, tenantReady } = useSessionTenant()
   const useLive = tenantReady
 
-  const [activePackId, setActivePackId] = useState(() => initialPackId?.trim() || initialPack.packId)
-  const [activeBatchId, setActiveBatchId] = useState(initialPack.batchId)
+  const [activePackId, setActivePackId] = useState(() => apiTrimmedString(initialPackId) || initialPack.packId)
+  const [activeBatchId, setActiveBatchId] = useState(() => apiTrimmedString(initialPack.batchId))
   const [intelBatches, setIntelBatches] = useState<IntelligenceBatchRow[]>([])
   const [packSummaries, setPackSummaries] = useState<EvidencePackSummaryRow[]>([])
   const [liveGraphs, setLiveGraphs] = useState<Record<string, EvidencePackGraph>>({})
@@ -217,15 +243,20 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
 
   useEffect(() => {
+    if (!useLive || !urlBatchId) return
+    setActiveBatchId(urlBatchId)
+  }, [useLive, urlBatchId])
+
+  useEffect(() => {
     if (!useLive) return
     let cancelled = false
     void getIntelligenceBatches({ limit: 80 }).then((res) => {
-      if (cancelled || !res?.batches?.length) return
-      setIntelBatches(res.batches)
-      setActiveBatchId((prev) => {
-        if (res.batches.some((b) => b.batch_id === prev)) return prev
-        return res.batches[0].batch_id
-      })
+      if (cancelled) return
+      const intelBatches = res?.batches ?? []
+      setIntelBatches(intelBatches)
+      setActiveBatchId((prev) =>
+        pickEvidenceBatchId(intelBatches, apiTrimmedString(prev) || urlBatchId),
+      )
     })
     return () => {
       cancelled = true
@@ -257,7 +288,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   useEffect(() => {
     if (!useLive || packSummaries.length === 0) return
     let cancelled = false
-    const ids = packSummaries.map((s) => s.evidence_pack_id).slice(0, 24)
+    const ids = packSummaries.map((s) => apiTrimmedString(s.evidence_pack_id)).filter(Boolean).slice(0, 24)
     void Promise.all(
       ids.map(async (id) => {
         const full = await getEvidencePackFull(id)
@@ -282,9 +313,10 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   }, [useLive, packSummaries, activeBatchId, defensibilityScore])
 
   useEffect(() => {
-    if (!useLive || !initialPackId?.trim()) return
+    const packIdFromUrl = apiTrimmedString(initialPackId)
+    if (!useLive || !packIdFromUrl) return
     let cancelled = false
-    void getEvidencePackFull(initialPackId.trim()).then((full) => {
+    void getEvidencePackFull(packIdFromUrl).then((full) => {
       if (cancelled || !full) return
       const g = buildEvidencePackGraphFromApi(full, {
         batchId: activeBatchId || 'batch',
@@ -304,16 +336,22 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
   const liveBatchPacks = useMemo(() => {
     const graphs: EvidencePackGraph[] = []
     for (const s of packSummaries) {
-      const g = liveGraphs[s.evidence_pack_id]
+      const g = liveGraphs[apiTrimmedString(s.evidence_pack_id)]
       if (g) graphs.push(g)
     }
     return graphs
   }, [packSummaries, liveGraphs])
 
-  const pack = useLive
-    ? liveGraphs[activePackId] ?? liveBatchPacks[0] ?? Object.values(liveGraphs)[0] ?? demoPack
-    : demoPack
+  const livePack =
+    liveGraphs[activePackId] ??
+    liveBatchPacks.find((p) => p.packId === activePackId) ??
+    liveBatchPacks[0] ??
+    null
+
+  const livePackMissing = useLive && livePack === null
+  const pack = (useLive ? livePack : demoPack) ?? EMPTY_LIVE_PACK
   const batchPacks = useLive ? liveBatchPacks : demoBatchPacks
+  const showGraph = !useLive || (tenantReady && !livePackMissing)
 
   useEffect(() => {
     if (!useLive) return
@@ -413,6 +451,11 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     setSelected({ kind: 'root', node: pack.root })
   }, [pack.root])
 
+  const intelBatchOptions = useMemo(
+    () => intelligenceBatchesForSelector(intelBatches, activeBatchId, tenantId),
+    [intelBatches, activeBatchId, tenantId],
+  )
+
   const batchMetaResolved = useMemo((): BatchMeta | undefined => {
     if (!useLive) return SAMPLE_BATCHES[activeBatchId]
     const row = intelBatches.find((b) => b.batch_id === activeBatchId)
@@ -464,6 +507,25 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
         </div>
       ) : null}
 
+      {!tenantReady && useLive ? (
+        <section className="rounded-[16px] border border-slate-200 bg-white p-6 text-[15px] text-slate-600">
+          Sign in to load evidence packs from your session tenant. Demo graph data is not shown in live mode.
+        </section>
+      ) : null}
+
+      {tenantReady && livePackMissing ? (
+        <section className="rounded-[16px] border border-slate-200 bg-white p-6">
+          <LiveDataHint isLive={false} source="evidence" />
+          <p className="mt-3 text-[15px] text-slate-600">
+            {initialPackId?.trim()
+              ? `Pack ${initialPackId} was not found for batch ${activeBatchId || '—'}. Confirm GET /v1/evidence/packs and pack detail for your tenant.`
+              : `No evidence packs for batch ${activeBatchId || '—'}. Select a batch with ingested packs or open from the Evidence dock.`}
+          </p>
+        </section>
+      ) : null}
+
+      {showGraph ? (
+      <>
       {/* ── Top context bar ─────────────────────────────────────────── */}
       <section className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[16px] border border-[#E5E5E5] bg-white px-5 py-3">
         <div>
@@ -477,15 +539,12 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
               className="mt-0.5 cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[17px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa]"
             >
               {useLive
-                ? (
-                    intelBatches.length
-                      ? intelBatches
-                      : activeBatchId
-                        ? ([{ batch_id: activeBatchId }] as Pick<IntelligenceBatchRow, 'batch_id'>[])
-                        : []
-                  ).map((b) => (
+                ? intelBatchOptions.map((b) => (
                     <option key={b.batch_id} value={b.batch_id}>
                       {b.batch_id}
+                      {intelBatches.some((x) => apiTrimmedString(x.batch_id) === apiTrimmedString(b.batch_id))
+                        ? ''
+                        : ' (evidence)'}
                     </option>
                   ))
                 : ALL_BATCH_IDS.map((b) => (
@@ -653,6 +712,8 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
           setSelected(null)
         }}
       />
+      </>
+      ) : null}
     </div>
   )
 }

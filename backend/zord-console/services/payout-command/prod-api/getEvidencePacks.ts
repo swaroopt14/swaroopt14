@@ -1,4 +1,5 @@
-import { fetchProdJsonGet } from './fetchProdJsonGet'
+import { fetchProdJsonGet, fetchProdJsonGetWithMeta } from './fetchProdJsonGet'
+import { apiTrimmedString } from './coerceApiField'
 import type { EvidencePackFull, ListPacksResponse } from './evidenceTypes'
 
 const EVIDENCE_BASE = '/api/prod/evidence'
@@ -20,13 +21,22 @@ export type ListEvidencePacksOptions = {
 /** Evidence pack list — BFF injects session tenant. */
 export async function listEvidencePacks(opts: ListEvidencePacksOptions = {}): Promise<ListPacksResponse | null> {
   const extra: Record<string, string> = {}
-  if (opts.batchId?.trim()) extra.batch_id = opts.batchId.trim()
-  if (opts.intentId?.trim()) extra.intent_id = opts.intentId.trim()
-  return fetchProdJsonGet<ListPacksResponse>(evidenceQueryPath(`${EVIDENCE_BASE}/packs`, extra))
+  const batchId = apiTrimmedString(opts.batchId)
+  const intentId = apiTrimmedString(opts.intentId)
+  if (batchId) extra.batch_id = batchId
+  if (intentId) extra.intent_id = intentId
+  const path = evidenceQueryPath(`${EVIDENCE_BASE}/packs`, extra)
+  const res = await fetchProdJsonGetWithMeta<ListPacksResponse>(path)
+  if (!res.ok && res.status === 401) {
+    console.warn('[evidence] packs list unauthorized — sign in so BFF can inject session tenant', res.url)
+  } else if (!res.ok) {
+    console.warn('[evidence] packs list failed', res.status, res.errorText?.slice(0, 200) ?? res.url)
+  }
+  return res.data
 }
 
 export async function getEvidencePackFull(packId: string): Promise<EvidencePackFull | null> {
-  const pid = packId.trim()
+  const pid = apiTrimmedString(packId)
   if (!pid) return null
   return fetchProdJsonGet<EvidencePackFull>(evidenceQueryPath(`${EVIDENCE_BASE}/packs/${encodeURIComponent(pid)}`))
 }

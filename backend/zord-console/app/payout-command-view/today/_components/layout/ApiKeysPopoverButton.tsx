@@ -112,7 +112,7 @@ export function ApiKeysPopoverButton() {
             aria-label="Sandbox API keys"
           >
             <div className="flex items-start justify-between gap-2 border-b border-black/[0.06] bg-[#f6f8fa] px-4 py-3">
-              <p className="text-[15px] font-semibold text-[#30313d]">Recommendations</p>
+              <p className="text-[15px] font-semibold text-[#30313d]">API keys</p>
               <button
                 type="button"
                 onClick={() => setOpen(false)}

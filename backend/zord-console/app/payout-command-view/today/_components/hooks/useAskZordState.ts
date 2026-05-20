@@ -1,48 +1,23 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
+import {
+  mapPromptLayerAnswer,
+  postPromptLayerQuery,
+  sessionTenantForPromptLayer,
+} from '@/services/payout-command/prompt-layer/postPromptLayerQuery'
 import type { AskZordResponse } from '@/services/payout-command/types'
 import type { HomeCommandStatus } from '@/services/payout-command/model'
+import type { AskZordArchivedTurn } from '../layout/AskZordPromptLayer'
 
-// ── Ask Zord quick prompts ───────────────────────────────────────────────────
 export const ASK_ZORD_QUICK_PROMPTS = [
-  'Why is this payout still pending?',
-  'Show all payouts stuck due to PSP issues in last 24h and total amount at risk.',
-  'Generate an auditor-friendly explanation for contract X.',
+  'Where are delays occurring?',
+  'What is the total value awaiting confirmation?',
+  'Which disbursements are still pending?',
+  'Which transactions need manual review?',
 ] as const
 
-// ── Module-private helper ────────────────────────────────────────────────────
-function buildResponse(prompt: string, surfaceTitle: string): AskZordResponse {
-  const p = prompt.toLowerCase()
-
-  if (p.includes('pending')) {
-    return {
-      title: 'Pending payout diagnosis',
-      body: '• PSP callback is delayed for one lane in the current cycle.\n• Bank statement confirmation has not arrived for the same payout set.\n• Owner routing is active, with ops follow-up already queued.\n\nRecommended next move: keep traffic on healthy routes and re-check statement confirmation window.',
-    }
-  }
-
-  if (p.includes('psp') || p.includes('24h') || p.includes('amount at risk')) {
-    return {
-      title: 'PSP delay concentration (last 24h)',
-      body: '• 27 payouts are still waiting on PSP-side completion signals.\n• Total amount at risk in this bucket is approximately ₹11.2L.\n• Most concentration is in one overflow lane, while two lanes remain stable.\n\nRecommended next move: prioritize PSP escalation on the highest-value bucket first.',
-    }
-  }
-
-  if (p.includes('auditor') || p.includes('contract')) {
-    return {
-      title: 'Auditor-friendly contract explanation',
-      body: 'Contract status summary:\n• Intent was accepted and routed successfully.\n• Provider and bank confirmation signals were matched in sequence.\n• Remaining residual checks are documented with clear owner actions.\n\nThis explanation is generated from the same deterministic evidence layer used by trace, failure intelligence, and reconciliation views.',
-    }
-  }
-
-  return {
-    title: `${surfaceTitle} analysis`,
-    body: 'Zord is reading the same evidence-backed operating state shown on this page and returning outcome-focused guidance for payout quality, owner routing, and reconciliation readiness.',
-  }
-}
-
-// ── Public types ─────────────────────────────────────────────────────────────
 export type AskZordState = {
   isOpen: boolean
   open: () => void
@@ -52,18 +27,22 @@ export type AskZordState = {
   setInput: (value: string) => void
   status: HomeCommandStatus
   response: AskZordResponse | null
+  lastUserPrompt: string | null
+  archivedTurns: AskZordArchivedTurn[]
   run: (prompt: string) => void
+  dismissResponse: () => void
 }
 
-// ── Hook ─────────────────────────────────────────────────────────────────────
-export function useAskZordState(activeSurfaceTitle: string): AskZordState {
+export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
+  const { tenantId, tenantReady } = useSessionTenant()
   const [isOpen, setIsOpen] = useState(false)
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<HomeCommandStatus>('idle')
   const [pendingResponse, setPendingResponse] = useState<AskZordResponse | null>(null)
   const [response, setResponse] = useState<AskZordResponse | null>(null)
+  const [lastUserPrompt, setLastUserPrompt] = useState<string | null>(null)
+  const [archivedTurns, setArchivedTurns] = useState<AskZordArchivedTurn[]>([])
 
-  // Typing animation for the answer body
   useEffect(() => {
     if (!pendingResponse) return
 
@@ -103,20 +82,79 @@ export function useAskZordState(activeSurfaceTitle: string): AskZordState {
       const cleaned = rawPrompt.trim()
       if (!cleaned) return
 
-      // Forward to injected sendPrompt bridge if present
-      if (typeof window !== 'undefined') {
-        const win = window as Window & { sendPrompt?: (msg: string) => void | Promise<void> }
-        if (typeof win.sendPrompt === 'function') {
-          void Promise.resolve(win.sendPrompt(cleaned)).catch(() => {})
-        }
+      if (lastUserPrompt && response && status === 'complete' && response.body.trim()) {
+        setArchivedTurns((turns) => [
+          ...turns,
+          { user: lastUserPrompt, title: response.title, body: response.body },
+        ])
       }
 
       setIsOpen(true)
       setInput('')
-      setPendingResponse(buildResponse(cleaned, activeSurfaceTitle))
+      setLastUserPrompt(cleaned)
+
+      const tenantGate = sessionTenantForPromptLayer(tenantId, tenantReady)
+      if (!tenantGate.ok) {
+        setPendingResponse({ title: tenantGate.title, body: tenantGate.body })
+        return
+      }
+
+      setStatus('loading')
+      setResponse({
+        title: 'Ask Zord',
+        body: 'Querying prompt-layer for your workspace…',
+      })
+
+      void (async () => {
+        const result = await postPromptLayerQuery({
+          query: cleaned,
+          tenant_id: tenantGate.tenantId,
+          top_k: 6,
+        })
+
+        const mapped = mapPromptLayerAnswer(result.payload, 'Ask Zord')
+        if (result.ok && mapped) {
+          setPendingResponse(mapped)
+          return
+        }
+
+        const detail =
+          typeof result.payload === 'object' &&
+          result.payload &&
+          'details' in result.payload &&
+          typeof (result.payload as { details?: string }).details === 'string'
+            ? (result.payload as { details: string }).details
+            : result.ok
+              ? 'Empty answer from prompt-layer.'
+              : `HTTP ${result.httpStatus}`
+
+        setPendingResponse({
+          title: 'Prompt-layer unavailable',
+          body: `Could not reach prompt-layer (${detail}). Start zord-prompt-layer on port 8086 or set PROMPT_LAYER_URL for the console BFF.`,
+        })
+      })()
     },
-    [activeSurfaceTitle],
+    [lastUserPrompt, response, status, tenantId, tenantReady],
   )
 
-  return { isOpen, open, close, toggle, input, setInput, status, response, run }
+  const dismissResponse = useCallback(() => {
+    setStatus('idle')
+    setPendingResponse(null)
+    setResponse(null)
+  }, [])
+
+  return {
+    isOpen,
+    open,
+    close,
+    toggle,
+    input,
+    setInput,
+    status,
+    response,
+    lastUserPrompt,
+    archivedTurns,
+    run,
+    dismissResponse,
+  }
 }

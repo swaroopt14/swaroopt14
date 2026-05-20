@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   buildStaticHomeOverviewSnapshot,
   defaultHomeCommandFilters,
-  HOME_QUARTERS,
   homeCommandFilterMultiplier,
   homeSimulationScenarios,
   resolveHomeQuarterFromPrompt,
@@ -13,8 +12,6 @@ import {
   resolveHomeYearFromPrompt,
   resolvePromptScenario,
   type HomeCommandFilters,
-  type HomeCommandResponse,
-  type HomeCommandStatus,
   type HomeOverviewSnapshot,
   type HomeSimulation,
   type HomeTimeframe,
@@ -27,17 +24,11 @@ export type HomeState = {
   year: 2026 | 2027 | 2028
   quarterIndex: number
   activeChartPoint: number
-  commandStatus: HomeCommandStatus
-  commandResponse: HomeCommandResponse | null
-  promptInput: string
-  setPromptInput: (value: string) => void
   setTimeframe: (timeframe: HomeTimeframe) => void
   setYear: (year: 2026 | 2027 | 2028) => void
   setQuarterIndex: (index: number) => void
   setActiveChartPoint: (point: number) => void
-  runSimulation: (prompt: string) => void
-  dismissCommandResponse: () => void
-  clearInput: () => void
+  applyScopeFromPrompt: (prompt: string) => void
   commandFilters: HomeCommandFilters
   setCommandFilters: Dispatch<SetStateAction<HomeCommandFilters>>
 }
@@ -48,10 +39,6 @@ export function useHomeState(_isActive: boolean): HomeState {
   const [year, setYearRaw] = useState<2026 | 2027 | 2028>(2026)
   const [quarterIndex, setQuarterIndexRaw] = useState(0)
   const [activeChartPoint, setActiveChartPoint] = useState(0)
-  const [commandStatus, setCommandStatus] = useState<HomeCommandStatus>('idle')
-  const [pendingResponse, setPendingResponse] = useState<HomeCommandResponse | null>(null)
-  const [commandResponse, setCommandResponse] = useState<HomeCommandResponse | null>(null)
-  const [promptInput, setPromptInput] = useState('')
   const [commandFilters, setCommandFilters] = useState<HomeCommandFilters>(defaultHomeCommandFilters)
 
   const filterMultiplier = useMemo(() => homeCommandFilterMultiplier(commandFilters), [commandFilters])
@@ -73,75 +60,24 @@ export function useHomeState(_isActive: boolean): HomeState {
     setQuarterIndexRaw(qi)
   }, [])
 
-  // Keep the active chart point at the midpoint of the selected range
   useEffect(() => {
     const [start, end] = snapshot.range
     setActiveChartPoint(Math.round((start + end) / 2))
   }, [snapshot.range])
 
-  // Typing animation for command responses
-  useEffect(() => {
-    if (!pendingResponse) return
-
-    setCommandStatus('loading')
-    setCommandResponse({ title: pendingResponse.title, body: '' })
-    let typingTimer: number | undefined
-
-    const loadingTimer = window.setTimeout(() => {
-      setCommandStatus('typing')
-      let index = 0
-      const target = pendingResponse.body
-
-      typingTimer = window.setInterval(() => {
-        index += 4
-        setCommandResponse({ title: pendingResponse.title, body: target.slice(0, index) })
-
-        if (index >= target.length) {
-          window.clearInterval(typingTimer)
-          setCommandStatus('complete')
-          setPendingResponse(null)
-        }
-      }, 28)
-    }, 520)
-
-    return () => {
-      window.clearTimeout(loadingTimer)
-      if (typingTimer) window.clearInterval(typingTimer)
-    }
-  }, [pendingResponse])
-
-  const runSimulation = useCallback(
+  const applyScopeFromPrompt = useCallback(
     (prompt: string) => {
       const cleaned = prompt.trim()
       if (!cleaned) return
 
       const nextScenario = resolvePromptScenario(cleaned, homeSimulationScenarios, homeSimulationScenarios[0])
-      const nextTimeframe = resolveHomeTimeframeFromPrompt(cleaned, timeframe)
-      const nextYear = resolveHomeYearFromPrompt(cleaned, year)
-      const nextQuarterIndex = resolveHomeQuarterFromPrompt(cleaned, quarterIndex)
-
       setScenario(nextScenario)
-      setTimeframeRaw(nextTimeframe)
-      setYearRaw(nextYear)
-      setQuarterIndexRaw(nextQuarterIndex)
-      setPendingResponse({
-        title: nextScenario.title,
-        body: `${nextScenario.summary} Current simulation scope: ${nextTimeframe} ${
-          nextTimeframe === 'Custom' ? HOME_QUARTERS[nextQuarterIndex].name : ''
-        } ${nextYear}.`,
-      })
-      setPromptInput('')
+      setTimeframeRaw(resolveHomeTimeframeFromPrompt(cleaned, timeframe))
+      setYearRaw(resolveHomeYearFromPrompt(cleaned, year))
+      setQuarterIndexRaw(resolveHomeQuarterFromPrompt(cleaned, quarterIndex))
     },
     [quarterIndex, timeframe, year],
   )
-
-  const dismissCommandResponse = useCallback(() => {
-    setCommandStatus('idle')
-    setPendingResponse(null)
-    setCommandResponse(null)
-  }, [])
-
-  const clearInput = useCallback(() => setPromptInput(''), [])
 
   return {
     scenario,
@@ -150,17 +86,11 @@ export function useHomeState(_isActive: boolean): HomeState {
     year,
     quarterIndex,
     activeChartPoint,
-    commandStatus,
-    commandResponse,
-    promptInput,
-    setPromptInput,
     setTimeframe,
     setYear,
     setQuarterIndex,
     setActiveChartPoint,
-    runSimulation,
-    dismissCommandResponse,
-    clearInput,
+    applyScopeFromPrompt,
     commandFilters,
     setCommandFilters,
   }

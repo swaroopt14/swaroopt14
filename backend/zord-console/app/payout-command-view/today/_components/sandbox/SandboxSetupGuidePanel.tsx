@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
 import {
-  markSandboxSetupStep,
   readSandboxSetupProgress,
   SANDBOX_SETUP_GUIDE,
   SANDBOX_SETUP_PANEL_DISMISSED_KEY,
@@ -119,15 +118,6 @@ export function SandboxSetupGuidePanel() {
       setDismissed(false)
     }
     refreshProgress()
-    void fetch('/api/sandbox/workspace-api-keys', { credentials: 'include', cache: 'no-store' })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { tenant_id?: string } | null) => {
-        if (body?.tenant_id) {
-          markSandboxSetupStep('credentials')
-          refreshProgress()
-        }
-      })
-      .catch(() => undefined)
   }, [refreshProgress])
 
   useEffect(() => {

@@ -72,11 +72,19 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 	}
 	defer file.Close()
 
-	// Validate file extension matches what this PSP's profile expects.
-	// This catches the common mistake of uploading a Razorpay file for a Cashfree job.
-	if !strings.HasSuffix(strings.ToLower(header.Filename), profile.FileExtension) {
+	// Accept common settlement export formats for any registered PSP (parser may still fail on content).
+	lowerName := strings.ToLower(header.Filename)
+	allowedExt := []string{".csv", ".xlsx", ".xls"}
+	hasAllowedExt := false
+	for _, ext := range allowedExt {
+		if strings.HasSuffix(lowerName, ext) {
+			hasAllowedExt = true
+			break
+		}
+	}
+	if !hasAllowedExt {
 		c.JSON(http.StatusBadRequest, gin.H{
-			"error": fmt.Sprintf("wrong file type for psp=%s: expected %s file", psp, profile.FileExtension),
+			"error": "unsupported file type: use .csv, .xlsx, or .xls",
 		})
 		return
 	}

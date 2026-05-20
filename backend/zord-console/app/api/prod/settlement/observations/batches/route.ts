@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { applyAuthCookies } from '@/services/auth/server'
 import {
   applyRefreshedSessionCookies,
-  requireSessionTenantForProdProxy,
-  resolveProxyForwardAuthorization,
+  resolveSettlementUploadContext,
   TENANT_MISMATCH_BODY,
 } from '@/services/auth/resolvePayoutTenant.server'
 
@@ -17,22 +16,19 @@ function settlementBase() {
 
 /** Proxy: GET /api/prod/settlement/observations/batches → outcome-engine settlement observations. */
 export async function GET(request: NextRequest) {
-  const gate = await requireSessionTenantForProdProxy(request)
-  if (!gate.ok) return gate.response
-  const tenantId = gate.tenantId
+  const ctx = await resolveSettlementUploadContext(
+    request,
+    process.env.ZORD_SETTLEMENT_API_KEY ?? process.env.ZORD_BULK_INGEST_API_KEY,
+  )
+  if (!ctx.ok) return ctx.response
+  const tenantId = ctx.tenantId
 
   const queryTenant = request.nextUrl.searchParams.get('tenant_id')?.trim()
   if (queryTenant && queryTenant !== tenantId) {
     const res = NextResponse.json(TENANT_MISMATCH_BODY, { status: 403 })
-    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    applyRefreshedSessionCookies(res, ctx.refreshedPayload)
     return res
   }
-
-  const authResolution = await resolveProxyForwardAuthorization(
-    request,
-    process.env.ZORD_SETTLEMENT_API_KEY ?? process.env.ZORD_BULK_INGEST_API_KEY,
-  )
-  if (!authResolution.ok) return authResolution.response
 
   const upstreamParams = new URLSearchParams({ tenant_id: tenantId })
   const clientBatchId = request.nextUrl.searchParams.get('client_batch_id')?.trim()
@@ -45,7 +41,7 @@ export async function GET(request: NextRequest) {
       method: 'GET',
       headers: {
         'content-type': 'application/json',
-        authorization: authResolution.authorization,
+        authorization: ctx.authorization,
         'x-tenant-id': tenantId,
         'tenant-id': tenantId,
         tenant_id: tenantId,
@@ -60,10 +56,10 @@ export async function GET(request: NextRequest) {
         'cache-control': 'no-store',
       },
     })
-    if (authResolution.refreshedPayload) {
-      applyAuthCookies(res, authResolution.refreshedPayload)
+    if (ctx.refreshedPayload) {
+      applyAuthCookies(res, ctx.refreshedPayload)
     }
-    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    applyRefreshedSessionCookies(res, ctx.refreshedPayload)
     return res
   } catch (error) {
     const res = NextResponse.json(
@@ -74,7 +70,7 @@ export async function GET(request: NextRequest) {
       },
       { status: 502 },
     )
-    applyRefreshedSessionCookies(res, gate.refreshedPayload)
+    applyRefreshedSessionCookies(res, ctx.refreshedPayload)
     return res
   }
 }

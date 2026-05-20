@@ -8,9 +8,6 @@ import {
   HOME_CHART_DOMAIN_MAX,
   HOME_QUARTERS,
   HOME_YEAR_OPTIONS,
-  homeSimulationScenarios,
-  type HomeCommandResponse,
-  type HomeCommandStatus,
   type HomeOverviewSnapshot,
   type HomeSimulation,
   type HomeTimeframe,
@@ -25,19 +22,21 @@ import {
   HOME_TITLE_BLACK,
 } from '../command-center/homeCommandCenterTokens'
 import { DashboardDeltaPercent } from '../homeDashboardTypography'
-import { ClientChart, Glyph, LiveDataHint, SurfaceEyebrow, usePromptAutoContrast } from '../shared'
+import { ClientChart, Glyph, LiveDataHint, SurfaceEyebrow } from '../shared'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { DisbursementTrendRange } from '@/services/payout-command/prod-api/disbursementTrendTypes'
 import { useDisbursementTrend } from '@/services/payout-command/prod-api/useDisbursementTrend'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
+import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCard'
 
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
   'No live trend or intelligence KPI payload yet for this tenant — numbers above appear when leakage, patterns, or disbursement-trend APIs return data.'
 
 export function HomeSurface({
+  batchId,
   scenario,
   snapshot,
   timeframe,
@@ -46,14 +45,9 @@ export function HomeSurface({
   onQuarterChange,
   activeChartPoint: _activeChartPoint,
   onActiveChartPointChange: _onActiveChartPointChange,
-  promptInput,
-  onPromptInputChange,
-  onPromptSubmit,
-  onQuickPrompt,
-  commandResponse,
-  commandStatus,
-  onDismissCommandResponse,
 }: {
+  /** Optional URL `batch_id` — scopes patterns KPI only. */
+  batchId?: string
   scenario: HomeSimulation
   snapshot: HomeOverviewSnapshot
   timeframe: HomeTimeframe
@@ -62,13 +56,6 @@ export function HomeSurface({
   onQuarterChange: (quarterIndex: number) => void
   activeChartPoint: number
   onActiveChartPointChange: (point: number) => void
-  promptInput: string
-  onPromptInputChange: (value: string) => void
-  onPromptSubmit: () => void
-  onQuickPrompt: (prompt: string) => void
-  commandResponse: HomeCommandResponse | null
-  commandStatus: HomeCommandStatus
-  onDismissCommandResponse: () => void
 }) {
   const TREND_RANGE_FILTERS: readonly { id: DisbursementTrendRange; label: string }[] = [
     { id: 'week', label: 'Week' },
@@ -77,11 +64,8 @@ export function HomeSurface({
     { id: 'year', label: 'Year' },
   ]
 
-  const promptRowRef = useRef<HTMLDivElement | null>(null)
-  const promptTone = usePromptAutoContrast(promptRowRef)
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [trendAnchorIdx, setTrendAnchorIdx] = useState(0)
-  const [isPromptExpanded, setIsPromptExpanded] = useState(false)
 
   const { tenantId, tenantReady } = useSessionTenant()
   const { mode } = useEnvironment()
@@ -91,12 +75,34 @@ export function HomeSurface({
 
   const { leakage, ambiguity, defensibility, patterns, recommendations, loading } = useIntelligenceKpis({
     tenantReady,
+    batchId,
   })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const ambData = isDataAvailable(ambiguity) ? ambiguity : null
   const defData = isDataAvailable(defensibility) ? defensibility : null
   const patternsData = isDataAvailable(patterns) ? patterns : null
   const recsData = isDataAvailable(recommendations) ? recommendations : null
+
+  useEffect(() => {
+    if (!isSandbox || !tenantReady || loading || trendLoading) return
+    const hasSignals =
+      Boolean(leakageData) ||
+      Boolean(patternsData) ||
+      Boolean(ambData) ||
+      Boolean(recsData) ||
+      Boolean(trendSeries?.data_available && (trendSeries.buckets?.length ?? 0) > 0)
+    if (hasSignals) markSandboxSetupStep('home-signals')
+  }, [
+    isSandbox,
+    tenantReady,
+    loading,
+    trendLoading,
+    leakageData,
+    patternsData,
+    ambData,
+    recsData,
+    trendSeries,
+  ])
 
   /** When intelligence leakage has no snapshot yet, sum intent-engine trend buckets for headline INR. */
   const trendTotalsMinor = useMemo(() => {
@@ -710,7 +716,7 @@ export function HomeSurface({
           <div className={`grid grid-cols-[1.1fr_2fr_0.8fr] bg-[#f8f8f7] px-3 py-2 text-[14px] font-medium ${HOME_TITLE_BLACK}`}>
             <div>Range</div>
             <div className={HOME_BODY_IMPERIAL_SM}>Months included</div>
-            <div>Total</div>
+            <div>Months</div>
           </div>
           {HOME_QUARTERS.map((quarter, index) => (
             <button
@@ -723,7 +729,7 @@ export function HomeSurface({
             >
               <span className={HOME_TITLE_BLACK}>{quarter.name}</span>
               <span className={HOME_BODY_IMPERIAL_SM}>{quarter.months.join(', ')}</span>
-              <span className={HOME_TITLE_BLACK}>3</span>
+              <span className={HOME_TITLE_BLACK}>{quarter.months.length}</span>
             </button>
           ))}
         </div>
@@ -804,111 +810,6 @@ export function HomeSurface({
           </div>
         </section>
 
-        <div className="relative z-10 mt-8 w-full px-4 sm:px-6 lg:px-8">
-        {commandResponse ? (
-          <div className="mx-auto mb-3 w-full max-w-[30rem] rounded-[1.2rem] border border-black/10 bg-white px-4 py-3 shadow-[0_12px_24px_rgba(0,0,0,0.08)]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-[11px] font-normal uppercase tracking-[0.06em] text-[#888888]">
-                  {commandStatus === 'loading' ? 'Analyzing prompt' : commandStatus === 'typing' ? 'Drafting response' : 'Scope summary'}
-                </div>
-                <div className={`mt-1 text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>{commandResponse.title}</div>
-                <div className={`mt-2 min-h-[3.25rem] ${HOME_BODY_IMPERIAL_SM}`}>
-                  {commandResponse.body}
-                  {commandStatus === 'typing' ? <span className="ml-0.5 inline-block h-4 w-px animate-pulse bg-[#179a4c] align-middle" /> : null}
-                </div>
-              </div>
-              <button type="button" onClick={onDismissCommandResponse} className="text-[17px] text-[#8b8a86]">
-                ×
-              </button>
-            </div>
-          </div>
-        ) : null}
-        {!isPromptExpanded ? (
-          <button
-            type="button"
-            onClick={() => setIsPromptExpanded(true)}
-            className="mx-auto flex w-full max-w-[24rem] items-center gap-3 rounded-[1rem] bg-[#1F1F1F] px-4 py-3 text-left text-white shadow-[0_8px_32px_rgba(0,0,0,0.10)]"
-            aria-label="Open Ask Zord prompt"
-          >
-            <span className="flex h-9 w-9 items-center justify-center rounded-[0.7rem] bg-[#4ADE80] text-[#000000]">
-              <Glyph name="zap" className="h-4 w-4" />
-            </span>
-            <span className="text-[17px] font-medium">Ask Zord</span>
-            <span className="ml-auto text-white/70">
-              <Glyph name="arrow-up-right" className="h-4 w-4" />
-            </span>
-          </button>
-        ) : (
-          <div className="rounded-[1.35rem] bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="text-[14px] uppercase tracking-[0.1em] text-white/60">Ask Zord</div>
-              <button
-                type="button"
-                onClick={() => setIsPromptExpanded(false)}
-                className="rounded-full border border-white/20 px-2.5 py-1 text-[14px] text-white/75 hover:text-white"
-              >
-                Minimize
-              </button>
-            </div>
-            <div className="mb-3 flex flex-wrap gap-2">
-              {homeSimulationScenarios.map((item) => (
-                <button
-                  key={`home-command-${item.prompt}`}
-                  type="button"
-                  onClick={() => onQuickPrompt(item.prompt)}
-                  className={`rounded-[0.9rem] px-3 py-2 text-[15px] transition ${
-                    scenario.prompt === item.prompt ? 'bg-white/16 text-white' : 'bg-white/10 text-white/74 hover:bg-white/14 hover:text-white'
-                  } ${commandStatus === 'loading' || commandStatus === 'typing' ? 'opacity-70' : ''}`}
-                >
-                  {item.prompt}
-                </button>
-              ))}
-            </div>
-
-            <div ref={promptRowRef} className="flex items-center gap-3 rounded-[1rem] border border-white/8 bg-[#232323] p-3">
-              <div className={`flex h-14 w-14 items-center justify-center rounded-[0.85rem] bg-[#4ADE80] text-[#000000] ${commandStatus === 'loading' || commandStatus === 'typing' ? 'animate-pulse' : ''}`}>
-                <Glyph name="zap" className="h-5 w-5" />
-              </div>
-              <div className="flex-1">
-                <input
-                  value={promptInput}
-                  onChange={(event) => onPromptInputChange(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') onPromptSubmit()
-                  }}
-                  placeholder="Ask about disbursement status, delays, or confirmations"
-                  className={`w-full bg-transparent text-center text-[18px] !text-white placeholder:text-white/48 caret-[#4ADE80] outline-none ${promptTone.inputToneClass}`}
-                />
-                <div className={`mt-1 text-center text-[14px] tracking-[0.04em] ${promptTone.captionToneClass}`}>
-                  {commandStatus === 'loading'
-                    ? 'Reading disbursement snapshot and confirmation signals…'
-                    : commandStatus === 'typing'
-                      ? 'Drafting a short operator-style answer…'
-                      : 'Prompt adjusts scope labels only — disbursement chart and KPIs load from `/api/prod` intelligence and trend routes.'}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={onPromptSubmit}
-                  className="flex h-12 w-12 items-center justify-center rounded-[0.85rem] border border-white/8 bg-transparent text-white"
-                  aria-label="Home overview help"
-                >
-                  <Glyph name="arrow-up-right" className="h-[18px] w-[18px]" />
-                </button>
-                <button
-                  type="button"
-                  className="flex h-12 w-12 items-center justify-center rounded-[0.85rem] border border-white/8 bg-transparent text-white"
-                  aria-label="Home overview tools"
-                >
-                  <Glyph name="grid" className="h-[18px] w-[18px]" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
     </div>
   )
 }

@@ -17,13 +17,18 @@ function readBatchIdParam(raw: string | string[] | undefined): string | undefine
 export default function PayoutCommandViewTodayPage({
   searchParams,
 }: {
-  searchParams: { dock?: string | string[]; batch_id?: string | string[] }
+  searchParams: {
+    dock?: string | string[]
+    batch_id?: string | string[]
+    client_batch_id?: string | string[]
+  }
 }) {
   return (
     <PayoutCommandViewClient
       forceMode="live"
       initialDock={resolveInitialDock(searchParams.dock)}
       initialJournalBatchId={readBatchIdParam(searchParams.batch_id)}
+      initialSettlementClientBatchId={readBatchIdParam(searchParams.client_batch_id)}
     />
   )
 }

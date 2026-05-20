@@ -5,8 +5,12 @@ import { forwardEvidence } from '../../_shared'
 export const dynamic = 'force-dynamic'
 
 // GET /api/prod/evidence/packs/:packId?tenant_id=…
-export async function GET(request: NextRequest, context: { params: { packId: string } }) {
-  const packId = context.params.packId?.trim() || ''
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ packId: string }> },
+) {
+  const { packId: rawPackId } = await context.params
+  const packId = rawPackId?.trim() || ''
   if (!packId) {
     return new Response(JSON.stringify({ error: 'packId is required' }), {
       status: 400,

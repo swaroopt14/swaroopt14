@@ -3,11 +3,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { SANDBOX_DOCS_LINKS } from '@/services/payout-command/sandbox-data'
-import {
-  markSandboxSetupStep,
-  SANDBOX_BATCH_CENTER_PATH,
-  SANDBOX_SETUP_GUIDE,
-} from '@/services/payout-command/sandbox-setup-guide'
 import { CompactKeyRow } from '../layout/ApiKeysPopoverButton'
 import { Glyph } from '../shared'
 
@@ -22,8 +17,8 @@ type WorkspaceKeysPayload = {
 const DISMISS_KEY = 'zord_sandbox_home_credentials_card'
 
 /**
- * Stripe-style dismissible sidebar card: recommendations + tenant id / API key from session
- * (`/api/sandbox/workspace-api-keys`) and localStorage for the one-time signup secret.
+ * Dismissible sidebar card: tenant id / API key from session (`/api/sandbox/workspace-api-keys`)
+ * and localStorage for the one-time signup secret.
  */
 export function SandboxHomeCredentialsCard() {
   const [dismissed, setDismissed] = useState(false)
@@ -53,7 +48,6 @@ export function SandboxHomeCredentialsCard() {
       }
       const body = (await res.json()) as WorkspaceKeysPayload
       setKeys(body)
-      if (body.tenant_id) markSandboxSetupStep('credentials')
       try {
         const stored = window.localStorage.getItem(`zord_tenant_api_key:${body.tenant_id}`)
         setStoredSecret(stored?.trim() || null)
@@ -121,7 +115,7 @@ export function SandboxHomeCredentialsCard() {
       aria-label="Sandbox workspace credentials"
     >
       <div className="flex items-start justify-between gap-2 border-b border-[#c5d5f0]/70 bg-[#eef3fc] px-4 py-3">
-        <p className="text-[15px] font-semibold text-[#30313d]">Recommendations</p>
+        <p className="text-[15px] font-semibold text-[#30313d]">Workspace credentials</p>
         <button
           type="button"
           onClick={dismiss}
@@ -132,66 +126,30 @@ export function SandboxHomeCredentialsCard() {
         </button>
       </div>
 
-      <div className="space-y-3 px-4 pb-3 pt-2 text-[13px] leading-relaxed text-[#30313d]">
-        <p className="font-medium text-[#0f172a]">{SANDBOX_SETUP_GUIDE.subtitle}</p>
-        <ol className="list-decimal space-y-1.5 pl-4 text-[12px] text-[#475569]">
-          {SANDBOX_SETUP_GUIDE.steps.slice(0, 4).map((step) => (
-            <li key={step.id}>
-              <span className="font-medium text-[#30313d]">{step.title}</span>
-              {step.api ? (
-                <span className="mt-0.5 block font-mono text-[11px] text-[#64748b]">{step.api}</span>
-              ) : null}
-            </li>
-          ))}
-        </ol>
-        <Link
-          href={SANDBOX_BATCH_CENTER_PATH}
-          className="inline-flex text-[13px] font-semibold text-[#2563eb] underline decoration-[#93c5fd] underline-offset-2 hover:text-[#1d4ed8]"
-        >
-          Open Batch Command Center →
-        </Link>
-        <p>
-          External docs:{' '}
-          <a
-            href={SANDBOX_DOCS_LINKS.apiReference}
-            target="_blank"
-            rel="noreferrer noopener"
-            className="font-medium text-[#2563eb] underline decoration-[#93c5fd] underline-offset-2 hover:text-[#1d4ed8]"
-          >
-            API reference
-          </a>
-          {docsBase ? (
-            <>
-              {' '}
-              ·{' '}
-              <a
-                href={`${docsBase}/webhooks`}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="font-medium text-[#2563eb] underline decoration-[#93c5fd] underline-offset-2 hover:text-[#1d4ed8]"
-              >
-                webhooks
-              </a>
-            </>
-          ) : null}
-        </p>
-      </div>
-
-      <div className="border-t border-[#c5d5f0]/70 bg-[#f7f9fe] px-4 pb-4 pt-3">
+      <div className="bg-[#f7f9fe] px-4 pb-4 pt-3">
         <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-          <p className="text-[15px] font-semibold text-[#30313d]">Workspace credentials</p>
+          <p className="text-[12px] text-[#6b7280]">Tenant id and API key for this session (no mock values).</p>
           <a
             href={SANDBOX_DOCS_LINKS.apiReference}
             target="_blank"
             rel="noreferrer noopener"
-            className="text-[13px] font-medium text-[#16a34a] hover:text-[#15803d]"
+            className="shrink-0 text-[13px] font-medium text-[#16a34a] hover:text-[#15803d]"
           >
             View docs
           </a>
         </div>
-        <p className="mt-1 text-[12px] text-[#6b7280]">
-          Tenant id and API key for this session (no mock values).
-        </p>
+        {docsBase ? (
+          <p className="mt-1 text-[12px]">
+            <a
+              href={`${docsBase}/webhooks`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="font-medium text-[#2563eb] underline decoration-[#93c5fd] underline-offset-2 hover:text-[#1d4ed8]"
+            >
+              Webhooks
+            </a>
+          </p>
+        ) : null}
 
         {loading ? (
           <p className="mt-4 text-[13px] text-[#6b7280]">Loading…</p>

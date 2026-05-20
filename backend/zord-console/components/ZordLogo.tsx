@@ -1,5 +1,9 @@
 'use client'
 
+import Image from 'next/image'
+
+const LOGO_SRC = '/images/logo-zord-tight-solid.png'
+
 interface ZordLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'hero'
   className?: string
@@ -8,47 +12,40 @@ interface ZordLogoProps {
   fitToHeight?: boolean
 }
 
-/** Inline wordmark — avoids Next/Image and missing raster assets under `public/sources/`. */
-function Wordmark({ className }: { className: string }) {
-  return (
-    <span className={`font-bold tracking-[-0.04em] ${className}`} aria-hidden>
-      Zord
-    </span>
-  )
+const SIZE_PX: Record<NonNullable<ZordLogoProps['size']>, { w: number; h: number }> = {
+  sm: { w: 120, h: 36 },
+  md: { w: 148, h: 44 },
+  lg: { w: 180, h: 52 },
+  hero: { w: 220, h: 64 },
 }
 
-export function ZordLogo({ size = 'md', className = '', variant = 'dark', fitToHeight }: ZordLogoProps) {
-  const textClass = variant === 'dark' ? 'text-white' : 'text-neutral-900'
-  const sizeClass = fitToHeight
-    ? 'text-[1.35rem] sm:text-[1.45rem]'
-    : size === 'sm'
-      ? 'text-[1.05rem]'
-      : size === 'md'
-        ? 'text-[1.2rem] sm:text-[1.28rem]'
-        : size === 'lg'
-          ? 'text-[1.45rem] sm:text-[1.55rem]'
-          : 'text-[1.65rem] sm:text-[2rem] lg:text-[2.35rem]'
-
-  if (fitToHeight) {
-    return (
-      <div className={`flex h-14 w-auto shrink-0 items-center justify-start ${className}`} aria-label="Arealis Zord">
-        <Wordmark className={`${textClass} ${sizeClass}`} />
-      </div>
-    )
-  }
-
-  const containerClass =
-    size === 'sm'
-      ? 'w-[136px]'
-      : size === 'md'
-        ? 'w-[176px]'
-        : size === 'lg'
-          ? 'w-[236px]'
-          : 'w-[220px] sm:w-[300px] lg:w-[408px]'
+export function ZordLogo({
+  size = 'md',
+  className = '',
+  variant = 'dark',
+  fitToHeight,
+}: ZordLogoProps) {
+  const dims = fitToHeight ? { w: 212, h: 64 } : SIZE_PX[size]
+  const onDark = variant === 'dark'
 
   return (
-    <div className={`flex items-center ${containerClass} ${className}`} aria-label="Arealis Zord">
-      <Wordmark className={`${textClass} ${sizeClass}`} />
+    <div className={`flex shrink-0 items-center justify-start ${className}`} aria-label="Zord">
+      <span
+        className={`inline-flex items-center justify-center overflow-hidden rounded-xl ${
+          onDark ? 'bg-[#0f1419] px-2.5 py-1.5 ring-1 ring-white/10' : 'bg-transparent px-0.5 py-0.5'
+        } ${fitToHeight ? 'h-11' : ''}`}
+      >
+        <Image
+          src={LOGO_SRC}
+          alt="Zord"
+          width={dims.w}
+          height={dims.h}
+          className={`h-auto w-auto object-contain object-left ${
+            fitToHeight ? 'max-h-11 w-auto sm:max-h-[2.8rem]' : 'max-h-full'
+          } ${onDark ? 'brightness-0 invert' : ''}`}
+          priority={size === 'sm' || fitToHeight}
+        />
+      </span>
     </div>
   )
 }

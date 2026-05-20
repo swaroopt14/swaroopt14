@@ -35,7 +35,7 @@ export function BatchTopNav({ shell = 'live' }: { shell?: BatchTopNavShell }) {
             className="flex h-10 shrink-0 items-center gap-2 rounded-lg pr-0.5 transition hover:opacity-90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 sm:h-11 sm:gap-2.5"
             aria-label="Arealis Zord home"
           >
-            <ZordLogo size="sm" variant="light" className="!w-auto max-w-[6rem] [&_img]:max-h-9 sm:max-w-[7rem] sm:[&_img]:max-h-10" />
+            <ZordLogo size="sm" variant="light" fitToHeight className="!w-auto max-w-[12rem] sm:max-w-[13rem]" />
             <span className="hidden text-[15px] font-semibold tracking-tight text-neutral-900 md:inline">Zord</span>
           </Link>
           <span

@@ -5,6 +5,14 @@ import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useMemo, useState, Fragment } from 'react'
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { ClientChart, Glyph, LiveDataHint } from '../shared'
+import { CommandCenterCardGlow } from '../command-center/CommandCenterCardGlow'
+import {
+  COMMAND_CENTER_KPI_CARD,
+  COMMAND_CENTER_LABEL_GREEN,
+  HOME_BODY_IMPERIAL,
+  HOME_BODY_IMPERIAL_SM,
+  HOME_TITLE_BLACK,
+} from '../command-center/homeCommandCenterTokens'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
@@ -106,14 +114,11 @@ export function AmbiguitySurface() {
     <div className="space-y-6">
       {/* Title + primary actions live in <PageHeader>; keep surface intro only to avoid duplicate headings. */}
       <div className="space-y-3">
-        <p className="inline-flex w-max items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-[#fafafa] px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#6f716d]">
-          <Glyph name="zap" className="h-2.5 w-2.5 shrink-0" aria-hidden />
-          Ops · Engineering · signal quality
-        </p>
-        <p className="max-w-3xl text-[15px] leading-relaxed text-[#475569]">
+        <p className={COMMAND_CENTER_LABEL_GREEN}>Ops · Engineering · signal quality</p>
+        <p className={`max-w-3xl ${HOME_BODY_IMPERIAL}`}>
           Why certain intents cannot be closed cleanly — and the rupee uncertainty that creates. For CFO-scale leakage
           rupees, use{' '}
-          <Link href={dockLeakageHref} className="font-semibold text-[#2563eb] underline decoration-sky-200 underline-offset-2">
+          <Link href={dockLeakageHref} className={`font-semibold ${HOME_TITLE_BLACK} underline decoration-sky-300 underline-offset-2`}>
             Leakage
           </Link>
           .
@@ -124,54 +129,47 @@ export function AmbiguitySurface() {
       {/* Hero row — KPI rail + dominant chart (layout inspired by portfolio overview UIs) */}
       <section className="grid gap-4 lg:grid-cols-12 lg:items-stretch">
         <div className="flex flex-col gap-3 lg:col-span-4">
-          <article className="flex min-h-0 gap-3 rounded-2xl border border-black/10 bg-white p-4 shadow-sm">
-            <div className="w-1 shrink-0 rounded-full bg-[#cbd5e1]" aria-hidden />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#94a3b8]">Ambiguous intent count</p>
-              <p className="mt-2 text-[11px] text-[#64748b]">Intents where signal attachment could not be fully resolved</p>
-              <p className="mt-3 text-[2rem] font-semibold tabular-nums text-[#0f172a]">
-                {amb ? amb.ambiguous_intent_count.toLocaleString('en-IN') : '—'}
-              </p>
-              <p className="mt-3 text-[13px] leading-relaxed text-[#475569]">
-                These are not confirmed failures — they are not confirmed successes either. KPI 7 ·{' '}
-                <span className="font-mono">ambiguous_intent_count</span>
-              </p>
-            </div>
+          <article className={COMMAND_CENTER_KPI_CARD}>
+            <CommandCenterCardGlow />
+            <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Ambiguous intent count</p>
+            <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>Intents where signal attachment could not be fully resolved</p>
+            <p className={`relative mt-3 text-[2.5rem] font-extrabold tabular-nums tracking-[-0.03em] leading-none ${HOME_TITLE_BLACK}`}>
+              {amb ? amb.ambiguous_intent_count.toLocaleString('en-IN') : '—'}
+            </p>
+            <p className={`relative mt-3 ${HOME_BODY_IMPERIAL_SM}`}>
+              These are not confirmed failures — they are not confirmed successes either. KPI 7 · ambiguous_intent_count
+            </p>
           </article>
 
-          <article className="flex min-h-0 gap-3 rounded-2xl border border-black/10 bg-white p-4 shadow-sm">
-            <div className={`w-1 shrink-0 rounded-full ${rateStyle.bar}`} aria-hidden />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#94a3b8]">Ambiguity rate</p>
-              <p className="mt-2 text-[11px] text-[#64748b]">Share of payment decisions with unresolved ambiguity</p>
-              <p className={`mt-3 text-[2rem] font-semibold tabular-nums ${rateStyle.text}`}>
-                {amb ? `${(amb.ambiguity_rate * 100).toFixed(2)}%` : '—'}
-              </p>
-              <p className="mt-1 text-[11px] font-medium text-[#64748b]">Green &lt;3% · Amber 3–8% · Red &gt;8%</p>
-              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#f1f5f9]">
-                <div className={`h-full rounded-full ${rateStyle.bar}`} style={{ width: `${Math.min(100, ambRate * 100 * 5)}%` }} />
-              </div>
-              <p className="mt-2 text-[12px] text-[#94a3b8]">
-                KPI 8 · <span className="font-mono">ambiguity_rate</span>
-              </p>
+          <article className={COMMAND_CENTER_KPI_CARD}>
+            <CommandCenterCardGlow />
+            <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Ambiguity rate</p>
+            <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>Share of payment decisions with unresolved ambiguity</p>
+            <p className={`relative mt-3 text-[2.5rem] font-extrabold tabular-nums tracking-[-0.03em] leading-none ${rateStyle.text}`}>
+              {amb ? `${(amb.ambiguity_rate * 100).toFixed(2)}%` : '—'}
+            </p>
+            <p className={`relative mt-1 ${HOME_BODY_IMPERIAL_SM}`}>Green &lt;3% · Amber 3–8% · Red &gt;8%</p>
+            <div className="relative mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+              <div className={`h-full rounded-full ${rateStyle.bar}`} style={{ width: `${Math.min(100, ambRate * 100 * 5)}%` }} />
             </div>
+            <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>KPI 8 · ambiguity_rate</p>
           </article>
 
-          <article className="flex min-h-0 gap-3 rounded-2xl border border-black/10 bg-white p-4 shadow-sm">
-            <div className="w-1 shrink-0 rounded-full bg-[#94a3b8]" aria-hidden />
-            <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#94a3b8]">Value at risk</p>
-              <p className="mt-2 text-[11px] text-[#64748b]">Rupee exposure sitting on unresolved ambiguity</p>
-              <p className="mt-3 text-[2rem] font-semibold tabular-nums text-[#0f172a]">{formatINR(amb?.value_at_risk_minor)}</p>
-              <p className="mt-3 text-[13px] leading-relaxed text-[#475569]">
-                The finance anchor on this page — ties ops noise to balance-sheet language. KPI from{' '}
-                <span className="font-mono">value_at_risk_minor</span>.
-              </p>
-            </div>
+          <article className={COMMAND_CENTER_KPI_CARD}>
+            <CommandCenterCardGlow />
+            <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Value at risk</p>
+            <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>Rupee exposure sitting on unresolved ambiguity</p>
+            <p className={`relative mt-3 text-[2.5rem] font-extrabold tabular-nums tracking-[-0.03em] leading-none ${HOME_TITLE_BLACK}`}>
+              {formatINR(amb?.value_at_risk_minor)}
+            </p>
+            <p className={`relative mt-3 ${HOME_BODY_IMPERIAL_SM}`}>
+              The finance anchor on this page — ties ops noise to balance-sheet language. KPI · value_at_risk_minor
+            </p>
           </article>
         </div>
 
-        <article className="relative flex min-h-[16rem] flex-col overflow-hidden rounded-3xl border border-black/10 bg-gradient-to-b from-[#fafafa] to-white p-5 shadow-[0_12px_40px_rgba(15,23,42,0.06)] ring-1 ring-neutral-200/70 lg:col-span-8">
+        <article className={`relative flex min-h-[16rem] flex-col overflow-hidden ${COMMAND_CENTER_KPI_CARD} lg:col-span-8`}>
+          <CommandCenterCardGlow />
           <div
             className="pointer-events-none absolute inset-0 opacity-[0.45]"
             style={{
@@ -182,8 +180,8 @@ export function AmbiguitySurface() {
           />
           <div className="relative z-[1] flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-[15px] font-semibold text-[#111111]">Signal drag stack</h2>
-              <p className="mt-1 text-[12px] text-[#64748b]">Three rates that slow clean attachment — lower is better.</p>
+              <h2 className={`text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>Signal drag stack</h2>
+              <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>Three rates that slow clean attachment — lower is better.</p>
             </div>
             <div className="flex items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-white/90 px-2 py-1 shadow-sm">
               <Glyph name="chart" className="h-3.5 w-3.5 text-[#64748b]" aria-hidden />

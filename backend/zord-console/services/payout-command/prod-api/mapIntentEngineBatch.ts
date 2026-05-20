@@ -1,6 +1,7 @@
 import type { IntentEngineBatchSidebarItem, PaymentIntentRecord } from './getProdIntentEngineBatches'
 import type { ApiDlqRow } from './prodApiTypes'
 import type { IntelligenceBatchRow } from './intelligenceTypes'
+import { apiTrimmedString } from './coerceApiField'
 
 export type JournalBatchType = 'Disbursement' | 'Settlement'
 export type JournalIntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
@@ -39,6 +40,52 @@ export type JournalIntentRow = {
   paymentMethodDetail: string
   engineStatus?: string
   currency?: string
+  tenantId: string
+  intendedExecutionAt: string
+  provider: string
+  confidenceScore: number | null
+  confidenceLabel: string
+  infoSummary: string
+  /** Full engine row for expandable details (not fabricated). */
+  rawIntent?: PaymentIntentRecord
+}
+
+function formatJournalExecutionAt(iso: string | undefined): string {
+  const s = apiTrimmedString(iso)
+  if (!s) return '—'
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return s
+  return d.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatConfidenceLabel(score: number | undefined): string {
+  if (score == null || !Number.isFinite(score)) return '—'
+  const pct = score <= 1 ? score * 100 : score
+  return `${pct.toFixed(0)}%`
+}
+
+function resolveProvider(intent: PaymentIntentRecord): string {
+  const instrument = apiTrimmedString(intent.beneficiary?.instrument?.kind)
+  const beneficiaryType = apiTrimmedString(intent.beneficiary_type)
+  return instrument || beneficiaryType || '—'
+}
+
+function buildIntentInfoSummary(intent: PaymentIntentRecord): string {
+  const parts = [
+    apiTrimmedString(intent.status),
+    apiTrimmedString(intent.governance_state),
+    apiTrimmedString(intent.business_state),
+    apiTrimmedString(intent.client_payout_ref),
+  ].filter(Boolean)
+  if (intent.duplicate_risk_flag) parts.push('duplicate-risk')
+  if (intent.governance?.semantic_valid === false) parts.push('semantic-invalid')
+  return parts.length > 0 ? parts.join(' · ') : '—'
 }
 
 export type JournalFailureRow = {
@@ -60,6 +107,17 @@ function inferBatchSource(batchId: string, finality?: string): string {
   if (id.includes('bulk') || id.includes('upload') || id.includes('file')) return 'Bulk ingest'
   if (finality === 'REQUIRES_REVIEW') return 'Intelligence · review'
   return 'Intelligence'
+}
+
+/** Engine in-flight only — used for Billing “processing in Zord” count (GET, no POST). */
+export function isZordProcessingPaymentIntent(intent: PaymentIntentRecord): boolean {
+  const st = String(intent.status ?? '').toUpperCase()
+  const biz = String(intent.business_state ?? '').toUpperCase()
+  const gov = String(intent.governance_state ?? '').toUpperCase()
+  if (st.includes('FAIL') || st.includes('REJECT') || st.includes('ERROR') || gov === 'FLAGGED') return false
+  if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') return false
+  if (st.includes('PROCESS') || st.includes('DISPAT') || st === 'IN_FLIGHT' || biz === 'PROCESSING') return true
+  return false
 }
 
 export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): JournalBatchRecord {
@@ -125,7 +183,9 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
   } else if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') {
     status = 'Ready to Process'
   } else if (st.includes('PROCESS') || st.includes('DISPAT') || st === 'IN_FLIGHT' || biz === 'PROCESSING') {
-    status = 'Ready to Process'
+    status = 'In Progress'
+  } else if (st.includes('PEND') || st.includes('CREAT')) {
+    status = 'Pending'
   }
 
   const conf = intent.aggregate_confidence_score
@@ -150,10 +210,17 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
     .filter(Boolean)
     .join(' · ') || '—'
 
+  const confidenceScore =
+    typeof intent.aggregate_confidence_score === 'number' && Number.isFinite(intent.aggregate_confidence_score)
+      ? intent.aggregate_confidence_score
+      : null
+
   return {
     batchId,
     requestId: intent.intent_id,
-    reference: intent.client_payout_ref?.trim() || (intent.envelope_id ? `env_${String(intent.envelope_id).slice(-8)}` : `ref_${String(intent.intent_id).slice(-8)}`),
+    reference:
+      apiTrimmedString(intent.client_payout_ref) ||
+      (intent.envelope_id ? `env_${String(intent.envelope_id).slice(-8)}` : `ref_${String(intent.intent_id).slice(-8)}`),
     amount: safe,
     method,
     status,
@@ -163,12 +230,19 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
     bank: instrument || '—',
     paymentMethodDetail,
     engineStatus: [stRaw, gov, biz].filter(Boolean).join(' · ') || undefined,
-    currency: (intent.currency ?? 'INR').trim() || 'INR',
+    currency: apiTrimmedString(intent.currency ?? 'INR') || 'INR',
+    tenantId: apiTrimmedString(intent.tenant_id) || '—',
+    intendedExecutionAt: formatJournalExecutionAt(intent.intended_execution_at),
+    provider: resolveProvider(intent),
+    confidenceScore,
+    confidenceLabel: formatConfidenceLabel(confidenceScore ?? undefined),
+    infoSummary: buildIntentInfoSummary(intent),
+    rawIntent: intent,
   }
 }
 
 export function mapDlqToFailureRow(row: ApiDlqRow): JournalFailureRow {
-  const batchFromIngest = (row.client_batch_ref ?? '').trim()
+  const batchFromIngest = apiTrimmedString(row.client_batch_ref)
   const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
   const stageRaw = (row.stage ?? '').toLowerCase()
   let failureStage: JournalFailureRow['failureStage'] = 'Processing'

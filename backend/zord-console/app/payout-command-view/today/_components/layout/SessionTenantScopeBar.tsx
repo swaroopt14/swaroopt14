@@ -1,6 +1,7 @@
 'use client'
 
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
+import { LiveApiHealthPanel } from './LiveApiHealthPanel'
 
 type SessionTenantScopeBarProps = {
   batchId?: string
@@ -26,6 +27,7 @@ export function SessionTenantScopeBar({
   const showWarning = tenantReady && !tenantId.trim()
 
   return (
+    <div className="space-y-3">
     <div
       className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-3.5 py-3 shadow-sm"
       aria-label="Session tenant scope"
@@ -75,6 +77,8 @@ export function SessionTenantScopeBar({
           </button>
         </div>
       </div>
+    </div>
+    <LiveApiHealthPanel tenantReady={tenantReady} batchId={batchId} />
     </div>
   )
 }

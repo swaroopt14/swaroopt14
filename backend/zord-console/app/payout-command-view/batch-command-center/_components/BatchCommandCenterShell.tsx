@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useState } from 'react'
+import { Suspense, useCallback, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import BatchCommandCenterClient from '@/app/payout-command-view/batch-command-center/_components/BatchCommandCenterClient'
 import { ActivateLiveWizard } from '@/app/payout-command-view/today/_components/sandbox/ActivateLiveWizard'
@@ -50,7 +50,9 @@ export function BatchCommandCenterShell({ forceMode }: BatchCommandCenterShellPr
             showSandboxStrip={isSandbox}
           />
           <section className={`relative ${COMMAND_COOL_PAGE_BG} p-4 sm:p-5 lg:p-6`}>
-            <BatchCommandCenterClient />
+            <Suspense fallback={<p className="text-[14px] text-slate-600">Loading batch command center…</p>}>
+              <BatchCommandCenterClient />
+            </Suspense>
           </section>
         </div>
         {activateWizardOpen ? (

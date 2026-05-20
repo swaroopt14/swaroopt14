@@ -44,7 +44,7 @@ export function SolutionsSiteFooter() {
     <footer className="border-t border-white/10 px-5 py-16 sm:px-6 lg:px-8">
       <div className="mx-auto grid max-w-6xl gap-12 md:grid-cols-[1.2fr_repeat(3,1fr)]">
         <div>
-          <ZordLogo size="sm" variant="dark" className="items-center text-white" />
+          <ZordLogo size="md" variant="dark" className="!w-auto max-w-[9rem]" />
           <p className="mt-6 max-w-[320px] text-[13px] leading-7 text-white/50">
             Solution narratives for teams evaluating ZORD across money movement, identity, compliance, finance, and connected data workflows.
           </p>

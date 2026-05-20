@@ -113,8 +113,17 @@ export function errorMessageFromProxyResponse(status: number, responseText: stri
       const inner = o.error as Record<string, unknown>
       if (typeof inner.message === 'string' && inner.message.trim()) return inner.message
     }
-    if (typeof o.details === 'string' && o.details.trim()) return o.details
     if (typeof o.message === 'string' && o.message.trim()) return o.message
+    if (typeof o.details === 'string' && o.details.trim()) return o.details
+    if (typeof o.upstream === 'string' && o.upstream.trim()) {
+      const base =
+        typeof o.error === 'string' && o.error.trim()
+          ? o.error
+          : typeof o.message === 'string' && o.message.trim()
+            ? o.message
+            : `HTTP ${status}`
+      return `${base} (${o.upstream})`
+    }
   }
   return `HTTP ${status}`
 }

@@ -84,6 +84,7 @@ func (v *Validator) persistDLQ(
 		Stage:          stage,
 		ReasonCode:     ve.Code,
 		ErrorDetail:    ve.Msg,
+		DLQStatus:      models.ClassifyDLQ(stage),
 		Replayable:     replayable,
 		ClientBatchRef: clientBatchRef,
 

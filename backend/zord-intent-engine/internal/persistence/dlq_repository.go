@@ -43,8 +43,9 @@ func (r *DLQPostgresRepo) Save(
 		INSERT INTO dlq_items (
 			dlq_id, tenant_id, envelope_id,
 			stage, reason_code, error_detail,
-			replayable,client_batch_ref, created_at, batch_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+			replayable,client_batch_ref, created_at, batch_id,
+			dlq_status
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 	`,
 		entry.DLQID,
 		entry.TenantID,
@@ -56,6 +57,7 @@ func (r *DLQPostgresRepo) Save(
 		entry.ClientBatchRef,
 		entry.CreatedAt,
 		entry.BatchID,
+		entry.DLQStatus,
 	)
 
 	return entry, err
@@ -72,7 +74,8 @@ func (r *DLQPostgresRepo) List(
 	query := `
 		SELECT dlq_id, tenant_id, envelope_id,
 		       stage, reason_code, error_detail,
-		       replayable, client_batch_ref, created_at
+		       replayable, client_batch_ref, created_at,
+		       dlq_status
 		FROM dlq_items
 		WHERE tenant_id = $1
 	`
@@ -112,6 +115,7 @@ func (r *DLQPostgresRepo) List(
 			&e.Replayable,
 			&e.ClientBatchRef,
 			&e.CreatedAt,
+			&e.DLQStatus,
 		)
 		if err != nil {
 			return nil, err
@@ -154,7 +158,8 @@ func (r *DLQPostgresRepo) ListAll(
 			error_detail,
 			replayable,
 			client_batch_ref,
-			created_at
+			created_at,
+			dlq_status
 		FROM dlq_items
 		ORDER BY created_at DESC
 	`)
@@ -177,6 +182,7 @@ func (r *DLQPostgresRepo) ListAll(
 			&e.Replayable,
 			&e.ClientBatchRef,
 			&e.CreatedAt,
+			&e.DLQStatus,
 		); err != nil {
 			return nil, err
 		}
@@ -204,7 +210,8 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 			error_detail,
 			replayable,
 			client_batch_ref,
-			created_at
+			created_at,
+			dlq_status
 		FROM dlq_items
 		WHERE tenant_id = $1
 		  AND dlq_id = $2
@@ -221,6 +228,7 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 		&e.Replayable,
 		&e.ClientBatchRef,
 		&e.CreatedAt,
+		&e.DLQStatus,
 	)
 
 	if err == sql.ErrNoRows {
@@ -252,7 +260,8 @@ func (r *DLQPostgresRepo) GetByID(
 			error_detail,
 			replayable,
 			client_batch_ref,
-			created_at
+			created_at,
+			dlq_status
 		FROM dlq_items
 		WHERE dlq_id = $1
 	`, dlqID).Scan(
@@ -265,6 +274,7 @@ func (r *DLQPostgresRepo) GetByID(
 		&e.Replayable,
 		&e.ClientBatchRef,
 		&e.CreatedAt,
+		&e.DLQStatus,
 	)
 
 	if err == sql.ErrNoRows {

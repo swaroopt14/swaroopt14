@@ -223,7 +223,8 @@ func CreateTables() error {
 		replayable BOOLEAN NOT NULL,
 		client_batch_ref TEXT,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-		batch_id   TEXT
+		batch_id   TEXT,
+		dlq_status TEXT NOT NULL DEFAULT 'DLQ_TERMINAL'
 	);`
 
 	if _, err := DB.Exec(dlqItems); err != nil {

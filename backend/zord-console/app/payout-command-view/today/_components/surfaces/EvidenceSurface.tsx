@@ -202,7 +202,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
       const enriched = await Promise.all(
         sliced.map(async (s) => {
           const packId = apiTrimmedString(s.evidence_pack_id)
-          const full = await getEvidencePackFull(packId)
+          const full = await getEvidencePackFull(packId, { batchId })
           return { id: packId, itemCount: full?.items?.length }
         }),
       )
@@ -372,15 +372,14 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
                   ) : batchOptions.length === 0 ? (
                     <option value="">No batch — set ?batch_id= or ingest intelligence</option>
                   ) : (
-                    batchOptions.map((b) => {
-                      const inIntel = batches.some((x) => apiTrimmedString(x.batch_id) === apiTrimmedString(b.batch_id))
-                      return (
-                        <option key={b.batch_id} value={b.batch_id}>
-                          {b.batch_id}
-                          {inIntel ? ` · ${b.finality_status}` : ' · evidence only'}
-                        </option>
-                      )
-                    })
+                    batchOptions.map((b) => (
+                      <option key={b.batch_id} value={b.batch_id}>
+                        {b.batch_id}
+                        {batches.some((x) => apiTrimmedString(x.batch_id) === apiTrimmedString(b.batch_id))
+                          ? ` · ${b.finality_status}`
+                          : ''}
+                      </option>
+                    ))
                   )}
                 </select>
               </label>

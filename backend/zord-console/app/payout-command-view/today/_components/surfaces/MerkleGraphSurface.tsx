@@ -291,7 +291,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
     const ids = packSummaries.map((s) => apiTrimmedString(s.evidence_pack_id)).filter(Boolean).slice(0, 24)
     void Promise.all(
       ids.map(async (id) => {
-        const full = await getEvidencePackFull(id)
+        const full = await getEvidencePackFull(id, { batchId: activeBatchId })
         if (!full) return
         const g = buildEvidencePackGraphFromApi(full, {
           batchId: activeBatchId,
@@ -509,7 +509,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
 
       {!tenantReady && useLive ? (
         <section className="rounded-[16px] border border-slate-200 bg-white p-6 text-[15px] text-slate-600">
-          Sign in to load evidence packs from your session tenant. Demo graph data is not shown in live mode.
+          Sign in to load evidence packs from your session tenant.
         </section>
       ) : null}
 
@@ -542,9 +542,6 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
                 ? intelBatchOptions.map((b) => (
                     <option key={b.batch_id} value={b.batch_id}>
                       {b.batch_id}
-                      {intelBatches.some((x) => apiTrimmedString(x.batch_id) === apiTrimmedString(b.batch_id))
-                        ? ''
-                        : ' (evidence)'}
                     </option>
                   ))
                 : ALL_BATCH_IDS.map((b) => (

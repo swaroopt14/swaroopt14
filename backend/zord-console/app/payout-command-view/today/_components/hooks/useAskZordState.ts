@@ -106,11 +106,17 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
       })
 
       void (async () => {
-        const result = await postPromptLayerQuery({
-          query: cleaned,
-          tenant_id: tenantGate.tenantId,
-          top_k: 6,
-        })
+        const result = await postPromptLayerQuery(
+          {
+            query: prompt,
+            top_k: 6,
+          },
+          {
+            tenantId: tenantGate.tenantId,
+            sessionId: crypto.randomUUID(), // or persisted ref if this hook has multi-turn continuity
+            userId: undefined,
+          },
+        )
 
         const mapped = mapPromptLayerAnswer(result.payload, 'Ask Zord')
         if (result.ok && mapped) {
@@ -120,9 +126,9 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
 
         const detail =
           typeof result.payload === 'object' &&
-          result.payload &&
-          'details' in result.payload &&
-          typeof (result.payload as { details?: string }).details === 'string'
+            result.payload &&
+            'details' in result.payload &&
+            typeof (result.payload as { details?: string }).details === 'string'
             ? (result.payload as { details: string }).details
             : result.ok
               ? 'Empty answer from prompt-layer.'

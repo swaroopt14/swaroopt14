@@ -20,6 +20,7 @@ export type WorkspaceConversationMessage = {
   citationSnippet?: string | null
   citations?: PromptLayerCitation[]
   hasVisualization?: boolean
+  visualization?: PromptLayerVisualization | null
 }
 
 export type WorkspaceChatThread = {
@@ -29,6 +30,7 @@ export type WorkspaceChatThread = {
   createdAt: string
   updatedAt: string
   messages: WorkspaceConversationMessage[]
+  sessionId: string
 }
 
 export type PromptLayerCitation = {
@@ -38,13 +40,44 @@ export type PromptLayerCitation = {
   snippet?: string
   score?: number
 }
+export type PromptLayerVisualizationPoint = {
+  label: string
+  value: number
+}
 
+export type PromptLayerVisualizationMetric = {
+  key: string
+  value: string
+}
+
+export type PromptLayerVisualizationWindow = {
+  from_utc?: string
+  to_utc?: string
+  label?: string
+}
+
+export type PromptLayerVisualization = {
+  visualization_id?: string
+  chart_type?: 'bar' | 'line' | 'stacked_bar' | 'donut' | 'table'
+  title: string
+  subtitle?: string
+  description?: string
+  x_axis: string
+  y_axis: string
+  series: PromptLayerVisualizationPoint[]
+  legend?: string[]
+  insights?: string[]
+  summary_metrics?: PromptLayerVisualizationMetric[]
+  time_window?: PromptLayerVisualizationWindow
+  confidence?: string
+  empty_state_message?: string
+}
 export type WorkspaceLiveAnswer = {
   title: string
   body: string
   confidence: string | null
   citations: PromptLayerCitation[]
-  visualization: unknown
+  visualization: PromptLayerVisualization | null
 }
 
 export type AskZordResponse = {

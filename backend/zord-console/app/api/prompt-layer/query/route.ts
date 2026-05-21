@@ -36,13 +36,23 @@ export async function POST(req: Request) {
   for (const url of candidateUrls) {
     lastUrl = url
     try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-        // Avoid any unintended caching semantics.
-        cache: 'no-store',
-      })
+      const auth = req.headers.get('authorization') || ''
+const tenant = req.headers.get('x-tenant-id') || ''
+const userId = req.headers.get('x-user-id') || ''
+const sessionId = req.headers.get('x-session-id') || ''
+
+res = await fetch(url, {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    ...(auth ? { authorization: auth } : {}),
+    ...(tenant ? { 'x-tenant-id': tenant } : {}),
+    ...(userId ? { 'x-user-id': userId } : {}),
+    ...(sessionId ? { 'x-session-id': sessionId } : {}),
+  },
+  body: JSON.stringify(body),
+  cache: 'no-store',
+})
 
       if (res.ok || res.status < 500) {
         break

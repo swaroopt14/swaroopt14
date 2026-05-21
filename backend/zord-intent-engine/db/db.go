@@ -224,7 +224,9 @@ func CreateTables() error {
 		client_batch_ref TEXT,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 		batch_id   TEXT,
-		dlq_status TEXT NOT NULL DEFAULT 'DLQ_TERMINAL'
+		dlq_status TEXT NOT NULL DEFAULT 'DLQ_TERMINAL',
+		intent_context JSONB,
+		trace_id TEXT
 	);`
 
 	if _, err := DB.Exec(dlqItems); err != nil {

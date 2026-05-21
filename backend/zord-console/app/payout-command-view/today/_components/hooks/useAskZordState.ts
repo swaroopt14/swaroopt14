@@ -1,5 +1,5 @@
 'use client'
-
+import { useAuth } from '@/app/hooks'
 import { useCallback, useEffect, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
@@ -35,6 +35,7 @@ export type AskZordState = {
 
 export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
   const { tenantId, tenantReady } = useSessionTenant()
+  const { user, isLoading: authLoading } = useAuth()
   const [isOpen, setIsOpen] = useState(false)
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<HomeCommandStatus>('idle')
@@ -99,6 +100,23 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
         return
       }
 
+      const userId = user?.id?.trim()
+      if (authLoading) {
+        setPendingResponse({
+          title: 'Waiting for auth',
+          body: 'Confirming your signed-in session. Please wait a moment and try Ask Zord again.',
+        })
+        return
+      }
+
+      if (!userId) {
+        setPendingResponse({
+          title: 'User context required',
+          body: 'Ask Zord needs the signed-in user identity from your session. Please refresh the page or sign in again.',
+        })
+        return
+      }
+
       setStatus('loading')
       setResponse({
         title: 'Ask Zord',
@@ -108,13 +126,13 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
       void (async () => {
         const result = await postPromptLayerQuery(
           {
-            query: prompt,
+            query: cleaned,
             top_k: 6,
           },
           {
             tenantId: tenantGate.tenantId,
             sessionId: crypto.randomUUID(), // or persisted ref if this hook has multi-turn continuity
-            userId: undefined,
+            userId,
           },
         )
 
@@ -140,7 +158,7 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
         })
       })()
     },
-    [lastUserPrompt, response, status, tenantId, tenantReady],
+    [lastUserPrompt, response, status, tenantId, tenantReady, user?.id],
   )
 
   const dismissResponse = useCallback(() => {

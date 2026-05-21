@@ -1,5 +1,7 @@
 package models
 
+import "encoding/json"
+
 // ClassifyDLQ returns the correct DLQStatus for a given reason code or stage.
 //
 // NEEDS_MANUAL_REVIEW — the tenant's file has bad or inconsistent data.
@@ -68,3 +70,28 @@ func ClassifyDLQ(reasonCode string) string {
         return DLQStatusTerminal
     }
 }
+
+// DLQIntentContext is the JSON shape stored in intent_context column.
+type DLQIntentContext struct {
+    BeneficiaryName string `json:"beneficiary_name"`
+    Amount          string `json:"amount"`         // "value currency" e.g. "1000.00 INR"
+    Currency        string `json:"currency"`
+    IdempotencyKey  string `json:"idempotency_key"`
+}
+
+// BuildIntentContext builds the intent_context JSON from a ParsedIncomingIntent.
+// Returns nil if the status is DLQ_TERMINAL — context is only stored for manual review.
+func BuildIntentContext(status string, parsed ParsedIncomingIntent) json.RawMessage {
+    if status != DLQStatusManualReview {
+        return nil
+    }
+    ctx := DLQIntentContext{
+        BeneficiaryName: parsed.Beneficiary.Name,
+        Amount:          parsed.Amount.Value,
+        Currency:        parsed.Amount.Currency,
+        IdempotencyKey:  parsed.IdempotencyKey,
+    }
+    b, _ := json.Marshal(ctx)
+    return b
+}
+

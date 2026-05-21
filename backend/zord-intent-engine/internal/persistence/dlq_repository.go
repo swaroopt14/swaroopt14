@@ -43,9 +43,9 @@ func (r *DLQPostgresRepo) Save(
 		INSERT INTO dlq_items (
 			dlq_id, tenant_id, envelope_id,
 			stage, reason_code, error_detail,
-			replayable,client_batch_ref, created_at, batch_id,
-			dlq_status
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			replayable, client_batch_ref, created_at, batch_id,
+			dlq_status, intent_context, trace_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
 	`,
 		entry.DLQID,
 		entry.TenantID,
@@ -58,6 +58,8 @@ func (r *DLQPostgresRepo) Save(
 		entry.CreatedAt,
 		entry.BatchID,
 		entry.DLQStatus,
+		entry.IntentContext,
+		entry.TraceID,
 	)
 
 	return entry, err
@@ -75,7 +77,7 @@ func (r *DLQPostgresRepo) List(
 		SELECT dlq_id, tenant_id, envelope_id,
 		       stage, reason_code, error_detail,
 		       replayable, client_batch_ref, created_at,
-		       dlq_status
+		       dlq_status, intent_context, trace_id
 		FROM dlq_items
 		WHERE tenant_id = $1
 	`
@@ -116,6 +118,8 @@ func (r *DLQPostgresRepo) List(
 			&e.ClientBatchRef,
 			&e.CreatedAt,
 			&e.DLQStatus,
+			&e.IntentContext,
+			&e.TraceID,
 		)
 		if err != nil {
 			return nil, err
@@ -159,7 +163,9 @@ func (r *DLQPostgresRepo) ListAll(
 			replayable,
 			client_batch_ref,
 			created_at,
-			dlq_status
+			dlq_status,
+			intent_context,
+			trace_id
 		FROM dlq_items
 		ORDER BY created_at DESC
 	`)
@@ -183,6 +189,8 @@ func (r *DLQPostgresRepo) ListAll(
 			&e.ClientBatchRef,
 			&e.CreatedAt,
 			&e.DLQStatus,
+			&e.IntentContext,
+			&e.TraceID,
 		); err != nil {
 			return nil, err
 		}
@@ -211,7 +219,9 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 			replayable,
 			client_batch_ref,
 			created_at,
-			dlq_status
+			dlq_status,
+			intent_context,
+			trace_id
 		FROM dlq_items
 		WHERE tenant_id = $1
 		  AND dlq_id = $2
@@ -229,6 +239,8 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 		&e.ClientBatchRef,
 		&e.CreatedAt,
 		&e.DLQStatus,
+		&e.IntentContext,
+		&e.TraceID,
 	)
 
 	if err == sql.ErrNoRows {
@@ -261,7 +273,9 @@ func (r *DLQPostgresRepo) GetByID(
 			replayable,
 			client_batch_ref,
 			created_at,
-			dlq_status
+			dlq_status,
+			intent_context,
+			trace_id
 		FROM dlq_items
 		WHERE dlq_id = $1
 	`, dlqID).Scan(
@@ -275,6 +289,8 @@ func (r *DLQPostgresRepo) GetByID(
 		&e.ClientBatchRef,
 		&e.CreatedAt,
 		&e.DLQStatus,
+		&e.IntentContext,
+		&e.TraceID,
 	)
 
 	if err == sql.ErrNoRows {

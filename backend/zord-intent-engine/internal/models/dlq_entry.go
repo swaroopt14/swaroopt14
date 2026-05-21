@@ -1,6 +1,9 @@
 package models
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // DLQ status values
 const (
@@ -20,6 +23,10 @@ type DLQEntry struct {
 	Replayable     bool   `json:"replayable"`
 	ClientBatchRef string `json:"client_batch_ref"`
 	BatchID        string `json:"batch_id,omitempty"`
+
+	// NEW — populated only when DLQStatus = NEEDS_MANUAL_REVIEW
+	IntentContext json.RawMessage `json:"intent_context,omitempty"` // beneficiary_name, amount, idempotency_key
+	TraceID       string          `json:"trace_id,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 }

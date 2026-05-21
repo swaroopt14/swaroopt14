@@ -186,6 +186,11 @@ func (e *AttachmentEngine) runAttachment(
 		clientBatchRef      *string
 		intentsMap          = make(map[uuid.UUID]*models.CanonicalIntent)
 		claimedIntentIDs    = make(map[uuid.UUID]bool)
+		// allScannedIntentsMap accumulates every intent seen as a candidate
+		// during the forward scan. Used as a fallback for the reverse scan
+		// when loadMasterIntentsByBatchRef returns nothing (e.g. batch-ref
+		// mismatch between canonical_intents and the observations table).
+		allScannedIntentsMap = make(map[uuid.UUID]models.CanonicalIntent)
 	)
 
 	counters := struct {
@@ -203,6 +208,11 @@ func (e *AttachmentEngine) runAttachment(
 			allDecisions = append(allDecisions, decision)
 			counters.unresolved++
 			continue
+		}
+
+		// Collect all candidate intents for reverse-scan fallback.
+		for _, intent := range intents {
+			allScannedIntentsMap[intent.IntentID] = intent
 		}
 
 		// Step 4: Score every candidate.
@@ -394,8 +404,19 @@ func (e *AttachmentEngine) runAttachment(
 	}
 
 	// ── Reverse scan: find intents with no strong observation match ───────
-	// Only runs for SETTLEMENT_BATCH scope and only when we successfully
-	// loaded the master intent list.
+	// Only runs for SETTLEMENT_BATCH scope.
+	//
+	// Fallback: if the DB-based masterIntentMap is empty (e.g. client_batch_ref
+	// on canonical_intents does not match the scopeRef), fall back to every
+	// intent that appeared as a candidate during the forward scan. This ensures
+	// ambiguous / conflicted / low-confidence intents still generate
+	// UnresolvedIntentRecords even when the batch-ref lookup fails.
+	if scopeType == models.JobScopeSettlementBatch && len(masterIntentMap) == 0 && len(allScannedIntentsMap) > 0 {
+		log.Printf("attachment.engine.reverse_scan_fallback job=%s: masterIntentMap empty, using %d forward-scan intents as fallback",
+			job.AttachmentJobID, len(allScannedIntentsMap))
+		masterIntentMap = allScannedIntentsMap
+	}
+
 	var allUnresolvedIntents []models.UnresolvedIntentRecord
 	if scopeType == models.JobScopeSettlementBatch && len(masterIntentMap) > 0 {
 		allUnresolvedIntents = performReverseScan(
@@ -656,8 +677,10 @@ func loadMasterIntentsByBatchRef(
 		--	beneficiary_fingerprint, zord_signature_carrier,
 			created_at
 		FROM canonical_intents
-		WHERE tenant_id = $1 AND client_batch_ref = $2
+		WHERE tenant_id = $1 AND LOWER(client_batch_ref) = LOWER($2)
 		ORDER BY intent_id`,
+		// ↑ case-insensitive match: observations may carry a different case
+		// for the batch ref than the intents table.
 		tenantID, batchRef,
 	)
 	if err != nil {

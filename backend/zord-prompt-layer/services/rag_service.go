@@ -155,27 +155,6 @@ func buildRCAContextBlock(rca *client.RCAClustersResponse) string {
 	)
 }
 
-func buildRCAOverviewBlock(overview *client.RCAOverviewResponse) string {
-	if overview == nil {
-		return "RCA overview: unavailable"
-	}
-	modelVersion := "-"
-	if overview.ModelVersion != nil && strings.TrimSpace(*overview.ModelVersion) != "" {
-		modelVersion = strings.TrimSpace(*overview.ModelVersion)
-	}
-	data := strings.TrimSpace(string(overview.Data))
-	if data == "" {
-		data = "{}"
-	}
-	return fmt.Sprintf(
-		"RCA overview: data_available=%t snapshot_type=%s model_version=%s reason=%s data=%s",
-		overview.DataAvailable,
-		strings.TrimSpace(overview.SnapshotType),
-		modelVersion,
-		strings.TrimSpace(overview.Reason),
-		data,
-	)
-}
 func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, error) {
 	ctx := context.Background()
 	topK := req.TopK
@@ -281,27 +260,20 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	}
 	rcaContext := ""
 	if s.intelligence != nil {
-		log.Printf("[prompt-layer][rca] fetching tenant RCA context tenant=%s", req.TenantID)
-		parts := make([]string, 0, 2)
+		log.Printf("[prompt-layer][rca] fetching tenant RCA clusters tenant=%s", req.TenantID)
+
 		rcaClusters, rcaErr := s.intelligence.FetchRCAClusters(req.TenantID)
 		if rcaErr != nil {
 			log.Printf("[prompt-layer][rca] clusters fetch failed tenant=%s err=%v", req.TenantID, rcaErr)
 		} else {
 			log.Printf("[prompt-layer][rca] clusters fetched tenant=%s data_available=%t clusters=%d", req.TenantID, rcaClusters.DataAvailable, rcaClusters.ReturnedClusters)
-			parts = append(parts, buildRCAContextBlock(rcaClusters))
+
+			parts := []string{buildRCAContextBlock(rcaClusters)}
 			if len(rcaClusters.Clusters) > 0 {
 				parts = append(parts, "RCA clusters payload="+string(mustJSON(rcaClusters.Clusters)))
 			}
+			rcaContext = strings.Join(parts, "\n")
 		}
-
-		rcaOverview, ovErr := s.intelligence.FetchRCAOverview(req.TenantID)
-		if ovErr != nil {
-			log.Printf("[prompt-layer][rca] overview fetch failed tenant=%s err=%v", req.TenantID, ovErr)
-		} else {
-			log.Printf("[prompt-layer][rca] overview fetched tenant=%s data_available=%t snapshot_type=%s", req.TenantID, rcaOverview.DataAvailable, rcaOverview.SnapshotType)
-			parts = append(parts, buildRCAOverviewBlock(rcaOverview))
-		}
-		rcaContext = strings.Join(parts, "\n")
 	}
 	historyContext := ""
 	if s.memory != nil {

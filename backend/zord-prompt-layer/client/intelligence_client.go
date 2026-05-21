@@ -77,16 +77,6 @@ type RCAClustersResponse struct {
 	DataAvailable    bool              `json:"data_available"`
 	Reason           string            `json:"reason,omitempty"`
 }
-type RCAOverviewResponse struct {
-	IntelligenceMode string          `json:"intelligence_mode"`
-	TenantID         string          `json:"tenant_id"`
-	SnapshotType     string          `json:"snapshot_type"`
-	SnapshotID       string          `json:"snapshot_id,omitempty"`
-	ModelVersion     *string         `json:"model_version,omitempty"`
-	DataAvailable    bool            `json:"data_available"`
-	Reason           string          `json:"reason,omitempty"`
-	Data             json.RawMessage `json:"data"`
-}
 
 func NewIntelligenceClient(baseURL string, timeoutSec int) *IntelligenceClient {
 	if timeoutSec <= 0 {
@@ -266,20 +256,6 @@ func (c *IntelligenceClient) FetchRCAClusters(tenantID string) (*RCAClustersResp
 
 	var out RCAClustersResponse
 	if err := c.doGetJSON("/v1/intelligence/rca/clusters", q, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
-}
-
-func (c *IntelligenceClient) FetchRCAOverview(tenantID string) (*RCAOverviewResponse, error) {
-	if strings.TrimSpace(tenantID) == "" {
-		return nil, nil
-	}
-	q := url.Values{}
-	q.Set("tenant_id", tenantID)
-
-	var out RCAOverviewResponse
-	if err := c.doGetJSON("/v1/intelligence/rca", q, &out); err != nil {
 		return nil, err
 	}
 	return &out, nil

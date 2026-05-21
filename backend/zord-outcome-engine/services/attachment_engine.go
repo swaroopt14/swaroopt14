@@ -898,7 +898,7 @@ func computeBatchSummary(
 	// Derive batch status.
 	total := len(decisions)
 	if total == 0 {
-		summary.BatchAttachmentStatus = models.BatchStatusUnattached
+		summary.BatchAttachmentStatus = models.BatchStatusFailed
 		summary.AggregateScore = 0
 		summary.AmbiguityScore = 0
 	} else {
@@ -908,13 +908,13 @@ func computeBatchSummary(
 		ratio := float64(strongCount) / float64(total)
 		switch {
 		case summary.ConflictedCount > 0:
-			summary.BatchAttachmentStatus = models.BatchStatusException
+			summary.BatchAttachmentStatus = models.BatchStatusRequiresReview
 		case ratio >= 0.9:
-			summary.BatchAttachmentStatus = models.BatchStatusStrong
+			summary.BatchAttachmentStatus = models.BatchStatusFullySettled
 		case strongCount > 0:
-			summary.BatchAttachmentStatus = models.BatchStatusPartial
+			summary.BatchAttachmentStatus = models.BatchStatusPartiallySettled
 		default:
-			summary.BatchAttachmentStatus = models.BatchStatusUnattached
+			summary.BatchAttachmentStatus = models.BatchStatusFailed
 		}
 	}
 	return summary

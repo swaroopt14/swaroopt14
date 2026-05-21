@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     duplicate_reason_code TEXT,
     client_batch_ref TEXT,
 
+    -- 🆕 Added for tracking status
+    required_fields_status BOOLEAN,
+    tokenization_status BOOLEAN,
+    governance_decision TEXT,
+
     updated_at TIMESTAMPTZ DEFAULT now(),
     batchid TEXT,
     aggregate_confidence_score NUMERIC(5,2) -- NEW
@@ -150,6 +155,11 @@ CREATE TABLE IF NOT EXISTS outbox (
     client_batch_ref TEXT,
     batchid TEXT,
     aggregate_confidence_score NUMERIC(5,2), -- NEW
+
+    -- 🆕 Added for tracking status
+    required_fields_status BOOLEAN,
+    tokenization_status BOOLEAN,
+    governance_decision TEXT,
 
     CONSTRAINT fk_outbox_intent
         FOREIGN KEY (aggregate_id)

@@ -1465,6 +1465,19 @@ func (s *IntentService) ProcessIncomingIntent(
 		canonical.GovernanceState = "FLAGGED"
 	}
 
+	// 🆕 Status Fields
+	govDec := "Pass"
+	if canonical.GovernanceState == "FLAGGED" || canonical.GovernanceState == "REQUIRES_REVIEW" {
+		govDec = "Fail"
+	}
+	canonical.GovernanceDecision = &govDec
+
+	reqStatus := nir.RequiredFieldGapCount == 0
+	canonical.RequiredFieldsStatus = &reqStatus
+
+	tokStatus := true
+	canonical.TokenizationStatus = &tokStatus
+
 	// RE-COMPUTE hash if state changed from VALID to FLAGGED (FIX)
 	if canonical.GovernanceState != "VALID" {
 		canonical.GovernanceHash = s.computeGovernanceHash(&canonical)
@@ -1872,6 +1885,19 @@ func (s *IntentService) ProcessTokenizeResult(
 	if iScore < 0.5 {
 		intent.GovernanceState = "FLAGGED"
 	}
+
+	// 🆕 Status Fields
+	govDec := "Pass"
+	if intent.GovernanceState == "FLAGGED" || intent.GovernanceState == "REQUIRES_REVIEW" {
+		govDec = "Fail"
+	}
+	intent.GovernanceDecision = &govDec
+
+	reqStatus := nir.RequiredFieldGapCount == 0
+	intent.RequiredFieldsStatus = &reqStatus
+
+	tokStatus := true
+	intent.TokenizationStatus = &tokStatus
 
 	// FIX: Compute deterministic governance_hash (UPDATED)
 	intent.GovernanceHash = s.computeGovernanceHash(&intent)

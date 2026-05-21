@@ -97,7 +97,10 @@ func (r *PaymentIntentRepo) Save(
     score_validity_status,
     score_breakdown_json,
     score_reason_codes_json,
-    scored_at
+    scored_at,
+    required_fields_status,
+    tokenization_status,
+    governance_decision
 )
 VALUES (
     $1,$2,$3,$4,
@@ -117,7 +120,8 @@ VALUES (
     $43,
     $44, $45,
     $46, $47, $48, $49, -- UPDATED
-    $50, $51, $52, $53, $54, $55, $56
+    $50, $51, $52, $53, $54, $55, $56,
+    $57, $58, $59
 ) `
 
 	_, err = tx.ExecContext(
@@ -179,6 +183,9 @@ VALUES (
 		intent.ScoreBreakdownJSON,      // $54
 		intent.ScoreReasonCodesJSON,    // $55
 		intent.ScoredAt,                // $56
+		intent.RequiredFieldsStatus,    // $57
+		intent.TokenizationStatus,      // $58
+		intent.GovernanceDecision,      // $59
 	)
 
 	if err != nil {
@@ -241,14 +248,17 @@ INSERT INTO outbox (
     next_attempt_at,
     created_at,
 	batchid,
-    aggregate_confidence_score -- NEW
+    aggregate_confidence_score, -- NEW
+    required_fields_status,
+    tokenization_status,
+    governance_decision
 ) VALUES (
     $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
     $11,$12,$13,$14,$15,$16,$17,$18,$19,
     $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
     $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,
     $40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
-    $50,$51,$52,$53, $54 -- UPDATED
+    $50,$51,$52,$53, $54, $55, $56, $57 -- UPDATED
 )`
 
 	outbox.ContractID = intent.ContractID
@@ -310,6 +320,9 @@ INSERT INTO outbox (
 		outbox.CreatedAt,                 // $52
 		outbox.BatchID,                   // $53  ← matches column: batchid
 		outbox.AggregateConfidenceScore,  // $54 -- NEW
+		outbox.RequiredFieldsStatus,      // $55
+		outbox.TokenizationStatus,        // $56
+		outbox.GovernanceDecision,        // $57
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)
@@ -395,7 +408,10 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
 		batchid,
-		aggregate_confidence_score -- NEW
+		aggregate_confidence_score, -- NEW
+		required_fields_status,
+		tokenization_status,
+		governance_decision
 	FROM payment_intents
 	WHERE tenant_id = $1
 	  AND envelope_id = $2
@@ -454,6 +470,9 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.GovernanceHash,
 		&intent.BatchID,
 		&intent.AggregateConfidenceScore, // NEW
+		&intent.RequiredFieldsStatus,
+		&intent.TokenizationStatus,
+		&intent.GovernanceDecision,
 	)
 
 	if err == sql.ErrNoRows {
@@ -591,7 +610,10 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
 		batchid,
-		aggregate_confidence_score -- NEW
+		aggregate_confidence_score, -- NEW
+		required_fields_status,
+		tokenization_status,
+		governance_decision
 	FROM payment_intents
 	WHERE tenant_id = $1
 	  AND business_idempotency_key = $2
@@ -650,6 +672,9 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.GovernanceHash,
 		&intent.BatchID,
 		&intent.AggregateConfidenceScore, // NEW
+		&intent.RequiredFieldsStatus,
+		&intent.TokenizationStatus,
+		&intent.GovernanceDecision,
 	)
 
 	if err == sql.ErrNoRows {

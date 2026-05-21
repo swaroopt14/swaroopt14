@@ -60,10 +60,12 @@ const (
 // ─── Batch attachment status constants ───────────────────────────────────────
 
 const (
-	BatchStatusUnattached = "BATCH_UNATTACHED"
-	BatchStatusPartial    = "BATCH_PARTIAL"
-	BatchStatusStrong     = "BATCH_STRONG"
-	BatchStatusException  = "BATCH_EXCEPTION"
+	BatchStatusProcessing       = "PROCESSING"
+	BatchStatusFullySettled     = "FULLY_SETTLED"
+	BatchStatusPartiallySettled = "PARTIALLY_SETTLED"
+	BatchStatusFailed           = "FAILED"
+	BatchStatusRequiresReview   = "REQUIRES_REVIEW"
+	BatchStatusClosed           = "CLOSED"
 )
 
 // ─── Job scope constants ──────────────────────────────────────────────────────

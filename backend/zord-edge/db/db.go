@@ -201,22 +201,15 @@ func CreateTable() error {
 	    date_format      TEXT NOT NULL DEFAULT '2006-01-02',
 	    required_fields  TEXT[] NOT NULL DEFAULT '{}',
 	    is_active        BOOLEAN NOT NULL DEFAULT true,
+	    parser_class     TEXT NOT NULL DEFAULT 'generic'
+	                         CHECK (parser_class IN ('generic', 'merchant', 'vendor')),
+	    source_type      TEXT NOT NULL DEFAULT '',
 	    created_at       TIMESTAMPTZ DEFAULT now(),
 	    updated_at       TIMESTAMPTZ DEFAULT now(),
-	    UNIQUE (tenant_id, file_format, profile_version)
+	    UNIQUE (tenant_id, file_format, source_type, profile_version)
 	);`
 
 	_, err = DB.Exec(mappingProfiles)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	alterProfile := `
-	ALTER TABLE intent_mapping_profiles
-	ADD COLUMN IF NOT EXISTS parser_class TEXT NOT NULL DEFAULT 'generic'
-	    CHECK (parser_class IN ('generic', 'merchant', 'vendor'));
-	`
-	_, err = DB.Exec(alterProfile)
 	if err != nil {
 		log.Fatal(err)
 	}

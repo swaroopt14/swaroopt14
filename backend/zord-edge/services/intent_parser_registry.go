@@ -3,6 +3,8 @@ package services
 import (
 	"fmt"
 	"strings"
+
+	"zord-edge/model"
 )
 
 var (
@@ -23,4 +25,10 @@ func GetParserByType(tenantType string) (IntentParser, error) {
 		return nil, fmt.Errorf("unsupported tenant type: %s", tenantType)
 	}
 	return parser, nil
+}
+
+// GetParserByProfile returns a GenericSourceParser configured with the given profile.
+// This is the new profile-driven path for source-type specific tenants.
+func GetParserByProfile(profile *model.IntentMappingProfile) IntentParser {
+	return NewGenericSourceParser(profile)
 }

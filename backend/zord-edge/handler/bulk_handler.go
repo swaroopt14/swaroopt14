@@ -221,29 +221,99 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 
-	// Resolve static parser based on tenant type
-	tenantType := c.GetHeader("X-Zord-Tenant-Type")
-	if tenantType == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Zord-Tenant-Type header is required for static mapping"})
-		return
+	// Pre-read headers for ResolveProfile / DetectSourceType
+	var headers []string
+	if ext == ".csv" {
+		reader := csv.NewReader(src)
+		var readErr error
+		headers, readErr = reader.Read()
+		if readErr == nil {
+			// Reset file pointer back to start of data
+			_, _ = src.Seek(0, io.SeekStart)
+		}
+	} else if ext == ".xlsx" {
+		f, seekErr := excelize.OpenReader(src)
+		if seekErr == nil {
+			sheet := f.GetSheetName(0)
+			dataRows, readErr := f.Rows(sheet)
+			if readErr == nil {
+				if dataRows.Next() {
+					headers, _ = dataRows.Columns()
+				}
+				dataRows.Close()
+			}
+			_, _ = src.Seek(0, io.SeekStart)
+		}
 	}
 
-	parser, err := services.GetParserByType(tenantType)
-	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{
-			"error":  "invalid tenant type",
-			"detail": err.Error(),
-			"hint":   "Valid types: BANK, NBFC, MERCHANT, GATEWAY",
-		})
-		return
+	// ── Parser resolution — profile-driven first, type-based fallback ──────────
+
+	tenantType := c.GetHeader("X-Zord-Tenant-Type")
+	sourceSystemHeader := c.GetHeader("X-Zord-Source-System") // e.g. "TALLY", "SAP", "ERP"
+
+	// Phase 1: attempt profile-driven parser (source-type aware)
+	// Profile lookup uses: tenant_id + file_format + source_type (inferred if absent)
+	var parser services.IntentParser
+	var profileUsed *model.IntentMappingProfile
+
+	fileFormatForProfile := strings.TrimPrefix(ext, ".")
+	profile, profileErr := services.ResolveProfile(
+		c.Request.Context(),
+		db.DB,
+		tenantID.String(),
+		fileFormatForProfile,
+		sourceSystemHeader,
+		headers, // actual column headers read from file
+	)
+	if profileErr == nil && profile != nil {
+		parser = services.GetParserByProfile(profile)
+		profileUsed = profile
+		log.Printf("[BulkHandler] using profile-driven parser profile_id=%s source_type=%s tenant=%s",
+			profile.ProfileID, profile.SourceType, tenantID)
+	}
+
+	// Phase 2: fall back to tenant-type static parser if no profile found
+	if parser == nil {
+		if tenantType == "" {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "X-Zord-Tenant-Type header is required when no mapping profile is configured",
+			})
+			return
+		}
+		var err error
+		parser, err = services.GetParserByType(tenantType)
+		if err != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"error":  "invalid tenant type",
+				"detail": err.Error(),
+				"hint":   "Valid types: BANK, NBFC, MERCHANT, GATEWAY",
+			})
+			return
+		}
+		log.Printf("[BulkHandler] using type-based parser type=%s tenant=%s (no profile found)",
+			tenantType, tenantID)
+	}
+
+	profileIDForAudit := tenantType
+	if profileUsed != nil {
+		profileIDForAudit = profileUsed.ProfileID
 	}
 
 	headersBytes, _ := json.Marshal(c.Request.Header)
 	headersHashSum := sha256.Sum256(headersBytes)
 	headersHash := headersHashSum[:]
-	sourceSystem := c.GetHeader("X-Zord-Source-System")
+	sourceSystem := sourceSystemHeader
 	if sourceSystem == "" {
-		sourceSystem = "UNKNOWN"
+		if profileUsed != nil && profileUsed.SourceType != "" {
+			sourceSystem = profileUsed.SourceType
+		} else {
+			inferred := services.DetectSourceType(headers)
+			if inferred != "" {
+				sourceSystem = inferred
+			} else {
+				sourceSystem = "UNKNOWN"
+			}
+		}
 	}
 
 	switch ext {
@@ -312,7 +382,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 						&fileHash,
 						&rowCountEstimate,
 						func(s string) *string { return &s }("CSV"),
-						&tenantType, // Use tenantType as the audit hint
+						&profileIDForAudit, // Use profileIDForAudit as the audit hint
 					)
 
 					resultsMu.Lock()
@@ -453,6 +523,13 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 		respondBulkResults(c, actualResults, file.Filename, fileHash)
 
+		// ── Final Audit Trail: Persist run stats to DB ──────────────────────
+		runStatus := "COMPLETED"
+		if int(failedCount) > 0 {
+			runStatus = "PARTIAL"
+		}
+		db.UpsertIngestRun(c.Request.Context(), db.DB, fileTraceID, *finalBatchID, tenantID.String(), profileIDForAudit, file.Filename, fileHash, len(actualResults), int(acceptedCount), int(failedCount), int(duplicateCount), runStatus)
+
 	// ── Excel ─────────────────────────────────────────────────────────────────
 	case ".xlsx":
 		f, err := excelize.OpenReader(src)
@@ -538,7 +615,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 						&fileHash,
 						&xlsxRowCount,
 						func(s string) *string { return &s }("XLSX"),
-						&tenantType, // Use tenantType as the audit hint
+						&profileIDForAudit, // Use profileIDForAudit as the audit hint
 					)
 
 					resultsMu.Lock()
@@ -694,7 +771,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		if int(failedCount) > 0 {
 			runStatus = "PARTIAL"
 		}
-		db.UpsertIngestRun(c.Request.Context(), db.DB, fileTraceID, *finalBatchID, tenantID.String(), tenantType, file.Filename, fileHash, len(actualResults), int(acceptedCount), int(failedCount), int(duplicateCount), runStatus)
+		db.UpsertIngestRun(c.Request.Context(), db.DB, fileTraceID, *finalBatchID, tenantID.String(), profileIDForAudit, file.Filename, fileHash, len(actualResults), int(acceptedCount), int(failedCount), int(duplicateCount), runStatus)
 
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{

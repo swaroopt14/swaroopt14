@@ -122,4 +122,17 @@ type IntentMappingProfile struct {
 	IsActive       bool              `db:"is_active"`
 	CreatedAt      time.Time         `db:"created_at"`
 	UpdatedAt      time.Time         `db:"updated_at"`
+
+	// NEW — source system type e.g. "TALLY", "SAP", "ERP", "QUICKBOOKS", "CUSTOM"
+	// Empty string = not source-type specific (applies to all sources for this tenant)
+	SourceType string `db:"source_type"`
 }
+
+const (
+	SourceTypeTally      = "TALLY"
+	SourceTypeSAP        = "SAP"
+	SourceTypeERP        = "ERP"
+	SourceTypeQuickbooks = "QUICKBOOKS"
+	SourceTypeCustom     = "CUSTOM"
+	SourceTypeGeneric    = "" // applies when no source type specified
+)

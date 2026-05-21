@@ -976,6 +976,8 @@ func (s *IntentService) ProcessIncomingIntent(
 	if in.IdempotencyKey == "" {
 		in.IdempotencyKey = parsed.IdempotencyKey
 		log.Printf("ProcessIncomingIntent: EnvelopeID=%s, falling back to payload idempotency_key=%s", in.EnvelopeID, in.IdempotencyKey)
+	} else if parsed.IdempotencyKey == "" {
+		parsed.IdempotencyKey = in.IdempotencyKey
 	}
 
 	// -------- STEP 6: Build NIR --------
@@ -1299,8 +1301,6 @@ func (s *IntentService) ProcessIncomingIntent(
 			CreatedAt:              time.Now().UTC(),
 		}
 	}
-
-
 
 	var executionAt *time.Time
 

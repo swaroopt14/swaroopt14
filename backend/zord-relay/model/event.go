@@ -70,6 +70,16 @@ type OutboxEvent struct {
 
 	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`
 	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
+
+	// 🆕 Settlement Metadata
+	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty"`
+	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty"`
+	BankReference              *string    `json:"bank_reference,omitempty"`
+	ClientReference            *string    `json:"client_reference,omitempty"`
+	AttachmentDecision        *string    `json:"attachment_decision,omitempty"`
+	MatchConfidence           *float64   `json:"match_confidence,omitempty"`
+	ValueDateCheck            *bool      `json:"value_date_check,omitempty"`
+	AmountMatch               *bool      `json:"amount_match,omitempty"`
 }
 
 // LeaseResponse is what the upstream /lease endpoint returns.

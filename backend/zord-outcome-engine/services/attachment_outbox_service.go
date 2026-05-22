@@ -560,19 +560,67 @@ func (s *AttachmentOutboxService) insertEvent(
 		return err
 	}
 
+	var srr, csc *time.Time
+	var br, cr, ad *string
+	var mc *float64
+	var vdc, am *bool
+
+	var pMap map[string]interface{}
+	if err := json.Unmarshal(payloadJSON, &pMap); err == nil {
+		if v, ok := pMap["settlement_record_received"].(string); ok && v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				srr = &t
+			}
+		}
+		if v, ok := pMap["canonical_settlement_created"].(string); ok && v != "" {
+			if t, err := time.Parse(time.RFC3339, v); err == nil {
+				csc = &t
+			}
+		}
+		if v, ok := pMap["bank_reference"].(string); ok {
+			s := v
+			br = &s
+		}
+		if v, ok := pMap["client_reference"].(string); ok {
+			s := v
+			cr = &s
+		}
+		if v, ok := pMap["attachment_decision"].(string); ok {
+			s := v
+			ad = &s
+		}
+		if v, ok := pMap["match_confidence"].(float64); ok {
+			f := v
+			mc = &f
+		}
+		if v, ok := pMap["value_date_check"].(bool); ok {
+			b := v
+			vdc = &b
+		}
+		if v, ok := pMap["amount_match"].(bool); ok {
+			b := v
+			am = &b
+		}
+	}
+
 	_, err = db.DB.ExecContext(ctx, `
 		INSERT INTO outcome_outbox (
 			event_id, tenant_id, trace_id, envelope_id,
 			contract_id, batchid,
 			aggregate_type, aggregate_id,
 			event_type, payload,
-			status, retry_count, created_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			status, retry_count, created_at,
+			settlement_record_received, canonical_settlement_created,
+			bank_reference, client_reference,
+			attachment_decision, match_confidence,
+			value_date_check, amount_match
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
 		uuid.New(), tenantID, uuid.Nil, jobID,
 		contractID, batchID,
 		family, entityID,
 		eventType, payloadJSON,
 		"PENDING", 0, time.Now().UTC(),
+		srr, csc, br, cr, ad, mc, vdc, am,
 	)
 	if err != nil {
 		log.Printf("attachment.outbox.insert_failed type=%s err=%v", eventType, err)
@@ -618,6 +666,15 @@ type leafBundlePayload struct {
 	AttachmentJobID         string          `json:"attachment_job_id"`
 	DecisionType            string          `json:"decision_type"`
 	Leaves                  []leafCandidate `json:"leaves"`
+
+	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty"`
+	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty"`
+	BankReference              *string    `json:"bank_reference,omitempty"`
+	ClientReference            *string    `json:"client_reference,omitempty"`
+	AttachmentDecision        *string    `json:"attachment_decision,omitempty"`
+	MatchConfidence           *float64   `json:"match_confidence,omitempty"`
+	ValueDateCheck            *bool      `json:"value_date_check,omitempty"`
+	AmountMatch               *bool      `json:"amount_match,omitempty"`
 }
 
 // EmitLeafBundlesForJob emits outcome_outbox events for all winner-resolved
@@ -729,6 +786,32 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 			})
 		}
 
+		var parsedCreatedAt time.Time
+		if pr, ok := parsedByRowRef[obs.SourceRowRef]; ok {
+			parsedCreatedAt = pr.CreatedAt
+		}
+
+		var bankRef, clientRefCandidate *string
+		if obs.BankReference != nil {
+			bankRef = obs.BankReference
+		}
+		if obs.ClientReferenceCandidate != nil {
+			clientRefCandidate = obs.ClientReferenceCandidate
+		}
+
+		var valueDateCheck, amountMatch *bool
+		if vr, ok := vrByDecision[d.AttachmentDecisionID]; ok {
+			vdc := vr.ValueDateMismatchFlag
+			am := vr.AmountVariance.IsZero()
+			valueDateCheck = &vdc
+			amountMatch = &am
+		}
+		
+		t1 := parsedCreatedAt.UTC()
+		t2 := obs.CreatedAt.UTC()
+		decType := d.DecisionType
+		conf := d.ConfidenceScore
+
 		bundle := leafBundlePayload{
 			EventType:               "outcome.leaf_bundle.created",
 			TenantID:                d.TenantID.String(),
@@ -737,6 +820,15 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 			AttachmentJobID:         d.AttachmentJobID.String(),
 			DecisionType:            d.DecisionType,
 			Leaves:                  leaves,
+
+			SettlementRecordReceived:   &t1,
+			CanonicalSettlementCreated: &t2,
+			BankReference:              bankRef,
+			ClientReference:            clientRefCandidate,
+			AttachmentDecision:        &decType,
+			MatchConfidence:           &conf,
+			ValueDateCheck:            valueDateCheck,
+			AmountMatch:               amountMatch,
 		}
 
 		if err := s.insertEvent(ctx, d.TenantID, d.AttachmentJobID,

@@ -103,19 +103,6 @@ func CreateTable() error {
 		log.Fatal(err)
 	}
 
-	// Keep older local databases in sync with newer bulk/file ingestion fields.
-	if _, err := DB.Exec(`
-		ALTER TABLE ingress_envelopes
-		ADD COLUMN IF NOT EXISTS file_name TEXT,
-		ADD COLUMN IF NOT EXISTS file_size_bytes BIGINT,
-		ADD COLUMN IF NOT EXISTS file_content_hash TEXT,
-		ADD COLUMN IF NOT EXISTS row_count_estimate INT,
-		ADD COLUMN IF NOT EXISTS file_upload_channel TEXT,
-		ADD COLUMN IF NOT EXISTS batchid TEXT;
-	`); err != nil {
-		return err
-	}
-
 	rawEnvelopeIndexes := `
 	CREATE INDEX IF NOT EXISTS idx_raw_env_tenant_time
 	ON ingress_envelopes (tenant_id, received_at DESC);
@@ -162,15 +149,6 @@ func CreateTable() error {
 	_, err = DB.Exec(ingress_outbox)
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	// Older databases may predate later outbox columns used by bulk ingest.
-	if _, err := DB.Exec(`
-		ALTER TABLE ingress_outbox
-		ADD COLUMN IF NOT EXISTS batchid TEXT,
-		ADD COLUMN IF NOT EXISTS file_content_hash TEXT;
-	`); err != nil {
-		return err
 	}
 
 	// Indexes for lease scanning and ack/nack operations

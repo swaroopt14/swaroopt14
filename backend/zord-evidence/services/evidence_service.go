@@ -155,6 +155,11 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 	var pir, cic *time.Time
 	var mpu, gd *string
 	var rfs, ts *bool
+	var srr, csc *time.Time
+	var br, cr, ad *string
+	var mc *float64
+	var vdc, am *bool
+
 	for _, l := range leaves {
 		if l.PaymentInstructionReceived != nil {
 			pir = l.PaymentInstructionReceived
@@ -163,7 +168,16 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 			rfs = l.RequiredFieldsStatus
 			ts = l.TokenizationStatus
 			gd = l.GovernanceDecision
-			break
+		}
+		if l.SettlementRecordReceived != nil {
+			srr = l.SettlementRecordReceived
+			csc = l.CanonicalSettlementCreated
+			br = l.BankReference
+			cr = l.ClientReference
+			ad = l.AttachmentDecision
+			mc = l.MatchConfidence
+			vdc = l.ValueDateCheck
+			am = l.AmountMatch
 		}
 	}
 
@@ -184,6 +198,15 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		RequiredFieldsStatus:      rfs,
 		TokenizationStatus:        ts,
 		GovernanceDecision:        gd,
+
+		SettlementRecordReceived:   srr,
+		CanonicalSettlementCreated: csc,
+		BankReference:              br,
+		ClientReference:            cr,
+		AttachmentDecision:        ad,
+		MatchConfidence:           mc,
+		ValueDateCheck:            vdc,
+		AmountMatch:               am,
 	}
 
 	_, err = s.GeneratePack(ctx, req)
@@ -248,6 +271,11 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 	var pir, cic *time.Time
 	var mpu, gd *string
 	var rfs, ts *bool
+	var srr, csc *time.Time
+	var br, cr, ad *string
+	var mc *float64
+	var vdc, am *bool
+
 	for _, l := range leaves {
 		if l.PaymentInstructionReceived != nil {
 			pir = l.PaymentInstructionReceived
@@ -256,7 +284,16 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 			rfs = l.RequiredFieldsStatus
 			ts = l.TokenizationStatus
 			gd = l.GovernanceDecision
-			break
+		}
+		if l.SettlementRecordReceived != nil {
+			srr = l.SettlementRecordReceived
+			csc = l.CanonicalSettlementCreated
+			br = l.BankReference
+			cr = l.ClientReference
+			ad = l.AttachmentDecision
+			mc = l.MatchConfidence
+			vdc = l.ValueDateCheck
+			am = l.AmountMatch
 		}
 	}
 
@@ -275,6 +312,15 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 		RequiredFieldsStatus:      rfs,
 		TokenizationStatus:        ts,
 		GovernanceDecision:        gd,
+
+		SettlementRecordReceived:   srr,
+		CanonicalSettlementCreated: csc,
+		BankReference:              br,
+		ClientReference:            cr,
+		AttachmentDecision:        ad,
+		MatchConfidence:           mc,
+		ValueDateCheck:            vdc,
+		AmountMatch:               am,
 	}
 
 	_, err = s.GenerateBatchPack(ctx, req)
@@ -372,6 +418,16 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		RequiredFieldsStatus:      req.RequiredFieldsStatus,
 		TokenizationStatus:        req.TokenizationStatus,
 		GovernanceDecision:        req.GovernanceDecision,
+
+		SettlementRecordReceived:   req.SettlementRecordReceived,
+		CanonicalSettlementCreated: req.CanonicalSettlementCreated,
+		BankReference:              req.BankReference,
+		ClientReference:            req.ClientReference,
+		AttachmentDecision:        req.AttachmentDecision,
+		MatchConfidence:           req.MatchConfidence,
+		ValueDateCheck:            req.ValueDateCheck,
+		AmountMatch:               req.AmountMatch,
+
 		CreatedAt: now,
 	}
 

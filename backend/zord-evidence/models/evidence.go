@@ -69,6 +69,16 @@ type PendingLeafCandidate struct {
 	TokenizationStatus        *bool      `json:"tokenization_status,omitempty" db:"tokenization_status"`
 	GovernanceDecision        *string    `json:"governance_decision,omitempty" db:"governance_decision"`
 
+	// 🆕 Settlement Metadata
+	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty" db:"settlement_record_received"`
+	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty" db:"canonical_settlement_created"`
+	BankReference              *string    `json:"bank_reference,omitempty" db:"bank_reference"`
+	ClientReference            *string    `json:"client_reference,omitempty" db:"client_reference"`
+	AttachmentDecision        *string    `json:"attachment_decision,omitempty" db:"attachment_decision"`
+	MatchConfidence           *float64   `json:"match_confidence,omitempty" db:"match_confidence"`
+	ValueDateCheck            *bool      `json:"value_date_check,omitempty" db:"value_date_check"`
+	AmountMatch               *bool      `json:"amount_match,omitempty" db:"amount_match"`
+
 	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -99,6 +109,16 @@ type RelayEvent struct {
 
 	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`
 	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
+
+	// 🆕 Settlement Metadata
+	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty"`
+	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty"`
+	BankReference              *string    `json:"bank_reference,omitempty"`
+	ClientReference            *string    `json:"client_reference,omitempty"`
+	AttachmentDecision        *string    `json:"attachment_decision,omitempty"`
+	MatchConfidence           *float64   `json:"match_confidence,omitempty"`
+	ValueDateCheck            *bool      `json:"value_date_check,omitempty"`
+	AmountMatch               *bool      `json:"amount_match,omitempty"`
 }
 
 // EvidenceItem is one proof artifact that becomes a typed leaf in the Merkle tree.
@@ -147,6 +167,16 @@ type EvidencePack struct {
 	RequiredFieldsStatus      *bool      `json:"required_fields_status,omitempty"`
 	TokenizationStatus        *bool      `json:"tokenization_status,omitempty"`
 	GovernanceDecision        *string    `json:"governance_decision,omitempty"`
+
+	// 🆕 Settlement Metadata
+	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty"`
+	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty"`
+	BankReference              *string    `json:"bank_reference,omitempty"`
+	ClientReference            *string    `json:"client_reference,omitempty"`
+	AttachmentDecision        *string    `json:"attachment_decision,omitempty"`
+	MatchConfidence           *float64   `json:"match_confidence,omitempty"`
+	ValueDateCheck            *bool      `json:"value_date_check,omitempty"`
+	AmountMatch               *bool      `json:"amount_match,omitempty"`
 
 	CreatedAt                         time.Time         `json:"created_at"`
 }
@@ -219,8 +249,18 @@ type GenerateEvidenceRequest struct {
 	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
 	MappingProfileUsed        *string    `json:"mapping_profile_used,omitempty"`
 	RequiredFieldsStatus      *bool      `json:"required_fields_status,omitempty"`
-	TokenizationStatus        *bool      `json:"tokenization_status,omitempty"`
-	GovernanceDecision        *string    `json:"governance_decision,omitempty"`
+	TokenizationStatus         *bool      `json:"tokenization_status,omitempty"`
+	GovernanceDecision         *string    `json:"governance_decision,omitempty"`
+
+	// 🆕 Settlement Metadata
+	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty"`
+	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty"`
+	BankReference              *string    `json:"bank_reference,omitempty"`
+	ClientReference            *string    `json:"client_reference,omitempty"`
+	AttachmentDecision        *string    `json:"attachment_decision,omitempty"`
+	MatchConfidence           *float64   `json:"match_confidence,omitempty"`
+	ValueDateCheck            *bool      `json:"value_date_check,omitempty"`
+	AmountMatch               *bool      `json:"amount_match,omitempty"`
 
 	Items            []EvidenceItem    `json:"items" binding:"required"`
 }
@@ -295,6 +335,16 @@ type EvidencePackSummary struct {
 	RequiredFieldsStatus      *bool      `json:"required_fields_status,omitempty"`
 	TokenizationStatus        *bool      `json:"tokenization_status,omitempty"`
 	GovernanceDecision        *string    `json:"governance_decision,omitempty"`
+
+	// 🆕 Settlement Metadata
+	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty"`
+	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty"`
+	BankReference              *string    `json:"bank_reference,omitempty"`
+	ClientReference            *string    `json:"client_reference,omitempty"`
+	AttachmentDecision        *string    `json:"attachment_decision,omitempty"`
+	MatchConfidence           *float64   `json:"match_confidence,omitempty"`
+	ValueDateCheck            *bool      `json:"value_date_check,omitempty"`
+	AmountMatch               *bool      `json:"amount_match,omitempty"`
 
 	CreatedAt                         time.Time `json:"created_at"`
 }

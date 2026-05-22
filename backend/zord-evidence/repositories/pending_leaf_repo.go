@@ -31,8 +31,11 @@ INSERT INTO pending_leaf_candidates (
 	tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, item_ref, hash, schema_version, source_topic,
 	payment_instruction_received, canonical_intent_created, mapping_profile_used,
 	required_fields_status, tokenization_status, governance_decision,
+	settlement_record_received, canonical_settlement_created, bank_reference,
+	client_reference, attachment_decision, match_confidence,
+	value_date_check, amount_match,
 	created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
 ON CONFLICT (tenant_id, intent_id, leaf_type) WHERE intent_id IS NOT NULL 
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
@@ -46,6 +49,14 @@ DO UPDATE SET
 	required_fields_status = COALESCE(EXCLUDED.required_fields_status, pending_leaf_candidates.required_fields_status),
 	tokenization_status = COALESCE(EXCLUDED.tokenization_status, pending_leaf_candidates.tokenization_status),
 	governance_decision = COALESCE(EXCLUDED.governance_decision, pending_leaf_candidates.governance_decision),
+	settlement_record_received = COALESCE(EXCLUDED.settlement_record_received, pending_leaf_candidates.settlement_record_received),
+	canonical_settlement_created = COALESCE(EXCLUDED.canonical_settlement_created, pending_leaf_candidates.canonical_settlement_created),
+	bank_reference = COALESCE(EXCLUDED.bank_reference, pending_leaf_candidates.bank_reference),
+	client_reference = COALESCE(EXCLUDED.client_reference, pending_leaf_candidates.client_reference),
+	attachment_decision = COALESCE(EXCLUDED.attachment_decision, pending_leaf_candidates.attachment_decision),
+	match_confidence = COALESCE(EXCLUDED.match_confidence, pending_leaf_candidates.match_confidence),
+	value_date_check = COALESCE(EXCLUDED.value_date_check, pending_leaf_candidates.value_date_check),
+	amount_match = COALESCE(EXCLUDED.amount_match, pending_leaf_candidates.amount_match),
 	updated_at = NOW()
 `
 	// Handle the envelope-only conflict separately because PostgreSQL doesn't support multiple partial unique indexes in a single ON CONFLICT easily if they differ in the WHERE clause significantly.
@@ -58,8 +69,11 @@ INSERT INTO pending_leaf_candidates (
 	tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, item_ref, hash, schema_version, source_topic,
 	payment_instruction_received, canonical_intent_created, mapping_profile_used,
 	required_fields_status, tokenization_status, governance_decision,
+	settlement_record_received, canonical_settlement_created, bank_reference,
+	client_reference, attachment_decision, match_confidence,
+	value_date_check, amount_match,
 	created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
 ON CONFLICT (tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL AND batch_id IS NULL
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
@@ -73,6 +87,14 @@ DO UPDATE SET
 	required_fields_status = COALESCE(EXCLUDED.required_fields_status, pending_leaf_candidates.required_fields_status),
 	tokenization_status = COALESCE(EXCLUDED.tokenization_status, pending_leaf_candidates.tokenization_status),
 	governance_decision = COALESCE(EXCLUDED.governance_decision, pending_leaf_candidates.governance_decision),
+	settlement_record_received = COALESCE(EXCLUDED.settlement_record_received, pending_leaf_candidates.settlement_record_received),
+	canonical_settlement_created = COALESCE(EXCLUDED.canonical_settlement_created, pending_leaf_candidates.canonical_settlement_created),
+	bank_reference = COALESCE(EXCLUDED.bank_reference, pending_leaf_candidates.bank_reference),
+	client_reference = COALESCE(EXCLUDED.client_reference, pending_leaf_candidates.client_reference),
+	attachment_decision = COALESCE(EXCLUDED.attachment_decision, pending_leaf_candidates.attachment_decision),
+	match_confidence = COALESCE(EXCLUDED.match_confidence, pending_leaf_candidates.match_confidence),
+	value_date_check = COALESCE(EXCLUDED.value_date_check, pending_leaf_candidates.value_date_check),
+	amount_match = COALESCE(EXCLUDED.amount_match, pending_leaf_candidates.amount_match),
 	updated_at = NOW()
 `
 	} else if leaf.BatchID != nil {
@@ -81,8 +103,11 @@ INSERT INTO pending_leaf_candidates (
 	tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, item_ref, hash, schema_version, source_topic,
 	payment_instruction_received, canonical_intent_created, mapping_profile_used,
 	required_fields_status, tokenization_status, governance_decision,
+	settlement_record_received, canonical_settlement_created, bank_reference,
+	client_reference, attachment_decision, match_confidence,
+	value_date_check, amount_match,
 	created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, NOW(), NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
 ON CONFLICT (tenant_id, batch_id, leaf_type) WHERE batch_id IS NOT NULL
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
@@ -96,6 +121,14 @@ DO UPDATE SET
 	required_fields_status = COALESCE(EXCLUDED.required_fields_status, pending_leaf_candidates.required_fields_status),
 	tokenization_status = COALESCE(EXCLUDED.tokenization_status, pending_leaf_candidates.tokenization_status),
 	governance_decision = COALESCE(EXCLUDED.governance_decision, pending_leaf_candidates.governance_decision),
+	settlement_record_received = COALESCE(EXCLUDED.settlement_record_received, pending_leaf_candidates.settlement_record_received),
+	canonical_settlement_created = COALESCE(EXCLUDED.canonical_settlement_created, pending_leaf_candidates.canonical_settlement_created),
+	bank_reference = COALESCE(EXCLUDED.bank_reference, pending_leaf_candidates.bank_reference),
+	client_reference = COALESCE(EXCLUDED.client_reference, pending_leaf_candidates.client_reference),
+	attachment_decision = COALESCE(EXCLUDED.attachment_decision, pending_leaf_candidates.attachment_decision),
+	match_confidence = COALESCE(EXCLUDED.match_confidence, pending_leaf_candidates.match_confidence),
+	value_date_check = COALESCE(EXCLUDED.value_date_check, pending_leaf_candidates.value_date_check),
+	amount_match = COALESCE(EXCLUDED.amount_match, pending_leaf_candidates.amount_match),
 	updated_at = NOW()
 `
 	}
@@ -117,6 +150,14 @@ DO UPDATE SET
 		leaf.RequiredFieldsStatus,
 		leaf.TokenizationStatus,
 		leaf.GovernanceDecision,
+		leaf.SettlementRecordReceived,
+		leaf.CanonicalSettlementCreated,
+		leaf.BankReference,
+		leaf.ClientReference,
+		leaf.AttachmentDecision,
+		leaf.MatchConfidence,
+		leaf.ValueDateCheck,
+		leaf.AmountMatch,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert leaf candidate: %w", err)
@@ -143,6 +184,9 @@ func (r *PostgresPendingLeafRepo) GetLeavesForIntent(ctx context.Context, tenant
 SELECT id, tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, item_ref, hash, schema_version, source_topic, 
        payment_instruction_received, canonical_intent_created, mapping_profile_used,
        required_fields_status, tokenization_status, governance_decision,
+       settlement_record_received, canonical_settlement_created, bank_reference,
+       client_reference, attachment_decision, match_confidence,
+       value_date_check, amount_match,
        created_at, updated_at
 FROM pending_leaf_candidates
 WHERE tenant_id = $1 AND intent_id = $2
@@ -160,6 +204,9 @@ WHERE tenant_id = $1 AND intent_id = $2
 			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.ContractID, &l.BatchID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic,
 			&l.PaymentInstructionReceived, &l.CanonicalIntentCreated, &l.MappingProfileUsed,
 			&l.RequiredFieldsStatus, &l.TokenizationStatus, &l.GovernanceDecision,
+			&l.SettlementRecordReceived, &l.CanonicalSettlementCreated, &l.BankReference,
+			&l.ClientReference, &l.AttachmentDecision, &l.MatchConfidence,
+			&l.ValueDateCheck, &l.AmountMatch,
 			&l.CreatedAt, &l.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -174,6 +221,9 @@ func (r *PostgresPendingLeafRepo) GetLeavesForBatch(ctx context.Context, tenantI
 SELECT id, tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, item_ref, hash, schema_version, source_topic,
        payment_instruction_received, canonical_intent_created, mapping_profile_used,
        required_fields_status, tokenization_status, governance_decision,
+       settlement_record_received, canonical_settlement_created, bank_reference,
+       client_reference, attachment_decision, match_confidence,
+       value_date_check, amount_match,
        created_at, updated_at
 FROM pending_leaf_candidates
 WHERE tenant_id = $1 AND batch_id = $2
@@ -191,6 +241,9 @@ WHERE tenant_id = $1 AND batch_id = $2
 			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.ContractID, &l.BatchID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic,
 			&l.PaymentInstructionReceived, &l.CanonicalIntentCreated, &l.MappingProfileUsed,
 			&l.RequiredFieldsStatus, &l.TokenizationStatus, &l.GovernanceDecision,
+			&l.SettlementRecordReceived, &l.CanonicalSettlementCreated, &l.BankReference,
+			&l.ClientReference, &l.AttachmentDecision, &l.MatchConfidence,
+			&l.ValueDateCheck, &l.AmountMatch,
 			&l.CreatedAt, &l.UpdatedAt,
 		); err != nil {
 			return nil, err

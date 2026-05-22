@@ -42,6 +42,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 	decisions []models.AttachmentDecision,
 	variances []models.VarianceRecord,
 	obsMap map[uuid.UUID]*models.CanonicalSettlementObservation,
+	parsedByRowRef map[string]*models.SettlementParsedRow,
 ) error {
 	log.Printf("attachment.outbox.start job=%s decisions=%d variances=%d",
 		job.AttachmentJobID, len(decisions), len(variances))
@@ -141,6 +142,10 @@ func (s *AttachmentOutboxService) EmitForJob(
 
 		bID := ""
 		tID := uuid.Nil
+
+		var bankRef, clientRefCandidate string
+		var obsCreatedAt time.Time
+		var parsedCreatedAt time.Time
 		if obs, ok := obsMap[d.SettlementObservationID]; ok {
 			bID = obs.ClientBatchID
 			if bID == "" && obs.BatchReference != nil {
@@ -155,6 +160,17 @@ func (s *AttachmentOutboxService) EmitForJob(
 			}
 			if obs.TraceID != nil {
 				tID = *obs.TraceID
+			}
+			if obs.BankReference != nil {
+				bankRef = *obs.BankReference
+			}
+			if obs.ClientReferenceCandidate != nil {
+				clientRefCandidate = *obs.ClientReferenceCandidate
+			}
+			obsCreatedAt = obs.CreatedAt
+
+			if pr, ok2 := parsedByRowRef[obs.SourceRowRef]; ok2 {
+				parsedCreatedAt = pr.CreatedAt
 			}
 		}
 
@@ -204,6 +220,12 @@ func (s *AttachmentOutboxService) EmitForJob(
 		if cID != uuid.Nil {
 			contractIDStr = cID.String()
 		}
+		var valueDateCheck bool
+        var amountMatch bool
+        if v, ok := varianceByDecision[d.AttachmentDecisionID]; ok {
+            valueDateCheck = v.ValueDateMismatchFlag
+            amountMatch = v.AmountVariance.IsZero()
+        }
 
 		payload := map[string]interface{}{
 			"event_id":                  uuid.New().String(),
@@ -231,6 +253,14 @@ func (s *AttachmentOutboxService) EmitForJob(
 			"score_margin":              d.ScoreMargin,
 			"candidate_set_hash":        d.CandidateSetHash,
 			"supporting_carriers":       d.SupportingCarriersJSON,
+			"settlement_record_received":   parsedCreatedAt.UTC().Format(time.RFC3339),
+            "canonical_settlement_created": obsCreatedAt.UTC().Format(time.RFC3339),
+            "bank_reference":               bankRef,
+            "client_reference":             clientRefCandidate,
+            "attachment_decision":          d.DecisionType,
+            "match_confidence":             d.ConfidenceScore,
+            "value_date_check":             valueDateCheck,
+            "amount_match":                 amountMatch,
 		}
 		// Attach variance summary inline when available (Service 6 convenience).
 		if v, ok := varianceByDecision[d.AttachmentDecisionID]; ok {
@@ -498,7 +528,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"total_variance_minor":         totalVariance.String(),
 		"ambiguity_score":              aggregateAmbiguity,
 		"batch_finality_status":        finalityStatus,
-		"job_status":                  job.Status,
+		"job_status":                   job.Status,
 	}
 	if err := s.insertEvent(ctx, job.TenantID, job.AttachmentJobID,
 		"", batchID,

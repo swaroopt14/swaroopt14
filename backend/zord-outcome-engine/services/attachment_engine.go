@@ -454,10 +454,6 @@ func (e *AttachmentEngine) runAttachment(
 	}
 
 	// ── Step 8: Emit downstream events (internal ops topics) ────────────
-	outboxSvc := &AttachmentOutboxService{}
-	if err := outboxSvc.EmitForJob(ctx, job, allDecisions, allVariances, obsMap); err != nil {
-		log.Printf("attachment.engine.outbox_failed job=%s err=%v", job.AttachmentJobID, err)
-	}
 
 	// ── Step 8b: Emit Merkle leaf bundles for zord-evidence ───────────────
 	// Load corresponding parsed rows so we can include raw_line_hash in Leaf 1.
@@ -466,6 +462,14 @@ func (e *AttachmentEngine) runAttachment(
 		log.Printf("attachment.engine.parsed_rows_load_warn job=%s err=%v (leaf 1 may be absent)", job.AttachmentJobID, err)
 		parsedByRowRef = map[string]*models.SettlementParsedRow{}
 	}
+
+
+	// ── Step 8a: Emit downstream events (internal ops topics) ────────────
+    outboxSvc := &AttachmentOutboxService{}
+    if err := outboxSvc.EmitForJob(ctx, job, allDecisions, allVariances, obsMap, parsedByRowRef); err != nil {
+        log.Printf("attachment.engine.outbox_failed job=%s err=%v", job.AttachmentJobID, err)
+    }
+	
 	if err := outboxSvc.EmitLeafBundlesForJob(ctx, job, allDecisions, allVariances, obsMap, parsedByRowRef); err != nil {
 		log.Printf("attachment.engine.leaf_bundle_failed job=%s err=%v", job.AttachmentJobID, err)
 	}

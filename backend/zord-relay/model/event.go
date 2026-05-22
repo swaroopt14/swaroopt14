@@ -62,6 +62,14 @@ type OutboxEvent struct {
 	ProofReadinessScore float64 `json:"proof_readiness_score,omitempty"`
 	BeneficiaryFingerprint string `json:"beneficiary_fingerprint,omitempty"`
 	IntendedExecutionAt *time.Time `json:"intended_execution_at,omitempty"`
+
+	RequiredFieldsStatus *bool `json:"required_fields_status,omitempty"`
+	TokenizationStatus *bool `json:"tokenization_status,omitempty"`
+	GovernanceDecision *string `json:"governance_decision,omitempty"`
+	MappingProfileID *string `json:"mapping_profile_used,omitempty"`
+
+	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`
+	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
 }
 
 // LeaseResponse is what the upstream /lease endpoint returns.

@@ -48,7 +48,7 @@ services:
     # PostgreSQL database service
     image: postgres:16-alpine # Docker image to use
     container_name: zord-edge-postgres # Container name
-    command: postgres -c 'max_connections=1100'
+    command: postgres -c 'max_connections=100'
     environment:
       # Database configuration
       - POSTGRES_USER=zord_user # Database superuser

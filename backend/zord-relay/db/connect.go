@@ -25,8 +25,8 @@ func Connect(dbURL string, maxOpen, maxIdle int) *sql.DB {
 
 	conn.SetMaxOpenConns(maxOpen)
 	conn.SetMaxIdleConns(maxIdle)
-	conn.SetConnMaxLifetime(5 * time.Minute)
-	conn.SetConnMaxIdleTime(2 * time.Minute)
+	conn.SetConnMaxLifetime(10 * time.Minute)
+	conn.SetConnMaxIdleTime(5 * time.Minute)
 
 	for attempt := 1; attempt <= 30; attempt++ {
 		if err = conn.Ping(); err == nil {

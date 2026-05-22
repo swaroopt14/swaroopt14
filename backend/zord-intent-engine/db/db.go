@@ -101,6 +101,21 @@ func CreateTables() error {
 		return err
 	}
 
+	if _, err := DB.Exec(`
+	CREATE INDEX IF NOT EXISTS idx_payment_intents_batchid
+	    ON payment_intents (batchid) WHERE batchid IS NOT NULL;
+	`); err != nil {
+		return err
+	}
+
+	if _, err := DB.Exec(`
+	CREATE INDEX IF NOT EXISTS idx_pi_tenant_canonical_created
+	    ON payment_intents (tenant_id, created_at DESC) 
+	    WHERE canonical_hash IS NOT NULL AND canonical_hash <> '';
+	`); err != nil {
+		return err
+	}
+
 	//Outbox (OWNED)
 	outbox := `
 	CREATE TABLE IF NOT EXISTS outbox (
@@ -240,6 +255,13 @@ func CreateTables() error {
 	);`
 
 	if _, err := DB.Exec(dlqItems); err != nil {
+		return err
+	}
+
+	if _, err := DB.Exec(`
+	CREATE INDEX IF NOT EXISTS idx_dlq_items_batch_id
+	    ON dlq_items (batch_id) WHERE batch_id IS NOT NULL;
+	`); err != nil {
 		return err
 	}
 

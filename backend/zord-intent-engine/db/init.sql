@@ -81,6 +81,8 @@ CREATE INDEX IF NOT EXISTS idx_payment_intents_envelope_id ON payment_intents(en
 CREATE INDEX IF NOT EXISTS idx_payment_intents_status ON payment_intents(status);
 CREATE INDEX IF NOT EXISTS idx_payment_intents_created_at ON payment_intents(created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_intents_business_idempotency_key ON payment_intents(tenant_id, business_idempotency_key);
+CREATE INDEX IF NOT EXISTS idx_payment_intents_batchid ON payment_intents(batchid) WHERE batchid IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_pi_tenant_canonical_created ON payment_intents(tenant_id, created_at DESC) WHERE canonical_hash IS NOT NULL AND canonical_hash <> '';
 
 -- ============================================================================
 -- OUTBOX TABLE
@@ -195,7 +197,8 @@ CREATE TABLE IF NOT EXISTS dlq_items (
     error_detail TEXT,
     replayable BOOLEAN NOT NULL,
     client_batch_ref TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    batch_id TEXT
 );
 
 -- Create indexes for DLQ analysis
@@ -203,7 +206,8 @@ CREATE INDEX IF NOT EXISTS idx_dlq_items_tenant_id ON dlq_items(tenant_id);
 CREATE INDEX IF NOT EXISTS idx_dlq_items_envelope_id ON dlq_items(envelope_id);
 CREATE INDEX IF NOT EXISTS idx_dlq_items_reason_code ON dlq_items(reason_code);
 CREATE INDEX IF NOT EXISTS idx_dlq_items_replayable ON dlq_items(replayable);
-CREATE INDEX IF NOT EXISTS idx_dlq_items_created_at ON dlq_items(created_at);-- ============================================================================
+CREATE INDEX IF NOT EXISTS idx_dlq_items_created_at ON dlq_items(created_at);
+CREATE INDEX IF NOT EXISTS idx_dlq_items_batch_id ON dlq_items(batch_id) WHERE batch_id IS NOT NULL;-- ============================================================================
 -- NORMALIZED INGEST RECORDS TABLE
 -- Stores raw-to-canonical mapping and field-level confidence
 -- ============================================================================

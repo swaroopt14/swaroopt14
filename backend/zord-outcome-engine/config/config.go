@@ -51,9 +51,10 @@ func InitDB() {
 			log.Fatalf("Database Ping Error after %d attempts: %v", maxRetries, err)
 		}
 	}
-	db.DB.SetMaxOpenConns(1000)
-	db.DB.SetMaxIdleConns(500)
-	db.DB.SetConnMaxLifetime(5 * time.Minute)
+	db.DB.SetMaxOpenConns(50)
+	db.DB.SetMaxIdleConns(20)
+	db.DB.SetConnMaxLifetime(10 * time.Minute)
+	db.DB.SetConnMaxIdleTime(5 * time.Minute)
 }
 
 func LoadConfig() *Config {

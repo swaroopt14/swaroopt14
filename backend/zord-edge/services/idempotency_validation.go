@@ -9,7 +9,6 @@ import (
 	"errors"
 	"log"
 
-	"zord-edge/db"
 	"zord-edge/model"
 
 	"github.com/google/uuid"
@@ -25,7 +24,7 @@ var ErrFingerprintMismatch = errors.New("IDEMPOTENCY_KEY_REUSE_WITH_DIFFERENT_PA
 //   - (uuid.Nil, nil)              → new key, proceed normally
 //   - (firstEnvelopeID, nil)       → exact duplicate (same fingerprint), return 409
 //   - (uuid.Nil, ErrFingerprintMismatch) → same key, different payload, hard reject
-func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.UUID, error) {
+func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage, db *sql.DB) (uuid.UUID, error) {
 
 	if msg.IdempotencyKey == "" {
 		log.Print("Idempotency key is missing, skipping idempotency validation")
@@ -40,7 +39,7 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 		VALUES ($1, $2, 'RESERVED', $3, now(), now(), 'CREATED', now() + interval '1 hour')
 		ON CONFLICT (tenant_id, idempotency_key) DO NOTHING
 	`
-	res, err := db.DB.ExecContext(ctx, insertQuery,
+	res, err := db.ExecContext(ctx, insertQuery,
 		msg.TenantID,
 		msg.IdempotencyKey,
 		msg.RequestFingerprint,
@@ -73,7 +72,7 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 		FROM idempotency_keys
 		WHERE tenant_id = $1 AND idempotency_key = $2
 	`
-	err = db.DB.QueryRowContext(ctx, selectQuery, msg.TenantID, msg.IdempotencyKey).
+	err = db.QueryRowContext(ctx, selectQuery, msg.TenantID, msg.IdempotencyKey).
 		Scan(&storedFingerprint, &firstEnvelopeID, &conflictCount, &principalID, &sourceClass)
 	if err != nil {
 		log.Printf("Error fetching stored idempotency record: %v", err)
@@ -102,7 +101,7 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 		var pID uuid.UUID
 		var sc string
 		metaQuery := `SELECT principal_id, source_class FROM ingress_envelopes WHERE envelope_id = $1`
-		err = db.DB.QueryRowContext(ctx, metaQuery, firstEnvelopeID.UUID).Scan(&pID, &sc)
+		err = db.QueryRowContext(ctx, metaQuery, firstEnvelopeID.UUID).Scan(&pID, &sc)
 		if err == nil {
 			updateFields += ", principal_id_first_seen = $5, source_class_first_seen = $6"
 			updateArgs = append(updateArgs, pID, sc)
@@ -119,7 +118,7 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 			SET last_seen_at = now(), resolution_type = 'REUSED', ` + updateFields + `
 			WHERE tenant_id = $3 AND idempotency_key = $4
 		`
-		_, _ = db.DB.ExecContext(ctx, finalUpdateQuery, updateArgs...)
+		_, _ = db.ExecContext(ctx, finalUpdateQuery, updateArgs...)
 
 		log.Printf("Duplicate idempotency key with same fingerprint: tenant_id=%s key=%s envelope_id=%v",
 			msg.TenantID, msg.IdempotencyKey, firstEnvelopeID.UUID.String())
@@ -136,7 +135,7 @@ func PersistIdempotency(ctx context.Context, msg model.RawIntentMessage) (uuid.U
 		SET ` + updateFields + `
 		WHERE tenant_id = $3 AND idempotency_key = $4
 	`
-	_, _ = db.DB.ExecContext(ctx, finalUpdateQuery, updateArgs...)
+	_, _ = db.ExecContext(ctx, finalUpdateQuery, updateArgs...)
 
 	log.Printf("Idempotency key reused with different payload: tenant_id=%s key=%s",
 		msg.TenantID, msg.IdempotencyKey)

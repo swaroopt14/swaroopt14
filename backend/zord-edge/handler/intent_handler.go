@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"zord-edge/db"
 	"zord-edge/model"
 	"zord-edge/services"
 	"zord-edge/vault"
@@ -41,7 +42,7 @@ func (h *Handler) IntentHandler(context *gin.Context) {
 		RequestFingerprint: fingerprint,
 	}
 
-	id, err := services.PersistIdempotency(context.Request.Context(), rawIntent)
+	id, err := services.PersistIdempotency(context.Request.Context(), rawIntent, db.DB)
 	if err != nil {
 		if errors.Is(err, services.ErrFingerprintMismatch) {
 			context.JSON(http.StatusBadRequest, gin.H{

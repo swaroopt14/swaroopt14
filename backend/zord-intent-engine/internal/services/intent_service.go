@@ -1341,6 +1341,8 @@ func (s *IntentService) ProcessIncomingIntent(
 		Beneficiary:            beneficiaryJSON,
 		Status:                 "CREATED",
 		CreatedAt:              time.Now().UTC(),
+		PaymentInstructionReceived: &in.ReceivedAt,
+		CanonicalIntentCreated:    func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
 		ProviderHint:           canonicalInput.ProviderHint,
 		ClientBatchRef:         batchIDStr,
@@ -1410,6 +1412,8 @@ func (s *IntentService) ProcessIncomingIntent(
 
 		Status:    "CREATED",
 		CreatedAt: time.Now().UTC(),
+		PaymentInstructionReceived: &in.ReceivedAt,
+		CanonicalIntentCreated:    func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 
 		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
 		ProviderHint:          canonicalInput.ProviderHint,
@@ -1770,6 +1774,8 @@ func (s *IntentService) ProcessTokenizeResult(
 		Beneficiary:            beneficiaryJSON,
 		Status:                 "CREATED",
 		CreatedAt:              time.Now().UTC(),
+		PaymentInstructionReceived: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		CanonicalIntentCreated:    func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
 		ProviderHint:           canonicalInput.ProviderHint,
 		ClientBatchRef:         batchIDStr,
@@ -1832,6 +1838,8 @@ func (s *IntentService) ProcessTokenizeResult(
 
 		Status:    "CREATED",
 		CreatedAt: time.Now().UTC(),
+		PaymentInstructionReceived: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		CanonicalIntentCreated:    func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 
 		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
 		ProviderHint:          canonicalInput.ProviderHint,

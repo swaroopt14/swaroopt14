@@ -85,7 +85,13 @@ leased AS (
 		o.batchid,
 		o.canonical_hash,
 		o.governance_state,
-		o.governance_hash
+		o.governance_hash,
+		o.mapping_profile_id,
+		o.required_fields_status,
+		o.tokenization_status,
+		o.governance_decision,
+		o.payment_instruction_received,
+		o.canonical_intent_created
 )
 SELECT
 	event_id,
@@ -110,7 +116,13 @@ SELECT
 	batchid,
 	canonical_hash,
 	governance_state,
-	governance_hash
+	governance_hash,
+	mapping_profile_id,
+	required_fields_status,
+	tokenization_status,
+	governance_decision,
+	payment_instruction_received,
+	canonical_intent_created
 FROM leased
 ORDER BY created_at ASC;
 `
@@ -157,6 +169,12 @@ ORDER BY created_at ASC;
 			&canonicalHash,
 			&governanceState,
 			&governanceHash,
+			&evt.MappingProfileID,
+			&evt.RequiredFieldsStatus,
+			&evt.TokenizationStatus,
+			&evt.GovernanceDecision,
+			&evt.PaymentInstructionReceived,
+			&evt.CanonicalIntentCreated,
 		); err != nil {
 			return "", nil, nil, err
 		}

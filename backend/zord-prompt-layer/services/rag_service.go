@@ -48,7 +48,9 @@ type queryClass string
 
 const (
 	classOperational queryClass = "operational_data_query"
-	classGeneral     queryClass = "general_product_or_greeting"
+	classProduct     queryClass = "product_explanation"
+	classNavigation  queryClass = "navigation_or_how_to"
+	classEvidence    queryClass = "evidence_or_dispute_query"
 	classOutOfScope  queryClass = "out_of_scope"
 	classUnknown     queryClass = "unknown"
 )
@@ -84,12 +86,12 @@ func classifyDeterministic(q string) queryClass {
 	if strings.Contains(s, "hello") || strings.Contains(s, "hi ") || s == "hi" ||
 		strings.Contains(s, "good morning") || strings.Contains(s, "good evening") ||
 		strings.Contains(s, "how are you") {
-		return classGeneral
+		return classProduct
 	}
 	if strings.Contains(s, "what is zord") || strings.Contains(s, "how does zord work") ||
 		strings.Contains(s, "how it works") || strings.Contains(s, "what is payment intent") ||
 		strings.Contains(s, "what are payment intents") {
-		return classGeneral
+		return classProduct
 	}
 	operationalHints := []string{"intent", "payment", "payout", "retry", "failure", "status", "sla", "batch", "csv", "callback", "proof", "tenant"}
 	for _, h := range operationalHints {
@@ -104,12 +106,16 @@ func mapLLMClass(c string) queryClass {
 	switch c {
 	case "operational_data_query":
 		return classOperational
-	case "general_product_or_greeting":
-		return classGeneral
+	case "product_explanation":
+		return classProduct
+	case "navigation_or_how_to":
+		return classNavigation
+	case "evidence_or_dispute_query":
+		return classEvidence
 	case "out_of_scope":
 		return classOutOfScope
 	default:
-		return classGeneral
+		return classProduct
 	}
 }
 
@@ -181,17 +187,31 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		dec, err := s.llm.ClassifyQueryIntent(req.Query)
 		if err != nil {
 			log.Printf("[prompt-layer][classify] llm-classifier failed err=%v; defaulting general", err)
-			class = classGeneral
+			class = classProduct
 		} else if dec.Confidence >= 0.60 {
 			class = mapLLMClass(dec.Class)
 		} else {
-			class = classGeneral
+			class = classProduct
 		}
 	}
 	log.Printf("[prompt-layer][classify] class=%s tenant=%s", class, req.TenantID)
 
-	if class == classGeneral {
-		return buildGeneralResponse(), nil
+	if class == classProduct {
+		txt, err := s.llm.GenerateProductExplanation(req.Query)
+		if err != nil {
+			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", err)
+		}
+		answer := utils.SanitizeAnswerText(txt)
+		if strings.TrimSpace(answer) == "" || uuidLeakRe.MatchString(answer) {
+			answer = buildGeneralResponse().Answer
+		}
+		return dto.QueryResponse{
+			Answer:        answer,
+			Confidence:    "high",
+			EntitiesFound: dto.EntitiesFound{},
+			Citations:     []dto.Citation{},
+			NextActions:   []string{},
+		}, nil
 	}
 	if class == classOutOfScope {
 		return buildOutOfScopeResponse(), nil
@@ -304,16 +324,74 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		}
 	}
 	context := ""
+
 	if strings.TrimSpace(historyContext) != "" {
 		context += "[CHAT_HISTORY_CONTEXT]\n" + historyContext + "\n"
 	}
-	context += buildContext(chunks)
+	context += buildBusinessContext(chunks)
 	if strings.TrimSpace(rcaContext) != "" {
 		context += "\n[RCA_CONTEXT]\n" + rcaContext + "\n"
 	}
-	llmOut, err := s.llm.GenerateFromContextScopedWithConfidence(req.Query, context, scope.WantsVisualization)
-	if err != nil {
-		return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", err)
+	var llmOut AnswerWithConfidence
+	if class == classNavigation {
+		txt, navErr := s.llm.GenerateNavigationHowTo(req.Query, context)
+		if navErr != nil {
+			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", navErr)
+		}
+		answer := utils.SanitizeAnswerText(txt)
+		answer = utils.StripActionLikeSections(answer)
+		if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
+			answer = "I don't see that action available in the current workspace."
+		}
+		return dto.QueryResponse{
+			Answer:        answer,
+			Confidence:    "high",
+			EntitiesFound: entities,
+			Citations:     []dto.Citation{},
+			NextActions:   nextActions,
+		}, nil
+	}
+	if class == classEvidence {
+		ev, evErr := s.llm.GenerateEvidenceJSON(req.Query, context)
+		if evErr != nil {
+			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", evErr)
+		}
+		answer := utils.SanitizeAnswerText(ev.Answer)
+		answer = utils.StripActionLikeSections(answer)
+		if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
+			return dto.QueryResponse{
+				Answer:        "**I can share a safe proof-status summary only**\n- Sensitive identifiers or secure values were removed from the response.\n- Ask for available proof items, missing proof items, and export readiness.",
+				Confidence:    "low",
+				EntitiesFound: dto.EntitiesFound{},
+				Citations:     []dto.Citation{},
+				NextActions:   []string{},
+			}, nil
+		}
+		return dto.QueryResponse{
+			Answer:        answer,
+			Confidence:    ev.Confidence,
+			EntitiesFound: entities,
+			Citations:     []dto.Citation{},
+			NextActions:   utils.SanitizeActions(ev.NextSteps),
+		}, nil
+	}
+
+	visRule := "needed=false"
+	if scope.WantsVisualization {
+		visRule = "needed=true"
+	}
+	op, opErr := s.llm.GenerateOperationalJSON(req.Query, context, visRule)
+	if opErr != nil {
+		return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", opErr)
+	}
+	llmOut = AnswerWithConfidence{
+		Answer:            op.Answer,
+		Confidence:        op.Confidence,
+		ConfidenceScore:   op.ConfidenceScore,
+		EvidenceCoverage:  op.EvidenceCoverage,
+		ScopeAdherence:    op.ScopeAdherence,
+		ContradictionRisk: op.ContradictionRisk,
+		Ambiguity:         op.Ambiguity,
 	}
 
 	answer := utils.SanitizeAnswerText(llmOut.Answer)
@@ -381,7 +459,24 @@ func buildContext(chunks []model.RetrievedChunk) string {
 	}
 	return b.String()
 }
-
+func buildBusinessContext(chunks []model.RetrievedChunk) string {
+	raw := buildContext(chunks)
+	replacements := map[string]string{
+		"ambiguous_intent_count":      "Payments needing match review",
+		"ambiguity_rate":              "Review rate",
+		"provider_ref_missing_rate":   "Missing bank/PSP reference rate",
+		"avg_attachment_confidence":   "Average match confidence",
+		"risk_adjusted_leakage_minor": "Value needing review",
+		"intent":                      "payment instruction",
+		"settlement observation":      "bank/settlement record",
+		"defensibility":               "proof readiness",
+	}
+	out := raw
+	for k, v := range replacements {
+		out = strings.ReplaceAll(out, k, v)
+	}
+	return out
+}
 func toCitations(chunks []model.RetrievedChunk) []dto.Citation {
 	out := make([]dto.Citation, 0, len(chunks))
 	for _, c := range chunks {

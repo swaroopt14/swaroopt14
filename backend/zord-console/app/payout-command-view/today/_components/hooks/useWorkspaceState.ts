@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAuth } from '@/app/hooks'
 import { workspacePromptCopy, type WorkspaceTab } from '@/services/payout-command/model'
 import {
   mapPromptLayerAnswer,
@@ -124,6 +125,7 @@ export function useWorkspaceState(
   setSelectedSuggestion: (label: string | null) => void,
 ): WorkspaceState {
   const { tenantId, tenantReady } = useSessionTenant()
+  const { user, isLoading: authLoading } = useAuth()
   const storageKey = `${THREADS_STORAGE_PREFIX}${tenantId.trim() || 'anonymous'}`
 
   const [threads, setThreads] = useState<WorkspaceChatThread[]>([])
@@ -232,9 +234,9 @@ export function useWorkspaceState(
       const suggestions = workspacePromptCopy[activeTab].suggestions as readonly string[]
       setSelectedSuggestion(suggestions.includes(cleaned) ? cleaned : null)
       setPromptInput('')
+      const threadId = activeThreadId ?? newThreadId()
       const existingThread = threads.find((t) => t.id === threadId)
       const threadSessionId = existingThread?.sessionId || newSessionId()
-      const threadId = activeThreadId ?? newThreadId()
       if (!activeThreadId) setActiveThreadId(threadId)
 
       const requestId = ++requestIdRef.current
@@ -304,6 +306,13 @@ export function useWorkspaceState(
       }
 
       try {
+        const userId = user?.id?.trim()
+        if (authLoading) {
+          throw new Error('User session is still loading. Please retry in a moment.')
+        }
+        if (!userId) {
+          throw new Error('Missing user context. Please login again.')
+        }
         const result = await postPromptLayerQuery(
           {
             query: cleaned,
@@ -313,7 +322,7 @@ export function useWorkspaceState(
             tenantId: tenantGate.tenantId,
             sessionId: threadSessionId,
             // optional, backend falls back to JWT if missing
-            userId: undefined,
+            userId,
           },
         )
 
@@ -394,6 +403,8 @@ export function useWorkspaceState(
       tenantId,
       tenantReady,
       upsertActiveThread,
+      user?.id,
+      authLoading
     ],
   )
 

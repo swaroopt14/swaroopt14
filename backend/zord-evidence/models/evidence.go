@@ -16,10 +16,10 @@ const (
 	LeafTypeRawSettlementFile              = "RAW_SETTLEMENT_FILE"
 	LeafTypeFinalEvidenceView              = "FINAL_EVIDENCE_VIEW"
 
-	LeafTypeBatchAttachmentSummary         = "BATCH_ATTACHMENT_SUMMARY"
-	LeafTypeBatchVarianceSummary           = "BATCH_VARIANCE_SUMMARY"
-	LeafTypeCanonicalBatch                 = "CANONICAL_BATCH"
-	LeafTypeFileContentHash                = "FILE_CONTENT_HASH"
+	LeafTypeBatchAttachmentSummary = "BATCH_ATTACHMENT_SUMMARY"
+	LeafTypeBatchVarianceSummary   = "BATCH_VARIANCE_SUMMARY"
+	LeafTypeCanonicalBatch         = "CANONICAL_BATCH"
+	LeafTypeFileContentHash        = "FILE_CONTENT_HASH"
 )
 
 // RequiredLeafTypes are the 8 externally-supplied leaves that must be present
@@ -60,6 +60,15 @@ type PendingLeafCandidate struct {
 	Hash          string    `json:"hash" db:"hash"`
 	SchemaVersion string    `json:"schema_version" db:"schema_version"`
 	SourceTopic   string    `json:"source_topic" db:"source_topic"`
+
+	// 🆕 Metadata carried from RelayEvent
+	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty" db:"payment_instruction_received"`
+	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty" db:"canonical_intent_created"`
+	MappingProfileUsed        *string    `json:"mapping_profile_used,omitempty" db:"mapping_profile_used"`
+	RequiredFieldsStatus      *bool      `json:"required_fields_status,omitempty" db:"required_fields_status"`
+	TokenizationStatus        *bool      `json:"tokenization_status,omitempty" db:"tokenization_status"`
+	GovernanceDecision        *string    `json:"governance_decision,omitempty" db:"governance_decision"`
+
 	CreatedAt     time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -67,22 +76,29 @@ type PendingLeafCandidate struct {
 // RelayEvent is a compatible subset of the normalized outbox event
 // published by zord-relay to Kafka.
 type RelayEvent struct {
-	EventID         string          `json:"event_id"`
-	TraceID         string          `json:"trace_id"`
-	EnvelopeID      string          `json:"envelope_id"`
-	TenantID        string          `json:"tenant_id"`
-	AggregateType   string          `json:"aggregate_type"`
-	AggregateID     string          `json:"aggregate_id"`
-	ContractID      string          `json:"contract_id,omitempty"`
-	EventType       string          `json:"event_type"`
-	Payload         json.RawMessage `json:"payload"`
-	EnvelopeHash    string          `json:"envelope_hash,omitempty"`
-	CanonicalHash   string          `json:"canonical_hash,omitempty"`
-	GovernanceState string          `json:"governance_state,omitempty"`
-	GovernanceHash  string          `json:"governance_hash,omitempty"`
-	PayloadHash     string          `json:"payload_hash,omitempty"`
-	FileContentHash string          `json:"file_content_hash,omitempty"`
-	BatchID         string          `json:"batchid,omitempty"`
+	EventID              string          `json:"event_id"`
+	TraceID              string          `json:"trace_id"`
+	EnvelopeID           string          `json:"envelope_id"`
+	TenantID             string          `json:"tenant_id"`
+	AggregateType        string          `json:"aggregate_type"`
+	AggregateID          string          `json:"aggregate_id"`
+	ContractID           string          `json:"contract_id,omitempty"`
+	EventType            string          `json:"event_type"`
+	Payload              json.RawMessage `json:"payload"`
+	EnvelopeHash         string          `json:"envelope_hash,omitempty"`
+	CanonicalHash        string          `json:"canonical_hash,omitempty"`
+	GovernanceState      string          `json:"governance_state,omitempty"`
+	GovernanceHash       string          `json:"governance_hash,omitempty"`
+	PayloadHash          string          `json:"payload_hash,omitempty"`
+	FileContentHash      string          `json:"file_content_hash,omitempty"`
+	BatchID              string          `json:"batchid,omitempty"`
+	MappingProfileID     *string         `json:"mapping_profile_used,omitempty"`
+	RequiredFieldsStatus *bool            `json:"required_fields_status,omitempty"`
+	TokenizationStatus   *bool            `json:"tokenization_status,omitempty"`
+	GovernanceDecision   *string          `json:"governance_decision,omitempty"`
+
+	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`
+	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
 }
 
 // EvidenceItem is one proof artifact that becomes a typed leaf in the Merkle tree.
@@ -105,25 +121,34 @@ type Signature struct {
 // EvidencePack is the canonical committed proof bundle for one lifecycle.
 // Mode: INTELLIGENCE_ATTACH | SECONDARY_DISPATCH | FULL_CONTROL
 type EvidencePack struct {
-	EvidencePackID                        string            `json:"evidence_pack_id"`
-	TenantID                              string            `json:"tenant_id"`
-	IntentID                              string            `json:"intent_id"`
-	ContractID                            string            `json:"contract_id"`
-	BatchID                               string            `json:"batch_id"`
-	Mode                                  string            `json:"mode"`
-	PackStatus                            string            `json:"pack_status"`
-	Items                                 []EvidenceItem    `json:"items"`
-	MerkleRoot                            string            `json:"merkle_root"`
-	RulesetVersion                        string            `json:"ruleset_version"`
-	SchemaVersions                        map[string]string `json:"schema_versions"`
-	Signatures                            []Signature       `json:"signatures"`
-	SupersedesPackID                      string            `json:"supersedes_pack_id,omitempty"`
-	PackCompletenessScore                 float64           `json:"pack_completeness_score"`
-	LeafCount                             int               `json:"leaf_count"`
-	RequiredLeafCount                     int               `json:"required_leaf_count"`
-	SettlementLeafPresentFlag             bool              `json:"settlement_leaf_present_flag"`
-	AttachmentDecisionLeafPresentFlag     bool              `json:"attachment_decision_leaf_present_flag"`
-	CreatedAt                             time.Time         `json:"created_at"`
+	EvidencePackID                    string            `json:"evidence_pack_id"`
+	TenantID                          string            `json:"tenant_id"`
+	IntentID                          string            `json:"intent_id"`
+	ContractID                        string            `json:"contract_id"`
+	BatchID                           string            `json:"batch_id"`
+	Mode                              string            `json:"mode"`
+	PackStatus                        string            `json:"pack_status"`
+	Items                             []EvidenceItem    `json:"items"`
+	MerkleRoot                        string            `json:"merkle_root"`
+	RulesetVersion                    string            `json:"ruleset_version"`
+	SchemaVersions                    map[string]string `json:"schema_versions"`
+	Signatures                        []Signature       `json:"signatures"`
+	SupersedesPackID                  string            `json:"supersedes_pack_id,omitempty"`
+	PackCompletenessScore             float64           `json:"pack_completeness_score"`
+	LeafCount                         int               `json:"leaf_count"`
+	RequiredLeafCount                 int               `json:"required_leaf_count"`
+	SettlementLeafPresentFlag         bool              `json:"settlement_leaf_present_flag"`
+	AttachmentDecisionLeafPresentFlag bool              `json:"attachment_decision_leaf_present_flag"`
+
+	// 🆕 Traceability & Status Fields
+	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`
+	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
+	MappingProfileUsed        *string    `json:"mapping_profile_used,omitempty"`
+	RequiredFieldsStatus      *bool      `json:"required_fields_status,omitempty"`
+	TokenizationStatus        *bool      `json:"tokenization_status,omitempty"`
+	GovernanceDecision        *string    `json:"governance_decision,omitempty"`
+
+	CreatedAt                         time.Time         `json:"created_at"`
 }
 
 func (p *EvidencePack) ComputeCompletenessMetadata() {
@@ -188,6 +213,15 @@ type GenerateEvidenceRequest struct {
 	RulesetVersion   string            `json:"ruleset_version" binding:"required"`
 	SchemaVersions   map[string]string `json:"schema_versions" binding:"required"`
 	SupersedesPackID string            `json:"supersedes_pack_id"`
+
+	// 🆕 Traceability & Status Fields
+	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`
+	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
+	MappingProfileUsed        *string    `json:"mapping_profile_used,omitempty"`
+	RequiredFieldsStatus      *bool      `json:"required_fields_status,omitempty"`
+	TokenizationStatus        *bool      `json:"tokenization_status,omitempty"`
+	GovernanceDecision        *string    `json:"governance_decision,omitempty"`
+
 	Items            []EvidenceItem    `json:"items" binding:"required"`
 }
 
@@ -238,22 +272,31 @@ type ListPacksResponse struct {
 }
 
 type EvidencePackSummary struct {
-	EvidencePackID                        string    `json:"evidence_pack_id"`
-	TenantID                              string    `json:"tenant_id"`
-	IntentID                              string    `json:"intent_id"`
-	ContractID                            string    `json:"contract_id"`
-	BatchID                               string    `json:"batch_id,omitempty"`
-	Mode                                  string    `json:"mode"`
-	PackStatus                            string    `json:"pack_status"`
-	MerkleRoot                            string    `json:"merkle_root"`
-	RulesetVersion                        string    `json:"ruleset_version"`
-	SupersedesPackID                      string    `json:"supersedes_pack_id,omitempty"`
-	PackCompletenessScore                 float64   `json:"pack_completeness_score"`
-	LeafCount                             int       `json:"leaf_count"`
-	RequiredLeafCount                     int       `json:"required_leaf_count"`
-	SettlementLeafPresentFlag             bool      `json:"settlement_leaf_present_flag"`
-	AttachmentDecisionLeafPresentFlag     bool      `json:"attachment_decision_leaf_present_flag"`
-	CreatedAt                             time.Time `json:"created_at"`
+	EvidencePackID                    string    `json:"evidence_pack_id"`
+	TenantID                          string    `json:"tenant_id"`
+	IntentID                          string    `json:"intent_id"`
+	ContractID                        string    `json:"contract_id"`
+	BatchID                           string    `json:"batch_id,omitempty"`
+	Mode                              string    `json:"mode"`
+	PackStatus                        string    `json:"pack_status"`
+	MerkleRoot                        string    `json:"merkle_root"`
+	RulesetVersion                    string    `json:"ruleset_version"`
+	SupersedesPackID                  string    `json:"supersedes_pack_id,omitempty"`
+	PackCompletenessScore             float64   `json:"pack_completeness_score"`
+	LeafCount                         int       `json:"leaf_count"`
+	RequiredLeafCount                 int       `json:"required_leaf_count"`
+	SettlementLeafPresentFlag         bool      `json:"settlement_leaf_present_flag"`
+	AttachmentDecisionLeafPresentFlag bool      `json:"attachment_decision_leaf_present_flag"`
+
+	// 🆕 Traceability & Status Fields
+	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`
+	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
+	MappingProfileUsed        *string    `json:"mapping_profile_used,omitempty"`
+	RequiredFieldsStatus      *bool      `json:"required_fields_status,omitempty"`
+	TokenizationStatus        *bool      `json:"tokenization_status,omitempty"`
+	GovernanceDecision        *string    `json:"governance_decision,omitempty"`
+
+	CreatedAt                         time.Time `json:"created_at"`
 }
 
 // ReplayJob is the §14.5 evidence_replay_jobs row.

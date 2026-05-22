@@ -43,8 +43,11 @@ INSERT INTO evidence_packs(
 	evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status, merkle_root,
 	ruleset_version, schema_versions_json, signature_alg, signature_value, object_ref,
 	supersedes_pack_id, pack_completeness_score, leaf_count, required_leaf_count,
-	settlement_leaf_present_flag, attachment_decision_leaf_present_flag, created_at, updated_at
-) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+	settlement_leaf_present_flag, attachment_decision_leaf_present_flag, 
+	payment_instruction_received, canonical_intent_created, mapping_profile_used,
+	required_fields_status, tokenization_status, governance_decision,
+	created_at, updated_at
+) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27)`,
 		pack.EvidencePackID,
 		pack.TenantID,
 		nullStr(pack.IntentID),
@@ -64,6 +67,12 @@ INSERT INTO evidence_packs(
 		pack.RequiredLeafCount,
 		pack.SettlementLeafPresentFlag,
 		pack.AttachmentDecisionLeafPresentFlag,
+		pack.PaymentInstructionReceived,
+		pack.CanonicalIntentCreated,
+		pack.MappingProfileUsed,
+		pack.RequiredFieldsStatus,
+		pack.TokenizationStatus,
+		pack.GovernanceDecision,
 		pack.CreatedAt,
 		pack.CreatedAt,
 	)
@@ -146,6 +155,8 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 	             ruleset_version, schema_versions_json, signature_alg, signature_value,
 	             object_ref, supersedes_pack_id, pack_completeness_score, leaf_count,
 	             required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+	             payment_instruction_received, canonical_intent_created, mapping_profile_used,
+	             required_fields_status, tokenization_status, governance_decision,
 	             created_at
 	      FROM evidence_packs WHERE evidence_pack_id=$1`
 	err := r.db.QueryRowContext(ctx, q, packID).Scan(
@@ -154,6 +165,8 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 		&sigAlg, &signature, &objectRef, &supersedesPackID,
 		&pack.PackCompletenessScore, &pack.LeafCount, &pack.RequiredLeafCount,
 		&pack.SettlementLeafPresentFlag, &pack.AttachmentDecisionLeafPresentFlag,
+		&pack.PaymentInstructionReceived, &pack.CanonicalIntentCreated, &pack.MappingProfileUsed,
+		&pack.RequiredFieldsStatus, &pack.TokenizationStatus, &pack.GovernanceDecision,
 		&createdAt,
 	)
 	if err != nil {
@@ -207,6 +220,8 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
 		       merkle_root, ruleset_version, supersedes_pack_id, pack_completeness_score, leaf_count,
 		       required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+		       payment_instruction_received, canonical_intent_created, mapping_profile_used,
+		       required_fields_status, tokenization_status, governance_decision,
 		       created_at
 		FROM evidence_packs
 		WHERE tenant_id=$1 AND intent_id=$2
@@ -225,6 +240,8 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid,
 			&s.PackCompletenessScore, &s.LeafCount, &s.RequiredLeafCount,
 			&s.SettlementLeafPresentFlag, &s.AttachmentDecisionLeafPresentFlag,
+			&s.PaymentInstructionReceived, &s.CanonicalIntentCreated, &s.MappingProfileUsed,
+			&s.RequiredFieldsStatus, &s.TokenizationStatus, &s.GovernanceDecision,
 			&s.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -252,6 +269,8 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
 		       merkle_root, ruleset_version, supersedes_pack_id, pack_completeness_score, leaf_count,
 		       required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+		       payment_instruction_received, canonical_intent_created, mapping_profile_used,
+		       required_fields_status, tokenization_status, governance_decision,
 		       created_at
 		FROM evidence_packs
 		WHERE tenant_id=$1 AND batch_id=$2
@@ -270,6 +289,8 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid,
 			&s.PackCompletenessScore, &s.LeafCount, &s.RequiredLeafCount,
 			&s.SettlementLeafPresentFlag, &s.AttachmentDecisionLeafPresentFlag,
+			&s.PaymentInstructionReceived, &s.CanonicalIntentCreated, &s.MappingProfileUsed,
+			&s.RequiredFieldsStatus, &s.TokenizationStatus, &s.GovernanceDecision,
 			&s.CreatedAt,
 		); err != nil {
 			return nil, err

@@ -151,17 +151,39 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 
 	log.Printf("evidence.service.readiness_check intent=%s ALL_LEAVES_PRESENT — triggering generation", intentID)
 
+	// 5d. Extract traceability metadata from leaves
+	var pir, cic *time.Time
+	var mpu, gd *string
+	var rfs, ts *bool
+	for _, l := range leaves {
+		if l.PaymentInstructionReceived != nil {
+			pir = l.PaymentInstructionReceived
+			cic = l.CanonicalIntentCreated
+			mpu = l.MappingProfileUsed
+			rfs = l.RequiredFieldsStatus
+			ts = l.TokenizationStatus
+			gd = l.GovernanceDecision
+			break
+		}
+	}
+
 	// 6. Generate the pack!
 	req := models.GenerateEvidenceRequest{
-		TenantID:       tenantID,
-		IntentID:       intentID,
-		EnvelopeID:     envelopeID,
-		TraceID:        traceID,
-		ContractID:     contractID,
-		Mode:           "INTELLIGENCE_ATTACH",
-		RulesetVersion: "v1",
-		SchemaVersions: map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
-		Items:          items,
+		TenantID:                   tenantID,
+		IntentID:                   intentID,
+		EnvelopeID:                 envelopeID,
+		TraceID:                    traceID,
+		ContractID:                 contractID,
+		Mode:                       "INTELLIGENCE_ATTACH",
+		RulesetVersion:             "v1",
+		SchemaVersions:             map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
+		Items:                      items,
+		PaymentInstructionReceived: pir,
+		CanonicalIntentCreated:    cic,
+		MappingProfileUsed:        mpu,
+		RequiredFieldsStatus:      rfs,
+		TokenizationStatus:        ts,
+		GovernanceDecision:        gd,
 	}
 
 	_, err = s.GeneratePack(ctx, req)
@@ -222,15 +244,37 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 
 	log.Printf("evidence.service.batch_readiness_check batch=%s ALL_LEAVES_PRESENT — triggering generation", batchID)
 
+	// Extract traceability metadata from leaves
+	var pir, cic *time.Time
+	var mpu, gd *string
+	var rfs, ts *bool
+	for _, l := range leaves {
+		if l.PaymentInstructionReceived != nil {
+			pir = l.PaymentInstructionReceived
+			cic = l.CanonicalIntentCreated
+			mpu = l.MappingProfileUsed
+			rfs = l.RequiredFieldsStatus
+			ts = l.TokenizationStatus
+			gd = l.GovernanceDecision
+			break
+		}
+	}
+
 	// Generate the pack!
 	req := models.GenerateEvidenceRequest{
-		TenantID:       tenantID,
-		BatchID:        batchID,
-		TraceID:        "00000000-0000-0000-0000-000000000000", // or fetch from context/leaf if available
-		Mode:           "BATCH_ATTACH",
-		RulesetVersion: "v1",
-		SchemaVersions: map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
-		Items:          items,
+		TenantID:                   tenantID,
+		BatchID:                    batchID,
+		TraceID:                    "00000000-0000-0000-0000-000000000000", // or fetch from context/leaf if available
+		Mode:                       "BATCH_ATTACH",
+		RulesetVersion:             "v1",
+		SchemaVersions:             map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
+		Items:                      items,
+		PaymentInstructionReceived: pir,
+		CanonicalIntentCreated:    cic,
+		MappingProfileUsed:        mpu,
+		RequiredFieldsStatus:      rfs,
+		TokenizationStatus:        ts,
+		GovernanceDecision:        gd,
 	}
 
 	_, err = s.GenerateBatchPack(ctx, req)
@@ -322,6 +366,12 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 			Sig:      sig,
 			SignedAt: now,
 		}},
+		PaymentInstructionReceived: req.PaymentInstructionReceived,
+		CanonicalIntentCreated:    req.CanonicalIntentCreated,
+		MappingProfileUsed:        req.MappingProfileUsed,
+		RequiredFieldsStatus:      req.RequiredFieldsStatus,
+		TokenizationStatus:        req.TokenizationStatus,
+		GovernanceDecision:        req.GovernanceDecision,
 		CreatedAt: now,
 	}
 

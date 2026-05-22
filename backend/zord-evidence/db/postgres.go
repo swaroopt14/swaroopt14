@@ -43,6 +43,12 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			hash           TEXT        NOT NULL,
 			schema_version TEXT        NOT NULL DEFAULT 'v1',
 			source_topic   TEXT        NOT NULL,
+			payment_instruction_received TIMESTAMPTZ,
+			canonical_intent_created    TIMESTAMPTZ,
+			mapping_profile_used        TEXT,
+			required_fields_status      BOOLEAN,
+			tokenization_status        BOOLEAN,
+			governance_decision        TEXT,
 			created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
@@ -73,6 +79,12 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			required_leaf_count     INT NOT NULL DEFAULT 0,
 			settlement_leaf_present_flag BOOLEAN NOT NULL DEFAULT FALSE,
 			attachment_decision_leaf_present_flag BOOLEAN NOT NULL DEFAULT FALSE,
+			payment_instruction_received TIMESTAMPTZ,
+			canonical_intent_created    TIMESTAMPTZ,
+			mapping_profile_used        TEXT,
+			required_fields_status      BOOLEAN,
+			tokenization_status        BOOLEAN,
+			governance_decision        TEXT,
 			created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
@@ -170,6 +182,22 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_lease_id ON evidence_outbox_events(lease_id);`,
 		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_status ON evidence_outbox_events(status);`,
 		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_tenant_id ON evidence_outbox_events(tenant_id);`,
+
+		// Add new columns to evidence_packs if they don't exist
+		`ALTER TABLE evidence_packs ADD COLUMN IF NOT EXISTS payment_instruction_received TIMESTAMPTZ;`,
+		`ALTER TABLE evidence_packs ADD COLUMN IF NOT EXISTS canonical_intent_created TIMESTAMPTZ;`,
+		`ALTER TABLE evidence_packs ADD COLUMN IF NOT EXISTS mapping_profile_used TEXT;`,
+		`ALTER TABLE evidence_packs ADD COLUMN IF NOT EXISTS required_fields_status BOOLEAN;`,
+		`ALTER TABLE evidence_packs ADD COLUMN IF NOT EXISTS tokenization_status BOOLEAN;`,
+		`ALTER TABLE evidence_packs ADD COLUMN IF NOT EXISTS governance_decision TEXT;`,
+
+		// Add new columns to pending_leaf_candidates if they don't exist
+		`ALTER TABLE pending_leaf_candidates ADD COLUMN IF NOT EXISTS payment_instruction_received TIMESTAMPTZ;`,
+		`ALTER TABLE pending_leaf_candidates ADD COLUMN IF NOT EXISTS canonical_intent_created TIMESTAMPTZ;`,
+		`ALTER TABLE pending_leaf_candidates ADD COLUMN IF NOT EXISTS mapping_profile_used TEXT;`,
+		`ALTER TABLE pending_leaf_candidates ADD COLUMN IF NOT EXISTS required_fields_status BOOLEAN;`,
+		`ALTER TABLE pending_leaf_candidates ADD COLUMN IF NOT EXISTS tokenization_status BOOLEAN;`,
+		`ALTER TABLE pending_leaf_candidates ADD COLUMN IF NOT EXISTS governance_decision TEXT;`,
 	}
 
 	for _, s := range stmts {

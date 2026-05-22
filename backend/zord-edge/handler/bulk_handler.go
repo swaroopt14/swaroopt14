@@ -737,18 +737,10 @@ func respondBulkResults(c *gin.Context, results []BulkResult, fileName, fileHash
 		return
 	}
 	duplicateCount := 0
-	acceptedCount := 0
-	failedCount := 0
 	for _, r := range results {
 		if r.Status == "DUPLICATE" {
 			duplicateCount++
-			continue
 		}
-		if strings.EqualFold(r.Status, "Accepted") {
-			acceptedCount++
-			continue
-		}
-		failedCount++
 	}
 
 	if duplicateCount == len(results) {
@@ -758,18 +750,6 @@ func respondBulkResults(c *gin.Context, results []BulkResult, fileName, fileHash
 			"file_name":  fileName,
 			"total_rows": len(results),
 			"hint":       "If you intended to reprocess this batch, resend the request with the headers: X-Zord-Force-Reprocess: true and a unique Batch-ID.",
-		})
-		return
-	}
-
-	if acceptedCount == 0 && failedCount > 0 {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{
-			"status":     "INGEST_FAILED",
-			"message":    "The file was received, but none of its rows could be pushed into the processing pipeline.",
-			"file_name":  fileName,
-			"file_hash":  fileHash,
-			"total_rows": len(results),
-			"results":    results,
 		})
 		return
 	}

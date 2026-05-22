@@ -75,6 +75,11 @@ type CanonicalIntent struct {
 	BatchID                  *string    `json:"batchid,omitempty" db:"batchid"`
 	AggregateConfidenceScore *float64   `json:"aggregate_confidence_score,omitempty" db:"aggregate_confidence_score"` // NEW
 
+	// 🆕 Status Fields
+	RequiredFieldsStatus *bool   `json:"required_fields_status,omitempty" db:"required_fields_status"`
+	TokenizationStatus   *bool   `json:"tokenization_status,omitempty" db:"tokenization_status"`
+	GovernanceDecision   *string `json:"governance_decision,omitempty" db:"governance_decision"`
+
 	// ── Scoring v2 fields ──────────────────────────────────────────────────────
 	ReferenceQualityScore  float64         `json:"reference_quality_score,omitempty"  db:"reference_quality_score"`
 	DuplicateRiskScore     float64         `json:"duplicate_risk_score,omitempty"      db:"duplicate_risk_score"`

@@ -60,6 +60,11 @@ func CreateTables() error {
     governance_reason_codes_json JSONB NOT NULL DEFAULT '{}',
     duplicate_reason_code TEXT,
     client_batch_ref TEXT,
+    
+    -- 🆕 Added for tracking status
+    required_fields_status BOOLEAN,
+    tokenization_status BOOLEAN,
+    governance_decision TEXT,
 
     updated_at TIMESTAMPTZ DEFAULT now(),
     batchid TEXT,
@@ -157,6 +162,11 @@ func CreateTables() error {
     sent_at TIMESTAMPTZ,
 	batchid TEXT,
     aggregate_confidence_score NUMERIC(5,2),      -- existing
+
+    -- 🆕 Added for tracking status
+    required_fields_status BOOLEAN,
+    tokenization_status BOOLEAN,
+    governance_decision TEXT,
 
     -- 🆕 Scoring v2 batch fields
     reference_quality_score  NUMERIC(6,2),

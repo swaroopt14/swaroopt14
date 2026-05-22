@@ -212,6 +212,10 @@ export function BatchIntakePanel({
         throw new Error(extra && !detail.includes(extra) ? `${detail} — ${extra}` : detail)
       }
       const ingestAckParsed = parseBulkIngestAcceptedResponse(result.responseText)
+      if (ingestAckParsed && ingestAckParsed.accepted === 0) {
+        const firstFailure = ingestAckParsed.rows.find((row) => row.error?.trim())
+        throw new Error(firstFailure?.error?.trim() || 'The file was received, but none of its rows entered the processing pipeline.')
+      }
       setIntentBulkIngestAck({
         httpStatus: result.httpStatus,
         parsed: ingestAckParsed,

@@ -14,15 +14,43 @@ var (
 	jsonSensitivePairRe = regexp.MustCompile(`(?i)"(intent_id|trace_id|tenant_id|session_id|envelope_id|contract_id|action_id|record_id|chunk_id|batch_id|corridor_id|idempotency_key|account_id|account_number|iban|ifsc|swift|pan|vault_object_ref|payload_hash|salient_hash|request_fingerprint|provider_request_fingerprint|envelope_hash|envelope_signature|signature_value|archive_hash|encrypted_payload)"\s*:\s*"[^"]*"`)
 	sensitiveValRe      = regexp.MustCompile(`(?i)\b(idempotency[_\s]?key|account(_id|_number)?|iban|ifsc|swift|pan|vault_object_ref|payload_hash|salient_hash|request_fingerprint|provider_request_fingerprint|envelope_hash|envelope_signature|signature_value|archive_hash|encrypted_payload)\b\s*[:=]?\s*[^,\n]*`)
 	sensitiveWordRe     = regexp.MustCompile(`(?i)\b(api[_-]?key|secret|password|token|hash|encrypted|signature|cipher|vault)\b`)
+	multiSpaceRe        = regexp.MustCompile(`[^\S\n]{2,}`)
+	blankLineBlockRe    = regexp.MustCompile(`\n{3,}`)
 )
 
 func SanitizeAnswerText(s string) string {
-	out := uuidRe.ReplaceAllString(s, "[redacted-id]")
-	out = keyValIDRe.ReplaceAllString(out, "")
-	out = jsonSensitivePairRe.ReplaceAllString(out, "")
-	out = sensitiveValRe.ReplaceAllString(out, "")
-	out = sensitiveWordRe.ReplaceAllString(out, "[redacted-sensitive]")
-	out = strings.Join(strings.Fields(out), " ")
+	out := strings.ReplaceAll(s, "\r\n", "\n")
+	lines := strings.Split(out, "\n")
+	inFence := false
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inFence = !inFence
+			lines[i] = strings.TrimRight(line, " \t")
+			continue
+		}
+
+		sanitized := uuidRe.ReplaceAllString(line, "[redacted-id]")
+		sanitized = keyValIDRe.ReplaceAllString(sanitized, "")
+		sanitized = jsonSensitivePairRe.ReplaceAllString(sanitized, "")
+		sanitized = sensitiveValRe.ReplaceAllString(sanitized, "")
+		sanitized = sensitiveWordRe.ReplaceAllString(sanitized, "[redacted-sensitive]")
+		sanitized = strings.ReplaceAll(sanitized, "\t", "  ")
+
+		if inFence {
+			lines[i] = strings.TrimRight(sanitized, " \t")
+			continue
+		}
+
+		leading := sanitized[:len(sanitized)-len(strings.TrimLeft(sanitized, " "))]
+		content := strings.TrimLeft(sanitized, " ")
+		content = multiSpaceRe.ReplaceAllString(content, " ")
+		lines[i] = leading + strings.TrimRight(content, " ")
+	}
+
+	out = strings.Join(lines, "\n")
+	out = blankLineBlockRe.ReplaceAllString(out, "\n\n")
 	return strings.TrimSpace(out)
 }
 

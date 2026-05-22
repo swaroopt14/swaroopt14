@@ -50,6 +50,14 @@ func Load() AppConfig {
 		}
 		return v
 	}
+	getAny := func(keys []string, d string) string {
+		for _, k := range keys {
+			if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+				return v
+			}
+		}
+		return d
+	}
 
 	topK := 5
 	if v := os.Getenv("DEFAULT_TOP_K"); v != "" {
@@ -92,7 +100,7 @@ func Load() AppConfig {
 
 		IntelligenceReadDSN:     os.Getenv("INTELLIGENCE_READ_DSN"),
 		EvidenceReadDSN:         os.Getenv("EVIDENCE_READ_DSN"),
-		IntelligenceAPIBaseURL:  get("INTELLIGENCE_API_BASE_URL", "http://zord-intelligence:8089"),
+		IntelligenceAPIBaseURL:  getAny([]string{"INTELLIGENCE_API_BASE_URL", "INTELLIGENCE_BASE_URL"}, "http://zord-intelligence:8089"),
 		IntelligenceAPITimeoutS: intelTimeout,
 		RedisURL:                get("REDIS_URL", "redis://zord-prompt-layer-redis:6379/0"),
 		MemoryTTLSeconds:        memTTL,

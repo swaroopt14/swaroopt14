@@ -24,6 +24,8 @@ var uuidLeakRe = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]
 
 var sensitiveExtractionRe = regexp.MustCompile(`(?i)\b(api[_\s-]?key|password|secret|access[_\s-]?token|private[_\s-]?key)\b`)
 var corridorIDRe = regexp.MustCompile(`(?i)\bcorridor[_\s-]?id\s*[:=]?\s*([A-Za-z0-9._-]+)\b`)
+var rowCountEstimateRe = regexp.MustCompile(`(?i)\brow_count_estimate=(\d+)\b`)
+var outboxStatusRe = regexp.MustCompile(`(?i)\bstatus=([A-Z_]+)\b`)
 
 type DefaultRAGService struct {
 	model        string
@@ -113,7 +115,7 @@ func mapLLMClass(c string) queryClass {
 
 func buildGeneralResponse() dto.QueryResponse {
 	return dto.QueryResponse{
-		Answer:        "Hello. I can help with Zord payout operations, intent flow, failures, retries, and proof readiness. Ask me a specific business question and I will keep it clear and simple.",
+		Answer:        "**What I can help with**\n- Payout operations, intent flow, delays, failures, and retries.\n- Proof readiness, confirmation gaps, and tenant-scoped trends.\n- Ask a specific business question and I will keep the answer short and clear.",
 		Confidence:    "high",
 		EntitiesFound: dto.EntitiesFound{},
 		Citations:     []dto.Citation{},
@@ -123,7 +125,7 @@ func buildGeneralResponse() dto.QueryResponse {
 
 func buildOutOfScopeResponse() dto.QueryResponse {
 	return dto.QueryResponse{
-		Answer:        "That question is outside this project context. I can help with payout operations, intent behavior, callbacks, failures, and readiness insights.",
+		Answer:        "**That question is outside this workspace scope**\n- I can help with payout operations, intent behavior, callbacks, failures, and readiness insights.\n- Try asking about delays, pending items, confirmations, retries, or manual review.",
 		Confidence:    "high",
 		EntitiesFound: dto.EntitiesFound{},
 		Citations:     []dto.Citation{},
@@ -251,12 +253,20 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 
 	if len(chunks) == 0 {
 		return dto.QueryResponse{
-			Answer:        "I could not find reliable evidence for this query in the current data window.",
+			Answer:        "**I can't see enough payment progress yet**\n- I don't have clear payment status records for this question right now.\n- If you just uploaded a file, I may only be able to see that it was received, not whether each payment is done yet.",
 			Confidence:    "low",
 			EntitiesFound: entities,
 			Citations:     []dto.Citation{},
 			NextActions:   nextActions,
 		}, nil
+	}
+	if edgeOnlyResp, ok := buildLatestUploadEdgeOnlyResponse(req.Query, chunks); ok {
+		edgeOnlyResp.EntitiesFound = entities
+		if shouldReturnCitations(class, chunks, edgeOnlyResp.Confidence) {
+			edgeOnlyResp.Citations = citations
+		}
+		edgeOnlyResp.NextActions = nextActions
+		return edgeOnlyResp, nil
 	}
 	rcaContext := ""
 	if s.intelligence != nil {
@@ -311,7 +321,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
 
 		return dto.QueryResponse{
-			Answer:        "I can share a safe operational summary, but I cannot expose sensitive identifiers or secure values.",
+			Answer:        "**I can share a safe operational summary only**\n- Sensitive identifiers or secure values were removed from the response.\n- Ask for status, counts, delays, or trends instead of record-level identifiers.",
 			Confidence:    "low",
 			EntitiesFound: dto.EntitiesFound{},
 			Citations:     []dto.Citation{},
@@ -330,7 +340,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		var vizNarrative string
 		viz, vizNarrative = s.buildDetailedVisualizationFromChunks(chunks, req, scope, kind, conf)
 		if strings.TrimSpace(vizNarrative) != "" {
-			answer = strings.TrimSpace(answer + " " + vizNarrative)
+			answer = strings.TrimSpace(answer + "\n\n**Visualization note:** " + vizNarrative)
 		}
 	}
 
@@ -480,6 +490,97 @@ func extractCorridorID(q string) string {
 	}
 	return strings.TrimSpace(m[1])
 }
+
+func buildLatestUploadEdgeOnlyResponse(query string, chunks []model.RetrievedChunk) (dto.QueryResponse, bool) {
+	if !isLatestUploadProgressQuery(query) || !hasOnlyEdgeEvidence(chunks) {
+		return dto.QueryResponse{}, false
+	}
+
+	rowCount := 0
+	inProcess := 0
+	failed := 0
+	uploaded := false
+
+	for _, c := range chunks {
+		switch strings.ToLower(strings.TrimSpace(c.SourceType)) {
+		case "edge_ingress_envelopes":
+			if rowCount == 0 {
+				if m := rowCountEstimateRe.FindStringSubmatch(c.Text); len(m) == 2 {
+					fmt.Sscanf(m[1], "%d", &rowCount)
+				}
+			}
+			uploaded = true
+		case "edge_ingress_outbox":
+			m := outboxStatusRe.FindStringSubmatch(strings.ToUpper(c.Text))
+			if len(m) != 2 {
+				continue
+			}
+			switch m[1] {
+			case "FAILED":
+				failed++
+			case "PENDING", "SENT":
+				inProcess++
+			}
+		}
+	}
+
+	if !uploaded || rowCount <= 0 {
+		return dto.QueryResponse{}, false
+	}
+
+	if inProcess == 0 && failed == 0 {
+		inProcess = rowCount
+	}
+	if inProcess > rowCount {
+		inProcess = rowCount
+	}
+	if failed > rowCount {
+		failed = rowCount
+	}
+
+	answer := fmt.Sprintf("**Your latest upload has %d payments, and they are still being processed.**\n- I can see the file was received by Zord.\n- The payments have entered the pipeline, but I do not see final done/not-done updates yet.", rowCount)
+	if failed > 0 {
+		answer = fmt.Sprintf("**Your latest upload has %d payments. %d are still being processed and %d did not go through.**\n- I can see the file was received by Zord.\n- The latest upload is still mid-flow, so final payment updates may still be catching up.", rowCount, maxInt(inProcess, rowCount-failed), failed)
+	}
+
+	return dto.QueryResponse{
+		Answer:     answer,
+		Confidence: "medium",
+	}, true
+}
+
+func hasOnlyEdgeEvidence(chunks []model.RetrievedChunk) bool {
+	if len(chunks) == 0 {
+		return false
+	}
+	for _, c := range chunks {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.SourceType)), "edge_") {
+			return false
+		}
+	}
+	return true
+}
+
+func isLatestUploadProgressQuery(q string) bool {
+	s := strings.ToLower(strings.TrimSpace(q))
+	if s == "" {
+		return false
+	}
+	if !(strings.Contains(s, "latest upload") || strings.Contains(s, "recent upload") || strings.Contains(s, "latest batch")) {
+		return false
+	}
+	mentionsPayments := strings.Contains(s, "payment") || strings.Contains(s, "payout") || strings.Contains(s, "disbursement")
+	mentionsProgress := strings.Contains(s, "in process") || strings.Contains(s, "pending") || strings.Contains(s, "still") || strings.Contains(s, "status")
+	return mentionsPayments && mentionsProgress
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (s *DefaultRAGService) buildDetailedVisualizationFromChunks(
 	chunks []model.RetrievedChunk,
 	req dto.QueryRequest,

@@ -30,7 +30,7 @@ export function extractBatchIdFromBulkIngestResponse(text: string): string | nul
   return null
 }
 
-/** One row from zord-edge `POST /v1/bulk-ingest` 202 body (`BulkResult` JSON). */
+/** One row from zord-edge `POST /v1/bulk-ingest` accepted body (`BulkResult` JSON). */
 export type BulkIngestAckRow = {
   row: number
   envelopeId: string
@@ -42,6 +42,10 @@ export type BulkIngestAckRow = {
 
 export type ParsedBulkIngestAccepted = {
   total: number
+  accepted: number
+  failed: number
+  duplicates: number
+  conflicts: number
   rows: BulkIngestAckRow[]
 }
 
@@ -70,17 +74,40 @@ export function parseBulkIngestAcceptedResponse(text: string): ParsedBulkIngestA
           : NaN
     const results = j.results
     if (!Array.isArray(results) || !Number.isFinite(total)) return null
+
     const rows: BulkIngestAckRow[] = []
+    let accepted = 0
+    let failed = 0
+    let duplicates = 0
+    let conflicts = 0
+
     for (const raw of results) {
       if (!raw || typeof raw !== 'object') continue
       const o = raw as Record<string, unknown>
       const rowNum = typeof o.row === 'number' ? o.row : Number(o.row)
       if (!Number.isFinite(rowNum)) continue
+
       const envelopeId = readJsonString(o, 'EnvelopeID', 'envelope_id')
       const traceId = readJsonString(o, 'Trace_id', 'TraceID', 'trace_id')
-      const status = readJsonString(o, 'Status', 'status') || '—'
+      const status = readJsonString(o, 'Status', 'status') || '-'
       const receivedAt = readJsonString(o, 'Received_At', 'received_at')
       const err = readJsonString(o, 'error', 'Error')
+
+      switch (status.trim().toUpperCase()) {
+        case 'ACCEPTED':
+          accepted += 1
+          break
+        case 'DUPLICATE':
+          duplicates += 1
+          break
+        case 'CONFLICT':
+          conflicts += 1
+          break
+        default:
+          failed += 1
+          break
+      }
+
       rows.push({
         row: rowNum,
         envelopeId,
@@ -90,7 +117,8 @@ export function parseBulkIngestAcceptedResponse(text: string): ParsedBulkIngestA
         ...(err ? { error: err } : {}),
       })
     }
-    return { total, rows }
+
+    return { total, accepted, failed, duplicates, conflicts, rows }
   } catch {
     return null
   }

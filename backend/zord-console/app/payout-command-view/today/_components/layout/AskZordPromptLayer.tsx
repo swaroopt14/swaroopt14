@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { HomeCommandStatus } from '@/services/payout-command/model'
 import type { AskZordResponse } from '@/services/payout-command/types'
 import { ASK_ZORD_QUICK_PROMPTS } from '../hooks/useAskZordState'
@@ -94,16 +96,46 @@ function AssistantBubble({
         {title && title !== 'Ask Zord' ? (
           <p className="mt-1 text-[14px] font-semibold text-slate-900">{title}</p>
         ) : null}
-        <p
-          className={`mt-1 whitespace-pre-line text-[14px] leading-relaxed ${
+        <div
+          className={`mt-1 text-[14px] leading-relaxed ${
             isError ? 'text-[#2563eb]' : 'text-slate-700'
           }`}
         >
-          {body}
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              p: ({ node, ...props }) => <p className="mt-2" {...props} />,
+              ul: ({ node, ...props }) => <ul className="mt-2 list-disc pl-5" {...props} />,
+              ol: ({ node, ...props }) => <ol className="mt-2 list-decimal pl-5" {...props} />,
+              li: ({ node, ...props }) => <li className="mt-1" {...props} />,
+              strong: ({ node, ...props }) => <strong className="font-semibold" {...props} />,
+              em: ({ node, ...props }) => <em className="italic" {...props} />,
+              table: ({ node, ...props }) => (
+                <table className="mt-4 min-w-full divide-y divide-slate-200 border border-slate-200 text-sm" {...props} />
+              ),
+              th: ({ node, ...props }) => (
+                <th className="border border-slate-200 bg-slate-50 px-2 py-1 text-left font-semibold" {...props} />
+              ),
+              td: ({ node, ...props }) => (
+                <td className="border border-slate-200 px-2 py-1" {...props} />
+              ),
+              pre: ({ node, ...props }) => (
+                <pre className="mt-3 overflow-x-auto rounded-lg bg-slate-950 p-3 text-[13px] text-slate-100" {...props} />
+              ),
+              code: ({ node, inline, className, ...props }) =>
+                inline ? (
+                  <code className="rounded bg-slate-100 px-1 py-0.5 text-[13px] text-slate-900" {...props} />
+                ) : (
+                  <code className="block rounded bg-slate-950 p-2 text-[13px] text-slate-100" {...props} />
+                ),
+            }}
+          >
+            {body}
+          </ReactMarkdown>
           {isStreaming ? (
             <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-[#39E07E] align-middle" />
           ) : null}
-        </p>
+        </div>
       </div>
     </div>
   )

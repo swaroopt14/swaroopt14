@@ -43,12 +43,8 @@ services:
     healthcheck:
       test:
         [
-          "CMD",
-          "wget",
-          "--quiet",
-          "--tries=1",
-          "--spider",
-          "http://localhost:8089/health"
+          "CMD-SHELL",
+          "wget --quiet --tries=1 -O - http://localhost:8089/healthz >/dev/null || exit 1"
         ]
       interval: 30s
       timeout: 10s

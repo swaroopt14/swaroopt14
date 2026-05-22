@@ -10,6 +10,9 @@ services:
       - "3000:3000"
     environment:
       - NODE_ENV=production
+      # Local compose runs on http://localhost:3000, so secure-only cookies would
+      # be dropped by the browser and Ask Zord would lose the signed-in tenant.
+      - AUTH_COOKIE_SECURE=${AUTH_COOKIE_SECURE:-false}
       - NEXT_TELEMETRY_DISABLED=1
       - PORT=3000
       - HOSTNAME=0.0.0.0

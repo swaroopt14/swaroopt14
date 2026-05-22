@@ -88,15 +88,28 @@ func (s *LLMService) GenerateFromContextScoped(userQuery string, context string,
 			"Rules:\n" +
 			"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
 			"2) If CONTEXT is insufficient, clearly say: \"I don't have enough information in current data to answer that confidently.\"\n" +
-			"3) Write in plain, simple, non-technical language for business users.\n" +
-			"4) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
-			"5) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, api keys, tokens, secrets).\n" +
-			"6) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
+			"3) Use plain, simple language that anyone can understand, even without technical or finance background.\n" +
+			"4) Talk like a helpful teammate or friend, not like a system log.\n" +
+			"5) Translate technical states into everyday language. Examples: pending/queued/received -> in process, success/completed/canonicalized -> done, failed/rejected/dlq -> did not go through.\n" +
+			"6) Never say words like context, evidence, tenant-scoped, idempotency, envelope, trace, schema, outbox, projection, canonicalized, or dlq in the final answer.\n" +
+			"7) If the records only show upload or intake progress, say that the payments were received or uploaded, but final payout progress is not visible yet.\n" +
+			"8) Answer only what is asked. Keep it short, direct, and to the point.\n" +
+			"9) The answer must be clean markdown, not plain prose.\n" +
+			"10) Preferred structure:\n" +
+			"   - Start with a bold one-line takeaway.\n" +
+			"   - Follow with 2 to 5 short bullet points.\n" +
+			"   - Add a tiny markdown table only when comparing values helps.\n" +
+			"11) Avoid long, monotonous paragraphs. Prefer short sections and crisp lines.\n" +
+			"12) Keep paragraphs to at most 2 sentences.\n" +
+			"13) Do not use jargon like SQL or infrastructure internals.\n" +
+			"14) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
+			"15) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, api keys, tokens, secrets).\n" +
+			"16) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
 
-			"7) " + visRule + "\n\n" +
+			"17) " + visRule + "\n\n" +
 			"CONTEXT:\n" + context + "\n\n" +
 			"USER QUERY:\n" + userQuery + "\n\n" +
-			"Return concise operational answer."
+			"Return a concise, well-structured markdown answer."
 
 	return s.gemini.Generate(prompt)
 }
@@ -110,6 +123,7 @@ type AnswerWithConfidence struct {
 	ContradictionRisk float64 `json:"contradiction_risk"` // 0.0 - 1.0
 	Ambiguity         float64 `json:"ambiguity"`          // 0.0 - 1.0
 }
+
 type QueryClassDecision struct {
 	Class              string  `json:"class"` // operational_data_query | general_product_or_greeting | out_of_scope
 	Confidence         float64 `json:"confidence"`
@@ -127,19 +141,33 @@ func (s *LLMService) GenerateFromContextScopedWithConfidence(userQuery string, c
 		"You are Zord Prompt Layer assistant.\n" +
 			"Rules:\n" +
 			"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
-			"2) If CONTEXT is insufficient, clearly say what is missing in plain business language.\n" +
-			"3) Tone must be business-friendly, non-technical, and unambiguous.\n" +
-			"4) Explain operational meaning and business impact clearly.\n" +
-			"5) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
-			"6) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, hashes, signatures, encrypted fields, api keys, tokens, secrets).\n" +
-			"7) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
-			"8) " + visRule + "\n" +
-			"9) Return strict JSON only with keys: answer, confidence, confidence_score, evidence_coverage, scope_adherence, contradiction_risk, ambiguity.\n" +
-			"10) confidence must be one of high|medium|low.\n" +
-			"11) All numeric scores must be between 0 and 1.\n" +
-			"12) confidence_score must reflect reliability based only on provided context.\n\n" +
+			"2) If CONTEXT is insufficient, clearly say what is missing in plain language.\n" +
+			"3) Use plain, simple language suitable for any user, even without a finance or technical background.\n" +
+			"4) Talk like a helpful teammate or friend, not like a system log.\n" +
+			"5) Translate technical states into everyday language. Examples: pending/queued/received -> in process, success/completed/canonicalized -> done, failed/rejected/dlq -> did not go through.\n" +
+			"6) Never say words like context, evidence, tenant-scoped, idempotency, envelope, trace, schema, outbox, projection, canonicalized, or dlq in the answer field.\n" +
+			"7) If the records only show upload or intake progress, say that the payments were received or uploaded, but final payout progress is not visible yet.\n" +
+			"8) Answer only what is asked. Keep it short, direct, and to the point.\n" +
+			"9) The answer field must contain clean markdown, not plain prose.\n" +
+			"10) Preferred structure inside answer:\n" +
+			"   - Start with a bold one-line takeaway.\n" +
+			"   - Follow with 2 to 5 short bullet points.\n" +
+			"   - Add a tiny markdown table only when comparing values helps.\n" +
+			"11) Avoid long, monotonous paragraphs. Use short sections and crisp lines.\n" +
+			"12) Keep paragraphs to at most 2 sentences.\n" +
+			"13) Do not use jargon like SQL or infrastructure internals.\n" +
+			"14) Do not mention table names, schema names, SQL, pipelines, or infrastructure internals.\n" +
+			"15) Never reveal identifiers or sensitive fields (tenant_id, intent_id, trace_id, envelope_id, outbox_id, idempotency_key, account_number, iban, ifsc, swift, pan, hashes, signatures, encrypted fields, api keys, tokens, secrets).\n" +
+			"16) Do NOT include recommendations, action items, or mitigation steps in answer text.\n" +
+			"17) " + visRule + "\n" +
+			"18) Return strict JSON only with keys: answer, confidence, confidence_score, evidence_coverage, scope_adherence, contradiction_risk, ambiguity.\n" +
+			"19) The answer field should contain markdown-formatted text only.\n" +
+			"20) confidence must be one of high|medium|low.\n" +
+			"21) All numeric scores must be between 0 and 1.\n" +
+			"22) confidence_score must reflect reliability based only on provided context.\n\n" +
 			"CONTEXT:\n" + context + "\n\n" +
-			"USER QUERY:\n" + userQuery
+			"USER QUERY:\n" + userQuery + "\n\n" +
+			"Return strict JSON with the answer field in markdown format."
 
 	raw, err := s.gemini.Generate(prompt)
 	if err != nil {

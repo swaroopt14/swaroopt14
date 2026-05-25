@@ -70,6 +70,9 @@ CREATE TABLE IF NOT EXISTS payment_intents (
     tokenization_status BOOLEAN,
     governance_decision TEXT,
 
+    payment_instruction_received TIMESTAMPTZ,
+    canonical_intent_created TIMESTAMPTZ,
+
     updated_at TIMESTAMPTZ DEFAULT now(),
     batchid TEXT,
     aggregate_confidence_score NUMERIC(5,2) -- NEW
@@ -160,6 +163,9 @@ CREATE TABLE IF NOT EXISTS outbox (
     required_fields_status BOOLEAN,
     tokenization_status BOOLEAN,
     governance_decision TEXT,
+
+    payment_instruction_received TIMESTAMPTZ,
+    canonical_intent_created TIMESTAMPTZ,
 
     CONSTRAINT fk_outbox_intent
         FOREIGN KEY (aggregate_id)

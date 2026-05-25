@@ -34,21 +34,44 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 		`CREATE TABLE IF NOT EXISTS pending_leaf_candidates (
 			id             UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
 			tenant_id      TEXT        NOT NULL,
-			intent_id      TEXT,       -- NULL initially for edge events
-			envelope_id    TEXT,       -- Used to correlate edge events
-			contract_id    TEXT,       -- Buffering contract_id
-			batch_id       TEXT,       -- Buffering batch_id
+			intent_id      TEXT,
+			envelope_id    TEXT,
+			contract_id    TEXT,
+			batch_id       TEXT,
 			leaf_type      TEXT        NOT NULL,
-			item_ref       TEXT,       -- The reference for the item (e.g. variance_record_id)
+			item_ref       TEXT,
 			hash           TEXT        NOT NULL,
 			schema_version TEXT        NOT NULL DEFAULT 'v1',
 			source_topic   TEXT        NOT NULL,
+			payment_instruction_received TIMESTAMPTZ,
+			canonical_intent_created    TIMESTAMPTZ,
+			mapping_profile_used        TEXT,
+			required_fields_status      BOOLEAN,
+			tokenization_status         BOOLEAN,
+			governance_decision         TEXT,
+			settlement_record_received  TIMESTAMPTZ,
+			canonical_settlement_created TIMESTAMPTZ,
+			bank_reference              TEXT,
+			client_reference            TEXT,
+			attachment_decision         TEXT,
+			match_confidence            DOUBLE PRECISION,
+			value_date_check            BOOLEAN,
+			amount_match                BOOLEAN,
 			created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS plc_intent_type_idx ON pending_leaf_candidates(tenant_id, intent_id, leaf_type) WHERE intent_id IS NOT NULL;`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS plc_envelope_type_idx ON pending_leaf_candidates(tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL;`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS plc_batch_type_idx ON pending_leaf_candidates(tenant_id, batch_id, leaf_type) WHERE batch_id IS NOT NULL;`,
+
+		`CREATE UNIQUE INDEX IF NOT EXISTS plc_intent_type_idx
+			ON pending_leaf_candidates(tenant_id, intent_id, leaf_type)
+			WHERE intent_id IS NOT NULL;`,
+
+		`CREATE UNIQUE INDEX IF NOT EXISTS plc_envelope_type_idx
+			ON pending_leaf_candidates(tenant_id, envelope_id, leaf_type)
+			WHERE intent_id IS NULL;`,
+
+		`CREATE UNIQUE INDEX IF NOT EXISTS plc_batch_type_idx
+			ON pending_leaf_candidates(tenant_id, batch_id, leaf_type)
+			WHERE batch_id IS NOT NULL;`,
 
 		// §14.1 — main metadata table
 		`CREATE TABLE IF NOT EXISTS evidence_packs (
@@ -71,14 +94,50 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			pack_completeness_score DOUBLE PRECISION NOT NULL DEFAULT 0,
 			leaf_count              INT NOT NULL DEFAULT 0,
 			required_leaf_count     INT NOT NULL DEFAULT 0,
-			settlement_leaf_present_flag BOOLEAN NOT NULL DEFAULT FALSE,
+
+			settlement_leaf_present_flag          BOOLEAN NOT NULL DEFAULT FALSE,
 			attachment_decision_leaf_present_flag BOOLEAN NOT NULL DEFAULT FALSE,
-			created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			payment_instruction_received TIMESTAMPTZ,
+			canonical_intent_created    TIMESTAMPTZ,
+			mapping_profile_used        TEXT,
+			required_fields_status      BOOLEAN,
+			tokenization_status         BOOLEAN,
+			governance_decision         TEXT,
+			settlement_record_received  TIMESTAMPTZ,
+			canonical_settlement_created TIMESTAMPTZ,
+			bank_reference              TEXT,
+			client_reference            TEXT,
+			attachment_decision         TEXT,
+			match_confidence            DOUBLE PRECISION,
+			value_date_check            BOOLEAN,
+			amount_match                BOOLEAN,
+
+			-- Spec §4 enrichment fields
+			proof_status                  TEXT    NOT NULL DEFAULT 'DRAFT',
+			proof_score                   INT     NOT NULL DEFAULT 0,
+			generated_by                  TEXT    NOT NULL DEFAULT 'system',
+			last_verified_at              TIMESTAMPTZ,
+			verification_status           BOOLEAN NOT NULL DEFAULT FALSE,
+			export_count                  INT     NOT NULL DEFAULT 0,
+			proof_components_json         JSONB,
+			cryptographic_signatures_json JSONB,
+			proof_score_breakdown_json    JSONB,
+
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
-		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_contract_idx ON evidence_packs(tenant_id, contract_id)`,
-		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_intent_idx   ON evidence_packs(tenant_id, intent_id)`,
-		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_batch_idx    ON evidence_packs(tenant_id, batch_id)`,
+
+		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_contract_idx
+			ON evidence_packs(tenant_id, contract_id)`,
+
+		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_intent_idx
+			ON evidence_packs(tenant_id, intent_id)`,
+
+		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_batch_idx
+			ON evidence_packs(tenant_id, batch_id)`,
+
+		`CREATE INDEX IF NOT EXISTS evidence_packs_proof_status_idx
+			ON evidence_packs(proof_status)`,
 
 		// §14.2 — leaf composition table
 		`CREATE TABLE IF NOT EXISTS evidence_items (
@@ -91,7 +150,9 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			schema_version   TEXT NOT NULL,
 			PRIMARY KEY(evidence_pack_id, position_index)
 		)`,
-		`CREATE INDEX IF NOT EXISTS evidence_items_pack_idx ON evidence_items(evidence_pack_id)`,
+
+		`CREATE INDEX IF NOT EXISTS evidence_items_pack_idx
+			ON evidence_items(evidence_pack_id)`,
 
 		// signatures sub-table
 		`CREATE TABLE IF NOT EXISTS evidence_signatures (
@@ -114,9 +175,11 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			archive_version   TEXT NOT NULL DEFAULT 'v1',
 			created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)`,
-		`CREATE INDEX IF NOT EXISTS evidence_archives_pack_idx ON evidence_archives(evidence_pack_id)`,
 
-		// §14.4 — Merkle inclusion proofs (selective disclosure)
+		`CREATE INDEX IF NOT EXISTS evidence_archives_pack_idx
+			ON evidence_archives(evidence_pack_id)`,
+
+		// §14.4 — Merkle inclusion proofs
 		`CREATE TABLE IF NOT EXISTS merkle_inclusion_proofs (
 			evidence_pack_id TEXT NOT NULL,
 			leaf_hash        TEXT NOT NULL,
@@ -142,34 +205,63 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			completed_at            TIMESTAMPTZ
 		)`,
-		`CREATE INDEX IF NOT EXISTS evidence_replay_jobs_tenant_idx ON evidence_replay_jobs(tenant_id, source_evidence_pack_id)`,
-		`CREATE INDEX IF NOT EXISTS evidence_replay_jobs_status_idx ON evidence_replay_jobs(status)`,
+
+		`CREATE INDEX IF NOT EXISTS evidence_replay_jobs_tenant_idx
+			ON evidence_replay_jobs(tenant_id, source_evidence_pack_id)`,
+
+		`CREATE INDEX IF NOT EXISTS evidence_replay_jobs_status_idx
+			ON evidence_replay_jobs(status)`,
+
+		// Spec §6 dispute export audit log
+		`CREATE TABLE IF NOT EXISTS evidence_export_log (
+			export_id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+			evidence_pack_id  TEXT        NOT NULL,
+			tenant_id         TEXT        NOT NULL,
+			intent_id         TEXT,
+			payment_reference TEXT,
+			export_type       TEXT        NOT NULL,
+			dispute_reason    TEXT,
+			requested_by      TEXT,
+			exported_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			file_hash         TEXT
+		)`,
+
+		`CREATE INDEX IF NOT EXISTS export_log_pack_idx
+			ON evidence_export_log(evidence_pack_id)`,
+
+		`CREATE INDEX IF NOT EXISTS export_log_tenant_idx
+			ON evidence_export_log(tenant_id, exported_at DESC)`,
 
 		// outbox for relay polling
 		`CREATE TABLE IF NOT EXISTS evidence_outbox_events (
-    event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    trace_id TEXT,
-    envelope_id TEXT,
-    tenant_id TEXT NOT NULL,
-    contract_id TEXT,
-    aggregate_type TEXT NOT NULL DEFAULT 'evidence_pack',
-    aggregate_id TEXT NOT NULL,
-    event_type TEXT NOT NULL,   -- evidence.pack.created
-    schema_version TEXT DEFAULT 'v1',
-    payload JSONB NOT NULL,
-    status TEXT NOT NULL DEFAULT 'PENDING',
-    retry_count INT NOT NULL DEFAULT 0,
-    next_attempt_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    sent_at TIMESTAMPTZ,
-    lease_id UUID,
-    leased_by TEXT,
-    lease_until TIMESTAMPTZ
-);`,
-		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_pending_lease ON evidence_outbox_events(status, lease_until, created_at);`,
-		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_lease_id ON evidence_outbox_events(lease_id);`,
-		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_status ON evidence_outbox_events(status);`,
-		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_tenant_id ON evidence_outbox_events(tenant_id);`,
+			event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			trace_id TEXT,
+			envelope_id TEXT,
+			tenant_id TEXT NOT NULL,
+			contract_id TEXT,
+			aggregate_type TEXT NOT NULL DEFAULT 'evidence_pack',
+			aggregate_id TEXT NOT NULL,
+			event_type TEXT NOT NULL,
+			schema_version TEXT DEFAULT 'v1',
+			payload JSONB NOT NULL,
+			status TEXT NOT NULL DEFAULT 'PENDING',
+			retry_count INT NOT NULL DEFAULT 0,
+			next_attempt_at TIMESTAMPTZ,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+			sent_at TIMESTAMPTZ,
+			lease_id UUID,
+			leased_by TEXT,
+			lease_until TIMESTAMPTZ
+		);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_pending_lease
+			ON evidence_outbox_events(status, lease_until, created_at);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_lease_id
+			ON evidence_outbox_events(lease_id);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_status
+			ON evidence_outbox_events(status);`,
+		`CREATE INDEX IF NOT EXISTS idx_evidence_outbox_tenant_id
+			ON evidence_outbox_events(tenant_id);`,
 	}
 
 	for _, s := range stmts {

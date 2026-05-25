@@ -632,7 +632,15 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			lease_id        UUID,
 			leased_by       TEXT,
 			lease_until     TIMESTAMPTZ,
-			batchid         TEXT
+			batchid         TEXT,
+			settlement_record_received TIMESTAMPTZ,
+			canonical_settlement_created TIMESTAMPTZ,
+			bank_reference              TEXT,
+			client_reference            TEXT,
+			attachment_decision        TEXT,
+			match_confidence           DOUBLE PRECISION,
+			value_date_check            BOOLEAN,
+			amount_match                BOOLEAN
 		);`,
 		`CREATE INDEX IF NOT EXISTS outcome_outbox_status_idx
 			ON outcome_outbox(status, next_attempt_at);`,

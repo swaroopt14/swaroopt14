@@ -78,9 +78,11 @@ func main() {
 	repo := repositories.NewEvidenceRepository(database)
 	pendingLeafRepo := repositories.NewPendingLeafRepository(database)
 	outboxPullRepo := repositories.NewOutboxPullRepo(database)
-	evidenceSvc := services.NewEvidenceService(repo, pendingLeafRepo, s3store, signer, archiveCrypto, cfg.ArchivePrefix, cfg.ReplayCompareStrict, publisher)
+	enrichRepo := repositories.NewEnrichmentRepository(database)
+	evidenceSvc := services.NewEvidenceService(repo, pendingLeafRepo, enrichRepo, s3store, signer, archiveCrypto, cfg.ArchivePrefix, cfg.ReplayCompareStrict, publisher)
 	h := handlers.NewEvidenceHandler(evidenceSvc)
 	outboxHandler := handlers.NewOutboxHandler(outboxPullRepo)
+	proofHandler := handlers.NewProofHandler(evidenceSvc, enrichRepo, database)
 
 	// --- Kafka consumers for Merkle leaf buffering ---
 	if len(cfg.KafkaBrokers) > 0 && cfg.KafkaBrokers[0] != "" {
@@ -131,6 +133,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	routes.Register(r, h, outboxHandler)
+	routes.RegisterProofRoutes(r, proofHandler)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%s", cfg.HTTPPort),

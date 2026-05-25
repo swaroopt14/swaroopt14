@@ -163,6 +163,16 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 			Hash:          l.Hash,
 			SchemaVersion: sv,
 			SourceTopic:   "payments.outcome.events.v1",
+
+			// 🆕 Settlement Metadata
+			SettlementRecordReceived:   relayEvt.SettlementRecordReceived,
+			CanonicalSettlementCreated: relayEvt.CanonicalSettlementCreated,
+			BankReference:              relayEvt.BankReference,
+			ClientReference:            relayEvt.ClientReference,
+			AttachmentDecision:        relayEvt.AttachmentDecision,
+			MatchConfidence:           relayEvt.MatchConfidence,
+			ValueDateCheck:            relayEvt.ValueDateCheck,
+			AmountMatch:               relayEvt.AmountMatch,
 		})
 	}
 

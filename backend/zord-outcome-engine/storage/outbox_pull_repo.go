@@ -79,7 +79,15 @@ leased AS (
 		COALESCE(o.lease_id::text, '') as lease_id,
 		COALESCE(o.leased_by, '') as leased_by,
 		o.lease_until,
-		o.batchid
+		o.batchid,
+		o.settlement_record_received,
+		o.canonical_settlement_created,
+		o.bank_reference,
+		o.client_reference,
+		o.attachment_decision,
+		o.match_confidence,
+		o.value_date_check,
+		o.amount_match
 )
 SELECT
 	event_id,
@@ -98,7 +106,15 @@ SELECT
 	lease_id,
 	leased_by,
 	lease_until,
-	batchid
+	batchid,
+	settlement_record_received,
+	canonical_settlement_created,
+	bank_reference,
+	client_reference,
+	attachment_decision,
+	match_confidence,
+	value_date_check,
+	amount_match
 FROM leased
 ORDER BY created_at ASC;
 `
@@ -116,6 +132,10 @@ ORDER BY created_at ASC;
 		var evt models.OutboxEvent
 		var nextRetry sql.NullTime
 		var lu sql.NullTime
+		var srr, csc sql.NullTime
+		var br, cr, ad sql.NullString
+		var mc sql.NullFloat64
+		var vdc, am sql.NullBool
 
 		if err := rows.Scan(
 			&evt.EventID,
@@ -135,6 +155,14 @@ ORDER BY created_at ASC;
 			&evt.LeasedBy,
 			&lu,
 			&evt.BatchID,
+			&srr,
+			&csc,
+			&br,
+			&cr,
+			&ad,
+			&mc,
+			&vdc,
+			&am,
 		); err != nil {
 			return "", nil, nil, err
 		}
@@ -152,6 +180,33 @@ ORDER BY created_at ASC;
 			if leaseUntil == nil {
 				leaseUntil = &t
 			}
+		}
+
+		if srr.Valid {
+			t := srr.Time
+			evt.SettlementRecordReceived = &t
+		}
+		if csc.Valid {
+			t := csc.Time
+			evt.CanonicalSettlementCreated = &t
+		}
+		if br.Valid {
+			evt.BankReference = &br.String
+		}
+		if cr.Valid {
+			evt.ClientReference = &cr.String
+		}
+		if ad.Valid {
+			evt.AttachmentDecision = &ad.String
+		}
+		if mc.Valid {
+			evt.MatchConfidence = &mc.Float64
+		}
+		if vdc.Valid {
+			evt.ValueDateCheck = &vdc.Bool
+		}
+		if am.Valid {
+			evt.AmountMatch = &am.Bool
 		}
 
 		events = append(events, evt)

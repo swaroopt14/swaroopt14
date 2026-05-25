@@ -77,8 +77,10 @@ func CreateTables() error {
     score_validity_status    TEXT        DEFAULT 'NOT_SCORED',
     score_breakdown_json     JSONB       DEFAULT '{}',
     score_reason_codes_json  JSONB       DEFAULT '[]',
-    scored_at                TIMESTAMPTZ
+    scored_at                TIMESTAMPTZ,
 
+	payment_instruction_received TIMESTAMPTZ,
+    canonical_intent_created TIMESTAMPTZ
 );`
 
 	if _, err := DB.Exec(paymentIntents); err != nil {
@@ -181,6 +183,9 @@ func CreateTables() error {
     avg_duplicate_risk       NUMERIC(6,2),
     low_matchability_count   INT         DEFAULT 0,
     duplicate_risk_count     INT         DEFAULT 0,
+
+	payment_instruction_received TIMESTAMPTZ,
+    canonical_intent_created TIMESTAMPTZ,
 
     CONSTRAINT fk_outbox_intent
         FOREIGN KEY (aggregate_id)

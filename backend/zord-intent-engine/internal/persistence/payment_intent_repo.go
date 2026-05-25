@@ -100,7 +100,9 @@ func (r *PaymentIntentRepo) Save(
     scored_at,
     required_fields_status,
     tokenization_status,
-    governance_decision
+    governance_decision,
+    payment_instruction_received,
+    canonical_intent_created
 )
 VALUES (
     $1,$2,$3,$4,
@@ -121,7 +123,7 @@ VALUES (
     $44, $45,
     $46, $47, $48, $49, -- UPDATED
     $50, $51, $52, $53, $54, $55, $56,
-    $57, $58, $59
+    $57, $58, $59, $60, $61
 ) `
 
 	_, err = tx.ExecContext(
@@ -186,6 +188,8 @@ VALUES (
 		intent.RequiredFieldsStatus,    // $57
 		intent.TokenizationStatus,      // $58
 		intent.GovernanceDecision,      // $59
+		intent.PaymentInstructionReceived, // $60
+		intent.CanonicalIntentCreated,     // $61
 	)
 
 	if err != nil {
@@ -251,14 +255,16 @@ INSERT INTO outbox (
     aggregate_confidence_score, -- NEW
     required_fields_status,
     tokenization_status,
-    governance_decision
+    governance_decision,
+    payment_instruction_received,
+    canonical_intent_created
 ) VALUES (
     $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
     $11,$12,$13,$14,$15,$16,$17,$18,$19,
     $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
     $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,
     $40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
-    $50,$51,$52,$53, $54, $55, $56, $57 -- UPDATED
+    $50,$51,$52,$53, $54, $55, $56, $57, $58, $59 -- UPDATED
 )`
 
 	outbox.ContractID = intent.ContractID
@@ -323,6 +329,8 @@ INSERT INTO outbox (
 		outbox.RequiredFieldsStatus,      // $55
 		outbox.TokenizationStatus,        // $56
 		outbox.GovernanceDecision,        // $57
+		outbox.PaymentInstructionReceived, // $58
+		outbox.CanonicalIntentCreated,     // $59
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)
@@ -411,7 +419,9 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		aggregate_confidence_score, -- NEW
 		required_fields_status,
 		tokenization_status,
-		governance_decision
+		governance_decision,
+		payment_instruction_received,
+		canonical_intent_created
 	FROM payment_intents
 	WHERE tenant_id = $1
 	  AND envelope_id = $2
@@ -473,6 +483,8 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.RequiredFieldsStatus,
 		&intent.TokenizationStatus,
 		&intent.GovernanceDecision,
+		&intent.PaymentInstructionReceived,
+		&intent.CanonicalIntentCreated,
 	)
 
 	if err == sql.ErrNoRows {
@@ -613,7 +625,9 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		aggregate_confidence_score, -- NEW
 		required_fields_status,
 		tokenization_status,
-		governance_decision
+		governance_decision,
+		payment_instruction_received,
+		canonical_intent_created
 	FROM payment_intents
 	WHERE tenant_id = $1
 	  AND business_idempotency_key = $2
@@ -675,6 +689,8 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.RequiredFieldsStatus,
 		&intent.TokenizationStatus,
 		&intent.GovernanceDecision,
+		&intent.PaymentInstructionReceived,
+		&intent.CanonicalIntentCreated,
 	)
 
 	if err == sql.ErrNoRows {

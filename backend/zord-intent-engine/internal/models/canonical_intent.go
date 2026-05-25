@@ -53,9 +53,13 @@ type CanonicalIntent struct {
 	GovernanceState       string          `json:"governance_state,omitempty"`
 	BusinessState         string          `json:"business_state,omitempty"`
 	DuplicateRiskFlag     bool            `json:"duplicate_risk_flag,omitempty"`
-	MappingProfileID      string          `json:"mapping_profile_id,omitempty" db:"mapping_profile_id"`
+	MappingProfileID      string          `json:"mapping_profile_used,omitempty" db:"mapping_profile_id"`
 	MappingProfileVersion string          `json:"mapping_profile_version,omitempty" db:"mapping_profile_version"`
 	SourceSystem          string          `json:"source_system,omitempty" db:"source_system"`
+
+	// 🆕 Traceability Fields
+	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty" db:"payment_instruction_received"`
+	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty" db:"canonical_intent_created"`
 
 	// Service 2 mandatory fields
 	BusinessIdempotencyKey    string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`

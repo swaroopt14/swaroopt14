@@ -111,7 +111,12 @@ func (r *IntentQueryRepo) ListIntents(
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
-		aggregate_confidence_score -- NEW
+		aggregate_confidence_score, -- NEW
+		required_fields_status,
+		tokenization_status,
+		governance_decision,
+		payment_instruction_received,
+		canonical_intent_created
 	FROM payment_intents
 	%s
 	ORDER BY created_at DESC
@@ -162,6 +167,11 @@ func (r *IntentQueryRepo) ListIntents(
 			&intent.GovernanceSnapshotRef,
 			&intent.GovernanceHash,
 			&intent.AggregateConfidenceScore, // NEW
+			&intent.RequiredFieldsStatus,
+			&intent.TokenizationStatus,
+			&intent.GovernanceDecision,
+			&intent.PaymentInstructionReceived,
+			&intent.CanonicalIntentCreated,
 		)
 
 		if err != nil {
@@ -207,7 +217,12 @@ func (r *IntentQueryRepo) GetIntentByID(
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
-		aggregate_confidence_score
+		aggregate_confidence_score,
+		required_fields_status,
+		tokenization_status,
+		governance_decision,
+		payment_instruction_received,
+		canonical_intent_created
 	FROM payment_intents
 	WHERE intent_id = $1
 `
@@ -245,6 +260,11 @@ func (r *IntentQueryRepo) GetIntentByID(
 		&intent.GovernanceSnapshotRef,
 		&intent.GovernanceHash,
 		&intent.AggregateConfidenceScore, // NEW
+		&intent.RequiredFieldsStatus,
+		&intent.TokenizationStatus,
+		&intent.GovernanceDecision,
+		&intent.PaymentInstructionReceived,
+		&intent.CanonicalIntentCreated,
 	)
 
 	if err != nil {
@@ -398,7 +418,12 @@ func (r *IntentQueryRepo) ListPaymentIntentsByBatch(
 			COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 			COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 			COALESCE(governance_hash, '') as governance_hash,
-			aggregate_confidence_score
+			aggregate_confidence_score,
+			required_fields_status,
+			tokenization_status,
+			governance_decision,
+			payment_instruction_received,
+			canonical_intent_created
 		FROM payment_intents
 		WHERE tenant_id = $1
 		  AND batchid = $2
@@ -446,6 +471,11 @@ func (r *IntentQueryRepo) ListPaymentIntentsByBatch(
 			&intent.GovernanceSnapshotRef,
 			&intent.GovernanceHash,
 			&intent.AggregateConfidenceScore,
+			&intent.RequiredFieldsStatus,
+			&intent.TokenizationStatus,
+			&intent.GovernanceDecision,
+			&intent.PaymentInstructionReceived,
+			&intent.CanonicalIntentCreated,
 		); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan payment intent detail row: %w", err)
 		}

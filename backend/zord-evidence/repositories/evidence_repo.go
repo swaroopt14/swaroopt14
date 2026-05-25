@@ -43,8 +43,14 @@ INSERT INTO evidence_packs(
 	evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status, merkle_root,
 	ruleset_version, schema_versions_json, signature_alg, signature_value, object_ref,
 	supersedes_pack_id, pack_completeness_score, leaf_count, required_leaf_count,
-	settlement_leaf_present_flag, attachment_decision_leaf_present_flag, created_at, updated_at
-) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
+	settlement_leaf_present_flag, attachment_decision_leaf_present_flag, 
+	payment_instruction_received, canonical_intent_created, mapping_profile_used,
+	required_fields_status, tokenization_status, governance_decision,
+	settlement_record_received, canonical_settlement_created, bank_reference,
+	client_reference, attachment_decision, match_confidence,
+	value_date_check, amount_match,
+	created_at, updated_at
+) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)`,
 		pack.EvidencePackID,
 		pack.TenantID,
 		nullStr(pack.IntentID),
@@ -64,6 +70,20 @@ INSERT INTO evidence_packs(
 		pack.RequiredLeafCount,
 		pack.SettlementLeafPresentFlag,
 		pack.AttachmentDecisionLeafPresentFlag,
+		pack.PaymentInstructionReceived,
+		pack.CanonicalIntentCreated,
+		pack.MappingProfileUsed,
+		pack.RequiredFieldsStatus,
+		pack.TokenizationStatus,
+		pack.GovernanceDecision,
+		pack.SettlementRecordReceived,
+		pack.CanonicalSettlementCreated,
+		pack.BankReference,
+		pack.ClientReference,
+		pack.AttachmentDecision,
+		pack.MatchConfidence,
+		pack.ValueDateCheck,
+		pack.AmountMatch,
 		pack.CreatedAt,
 		pack.CreatedAt,
 	)
@@ -142,10 +162,20 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 	var intentID, contractID, batchID, supersedesPackID sql.NullString
 	var schemaVersionsJSON []byte
 
+	var srr, csc sql.NullTime
+	var br, cr, ad sql.NullString
+	var mc sql.NullFloat64
+	var vdc, am sql.NullBool
+
 	q := `SELECT tenant_id, intent_id, contract_id, batch_id, mode, pack_status, merkle_root,
 	             ruleset_version, schema_versions_json, signature_alg, signature_value,
 	             object_ref, supersedes_pack_id, pack_completeness_score, leaf_count,
 	             required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+	             payment_instruction_received, canonical_intent_created, mapping_profile_used,
+	             required_fields_status, tokenization_status, governance_decision,
+	             settlement_record_received, canonical_settlement_created, bank_reference,
+	             client_reference, attachment_decision, match_confidence,
+	             value_date_check, amount_match,
 	             created_at
 	      FROM evidence_packs WHERE evidence_pack_id=$1`
 	err := r.db.QueryRowContext(ctx, q, packID).Scan(
@@ -154,6 +184,9 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 		&sigAlg, &signature, &objectRef, &supersedesPackID,
 		&pack.PackCompletenessScore, &pack.LeafCount, &pack.RequiredLeafCount,
 		&pack.SettlementLeafPresentFlag, &pack.AttachmentDecisionLeafPresentFlag,
+		&pack.PaymentInstructionReceived, &pack.CanonicalIntentCreated, &pack.MappingProfileUsed,
+		&pack.RequiredFieldsStatus, &pack.TokenizationStatus, &pack.GovernanceDecision,
+		&srr, &csc, &br, &cr, &ad, &mc, &vdc, &am,
 		&createdAt,
 	)
 	if err != nil {
@@ -170,6 +203,30 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 	}
 	if supersedesPackID.Valid {
 		pack.SupersedesPackID = supersedesPackID.String
+	}
+	if srr.Valid {
+		pack.SettlementRecordReceived = &srr.Time
+	}
+	if csc.Valid {
+		pack.CanonicalSettlementCreated = &csc.Time
+	}
+	if br.Valid {
+		pack.BankReference = &br.String
+	}
+	if cr.Valid {
+		pack.ClientReference = &cr.String
+	}
+	if ad.Valid {
+		pack.AttachmentDecision = &ad.String
+	}
+	if mc.Valid {
+		pack.MatchConfidence = &mc.Float64
+	}
+	if vdc.Valid {
+		pack.ValueDateCheck = &vdc.Bool
+	}
+	if am.Valid {
+		pack.AmountMatch = &am.Bool
 	}
 	if len(schemaVersionsJSON) > 0 {
 		_ = json.Unmarshal(schemaVersionsJSON, &pack.SchemaVersions)
@@ -207,6 +264,11 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
 		       merkle_root, ruleset_version, supersedes_pack_id, pack_completeness_score, leaf_count,
 		       required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+		       payment_instruction_received, canonical_intent_created, mapping_profile_used,
+		       required_fields_status, tokenization_status, governance_decision,
+		       settlement_record_received, canonical_settlement_created, bank_reference,
+		       client_reference, attachment_decision, match_confidence,
+		       value_date_check, amount_match,
 		       created_at
 		FROM evidence_packs
 		WHERE tenant_id=$1 AND intent_id=$2
@@ -220,11 +282,18 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 	for rows.Next() {
 		var s models.EvidencePackSummary
 		var iid, cid, bid, spid sql.NullString
+		var srr, csc sql.NullTime
+		var br, cr, ad sql.NullString
+		var mc sql.NullFloat64
+		var vdc, am sql.NullBool
 		if err := rows.Scan(
 			&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
 			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid,
 			&s.PackCompletenessScore, &s.LeafCount, &s.RequiredLeafCount,
 			&s.SettlementLeafPresentFlag, &s.AttachmentDecisionLeafPresentFlag,
+			&s.PaymentInstructionReceived, &s.CanonicalIntentCreated, &s.MappingProfileUsed,
+			&s.RequiredFieldsStatus, &s.TokenizationStatus, &s.GovernanceDecision,
+			&srr, &csc, &br, &cr, &ad, &mc, &vdc, &am,
 			&s.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -241,6 +310,30 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 		if spid.Valid {
 			s.SupersedesPackID = spid.String
 		}
+		if srr.Valid {
+			s.SettlementRecordReceived = &srr.Time
+		}
+		if csc.Valid {
+			s.CanonicalSettlementCreated = &csc.Time
+		}
+		if br.Valid {
+			s.BankReference = &br.String
+		}
+		if cr.Valid {
+			s.ClientReference = &cr.String
+		}
+		if ad.Valid {
+			s.AttachmentDecision = &ad.String
+		}
+		if mc.Valid {
+			s.MatchConfidence = &mc.Float64
+		}
+		if vdc.Valid {
+			s.ValueDateCheck = &vdc.Bool
+		}
+		if am.Valid {
+			s.AmountMatch = &am.Bool
+		}
 		result = append(result, s)
 	}
 	return result, nil
@@ -252,6 +345,11 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
 		       merkle_root, ruleset_version, supersedes_pack_id, pack_completeness_score, leaf_count,
 		       required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+		       payment_instruction_received, canonical_intent_created, mapping_profile_used,
+		       required_fields_status, tokenization_status, governance_decision,
+		       settlement_record_received, canonical_settlement_created, bank_reference,
+		       client_reference, attachment_decision, match_confidence,
+		       value_date_check, amount_match,
 		       created_at
 		FROM evidence_packs
 		WHERE tenant_id=$1 AND batch_id=$2
@@ -265,11 +363,18 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 	for rows.Next() {
 		var s models.EvidencePackSummary
 		var iid, cid, bid, spid sql.NullString
+		var srr, csc sql.NullTime
+		var br, cr, ad sql.NullString
+		var mc sql.NullFloat64
+		var vdc, am sql.NullBool
 		if err := rows.Scan(
 			&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
 			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid,
 			&s.PackCompletenessScore, &s.LeafCount, &s.RequiredLeafCount,
 			&s.SettlementLeafPresentFlag, &s.AttachmentDecisionLeafPresentFlag,
+			&s.PaymentInstructionReceived, &s.CanonicalIntentCreated, &s.MappingProfileUsed,
+			&s.RequiredFieldsStatus, &s.TokenizationStatus, &s.GovernanceDecision,
+			&srr, &csc, &br, &cr, &ad, &mc, &vdc, &am,
 			&s.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -285,6 +390,30 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 		}
 		if spid.Valid {
 			s.SupersedesPackID = spid.String
+		}
+		if srr.Valid {
+			s.SettlementRecordReceived = &srr.Time
+		}
+		if csc.Valid {
+			s.CanonicalSettlementCreated = &csc.Time
+		}
+		if br.Valid {
+			s.BankReference = &br.String
+		}
+		if cr.Valid {
+			s.ClientReference = &cr.String
+		}
+		if ad.Valid {
+			s.AttachmentDecision = &ad.String
+		}
+		if mc.Valid {
+			s.MatchConfidence = &mc.Float64
+		}
+		if vdc.Valid {
+			s.ValueDateCheck = &vdc.Bool
+		}
+		if am.Valid {
+			s.AmountMatch = &am.Bool
 		}
 		result = append(result, s)
 	}

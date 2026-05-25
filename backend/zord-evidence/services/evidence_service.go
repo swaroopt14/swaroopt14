@@ -25,6 +25,7 @@ var validModes = []string{"INTELLIGENCE_ATTACH", "SECONDARY_DISPATCH", "FULL_CON
 type EvidenceService struct {
 	repo                *repositories.EvidenceRepository
 	pendingLeafRepo     repositories.PendingLeafRepository
+	enrichRepo          *repositories.EnrichmentRepository
 	s3                  storage.S3Store
 	signer              *Signer
 	archiveCrypto       *ArchiveCrypto
@@ -36,6 +37,7 @@ type EvidenceService struct {
 func NewEvidenceService(
 	repo *repositories.EvidenceRepository,
 	pendingLeafRepo repositories.PendingLeafRepository,
+	enrichRepo *repositories.EnrichmentRepository,
 	s3 storage.S3Store,
 	signer *Signer,
 	archiveCrypto *ArchiveCrypto,
@@ -46,6 +48,7 @@ func NewEvidenceService(
 	return &EvidenceService{
 		repo:                repo,
 		pendingLeafRepo:     pendingLeafRepo,
+		enrichRepo:          enrichRepo,
 		s3:                  s3,
 		signer:              signer,
 		archiveCrypto:       archiveCrypto,
@@ -151,17 +154,62 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 
 	log.Printf("evidence.service.readiness_check intent=%s ALL_LEAVES_PRESENT — triggering generation", intentID)
 
+	// 5d. Extract traceability metadata from leaves
+	var pir, cic *time.Time
+	var mpu, gd *string
+	var rfs, ts *bool
+	var srr, csc *time.Time
+	var br, cr, ad *string
+	var mc *float64
+	var vdc, am *bool
+
+	for _, l := range leaves {
+		if l.PaymentInstructionReceived != nil {
+			pir = l.PaymentInstructionReceived
+			cic = l.CanonicalIntentCreated
+			mpu = l.MappingProfileUsed
+			rfs = l.RequiredFieldsStatus
+			ts = l.TokenizationStatus
+			gd = l.GovernanceDecision
+		}
+		if l.SettlementRecordReceived != nil {
+			srr = l.SettlementRecordReceived
+			csc = l.CanonicalSettlementCreated
+			br = l.BankReference
+			cr = l.ClientReference
+			ad = l.AttachmentDecision
+			mc = l.MatchConfidence
+			vdc = l.ValueDateCheck
+			am = l.AmountMatch
+		}
+	}
+
 	// 6. Generate the pack!
 	req := models.GenerateEvidenceRequest{
-		TenantID:       tenantID,
-		IntentID:       intentID,
-		EnvelopeID:     envelopeID,
-		TraceID:        traceID,
-		ContractID:     contractID,
-		Mode:           "INTELLIGENCE_ATTACH",
-		RulesetVersion: "v1",
-		SchemaVersions: map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
-		Items:          items,
+		TenantID:                   tenantID,
+		IntentID:                   intentID,
+		EnvelopeID:                 envelopeID,
+		TraceID:                    traceID,
+		ContractID:                 contractID,
+		Mode:                       "INTELLIGENCE_ATTACH",
+		RulesetVersion:             "v1",
+		SchemaVersions:             map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
+		Items:                      items,
+		PaymentInstructionReceived: pir,
+		CanonicalIntentCreated:    cic,
+		MappingProfileUsed:        mpu,
+		RequiredFieldsStatus:      rfs,
+		TokenizationStatus:        ts,
+		GovernanceDecision:        gd,
+
+		SettlementRecordReceived:   srr,
+		CanonicalSettlementCreated: csc,
+		BankReference:              br,
+		ClientReference:            cr,
+		AttachmentDecision:        ad,
+		MatchConfidence:           mc,
+		ValueDateCheck:            vdc,
+		AmountMatch:               am,
 	}
 
 	_, err = s.GeneratePack(ctx, req)
@@ -222,15 +270,60 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 
 	log.Printf("evidence.service.batch_readiness_check batch=%s ALL_LEAVES_PRESENT — triggering generation", batchID)
 
+	// Extract traceability metadata from leaves
+	var pir, cic *time.Time
+	var mpu, gd *string
+	var rfs, ts *bool
+	var srr, csc *time.Time
+	var br, cr, ad *string
+	var mc *float64
+	var vdc, am *bool
+
+	for _, l := range leaves {
+		if l.PaymentInstructionReceived != nil {
+			pir = l.PaymentInstructionReceived
+			cic = l.CanonicalIntentCreated
+			mpu = l.MappingProfileUsed
+			rfs = l.RequiredFieldsStatus
+			ts = l.TokenizationStatus
+			gd = l.GovernanceDecision
+		}
+		if l.SettlementRecordReceived != nil {
+			srr = l.SettlementRecordReceived
+			csc = l.CanonicalSettlementCreated
+			br = l.BankReference
+			cr = l.ClientReference
+			ad = l.AttachmentDecision
+			mc = l.MatchConfidence
+			vdc = l.ValueDateCheck
+			am = l.AmountMatch
+		}
+	}
+
 	// Generate the pack!
 	req := models.GenerateEvidenceRequest{
-		TenantID:       tenantID,
-		BatchID:        batchID,
-		TraceID:        "00000000-0000-0000-0000-000000000000", // or fetch from context/leaf if available
-		Mode:           "BATCH_ATTACH",
-		RulesetVersion: "v1",
-		SchemaVersions: map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
-		Items:          items,
+		TenantID:                   tenantID,
+		BatchID:                    batchID,
+		TraceID:                    "00000000-0000-0000-0000-000000000000", // or fetch from context/leaf if available
+		Mode:                       "BATCH_ATTACH",
+		RulesetVersion:             "v1",
+		SchemaVersions:             map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
+		Items:                      items,
+		PaymentInstructionReceived: pir,
+		CanonicalIntentCreated:    cic,
+		MappingProfileUsed:        mpu,
+		RequiredFieldsStatus:      rfs,
+		TokenizationStatus:        ts,
+		GovernanceDecision:        gd,
+
+		SettlementRecordReceived:   srr,
+		CanonicalSettlementCreated: csc,
+		BankReference:              br,
+		ClientReference:            cr,
+		AttachmentDecision:        ad,
+		MatchConfidence:           mc,
+		ValueDateCheck:            vdc,
+		AmountMatch:               am,
 	}
 
 	_, err = s.GenerateBatchPack(ctx, req)
@@ -322,6 +415,22 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 			Sig:      sig,
 			SignedAt: now,
 		}},
+		PaymentInstructionReceived: req.PaymentInstructionReceived,
+		CanonicalIntentCreated:    req.CanonicalIntentCreated,
+		MappingProfileUsed:        req.MappingProfileUsed,
+		RequiredFieldsStatus:      req.RequiredFieldsStatus,
+		TokenizationStatus:        req.TokenizationStatus,
+		GovernanceDecision:        req.GovernanceDecision,
+
+		SettlementRecordReceived:   req.SettlementRecordReceived,
+		CanonicalSettlementCreated: req.CanonicalSettlementCreated,
+		BankReference:              req.BankReference,
+		ClientReference:            req.ClientReference,
+		AttachmentDecision:        req.AttachmentDecision,
+		MatchConfidence:           req.MatchConfidence,
+		ValueDateCheck:            req.ValueDateCheck,
+		AmountMatch:               req.AmountMatch,
+
 		CreatedAt: now,
 	}
 
@@ -481,6 +590,10 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 	}
 	log.Printf("evidence.service.generate_pack save_ok pack=%s", packID)
 
+	// Persist proof enrichment columns (status, score, components, signatures) immediately.
+	// This ensures proof_status, proof_score, and proof_components_json are never stale.
+	s.writeProofEnrichment(ctx, pack)
+
 	return pack, nil
 }
 
@@ -626,6 +739,9 @@ func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.Gene
 		return nil, fmt.Errorf("save batch pack metadata: %w", err)
 	}
 	log.Printf("evidence.service.generate_batch_pack save_ok pack=%s", packID)
+
+	// Persist proof enrichment columns immediately after batch pack generation.
+	s.writeProofEnrichment(ctx, pack)
 
 	return pack, nil
 }
@@ -820,6 +936,75 @@ func (s *EvidenceService) GetPackView(ctx context.Context, packID, viewType stri
 		CreatedAt:      pack.CreatedAt,
 		Highlights:     highlights,
 	}, nil
+}
+
+// writeProofEnrichment computes and persists proof_status, proof_score, proof_components,
+// cryptographic_signatures, and score_breakdown immediately after a pack is saved.
+// This keeps the enrichment columns always in sync with the pack at generation time.
+func (s *EvidenceService) writeProofEnrichment(ctx context.Context, pack *models.EvidencePack) {
+	if s.enrichRepo == nil {
+		return
+	}
+	comp := deriveComponentsFromPack(pack)
+	sealExists := pack.PackStatus != ""
+	score := ComputeProofScore(comp, sealExists)
+	status := DeriveProofStatus(comp, sealExists, pack.PackStatus == "SUPERSEDED", false)
+	sigs := enrichPackSigsFromPack(pack)
+
+	if err := s.enrichRepo.UpdateProofEnrichment(
+		ctx, pack.EvidencePackID,
+		status, score.Score,
+		comp, sigs, score,
+		nil, nil, // svc2/svc5 JSONB not used — data lives directly on pack columns
+	); err != nil {
+		log.Printf("evidence.service.write_proof_enrichment failed pack=%s err=%v", pack.EvidencePackID, err)
+	}
+}
+
+// deriveComponentsFromPack derives ProofComponents from a fully-built EvidencePack's leaf set.
+func deriveComponentsFromPack(pack *models.EvidencePack) models.ProofComponents {
+	var c models.ProofComponents
+	for _, item := range pack.Items {
+		switch item.Type {
+		case models.LeafTypeRawSettlementLine, models.LeafTypeCanonicalIntentHash:
+			c.PaymentInstructionAvailable = true
+		case models.LeafTypeRawSettlementFile, models.LeafTypeCanonicalSettlementObservation:
+			c.SettlementRecordAvailable = true
+		case models.LeafTypeAttachmentDecision:
+			c.MatchDecisionAvailable = true
+		case models.LeafTypeGovernanceDecision:
+			c.GovernanceDecisionAvailable = true
+		case models.LeafTypeVarianceDecision:
+			c.ReplayCheckPassed = true
+		}
+	}
+	return c
+}
+
+// enrichPackSigsFromPack builds CryptographicSignatures from pack items.
+func enrichPackSigsFromPack(pack *models.EvidencePack) models.CryptographicSignatures {
+	sigs := models.CryptographicSignatures{}
+	for _, item := range pack.Items {
+		switch item.Type {
+		case models.LeafTypeRawSettlementLine:
+			sigs.RawIntentHash = item.Hash
+		case models.LeafTypeCanonicalIntentHash:
+			sigs.CanonicalIntentHash = item.Hash
+		case models.LeafTypeRawSettlementFile:
+			sigs.RawSettlementHash = item.Hash
+		case models.LeafTypeCanonicalSettlementObservation:
+			sigs.CanonicalSettlementHash = item.Hash
+		case models.LeafTypeAttachmentDecision:
+			sigs.AttachmentDecisionHash = item.Hash
+		case models.LeafTypeGovernanceDecision:
+			sigs.GovernanceDecisionHash = item.Hash
+		case models.LeafTypeEnvelopeHash:
+			sigs.EnvelopeHash = item.Hash
+		case models.LeafTypeFinalEvidenceView:
+			sigs.FinalEvidenceViewHash = item.Hash
+		}
+	}
+	return sigs
 }
 
 // sha256Hex is a local helper for non-text bytes (archive body hash).

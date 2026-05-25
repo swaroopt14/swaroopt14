@@ -33,4 +33,13 @@ type OutboxEvent struct {
 	PayloadHash []byte          `json:"payload_hash" db:"payload_hash"`
 	BatchID     *string         `json:"batchid,omitempty" db:"batchid"`
 
+	// 🆕 Settlement Metadata
+	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty" db:"settlement_record_received"`
+	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty" db:"canonical_settlement_created"`
+	BankReference              *string    `json:"bank_reference,omitempty" db:"bank_reference"`
+	ClientReference            *string    `json:"client_reference,omitempty" db:"client_reference"`
+	AttachmentDecision        *string    `json:"attachment_decision,omitempty" db:"attachment_decision"`
+	MatchConfidence           *float64   `json:"match_confidence,omitempty" db:"match_confidence"`
+	ValueDateCheck            *bool      `json:"value_date_check,omitempty" db:"value_date_check"`
+	AmountMatch               *bool      `json:"amount_match,omitempty" db:"amount_match"`
 }

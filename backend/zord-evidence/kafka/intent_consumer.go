@@ -42,6 +42,14 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 			Hash:          relayEvt.CanonicalHash,
 			SchemaVersion: "v1",
 			SourceTopic:   "payments.intent.events.v1",
+
+			// 🆕 Traceability & Status Fields
+			PaymentInstructionReceived: relayEvt.PaymentInstructionReceived,
+			CanonicalIntentCreated:    relayEvt.CanonicalIntentCreated,
+			MappingProfileUsed:        relayEvt.MappingProfileID,
+			RequiredFieldsStatus:      relayEvt.RequiredFieldsStatus,
+			TokenizationStatus:        relayEvt.TokenizationStatus,
+			GovernanceDecision:        relayEvt.GovernanceDecision,
 		}
 
 		// Leaf 7: Governance Decision (Directly from Outbox GovernanceHash)
@@ -54,6 +62,14 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 			Hash:          relayEvt.GovernanceHash,
 			SchemaVersion: "v1",
 			SourceTopic:   "payments.intent.events.v1",
+
+			// 🆕 Traceability & Status Fields
+			PaymentInstructionReceived: relayEvt.PaymentInstructionReceived,
+			CanonicalIntentCreated:    relayEvt.CanonicalIntentCreated,
+			MappingProfileUsed:        relayEvt.MappingProfileID,
+			RequiredFieldsStatus:      relayEvt.RequiredFieldsStatus,
+			TokenizationStatus:        relayEvt.TokenizationStatus,
+			GovernanceDecision:        relayEvt.GovernanceDecision,
 		}
 
 		pendingLeaves := []models.PendingLeafCandidate{l6, l7}

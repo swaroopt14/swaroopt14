@@ -68,6 +68,9 @@ func CanonicalIntentToOutboxEvent(
 		MappingProfileVersion: intent.MappingProfileVersion,
 		SourceSystem:          intent.SourceSystem,
 
+		PaymentInstructionReceived: intent.PaymentInstructionReceived,
+		CanonicalIntentCreated:    intent.CanonicalIntentCreated,
+
 		BusinessIdempotencyKey:    intent.BusinessIdempotencyKey,
 		BeneficiaryFingerprint:    intent.BeneficiaryFingerprint,
 		ProofReadinessScore:       intent.ProofReadinessScore,

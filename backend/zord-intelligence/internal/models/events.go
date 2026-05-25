@@ -59,6 +59,17 @@ type IntentCreatedEvent struct {
 	ProofReadinessScore    float64    `json:"proof_readiness_score"`
 	BeneficiaryFingerprint string     `json:"beneficiary_fingerprint"`
 	IntendedExecutionAt    *time.Time `json:"intended_execution_at"`
+
+	// Fields added from IntentPayload (zord-outcome-engine) — required for KPI computation
+	SourceSystem           string     `json:"source_system"`            // originating ERP/PSP — needed for R6 source_system_defect_rate
+	ClientBatchRef         string     `json:"client_batch_ref"`         // merchant's batch grouping key — needed for P1, P3
+	ClientPayoutRef        string     `json:"client_payout_ref"`        // merchant's per-payout reference
+	BusinessIdempotencyKey string     `json:"business_idempotency_key"` // dedup key from merchant
+	ProviderHint           string     `json:"provider_hint"`            // preferred provider/corridor hint
+	IntentType             string     `json:"intent_type"`              // "PAYOUT", "REFUND", etc.
+	DeadlineAt             *time.Time `json:"deadline_at"`              // hard SLA deadline set by merchant
+	CanonicalHash          string     `json:"canonical_hash"`           // content hash of canonical intent — for replay equivalence
+	GovernanceState        string     `json:"governance_state"`         // governance approval state at intent creation
 }
 
 // ── Event 2: from Service 4 ───────────────────────────────────────────────────
@@ -427,6 +438,9 @@ type AttachmentDecisionCreatedEvent struct {
 	SettledAmountMinor  decimal.Decimal `json:"settled_amount"`
 	IntendedAmountMinor decimal.Decimal `json:"intended_amount"`
 	Currency            string          `json:"currency"`
+
+	// Field added from AttachmentDecision DB model — needed for ambiguity analysis
+	RelativeScoreMargin float64 `json:"relative_score_margin"` // (winning - runner_up) / winning — margin relative to winner
 }
 
 // ── NEW EVENT C: from Service 5C ─────────────────────────────────────────────
@@ -491,8 +505,19 @@ type VarianceRecordCreatedEvent struct {
 	// ── Evidence and deduction context ───────────────────────────────────────
 	DeductionReason  string   `json:"deduction_reason"`   // e.g. "TDS_2PCT", "PSP_FEE", "" if not a deduction
 	IsWhitelisted    bool     `json:"is_whitelisted"`     // true = this deduction was pre-agreed with the PSP
-	EvidenceGapFlags []string `json:"evidence_gap_flags"` // fields missing from evidence pack
-	// e.g. ["missing_utr", "no_bank_confirmation"]
+	EvidenceGapFlags []string `json:"evidence_gap_flags"` // named gaps: ["missing_utr", "no_bank_confirmation"]
+
+	// Fields added from VarianceRecord DB model — required for KPI computation
+	DeductionVariance    decimal.Decimal `json:"deduction_variance"`      // deduction amount in minor units (TDS, PSP fee)
+	FeeVariance          decimal.Decimal `json:"fee_variance"`            // fee component of variance in minor units
+	CurrencyMatchFlag    bool            `json:"currency_match_flag"`     // true = intent and settlement currencies match
+	StatusVarianceFlag   bool            `json:"status_variance_flag"`    // true = status differs between intent and observation
+	ValueDateMismatchFlag bool           `json:"value_date_mismatch_flag"` // true = value date differs from expected
+	SettlementDelayDays  int             `json:"settlement_delay_days"`   // calendar days between intended_execution_at and settlement — needed for P6 p95
+	ProviderRefMissingFlag bool          `json:"provider_ref_missing_flag"` // true = no UTR/RRN/BankRef on settlement side
+	BankRefMissingFlag   bool            `json:"bank_ref_missing_flag"`   // true = bank reference absent
+	EvidenceGapFlag      bool            `json:"evidence_gap_flag"`       // true = any evidence gap exists (bool summary of EvidenceGapFlags)
+	VarianceSeverity     string          `json:"variance_severity"`       // "LOW" | "MEDIUM" | "HIGH" — computed by variance engine
 }
 
 // ── NEW EVENT D: from Service 5C ─────────────────────────────────────────────
@@ -544,6 +569,14 @@ type BatchSummaryUpdatedEvent struct {
 
 	BatchFinalityStatus string `json:"batch_finality_status"` // "PROCESSING", "FULLY_SETTLED", etc.
 	// matches batch_contracts.batch_finality_status values from Phase 1 schema
+
+	// Fields added from BatchAttachmentSummary DB model — required for P1 batch_quality_score
+	ExactMatchCount     int     `json:"exact_match_count"`      // attachments resolved as MATCH_EXACT
+	HighConfidenceCount int     `json:"high_confidence_count"`  // attachments resolved as MATCH_HIGH
+	AmbiguousCount      int     `json:"ambiguous_count"`        // attachments resolved as MATCH_AMBIGUOUS
+	UnresolvedCount     int     `json:"unresolved_count"`       // attachments with no match (MATCH_UNRESOLVED)
+	ConflictedCount     int     `json:"conflicted_count"`       // attachments with conflicting signals
+	AggregateScore      float64 `json:"aggregate_score"`        // overall batch attachment quality score — primary input for P1
 }
 
 // ── NEW EVENT E: from Service 6 ──────────────────────────────────────────────

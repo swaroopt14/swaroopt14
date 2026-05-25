@@ -281,6 +281,14 @@ type LeakageValue struct {
 	OrphanSettlementCount int `json:"orphan_settlement_count"` // settlements without intent
 	ReversalCount         int `json:"reversal_count"`          // REVERSAL variance events
 
+	// ── L7: Duplicate risk exposure ───────────────────────────────────────
+	// Incremented from IntentCreatedEvent.DuplicateRiskFlag=true
+	// AND from AttachmentDecisionCreatedEvent.DecisionType==MATCH_DUPLICATE.
+	// Both paths increment the same counters; idempotency is ensured by event
+	// dedup in IsProcessed — no double-counting across the two sources.
+	DuplicateRiskCount         int             `json:"duplicate_risk_count"`          // intents flagged as duplicate risk
+	DuplicateRiskExposureMinor decimal.Decimal `json:"duplicate_risk_exposure_minor"` // sum of intended amounts for duplicate-flagged intents
+
 	// ── Denominator for percentage ────────────────────────────────────────
 	// We track total intended so we can compute leakage_percentage without
 	// reading a second projection. Keeping both numerator and denominator
@@ -443,6 +451,32 @@ type DefensibilityValue struct {
 	AuditReadyPct         float64 `json:"audit_ready_pct"`         // (with_evidence_pack + with_governance_decision) / (2 * total_intents)
 	DisputeReadyPct       float64 `json:"dispute_ready_pct"`       // all three: pack + governance + replay
 
+	// ── D2: Pack completeness score (running average) ────────────────────
+	// Accumulated from EvidencePackReadyEvent.PackCompletenessScore.
+	// AvgPackCompletenessScore = PackCompletenessSum / PackCompletenessCount.
+	PackCompletenessSum      float64 `json:"pack_completeness_sum"`       // running sum for D2
+	PackCompletenessCount    int     `json:"pack_completeness_count"`     // count of packs seen
+	AvgPackCompletenessScore float64 `json:"avg_pack_completeness_score"` // D2 derived: sum/count
+
+	// ── D4: Settlement evidence coverage ─────────────────────────────────
+	// Fraction of evidence packs that include a settlement leaf.
+	// SettlementEvidenceCoverage = WithSettlementLeaf / WithEvidencePack.
+	WithSettlementLeaf         int     `json:"with_settlement_leaf"`          // packs with settlement_leaf_present_flag=true
+	SettlementEvidenceCoverage float64 `json:"settlement_evidence_coverage"`  // D4 derived rate
+
+	// ── D5: Attachment evidence coverage ─────────────────────────────────
+	// Fraction of evidence packs that include an attachment decision leaf.
+	// AttachmentEvidenceCoverage = WithAttachmentLeaf / WithEvidencePack.
+	WithAttachmentLeaf         int     `json:"with_attachment_leaf"`           // packs with attachment_decision_leaf_present_flag=true
+	AttachmentEvidenceCoverage float64 `json:"attachment_evidence_coverage"`  // D5 derived rate
+
+	// ── D7: Weak evidence rate ────────────────────────────────────────────
+	// Fraction of total intents associated with a variance that had an evidence gap.
+	// Incremented from VarianceRecordCreatedEvent.EvidenceGapFlag=true.
+	// WeakEvidenceRate = WeakEvidenceCount / TotalIntents.
+	WeakEvidenceCount int     `json:"weak_evidence_count"` // variances with evidence_gap_flag=true
+	WeakEvidenceRate  float64 `json:"weak_evidence_rate"`  // D7 derived rate
+
 	// ── Weakest-proof reference ───────────────────────────────────────────
 	// Updated by Phase 4 services when they identify the worst-performing
 	// corridor or source system for evidence quality.
@@ -506,9 +540,134 @@ type BatchHealthValue struct {
 	// ── Intelligence scores ───────────────────────────────────────────────
 	AmbiguityScore float64 `json:"ambiguity_score"` // 0.0–1.0 from Service 5C
 
+	// ── P1: Batch quality score inputs (from BatchAttachmentSummary) ──────
+	// Populated from BatchSummaryUpdatedEvent — fields added from Service 5C.
+	ExactMatchCount     int     `json:"exact_match_count"`      // MATCH_EXACT attachment count
+	HighConfidenceCount int     `json:"high_confidence_count"`  // MATCH_HIGH attachment count
+	AmbiguousCount      int     `json:"ambiguous_count"`        // MATCH_AMBIGUOUS count
+	UnresolvedCount     int     `json:"unresolved_count"`       // MATCH_UNRESOLVED count
+	ConflictedCount     int     `json:"conflicted_count"`       // conflicted signals count
+	AggregateScore      float64 `json:"aggregate_score"`        // Service 5C overall attachment quality score
+
 	// ── Status ───────────────────────────────────────────────────────────
 	// Mirrors batch_contracts.batch_finality_status for API consistency.
 	FinalityStatus string `json:"finality_status"` // "PROCESSING" | "FULLY_SETTLED" | "PARTIALLY_SETTLED" | etc.
+
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ── New KPI Projection Value Types ───────────────────────────────────────────
+// These structs support the remaining 14 implementable KPIs.
+// Each maps to one or more atomic repo methods and is stored in projection_state.value_json.
+// =============================================================================
+
+// RCASummaryValue is stored in ProjectionState.ValueJSON
+// for projection_key "rca.summary" at TENANT scope.
+//
+// Accumulates settlement quality signals used for R4/R5/R6/R8:
+//   R4 — parser_weakness_rate:      weak parse confidence ratio
+//   R5 — mapping_weakness_rate:     weak mapping confidence ratio
+//   R6 — source_system_defect_rate: per-source-system defect breakdown
+//   R8 — rca_concentration:         Herfindahl index of cluster amounts (written by RCA service)
+//
+// Projection key: "rca.summary"
+// Entity scope:   TENANT
+type RCASummaryValue struct {
+	// ── R4: Parser weakness ──────────────────────────────────────────────
+	// A settlement is "weak parse" when ParseConfidence < 0.70.
+	// Threshold 0.70 is the same weakestCohortSignal threshold used in A5.
+	WeakParseCount     int     `json:"weak_parse_count"`     // settlements with parse_confidence < 0.70
+	TotalSettlements   int     `json:"total_settlements"`    // all canonical settlement events seen
+	ParserWeaknessRate float64 `json:"parser_weakness_rate"` // R4 derived: weak_parse_count / total_settlements
+
+	// ── R5: Mapping weakness ─────────────────────────────────────────────
+	// A settlement is "weak mapping" when MappingConfidence < 0.70.
+	WeakMappingCount    int     `json:"weak_mapping_count"`    // settlements with mapping_confidence < 0.70
+	MappingWeaknessRate float64 `json:"mapping_weakness_rate"` // R5 derived: weak_mapping_count / total_settlements
+
+	// ── R6: Source system defect rate ────────────────────────────────────
+	// Per-source-system breakdown of parse + mapping weakness.
+	// Map key: source_system_id string. Map value: per-system stats.
+	// Overall rate = sum(defects across all systems) / sum(totals across all systems).
+	SourceSystemDefects    map[string]SourceSystemDefectStat `json:"source_system_defects"`     // per-system stats
+	SourceSystemDefectRate float64                           `json:"source_system_defect_rate"` // R6 derived overall rate
+
+	// ── R8: RCA concentration (Herfindahl index) ─────────────────────────
+	// Written by RCAIntelligenceService.ComputeAndSaveGradeA after clustering.
+	// Formula: sum( (cluster_amount / total_affected_amount)^2 ) — measures
+	// how concentrated failures are into a single root cause cluster.
+	// 1.0 = all failures have one root cause; 0.0 = perfectly distributed.
+	RCAConcentration float64 `json:"rca_concentration"` // R8: Herfindahl concentration index
+
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// SourceSystemDefectStat holds per-source-system weakness counts for R6.
+type SourceSystemDefectStat struct {
+	Total       int     `json:"total"`        // total settlement observations from this source
+	WeakParse   int     `json:"weak_parse"`   // parse_confidence < 0.70
+	WeakMapping int     `json:"weak_mapping"` // mapping_confidence < 0.70
+	DefectRate  float64 `json:"defect_rate"`  // (weak_parse + weak_mapping) / (2 * total)
+}
+
+// PatternTenantSummaryValue is stored in ProjectionState.ValueJSON
+// for projection_key "pattern.tenant_summary" at TENANT scope.
+//
+// Extends the existing 3-field record (batch_risk_score, proof_readiness_score,
+// duplicate_cluster_count) with P2/P6 counters.
+//
+// Projection key: "pattern.tenant_summary"
+// Entity scope:   TENANT
+type PatternTenantSummaryValue struct {
+	// ── Existing fields (must not be removed) ────────────────────────────
+	BatchRiskScore        float64 `json:"batch_risk_score"`        // last batch risk score
+	ProofReadinessScore   float64 `json:"proof_readiness_score"`   // last batch settlement ratio
+	DuplicateClusterCount int     `json:"duplicate_cluster_count"` // HDBSCAN duplicate clusters found
+
+	// ── P2: Duplicate risk rate ───────────────────────────────────────────
+	// Accumulated from IntentCreatedEvent.DuplicateRiskFlag=true.
+	// DuplicateRiskRate = DuplicateRiskCount / TotalIntentCount.
+	DuplicateRiskCount int     `json:"duplicate_risk_count"` // intents with duplicate_risk_flag=true
+	TotalIntentCount   int     `json:"total_intent_count"`   // all intents processed (denominator for P2)
+	DuplicateRiskRate  float64 `json:"duplicate_risk_rate"`  // P2 derived: count / total
+
+	// ── P6: Settlement delay p95 ─────────────────────────────────────────
+	// Accumulated from VarianceRecordCreatedEvent.SettlementDelayDays.
+	// Bounded sample array: stores last min(N, windowSize) delay values so
+	// that p95 can be computed exactly by sorting at snapshot time.
+	// Array is scoped to the current daily window (resets with window).
+	SettlementDelaySamples []int   `json:"settlement_delay_samples"` // bounded list of delay-day values
+	SettlementDelayP95Days float64 `json:"settlement_delay_p95_days"` // P6 derived: 95th percentile
+
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// PatternBatchIntentDensityValue is stored in ProjectionState.ValueJSON
+// for projection_key "pattern.batch_density.{client_batch_ref}" at BATCH scope.
+//
+// Used to compute P3 (same_beneficiary_amount_density):
+// the fraction of intents in a batch that share their (beneficiary_fingerprint, amount)
+// pair with at least one other intent in the same batch.
+//
+// Map key: "{beneficiary_fingerprint}:{amount_string}"
+// Map value: count of intents with that exact pair
+//
+// Projection key: "pattern.batch_density.{client_batch_ref}"
+// Entity scope:   BATCH
+type PatternBatchIntentDensityValue struct {
+	// Map of "fingerprint:amount" → count of intents with that exact pair.
+	// Key is "{beneficiary_fingerprint}:{amount_minor_string}".
+	// Built incrementally as IntentCreatedEvents arrive.
+	PairCounts map[string]int `json:"pair_counts"` // fingerprint:amount → count
+
+	TotalCount int `json:"total_count"` // total intents in this batch (denominator for P3)
+
+	// ── P3: Derived density (recomputed each update) ──────────────────────
+	// MaxPairCount: the highest count for any single (fingerprint, amount) pair.
+	// SameBeneficiaryAmountDensity = MaxPairCount / TotalCount.
+	// Range: 0.0 (all unique pairs) → 1.0 (all intents share the same pair — perfect payroll).
+	MaxPairCount                 int     `json:"max_pair_count"`                   // highest pair count
+	SameBeneficiaryAmountDensity float64 `json:"same_beneficiary_amount_density"`  // P3 derived
 
 	UpdatedAt time.Time `json:"updated_at"`
 }

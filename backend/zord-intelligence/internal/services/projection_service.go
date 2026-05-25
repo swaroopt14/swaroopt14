@@ -169,6 +169,37 @@ func (s *ProjectionService) HandleIntentCreated(
 		return fmt.Errorf("HandleIntentCreated pending corridor=%s: %w", corridorID, err)
 	}
 
+	// ── L7: Duplicate risk exposure ───────────────────────────────────────────
+	if e.DuplicateRiskFlag {
+		if amt, parseErr := decimal.NewFromString(e.Amount); parseErr == nil && amt.IsPositive() {
+			if err := s.projRepo.AtomicIncrementLeakageDuplicateRisk(
+				ctx, e.TenantID, amt, window.start, window.end,
+			); err != nil {
+				log.Printf("HandleIntentCreated: AtomicIncrementLeakageDuplicateRisk failed intent=%s: %v",
+					e.IntentID, err)
+			}
+		}
+	}
+
+	// ── P2: Duplicate risk rate denominator (all intents) ─────────────────────
+	if err := s.projRepo.AtomicIncrementPatternP2(
+		ctx, e.TenantID, e.DuplicateRiskFlag, window.start, window.end,
+	); err != nil {
+		log.Printf("HandleIntentCreated: AtomicIncrementPatternP2 failed intent=%s: %v",
+			e.IntentID, err)
+	}
+
+	// ── P3: Same-beneficiary-amount density per merchant batch ────────────────
+	if e.ClientBatchRef != "" && e.BeneficiaryFingerprint != "" {
+		pairKey := fmt.Sprintf("%s:%s", e.BeneficiaryFingerprint, e.Amount)
+		if err := s.projRepo.AtomicUpsertBatchIntentDensity(
+			ctx, e.TenantID, e.ClientBatchRef, pairKey, window.start, window.end,
+		); err != nil {
+			log.Printf("HandleIntentCreated: AtomicUpsertBatchIntentDensity failed intent=%s batch=%s: %v",
+				e.IntentID, e.ClientBatchRef, err)
+		}
+	}
+
 	// Step 2: seed the SLA timer (BUG FIX — this was missing before)
 	// We log failures but do NOT return an error here.
 	// Reason: the backlog increment already succeeded. If SLA seeding fails
@@ -604,6 +635,15 @@ func (s *ProjectionService) HandleEvidencePackReady(
 		log.Printf("HandleEvidencePackReady: AtomicIncrementDefensibilityEvidencePack failed tenant=%s: %v",
 			e.TenantID, err)
 	} else {
+		// ── D2/D4/D5: Record pack completeness and leaf presence ──────────────
+		if err := s.projRepo.AtomicRecordEvidencePackQuality(
+			ctx, e.TenantID, e.PackCompletenessScore,
+			e.SettlementLeafPresentFlag, e.AttachmentDecisionLeafPresentFlag,
+			window.start, window.end,
+		); err != nil {
+			log.Printf("HandleEvidencePackReady: AtomicRecordEvidencePackQuality failed tenant=%s: %v",
+				e.TenantID, err)
+		}
 		// Recompute defensibility snapshot now that evidence pack rate changed
 		if err := s.defensibilitySvc.ComputeAndSave(ctx, e.TenantID, "", window.start, window.end); err != nil {
 			log.Printf("HandleEvidencePackReady: defensibilitySvc failed tenant=%s: %v",
@@ -871,6 +911,17 @@ func (s *ProjectionService) HandleSettlementCreated(
 		}
 	}
 
+	// ── R4/R5/R6: Parser and mapping weakness per source system ───────────────
+	if e.SourceSystemID != "" {
+		if err := s.projRepo.AtomicRecordRCAQuality(
+			ctx, e.TenantID, e.SourceSystemID, e.ParseConfidence, e.MappingConfidence,
+			window.start, window.end,
+		); err != nil {
+			log.Printf("HandleSettlementCreated: AtomicRecordRCAQuality failed settlement=%s: %v",
+				e.SettlementID, err)
+		}
+	}
+
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleSettlementCreated MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
@@ -934,6 +985,16 @@ func (s *ProjectionService) HandleAttachmentDecision(
 			window.start, window.end,
 		); err != nil {
 			return fmt.Errorf("HandleAttachmentDecision AtomicRecordLeakage decision=%s: %w",
+				e.DecisionID, err)
+		}
+	}
+
+	// ── L7: Duplicate risk exposure for MATCH_DUPLICATE ──────────────────
+	if strings.EqualFold(e.DecisionType, "MATCH_DUPLICATE") {
+		if err := s.projRepo.AtomicIncrementLeakageDuplicateRisk(
+			ctx, e.TenantID, e.IntendedAmountMinor, window.start, window.end,
+		); err != nil {
+			log.Printf("HandleAttachmentDecision: AtomicIncrementLeakageDuplicateRisk failed decision=%s: %v",
 				e.DecisionID, err)
 		}
 	}
@@ -1147,6 +1208,26 @@ func (s *ProjectionService) HandleVarianceRecord(
 			log.Printf("HandleVarianceRecord: recommendationSvc failed variance=%s: %v",
 				e.VarianceID, err)
 		}
+
+		// ── D7: Weak evidence tracking ────────────────────────────────────────
+		if e.EvidenceGapFlag {
+			if err := s.projRepo.AtomicIncrementDefensibilityWeakEvidence(
+				ctx, e.TenantID, window.start, window.end,
+			); err != nil {
+				log.Printf("HandleVarianceRecord: AtomicIncrementDefensibilityWeakEvidence failed variance=%s: %v",
+					e.VarianceID, err)
+			}
+		}
+
+		// ── P6: Settlement delay P95 accumulation ─────────────────────────────
+		if e.SettlementDelayDays > 0 {
+			if err := s.projRepo.AtomicAppendPatternP6(
+				ctx, e.TenantID, e.SettlementDelayDays, window.start, window.end,
+			); err != nil {
+				log.Printf("HandleVarianceRecord: AtomicAppendPatternP6 failed variance=%s: %v",
+					e.VarianceID, err)
+			}
+		}
 	}
 
 	// Trigger policy evaluation for P_LEAKAGE_UNDER_SETTLEMENT
@@ -1225,8 +1306,8 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 	)
 	window := todayWindow(e.OccurredAt)
 
-	// Step 1: Update batch.health projection (full snapshot replacement)
-	if err := s.projRepo.AtomicUpdateBatchHealth(
+	// Step 1: Update batch.health projection (full snapshot replacement) — P1 fields included
+	if err := s.projRepo.AtomicUpdateBatchHealthFull(
 		ctx,
 		e.TenantID,
 		e.BatchID,
@@ -1241,9 +1322,15 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		e.TotalVarianceMinor,
 		e.AmbiguityScore,
 		e.BatchFinalityStatus,
+		e.ExactMatchCount,
+		e.HighConfidenceCount,
+		e.AmbiguousCount,
+		e.UnresolvedCount,
+		e.ConflictedCount,
+		e.AggregateScore,
 		window.start, window.end,
 	); err != nil {
-		return fmt.Errorf("HandleBatchSummaryUpdated AtomicUpdateBatchHealth batch=%s: %w",
+		return fmt.Errorf("HandleBatchSummaryUpdated AtomicUpdateBatchHealthFull batch=%s: %w",
 			e.BatchID, err)
 	}
 

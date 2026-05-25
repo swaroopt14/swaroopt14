@@ -2816,6 +2816,803 @@ func (r *ProjectionRepo) UpsertRCAFragment(
 	})
 }
 
+// ── L7: Duplicate Risk Exposure ───────────────────────────────────────────────
+
+// AtomicIncrementLeakageDuplicateRisk records one duplicate-risk intent into
+// the LEAKAGE projection for L7 (duplicate_risk_exposure).
+//
+// Called when HandleIntentCreated sees DuplicateRiskFlag=true, or when
+// HandleAttachmentDecision sees DecisionType=="MATCH_DUPLICATE".
+// Event idempotency (IsProcessed) prevents double-counting between both callers.
+func (r *ProjectionRepo) AtomicIncrementLeakageDuplicateRisk(
+	ctx context.Context,
+	tenantID string,
+	intendedMinor decimal.Decimal,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "leakage.total"
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_amount_minor',             0::numeric,
+				'unmatched_amount_minor',         0::numeric,
+				'under_settlement_amount_minor',  0::numeric,
+				'orphan_amount_minor',            0::numeric,
+				'reversal_exposure_minor',        0::numeric,
+				'unmatched_intent_count',         0,
+				'under_settlement_count',         0,
+				'orphan_settlement_count',        0,
+				'reversal_count',                 0,
+				'total_intended_amount_minor',    0::numeric,
+				'leakage_percentage',             0.0,
+				'breakdown_by_type',              '{}'::jsonb,
+				'duplicate_risk_count',           1,
+				'duplicate_risk_exposure_minor',  $5::numeric
+			),
+			now(), 1, 'LEAKAGE', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					projection_state.value_json,
+					'{duplicate_risk_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'duplicate_risk_count')::int, 0) + 1)
+				),
+				'{duplicate_risk_exposure_minor}',
+				to_jsonb(COALESCE((projection_state.value_json->>'duplicate_risk_exposure_minor')::numeric, 0) + $5::numeric)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, intendedMinor.String()); err != nil {
+		return fmt.Errorf("projection_repo.AtomicIncrementLeakageDuplicateRisk tenant=%s: %w", tenantID, err)
+	}
+	return nil
+}
+
+// ── D2/D4/D5: Evidence Pack Quality ──────────────────────────────────────────
+
+// AtomicRecordEvidencePackQuality accumulates evidence pack quality signals
+// into the DEFENSIBILITY projection for D2, D4, and D5.
+//
+// Called from HandleEvidencePackReady for every EvidencePackReadyEvent.
+//
+//   D2: AvgPackCompletenessScore = PackCompletenessSum / PackCompletenessCount
+//   D4: SettlementEvidenceCoverage = WithSettlementLeaf / WithEvidencePack
+//   D5: AttachmentEvidenceCoverage = WithAttachmentLeaf / WithEvidencePack
+func (r *ProjectionRepo) AtomicRecordEvidencePackQuality(
+	ctx context.Context,
+	tenantID string,
+	packCompletenessScore float64,
+	settlementLeafPresent bool,
+	attachmentLeafPresent bool,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "defensibility.summary"
+
+	settlementLeafInt := 0
+	if settlementLeafPresent {
+		settlementLeafInt = 1
+	}
+	attachmentLeafInt := 0
+	if attachmentLeafPresent {
+		attachmentLeafInt = 1
+	}
+
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_intents',              0,
+				'with_evidence_pack',         0,
+				'with_governance_decision',   0,
+				'with_replay_equivalence',    0,
+				'with_kyc_checked',           0,
+				'with_aml_checked',           0,
+				'governance_approved_count',  0,
+				'governance_rejected_count',  0,
+				'governance_escalated_count', 0,
+				'pack_completeness_sum',      $5::float8,
+				'pack_completeness_count',    1,
+				'avg_pack_completeness_score',$5::float8,
+				'with_settlement_leaf',       $6::int,
+				'settlement_evidence_coverage', 0.0,
+				'with_attachment_leaf',       $7::int,
+				'attachment_evidence_coverage', 0.0,
+				'weak_evidence_count',        0,
+				'weak_evidence_rate',         0.0
+			),
+			now(), 1, 'DEFENSIBILITY', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					jsonb_set(
+						projection_state.value_json,
+						'{pack_completeness_sum}',
+						to_jsonb(COALESCE((projection_state.value_json->>'pack_completeness_sum')::float8, 0) + $5::float8)
+					),
+					'{pack_completeness_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'pack_completeness_count')::int, 0) + 1)
+				),
+				'{with_settlement_leaf}',
+				to_jsonb(COALESCE((projection_state.value_json->>'with_settlement_leaf')::int, 0) + $6::int)
+			),
+			computed_at = now()
+	`
+	// First update pack_completeness_sum, pack_completeness_count, with_settlement_leaf.
+	// Then append with_attachment_leaf in a second jsonb_set to keep the SQL readable.
+	sqlFull := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_intents',              0,
+				'with_evidence_pack',         0,
+				'with_governance_decision',   0,
+				'with_replay_equivalence',    0,
+				'with_kyc_checked',           0,
+				'with_aml_checked',           0,
+				'governance_approved_count',  0,
+				'governance_rejected_count',  0,
+				'governance_escalated_count', 0,
+				'pack_completeness_sum',      $5::float8,
+				'pack_completeness_count',    1,
+				'avg_pack_completeness_score',$5::float8,
+				'with_settlement_leaf',       $6::int,
+				'settlement_evidence_coverage', 0.0,
+				'with_attachment_leaf',       $7::int,
+				'attachment_evidence_coverage', 0.0,
+				'weak_evidence_count',        0,
+				'weak_evidence_rate',         0.0
+			),
+			now(), 1, 'DEFENSIBILITY', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					jsonb_set(
+						jsonb_set(
+							projection_state.value_json,
+							'{pack_completeness_sum}',
+							to_jsonb(COALESCE((projection_state.value_json->>'pack_completeness_sum')::float8, 0) + $5::float8)
+						),
+						'{pack_completeness_count}',
+						to_jsonb(COALESCE((projection_state.value_json->>'pack_completeness_count')::int, 0) + 1)
+					),
+					'{with_settlement_leaf}',
+					to_jsonb(COALESCE((projection_state.value_json->>'with_settlement_leaf')::int, 0) + $6::int)
+				),
+				'{with_attachment_leaf}',
+				to_jsonb(COALESCE((projection_state.value_json->>'with_attachment_leaf')::int, 0) + $7::int)
+			),
+			computed_at = now()
+	`
+	_ = sql // use full version
+	if _, err := r.pool.Exec(ctx, sqlFull, tenantID, key, windowStart, windowEnd,
+		packCompletenessScore, settlementLeafInt, attachmentLeafInt); err != nil {
+		return fmt.Errorf("projection_repo.AtomicRecordEvidencePackQuality tenant=%s: %w", tenantID, err)
+	}
+	return r.recomputeDefensibilityEvidenceRates(ctx, tenantID, key, windowStart)
+}
+
+// recomputeDefensibilityEvidenceRates recomputes D2/D4/D5/D7 derived rates
+// after any evidence quality update.
+func (r *ProjectionRepo) recomputeDefensibilityEvidenceRates(
+	ctx context.Context,
+	tenantID, key string,
+	windowStart time.Time,
+) error {
+	// COALESCE wrappers on all field reads are critical:
+	// jsonb_set(target, path, NULL::jsonb) returns SQL NULL, propagating up
+	// through nested jsonb_set calls and violating the NOT NULL constraint.
+	// Any field absent from value_json returns NULL on extraction, so we
+	// default to 0 to produce a valid jsonb number instead of SQL NULL.
+	sql := `
+		UPDATE projection_state SET
+			value_json = jsonb_set(
+				jsonb_set(
+					jsonb_set(
+						jsonb_set(
+							value_json,
+							'{avg_pack_completeness_score}',
+							CASE
+								WHEN COALESCE((value_json->>'pack_completeness_count')::int, 0) > 0
+								THEN to_jsonb(
+									COALESCE((value_json->>'pack_completeness_sum')::float8, 0.0) /
+									(value_json->>'pack_completeness_count')::float8
+								)
+								ELSE to_jsonb(0.0)
+							END
+						),
+						'{settlement_evidence_coverage}',
+						CASE
+							WHEN COALESCE((value_json->>'with_evidence_pack')::int, 0) > 0
+							THEN to_jsonb(
+								COALESCE((value_json->>'with_settlement_leaf')::float8, 0.0) /
+								(value_json->>'with_evidence_pack')::float8
+							)
+							ELSE to_jsonb(0.0)
+						END
+					),
+					'{attachment_evidence_coverage}',
+					CASE
+						WHEN COALESCE((value_json->>'with_evidence_pack')::int, 0) > 0
+						THEN to_jsonb(
+							COALESCE((value_json->>'with_attachment_leaf')::float8, 0.0) /
+							(value_json->>'with_evidence_pack')::float8
+						)
+						ELSE to_jsonb(0.0)
+					END
+				),
+				'{weak_evidence_rate}',
+				CASE
+					WHEN COALESCE((value_json->>'total_intents')::int, 0) > 0
+					THEN to_jsonb(
+						COALESCE((value_json->>'weak_evidence_count')::float8, 0.0) /
+						(value_json->>'total_intents')::float8
+					)
+					ELSE to_jsonb(0.0)
+				END
+			),
+			computed_at = now()
+		WHERE tenant_id = $1 AND projection_key = $2 AND window_start = $3
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart); err != nil {
+		return fmt.Errorf("projection_repo.recomputeDefensibilityEvidenceRates tenant=%s: %w", tenantID, err)
+	}
+	return nil
+}
+
+// ── D7: Weak Evidence ─────────────────────────────────────────────────────────
+
+// AtomicIncrementDefensibilityWeakEvidence increments the D7 weak_evidence_count.
+// Called from HandleVarianceRecord when EvidenceGapFlag=true.
+func (r *ProjectionRepo) AtomicIncrementDefensibilityWeakEvidence(
+	ctx context.Context,
+	tenantID string,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "defensibility.summary"
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_intents', 0, 'with_evidence_pack', 0,
+				'with_governance_decision', 0, 'with_replay_equivalence', 0,
+				'with_kyc_checked', 0, 'with_aml_checked', 0,
+				'governance_approved_count', 0, 'governance_rejected_count', 0,
+				'governance_escalated_count', 0,
+				'pack_completeness_sum', 0.0, 'pack_completeness_count', 0,
+				'avg_pack_completeness_score', 0.0,
+				'with_settlement_leaf', 0, 'settlement_evidence_coverage', 0.0,
+				'with_attachment_leaf', 0, 'attachment_evidence_coverage', 0.0,
+				'weak_evidence_count', 1, 'weak_evidence_rate', 0.0
+			),
+			now(), 1, 'DEFENSIBILITY', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				projection_state.value_json,
+				'{weak_evidence_count}',
+				to_jsonb(COALESCE((projection_state.value_json->>'weak_evidence_count')::int, 0) + 1)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd); err != nil {
+		return fmt.Errorf("projection_repo.AtomicIncrementDefensibilityWeakEvidence tenant=%s: %w", tenantID, err)
+	}
+	return r.recomputeDefensibilityEvidenceRates(ctx, tenantID, key, windowStart)
+}
+
+// ── P1: Batch Health Full (with attachment quality counts) ────────────────────
+
+// AtomicUpdateBatchHealthFull is an extended version of AtomicUpdateBatchHealth
+// that additionally stores P1 attachment quality fields from BatchAttachmentSummary.
+//
+// Called from HandleBatchSummaryUpdated INSTEAD OF AtomicUpdateBatchHealth when
+// the event carries the new attachment count fields.
+func (r *ProjectionRepo) AtomicUpdateBatchHealthFull(
+	ctx context.Context,
+	tenantID, batchID string,
+	totalCount, successCount, failedCount, pendingCount, reversedCount, partialReconCount int,
+	intendedMinor, confirmedMinor, varianceMinor decimal.Decimal,
+	ambiguityScore float64,
+	finalityStatus string,
+	exactMatchCount, highConfidenceCount, ambiguousCount, unresolvedCount, conflictedCount int,
+	aggregateScore float64,
+	windowStart, windowEnd time.Time,
+) error {
+	key := fmt.Sprintf("batch.health.%s", batchID)
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type, entity_scope_ref)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_count',                  $5::int,
+				'success_count',                $6::int,
+				'failed_count',                 $7::int,
+				'pending_count',                $8::int,
+				'reversed_count',               $9::int,
+				'partial_recon_count',          $10::int,
+				'total_intended_amount_minor',  $11::numeric,
+				'total_confirmed_amount_minor', $12::numeric,
+				'total_variance_minor',         $13::numeric,
+				'ambiguity_score',              $14::float8,
+				'finality_status',              $15::text,
+				'exact_match_count',            $17::int,
+				'high_confidence_count',        $18::int,
+				'ambiguous_count',              $19::int,
+				'unresolved_count',             $20::int,
+				'conflicted_count',             $21::int,
+				'aggregate_score',              $22::float8,
+				'updated_at',                   now()
+			),
+			now(), 1, 'PATTERN', 'BATCH', $16)
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_build_object(
+				'total_count',                  $5::int,
+				'success_count',                $6::int,
+				'failed_count',                 $7::int,
+				'pending_count',                $8::int,
+				'reversed_count',               $9::int,
+				'partial_recon_count',          $10::int,
+				'total_intended_amount_minor',  $11::numeric,
+				'total_confirmed_amount_minor', $12::numeric,
+				'total_variance_minor',         $13::numeric,
+				'ambiguity_score',              $14::float8,
+				'finality_status',              $15::text,
+				'exact_match_count',            $17::int,
+				'high_confidence_count',        $18::int,
+				'ambiguous_count',              $19::int,
+				'unresolved_count',             $20::int,
+				'conflicted_count',             $21::int,
+				'aggregate_score',              $22::float8,
+				'updated_at',                   now()
+			),
+			entity_scope_ref = $16,
+			computed_at      = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql,
+		tenantID, key, windowStart, windowEnd,
+		totalCount, successCount, failedCount, pendingCount, reversedCount, partialReconCount, // $5-$10
+		intendedMinor.String(), confirmedMinor.String(), varianceMinor.String(),               // $11-$13
+		ambiguityScore, finalityStatus,                                                        // $14-$15
+		batchID,                                                                               // $16 entity_scope_ref
+		exactMatchCount, highConfidenceCount, ambiguousCount, unresolvedCount, conflictedCount, // $17-$21
+		aggregateScore, // $22
+	); err != nil {
+		return fmt.Errorf("projection_repo.AtomicUpdateBatchHealthFull batch=%s tenant=%s: %w",
+			batchID, tenantID, err)
+	}
+	return nil
+}
+
+// ── R4/R5/R6: RCA Quality Summary ────────────────────────────────────────────
+
+// AtomicRecordRCAQuality accumulates parse/mapping quality signals per source system.
+// Called from HandleSettlementCreated for every CanonicalSettlementCreatedEvent.
+//
+//   R4: weak parse  when ParseConfidence < 0.70
+//   R5: weak mapping when MappingConfidence < 0.70
+//   R6: per-source-system breakdown of R4+R5
+//
+// Uses a transaction (withTx) because we need to read-modify-write the
+// source_system_defects JSONB map atomically for the new source system entry.
+func (r *ProjectionRepo) AtomicRecordRCAQuality(
+	ctx context.Context,
+	tenantID, sourceSystemID string,
+	parseConfidence, mappingConfidence float64,
+	windowStart, windowEnd time.Time,
+) error {
+	const parseWeaknessThreshold = 0.70
+	const mappingWeaknessThreshold = 0.70
+
+	return withTx(ctx, r.pool, func(tx pgx.Tx) error {
+		key := "rca.summary"
+		const selSQL = `
+			SELECT value_json
+			FROM projection_state
+			WHERE tenant_id = $1 AND projection_key = $2 AND window_start = $3
+			FOR UPDATE
+		`
+		var raw []byte
+		var summary models.RCASummaryValue
+		err := tx.QueryRow(ctx, selSQL, tenantID, key, windowStart).Scan(&raw)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("projection_repo.AtomicRecordRCAQuality select: %w", err)
+		}
+		if err == nil {
+			if jsonErr := json.Unmarshal(raw, &summary); jsonErr != nil {
+				summary = models.RCASummaryValue{}
+			}
+		}
+		if summary.SourceSystemDefects == nil {
+			summary.SourceSystemDefects = make(map[string]models.SourceSystemDefectStat)
+		}
+
+		// Increment global counters
+		summary.TotalSettlements++
+		isWeakParse := parseConfidence < parseWeaknessThreshold
+		isWeakMapping := mappingConfidence < mappingWeaknessThreshold
+		if isWeakParse {
+			summary.WeakParseCount++
+		}
+		if isWeakMapping {
+			summary.WeakMappingCount++
+		}
+
+		// Update per-source-system stats
+		sysKey := sourceSystemID
+		if sysKey == "" {
+			sysKey = "UNKNOWN"
+		}
+		sys := summary.SourceSystemDefects[sysKey]
+		sys.Total++
+		if isWeakParse {
+			sys.WeakParse++
+		}
+		if isWeakMapping {
+			sys.WeakMapping++
+		}
+		if sys.Total > 0 {
+			sys.DefectRate = float64(sys.WeakParse+sys.WeakMapping) / float64(2*sys.Total)
+		}
+		summary.SourceSystemDefects[sysKey] = sys
+
+		// Recompute derived rates
+		if summary.TotalSettlements > 0 {
+			summary.ParserWeaknessRate = float64(summary.WeakParseCount) / float64(summary.TotalSettlements)
+			summary.MappingWeaknessRate = float64(summary.WeakMappingCount) / float64(summary.TotalSettlements)
+			// Overall source system defect rate = avg defect rate across all systems weighted by volume
+			totalDefects := 0
+			totalObs := 0
+			for _, s := range summary.SourceSystemDefects {
+				totalDefects += s.WeakParse + s.WeakMapping
+				totalObs += 2 * s.Total // *2 because each observation counts for parse AND mapping
+			}
+			if totalObs > 0 {
+				summary.SourceSystemDefectRate = float64(totalDefects) / float64(totalObs)
+			}
+		}
+		summary.UpdatedAt = time.Now().UTC()
+
+		updated, marshalErr := json.Marshal(summary)
+		if marshalErr != nil {
+			return fmt.Errorf("projection_repo.AtomicRecordRCAQuality marshal: %w", marshalErr)
+		}
+
+		const upsertSQL = `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version,
+				 projection_family, entity_scope_type)
+			VALUES ($1, $2, $3, $4, $5::jsonb, now(), 1, 'RCA', 'TENANT')
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET value_json = EXCLUDED.value_json, computed_at = now()
+		`
+		if _, execErr := tx.Exec(ctx, upsertSQL, tenantID, key, windowStart, windowEnd, updated); execErr != nil {
+			return fmt.Errorf("projection_repo.AtomicRecordRCAQuality upsert: %w", execErr)
+		}
+		return nil
+	})
+}
+
+// AtomicUpdateRCAConcentration writes R8 (rca_concentration) into the rca.summary projection.
+// Called by RCAIntelligenceService after each clustering run.
+func (r *ProjectionRepo) AtomicUpdateRCAConcentration(
+	ctx context.Context,
+	tenantID string,
+	rcaConcentration float64,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "rca.summary"
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object('rca_concentration', $5::float8),
+			now(), 1, 'RCA', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				projection_state.value_json,
+				'{rca_concentration}',
+				to_jsonb($5::float8)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, rcaConcentration); err != nil {
+		return fmt.Errorf("projection_repo.AtomicUpdateRCAConcentration tenant=%s: %w", tenantID, err)
+	}
+	return nil
+}
+
+// GetRCASummary reads the rca.summary projection for a tenant.
+func (r *ProjectionRepo) GetRCASummary(
+	ctx context.Context,
+	tenantID string,
+) (*models.RCASummaryValue, error) {
+	var v models.RCASummaryValue
+	if err := r.GetValueAs(ctx, tenantID, "rca.summary", &v); err != nil {
+		return nil, fmt.Errorf("projection_repo.GetRCASummary: %w", err)
+	}
+	return &v, nil
+}
+
+// ── P2: Duplicate Risk Rate (tenant-level accumulator) ────────────────────────
+
+// AtomicIncrementPatternP2 increments the P2 (duplicate_risk_rate) counters.
+// Called from HandleIntentCreated for every intent.
+// isDuplicate=true when DuplicateRiskFlag is set on the IntentCreatedEvent.
+func (r *ProjectionRepo) AtomicIncrementPatternP2(
+	ctx context.Context,
+	tenantID string,
+	isDuplicate bool,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "pattern.p2_p6"
+	dupIncr := 0
+	if isDuplicate {
+		dupIncr = 1
+	}
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'total_intent_count',          1,
+				'duplicate_risk_count',         $5::int,
+				'duplicate_risk_rate',          $5::float8,
+				'settlement_delay_samples',     '[]'::jsonb,
+				'settlement_delay_p95_days',    0.0
+			),
+			now(), 1, 'PATTERN', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					projection_state.value_json,
+					'{total_intent_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'total_intent_count')::int, 0) + 1)
+				),
+				'{duplicate_risk_count}',
+				to_jsonb(COALESCE((projection_state.value_json->>'duplicate_risk_count')::int, 0) + $5::int)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, dupIncr); err != nil {
+		return fmt.Errorf("projection_repo.AtomicIncrementPatternP2 tenant=%s: %w", tenantID, err)
+	}
+	return r.recomputePatternP2Rate(ctx, tenantID, key, windowStart)
+}
+
+func (r *ProjectionRepo) recomputePatternP2Rate(ctx context.Context, tenantID, key string, windowStart time.Time) error {
+	sql := `
+		UPDATE projection_state SET
+			value_json = jsonb_set(
+				value_json,
+				'{duplicate_risk_rate}',
+				CASE
+					WHEN COALESCE((value_json->>'total_intent_count')::int, 0) > 0
+					THEN to_jsonb(
+						(value_json->>'duplicate_risk_count')::float8 /
+						(value_json->>'total_intent_count')::float8
+					)
+					ELSE to_jsonb(0.0)
+				END
+			),
+			computed_at = now()
+		WHERE tenant_id = $1 AND projection_key = $2 AND window_start = $3
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart); err != nil {
+		return fmt.Errorf("projection_repo.recomputePatternP2Rate: %w", err)
+	}
+	return nil
+}
+
+// ── P6: Settlement Delay P95 ─────────────────────────────────────────────────
+
+// AtomicAppendPatternP6 appends one settlement_delay_days sample for P6 computation.
+// Called from HandleVarianceRecord when SettlementDelayDays > 0.
+//
+// Uses a transaction to read the existing array, append, and recompute p95
+// in Go (where sorting is easy) before writing back.
+func (r *ProjectionRepo) AtomicAppendPatternP6(
+	ctx context.Context,
+	tenantID string,
+	delayDays int,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "pattern.p2_p6"
+	return withTx(ctx, r.pool, func(tx pgx.Tx) error {
+		const selSQL = `
+			SELECT value_json
+			FROM projection_state
+			WHERE tenant_id = $1 AND projection_key = $2 AND window_start = $3
+			FOR UPDATE
+		`
+		var raw []byte
+		var p2p6 struct {
+			TotalIntentCount      int     `json:"total_intent_count"`
+			DuplicateRiskCount    int     `json:"duplicate_risk_count"`
+			DuplicateRiskRate     float64 `json:"duplicate_risk_rate"`
+			SettlementDelaySamples []int  `json:"settlement_delay_samples"`
+			SettlementDelayP95Days float64 `json:"settlement_delay_p95_days"`
+		}
+		err := tx.QueryRow(ctx, selSQL, tenantID, key, windowStart).Scan(&raw)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("projection_repo.AtomicAppendPatternP6 select: %w", err)
+		}
+		if err == nil {
+			_ = json.Unmarshal(raw, &p2p6)
+		}
+
+		p2p6.SettlementDelaySamples = append(p2p6.SettlementDelaySamples, delayDays)
+		p2p6.SettlementDelayP95Days = computeP95(p2p6.SettlementDelaySamples)
+
+		updated, marshalErr := json.Marshal(p2p6)
+		if marshalErr != nil {
+			return fmt.Errorf("projection_repo.AtomicAppendPatternP6 marshal: %w", marshalErr)
+		}
+
+		const upsertSQL = `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version,
+				 projection_family, entity_scope_type)
+			VALUES ($1, $2, $3, $4, $5::jsonb, now(), 1, 'PATTERN', 'TENANT')
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET value_json = EXCLUDED.value_json, computed_at = now()
+		`
+		if _, execErr := tx.Exec(ctx, upsertSQL, tenantID, key, windowStart, windowEnd, updated); execErr != nil {
+			return fmt.Errorf("projection_repo.AtomicAppendPatternP6 upsert: %w", execErr)
+		}
+		return nil
+	})
+}
+
+// computeP95 returns the 95th percentile of a list of integer values.
+// Returns 0.0 for empty or single-element slices.
+// The list is sorted in-place (copy not made — caller owns it).
+func computeP95(samples []int) float64 {
+	n := len(samples)
+	if n == 0 {
+		return 0.0
+	}
+	sorted := make([]int, n)
+	copy(sorted, samples)
+	for i := 1; i < n; i++ {
+		for j := i; j > 0 && sorted[j] < sorted[j-1]; j-- {
+			sorted[j], sorted[j-1] = sorted[j-1], sorted[j]
+		}
+	}
+	// Nearest-rank method: ceil(p * n) - 1
+	rank := int(math.Ceil(0.95*float64(n))) - 1
+	if rank < 0 {
+		rank = 0
+	}
+	if rank >= n {
+		rank = n - 1
+	}
+	return float64(sorted[rank])
+}
+
+// GetPatternP2P6Summary reads the pattern.p2_p6 projection for P2/P6 KPIs.
+func (r *ProjectionRepo) GetPatternP2P6Summary(
+	ctx context.Context,
+	tenantID string,
+) (*models.PatternTenantSummaryValue, error) {
+	var v models.PatternTenantSummaryValue
+	if err := r.GetValueAs(ctx, tenantID, "pattern.p2_p6", &v); err != nil {
+		return nil, fmt.Errorf("projection_repo.GetPatternP2P6Summary: %w", err)
+	}
+	return &v, nil
+}
+
+// ── P3: Same Beneficiary Amount Density ──────────────────────────────────────
+
+// AtomicUpsertBatchIntentDensity accumulates intent pair counts per batch for P3.
+// Called from HandleIntentCreated when ClientBatchRef + BeneficiaryFingerprint are present.
+//
+// Key format: "{beneficiary_fingerprint}:{amount_string}"
+// Uses withTx to safely read-modify-write the pair_counts map.
+func (r *ProjectionRepo) AtomicUpsertBatchIntentDensity(
+	ctx context.Context,
+	tenantID, clientBatchRef, pairKey string,
+	windowStart, windowEnd time.Time,
+) error {
+	projKey := fmt.Sprintf("pattern.batch_density.%s", clientBatchRef)
+	return withTx(ctx, r.pool, func(tx pgx.Tx) error {
+		const selSQL = `
+			SELECT value_json
+			FROM projection_state
+			WHERE tenant_id = $1 AND projection_key = $2 AND window_start = $3
+			FOR UPDATE
+		`
+		var raw []byte
+		var density models.PatternBatchIntentDensityValue
+		err := tx.QueryRow(ctx, selSQL, tenantID, projKey, windowStart).Scan(&raw)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("projection_repo.AtomicUpsertBatchIntentDensity select: %w", err)
+		}
+		if err == nil {
+			if jsonErr := json.Unmarshal(raw, &density); jsonErr != nil {
+				density = models.PatternBatchIntentDensityValue{}
+			}
+		}
+		if density.PairCounts == nil {
+			density.PairCounts = make(map[string]int)
+		}
+
+		density.PairCounts[pairKey]++
+		density.TotalCount++
+
+		// Recompute MaxPairCount and density
+		maxCount := 0
+		for _, cnt := range density.PairCounts {
+			if cnt > maxCount {
+				maxCount = cnt
+			}
+		}
+		density.MaxPairCount = maxCount
+		if density.TotalCount > 0 {
+			density.SameBeneficiaryAmountDensity = float64(maxCount) / float64(density.TotalCount)
+		}
+		density.UpdatedAt = time.Now().UTC()
+
+		updated, marshalErr := json.Marshal(density)
+		if marshalErr != nil {
+			return fmt.Errorf("projection_repo.AtomicUpsertBatchIntentDensity marshal: %w", marshalErr)
+		}
+
+		const upsertSQL = `
+			INSERT INTO projection_state
+				(tenant_id, projection_key, window_start, window_end,
+				 value_json, computed_at, projection_version,
+				 projection_family, entity_scope_type, entity_scope_ref)
+			VALUES ($1, $2, $3, $4, $5::jsonb, now(), 1, 'PATTERN', 'BATCH', $6)
+			ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+			DO UPDATE SET value_json = EXCLUDED.value_json, computed_at = now()
+		`
+		if _, execErr := tx.Exec(ctx, upsertSQL, tenantID, projKey, windowStart, windowEnd, updated, clientBatchRef); execErr != nil {
+			return fmt.Errorf("projection_repo.AtomicUpsertBatchIntentDensity upsert: %w", execErr)
+		}
+		return nil
+	})
+}
+
+// GetBatchIntentDensity reads the pattern.batch_density.{batchRef} projection for P3.
+func (r *ProjectionRepo) GetBatchIntentDensity(
+	ctx context.Context,
+	tenantID, clientBatchRef string,
+) (*models.PatternBatchIntentDensityValue, error) {
+	key := fmt.Sprintf("pattern.batch_density.%s", clientBatchRef)
+	var v models.PatternBatchIntentDensityValue
+	if err := r.GetValueAs(ctx, tenantID, key, &v); err != nil {
+		return nil, fmt.Errorf("projection_repo.GetBatchIntentDensity batch=%s: %w", clientBatchRef, err)
+	}
+	return &v, nil
+}
+
 // withTx is a helper that runs fn inside a pgx transaction, committing on success
 // and rolling back on any error or panic.
 func withTx(ctx context.Context, pool *pgxpool.Pool, fn func(pgx.Tx) error) (err error) {

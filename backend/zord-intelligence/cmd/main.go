@@ -189,7 +189,8 @@ func main() {
 	dashAmbiguityH := handlers.NewDashboardAmbiguityHandler(snapshotRepo)
 	dashDefensibilityH := handlers.NewDashboardDefensibilityHandler(snapshotRepo)
 	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo, projRepo)
-	dashRecommendationH := handlers.NewDashboardRecommendationHandler(actionRepo)
+	dashRecommendationH := handlers.NewDashboardRecommendationHandler(actionRepo, snapshotRepo)
+	dashRCAH := handlers.NewDashboardRCAHandler(snapshotRepo)
 
 	// ── Step 9: Build the HTTP router ─────────────────────────────────────
 	router := handlers.NewRouter(
@@ -212,6 +213,7 @@ func main() {
 		dashDefensibilityH,
 		dashPatternH,
 		dashRecommendationH,
+		dashRCAH,
 	)
 
 	// ── Step 10: Create the HTTP server ───────────────────────────────────

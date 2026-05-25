@@ -78,6 +78,7 @@ func NewRouter(
 	dashDefensibilityH  *DashboardDefensibilityHandler,
 	dashPatternH        *DashboardPatternHandler,
 	dashRecommendationH *DashboardRecommendationHandler,
+	dashRCAH            *DashboardRCAHandler,
 ) http.Handler {
 
 	r := chi.NewRouter()
@@ -187,6 +188,7 @@ func NewRouter(
 			r.Get("/defensibility", dashDefensibilityH.GetDefensibilityKPIs)
 			r.Get("/patterns", dashPatternH.GetPatternKPIs)
 			r.Get("/recommendations", dashRecommendationH.GetRecommendationKPIs)
+			r.Get("/rca", dashRCAH.GetRCAKPIs)
 		})
 
 		// ── Policy endpoints ───────────────────────────────────────────────

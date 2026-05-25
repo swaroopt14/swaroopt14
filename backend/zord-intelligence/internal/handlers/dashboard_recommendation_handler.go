@@ -28,20 +28,32 @@ package handlers
 //   provider    optional — not applicable; accepted and ignored
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
+	"github.com/shopspring/decimal"
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
 
 // DashboardRecommendationHandler serves GET /v1/intelligence/dashboard/recommendations.
 type DashboardRecommendationHandler struct {
-	actionRepo *persistence.ActionContractRepo
+	actionRepo   *persistence.ActionContractRepo
+	snapshotRepo *persistence.IntelligenceSnapshotRepo
 }
 
 // NewDashboardRecommendationHandler creates a DashboardRecommendationHandler.
-func NewDashboardRecommendationHandler(actionRepo *persistence.ActionContractRepo) *DashboardRecommendationHandler {
-	return &DashboardRecommendationHandler{actionRepo: actionRepo}
+func NewDashboardRecommendationHandler(
+	actionRepo *persistence.ActionContractRepo,
+	snapshotRepo *persistence.IntelligenceSnapshotRepo,
+) *DashboardRecommendationHandler {
+	return &DashboardRecommendationHandler{actionRepo: actionRepo, snapshotRepo: snapshotRepo}
+}
+
+// recSnapshotFields reads Rec1/Rec2 fields from RecommendationSnapshot JSON.
+type recSnapshotFields struct {
+	RecommendationPriorityScore       float64         `json:"recommendation_priority_score"`
+	RecommendationImpactEstimateMinor decimal.Decimal `json:"recommendation_impact_estimate_minor"`
 }
 
 // DashboardRecommendationResponse is the frontend-ready payload for the recommendation dashboard card.
@@ -60,6 +72,11 @@ type DashboardRecommendationResponse struct {
 	TotalActions    int `json:"total_actions"`
 	AcceptedActions int `json:"accepted_actions"`
 	ResolvedActions int `json:"resolved_actions"`
+
+	// Rec1 — recommendation_priority_score: max priority score across active recommendation cards
+	RecommendationPriorityScore float64 `json:"recommendation_priority_score"`
+	// Rec2 — recommendation_impact_estimate_minor: sum of impact amounts for CRITICAL + HIGH cards
+	RecommendationImpactEstimateMinor decimal.Decimal `json:"recommendation_impact_estimate_minor"`
 }
 
 // GetRecommendationKPIs handles GET /v1/intelligence/dashboard/recommendations
@@ -101,6 +118,22 @@ func (h *DashboardRecommendationHandler) GetRecommendationKPIs(w http.ResponseWr
 	// "resolved" = reached a terminal decision (APPROVED or DISMISSED).
 	// "total_accepted_actions" = all non-EXPIRED contracts accepted for review = Total.
 	resp.ActionResolutionRate = float64(summary.Resolved) / float64(summary.Total)
+
+	// ── Rec1 / Rec2: fetch RECOMMENDATION snapshot ────────────────────────────
+	// These fields live in the RECOMMENDATION intelligence snapshot, not in the
+	// action_contracts table, so we fetch them separately.
+	if h.snapshotRepo != nil {
+		recSnap, recErr := h.snapshotRepo.GetLatestByTypeFiltered(
+			r.Context(), tenantID, "RECOMMENDATION", "TENANT", nil, from, to,
+		)
+		if recErr == nil && recSnap != nil {
+			var recKPIs recSnapshotFields
+			if jsonErr := json.Unmarshal(recSnap.SnapshotJSON, &recKPIs); jsonErr == nil {
+				resp.RecommendationPriorityScore = recKPIs.RecommendationPriorityScore
+				resp.RecommendationImpactEstimateMinor = recKPIs.RecommendationImpactEstimateMinor
+			}
+		}
+	}
 
 	writeJSON(w, http.StatusOK, resp)
 }

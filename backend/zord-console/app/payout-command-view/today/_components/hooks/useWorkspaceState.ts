@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAuth } from '@/app/hooks'
 import { workspacePromptCopy, type WorkspaceTab } from '@/services/payout-command/model'
 import {
   mapPromptLayerAnswer,
@@ -46,7 +47,9 @@ function formatChatTimestamp(date = new Date()) {
 function newThreadId() {
   return `thread-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
 }
-
+function newSessionId() {
+  return crypto.randomUUID()
+}
 function threadTitleFromPrompt(prompt: string) {
   const t = prompt.trim()
   if (t.length <= 48) return t
@@ -98,7 +101,7 @@ function mapLiveAnswer(raw: unknown): WorkspaceLiveAnswer | null {
     body: mapped.body,
     confidence: typeof res.confidence === 'string' ? res.confidence : null,
     citations: Array.isArray(res.citations) ? (res.citations as PromptLayerCitation[]) : [],
-    visualization: 'visualization' in res ? res.visualization : null,
+    visualization: 'visualization' in res ? (res.visualization as WorkspaceLiveAnswer['visualization']) : null,
   }
 }
 
@@ -122,6 +125,7 @@ export function useWorkspaceState(
   setSelectedSuggestion: (label: string | null) => void,
 ): WorkspaceState {
   const { tenantId, tenantReady } = useSessionTenant()
+  const { user, isLoading: authLoading } = useAuth()
   const storageKey = `${THREADS_STORAGE_PREFIX}${tenantId.trim() || 'anonymous'}`
 
   const [threads, setThreads] = useState<WorkspaceChatThread[]>([])
@@ -155,27 +159,28 @@ export function useWorkspaceState(
         const existing = prev.find((t) => t.id === threadId)
         const next = existing
           ? prev.map((t) =>
-              t.id === threadId
-                ? {
-                    ...t,
-                    messages,
-                    title: title ?? t.title,
-                    updatedAt: now,
-                    tab: activeTab,
-                  }
-                : t,
-            )
-          : [
-              {
-                id: threadId,
-                tab: activeTab,
-                title: title ?? 'New conversation',
-                createdAt: now,
-                updatedAt: now,
+            t.id === threadId
+              ? {
+                ...t,
                 messages,
-              },
-              ...prev,
-            ]
+                title: title ?? t.title,
+                updatedAt: now,
+                tab: activeTab,
+              }
+              : t,
+          )
+          : [
+            {
+              id: threadId,
+              tab: activeTab,
+              title: title ?? 'New conversation',
+              createdAt: now,
+              updatedAt: now,
+              messages,
+              sessionId: newSessionId(),
+            },
+            ...prev,
+          ]
         saveThreads(storageKey, next)
         return next
       })
@@ -229,8 +234,9 @@ export function useWorkspaceState(
       const suggestions = workspacePromptCopy[activeTab].suggestions as readonly string[]
       setSelectedSuggestion(suggestions.includes(cleaned) ? cleaned : null)
       setPromptInput('')
-
       const threadId = activeThreadId ?? newThreadId()
+      const existingThread = threads.find((t) => t.id === threadId)
+      const threadSessionId = existingThread?.sessionId || newSessionId()
       if (!activeThreadId) setActiveThreadId(threadId)
 
       const requestId = ++requestIdRef.current
@@ -300,11 +306,25 @@ export function useWorkspaceState(
       }
 
       try {
-        const result = await postPromptLayerQuery({
-          query: cleaned,
-          tenant_id: tenantGate.tenantId,
-          top_k: 6,
-        })
+        const userId = user?.id?.trim()
+        if (authLoading) {
+          throw new Error('User session is still loading. Please retry in a moment.')
+        }
+        if (!userId) {
+          throw new Error('Missing user context. Please login again.')
+        }
+        const result = await postPromptLayerQuery(
+          {
+            query: cleaned,
+            top_k: 6,
+          },
+          {
+            tenantId: tenantGate.tenantId,
+            sessionId: threadSessionId,
+            // optional, backend falls back to JWT if missing
+            userId,
+          },
+        )
 
         if (phaseTimerRef.current) window.clearInterval(phaseTimerRef.current)
         if (requestIdRef.current !== requestId) return
@@ -312,9 +332,9 @@ export function useWorkspaceState(
         if (!result.ok) {
           const detail =
             typeof result.payload === 'object' &&
-            result.payload &&
-            'details' in result.payload &&
-            typeof (result.payload as { details?: string }).details === 'string'
+              result.payload &&
+              'details' in result.payload &&
+              typeof (result.payload as { details?: string }).details === 'string'
               ? (result.payload as { details: string }).details
               : `HTTP ${result.httpStatus}`
 
@@ -340,6 +360,7 @@ export function useWorkspaceState(
           citationSnippet,
           citations: mapped.citations,
           hasVisualization: mapped.visualization != null,
+          visualization: mapped.visualization,
         }
 
         const finalMessages = [...withUser, assistantMessage]
@@ -382,6 +403,8 @@ export function useWorkspaceState(
       tenantId,
       tenantReady,
       upsertActiveThread,
+      user?.id,
+      authLoading
     ],
   )
 

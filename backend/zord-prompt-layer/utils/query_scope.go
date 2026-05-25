@@ -8,11 +8,14 @@ import (
 )
 
 type QueryScope struct {
-	WantsVisualization bool
-	TimePhrase         string
-	HasExplicitTime    bool
-	StartUTC           time.Time
-	EndUTC             time.Time
+	WantsVisualization  bool
+	TimePhrase          string
+	HasExplicitTime     bool
+	StartUTC            time.Time
+	EndUTC              time.Time
+	ScopeGranularity    string
+	NeedsClarification  bool
+	ClarificationReason string
 }
 
 var (

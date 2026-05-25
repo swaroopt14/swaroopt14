@@ -49,6 +49,25 @@ func isBatchQuery(q string) bool {
 	return strings.Contains(s, "batch") || strings.Contains(s, "csv") || strings.Contains(s, "upload")
 }
 
+func isDuplicateProtectionQuery(q string) bool {
+	s := strings.ToLower(q)
+	hints := []string{
+		"idempotency",
+		"duplicate",
+		"duplicated",
+		"same payment twice",
+		"sent twice",
+		"replay",
+		"conflict",
+	}
+	for _, h := range hints {
+		if strings.Contains(s, h) {
+			return true
+		}
+	}
+	return false
+}
+
 func extractBatchHint(q string) string {
 	m := batchHintRe.FindStringSubmatch(q)
 	if len(m) < 2 {
@@ -78,10 +97,11 @@ func (r *LiveSQLRetriever) Retrieve(req dto.QueryRequest, intentID, traceID stri
 	}
 
 	failureOnly := isFailureQuery(req.Query)
+	includeDuplicateSignals := isDuplicateProtectionQuery(req.Query)
 	chunks := make([]model.RetrievedChunk, 0, effectiveTopK*4)
 
 	if r.edgeDB != nil {
-		if c, err := r.fetchFromEdge(tenantID, traceID, effectiveTopK, failureOnly, scope); err == nil {
+		if c, err := r.fetchFromEdge(tenantID, traceID, effectiveTopK, failureOnly, scope, includeDuplicateSignals); err == nil {
 			chunks = append(chunks, c...)
 		}
 
@@ -158,6 +178,7 @@ func (r *LiveSQLRetriever) fetchFromEdge(
 	topK int,
 	failureOnly bool,
 	scope utils.QueryScope,
+	includeDuplicateSignals bool,
 ) ([]model.RetrievedChunk, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 	defer cancel()
@@ -321,7 +342,7 @@ func (r *LiveSQLRetriever) fetchFromEdge(
 	// status, resolution_type, conflict_count, source_class_first_seen,
 	// first_seen_at, last_seen_at, expires_at, last_conflict_at
 	// ------------------------------------------------------------------
-	{
+	if includeDuplicateSignals {
 		args := []any{}
 		q := `
 			SELECT status, resolution_type, conflict_count, source_class_first_seen,

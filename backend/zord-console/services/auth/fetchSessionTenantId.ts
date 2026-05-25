@@ -25,6 +25,14 @@ function persistTenantId(tid: string) {
   }
 }
 
+function clearPersistedTenantId() {
+  try {
+    if (typeof window !== 'undefined') window.localStorage.removeItem('zord_tenant_id')
+  } catch {
+    /* ignore */
+  }
+}
+
 function parseAuthMeTenant(data: unknown): string {
   const payload = data as
     | { session?: { tenant_id?: string }; user?: { tenant_id?: string } }
@@ -85,10 +93,11 @@ export async function fetchSessionTenantId(options?: {
       }
     }
     if (res.status === 401) {
+      clearPersistedTenantId()
       return {
         tenantId: '',
         ok: false,
-        message: 'Not signed in (401). Sign in, then click Fetch tenant id.',
+        message: 'Not signed in (401). Your saved tenant was cleared so Ask Zord does not use stale workspace data. Sign in, then try again.',
         source: 'none',
       }
     }

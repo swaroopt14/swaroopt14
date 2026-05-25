@@ -2,6 +2,8 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useAuth } from '@/app/hooks'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 
 type TenantReviewKpiTone = 'good' | 'warn' | 'neutral'
 
@@ -508,6 +510,9 @@ export function CopilotChatCore({
   const [mounted, setMounted] = useState(false)
   const [isSending, setIsSending] = useState(false)
   const [tenantContext, setTenantContext] = useState('megamart_prod')
+  const { tenantId: sessionTenantId } = useSessionTenant()
+  const { user } = useAuth()
+  const [promptSessionId] = useState(() => crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`)
   const [draft, setDraft] = useState('')
   const [items, setItems] = useState<ChatItem[]>(() => {
     const base: ChatItem[] = [
@@ -592,9 +597,19 @@ export function CopilotChatCore({
       if (tenantId) payload.tenant_id = tenantId
       if (intentFromUrl) payload.intent_id = intentFromUrl
 
+      const tenantHeader = tenantId || sessionTenantId?.trim() || undefined
+      const userId = user?.id
+      const sessionIdHeader = promptSessionId
+
       const res = await fetch(`${baseUrl}/query`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(tenantHeader ? { 'x-tenant-id': tenantHeader } : {}),
+          ...(sessionIdHeader ? { 'x-session-id': sessionIdHeader } : {}),
+          ...(userId ? { 'x-user-id': userId } : {}),
+        },
         body: JSON.stringify(payload),
       })
 
@@ -638,7 +653,7 @@ export function CopilotChatCore({
     } finally {
       setIsSending(false)
     }
-  }, [draft, formatResponseText, intentFromUrl, isSending, pushSystemMessage, tenantContext])
+  }, [draft, formatResponseText, intentFromUrl, isSending, pushSystemMessage, promptSessionId, sessionTenantId, user?.id])
 
   const clear = useCallback(() => {
     setDraft('')

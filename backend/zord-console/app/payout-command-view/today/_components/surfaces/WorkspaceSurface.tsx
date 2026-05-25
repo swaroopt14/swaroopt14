@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef } from 'react'
+import { Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { workspacePromptCopy, workspaceTabs, type WorkspaceTab } from '@/services/payout-command/model'
 import type { WorkspaceConversationMessage, WorkspaceLoadingPhase } from '@/services/payout-command/types'
 import type { WorkspaceState } from '../hooks/useWorkspaceState'
@@ -94,7 +95,35 @@ function ConnectionPill({ state }: { state: 'idle' | 'connected' | 'error' }) {
     </span>
   )
 }
+function PromptVisualization({ viz }: { viz: NonNullable<WorkspaceConversationMessage['visualization']> }) {
+  if (!viz || !viz.series || viz.series.length === 0) return null
 
+  const chartType = viz.chart_type || 'bar'
+  const data = viz.series.map((p) => ({ name: p.label, value: p.value }))
+
+  return (
+    <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+      <p className="text-[14px] font-semibold text-slate-900">{viz.title}</p>
+      {viz.subtitle ? <p className="mt-1 text-[12px] text-slate-500">{viz.subtitle}</p> : null}
+      <div className="mt-3 h-56 w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          {chartType === 'line' ? (
+            <LineChart data={data}><XAxis dataKey="name" /><YAxis /><Tooltip /><Line dataKey="value" stroke="#0f172a" strokeWidth={2} dot={false} /></LineChart>
+          ) : chartType === 'donut' ? (
+            <PieChart><Tooltip /><Pie data={data} dataKey="value" nameKey="name" innerRadius={50} outerRadius={80}>{data.map((_, i) => <Cell key={i} />)}</Pie></PieChart>
+          ) : (
+            <BarChart data={data}><XAxis dataKey="name" /><YAxis /><Tooltip /><Bar dataKey="value" fill="#111827" radius={[6, 6, 0, 0]} /></BarChart>
+          )}
+        </ResponsiveContainer>
+      </div>
+      {viz.insights?.length ? (
+        <ul className="mt-3 list-disc pl-5 text-[12px] text-slate-600">
+          {viz.insights.slice(0, 3).map((x, i) => <li key={i}>{x}</li>)}
+        </ul>
+      ) : null}
+    </div>
+  )
+}
 function MessageBubble({ message }: { message: WorkspaceConversationMessage }) {
   const isUser = message.role === 'user'
   const isLoading = message.status === 'typing'

@@ -29,20 +29,31 @@ export function sessionTenantForPromptLayer(
 
 export type PostPromptLayerQueryBody = {
   query: string
-  tenant_id: string
   top_k: number
 }
-
+export type PromptLayerRequestContext = {
+  tenantId: string
+  sessionId: string
+  userId?: string
+}
 export type PostPromptLayerQueryResult = {
   ok: boolean
   httpStatus: number
   payload: unknown
 }
 
-export async function postPromptLayerQuery(body: PostPromptLayerQueryBody): Promise<PostPromptLayerQueryResult> {
+export async function postPromptLayerQuery(
+  body: PostPromptLayerQueryBody,
+  ctx: PromptLayerRequestContext,
+): Promise<PostPromptLayerQueryResult> {
   const response = await fetch(PROMPT_LAYER_QUERY_PATH, {
     method: 'POST',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+  'content-type': 'application/json',
+  'x-tenant-id': ctx.tenantId,
+  'x-session-id': ctx.sessionId,
+  ...(ctx.userId?.trim() ? { 'x-user-id': ctx.userId.trim() } : {}),
+},
     credentials: 'include',
     cache: 'no-store',
     body: JSON.stringify(body),

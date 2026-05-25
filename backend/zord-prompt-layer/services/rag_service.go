@@ -24,6 +24,8 @@ var uuidLeakRe = regexp.MustCompile(`(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]
 
 var sensitiveExtractionRe = regexp.MustCompile(`(?i)\b(api[_\s-]?key|password|secret|access[_\s-]?token|private[_\s-]?key)\b`)
 var corridorIDRe = regexp.MustCompile(`(?i)\bcorridor[_\s-]?id\s*[:=]?\s*([A-Za-z0-9._-]+)\b`)
+var rowCountEstimateRe = regexp.MustCompile(`(?i)\brow_count_estimate=(\d+)\b`)
+var outboxStatusRe = regexp.MustCompile(`(?i)\bstatus=([A-Z_]+)\b`)
 
 type DefaultRAGService struct {
 	model        string
@@ -46,7 +48,9 @@ type queryClass string
 
 const (
 	classOperational queryClass = "operational_data_query"
-	classGeneral     queryClass = "general_product_or_greeting"
+	classProduct     queryClass = "product_explanation"
+	classNavigation  queryClass = "navigation_or_how_to"
+	classEvidence    queryClass = "evidence_or_dispute_query"
 	classOutOfScope  queryClass = "out_of_scope"
 	classUnknown     queryClass = "unknown"
 )
@@ -82,12 +86,12 @@ func classifyDeterministic(q string) queryClass {
 	if strings.Contains(s, "hello") || strings.Contains(s, "hi ") || s == "hi" ||
 		strings.Contains(s, "good morning") || strings.Contains(s, "good evening") ||
 		strings.Contains(s, "how are you") {
-		return classGeneral
+		return classProduct
 	}
 	if strings.Contains(s, "what is zord") || strings.Contains(s, "how does zord work") ||
 		strings.Contains(s, "how it works") || strings.Contains(s, "what is payment intent") ||
 		strings.Contains(s, "what are payment intents") {
-		return classGeneral
+		return classProduct
 	}
 	operationalHints := []string{"intent", "payment", "payout", "retry", "failure", "status", "sla", "batch", "csv", "callback", "proof", "tenant"}
 	for _, h := range operationalHints {
@@ -102,18 +106,22 @@ func mapLLMClass(c string) queryClass {
 	switch c {
 	case "operational_data_query":
 		return classOperational
-	case "general_product_or_greeting":
-		return classGeneral
+	case "product_explanation":
+		return classProduct
+	case "navigation_or_how_to":
+		return classNavigation
+	case "evidence_or_dispute_query":
+		return classEvidence
 	case "out_of_scope":
 		return classOutOfScope
 	default:
-		return classGeneral
+		return classProduct
 	}
 }
 
 func buildGeneralResponse() dto.QueryResponse {
 	return dto.QueryResponse{
-		Answer:        "Hello. I can help with Zord payout operations, intent flow, failures, retries, and proof readiness. Ask me a specific business question and I will keep it clear and simple.",
+		Answer:        "**What I can help with**\n- Payout operations, intent flow, delays, failures, and retries.\n- Proof readiness, confirmation gaps, and tenant-scoped trends.\n- Ask a specific business question and I will keep the answer short and clear.",
 		Confidence:    "high",
 		EntitiesFound: dto.EntitiesFound{},
 		Citations:     []dto.Citation{},
@@ -123,7 +131,7 @@ func buildGeneralResponse() dto.QueryResponse {
 
 func buildOutOfScopeResponse() dto.QueryResponse {
 	return dto.QueryResponse{
-		Answer:        "That question is outside this project context. I can help with payout operations, intent behavior, callbacks, failures, and readiness insights.",
+		Answer:        "**That question is outside this workspace scope**\n- I can help with payout operations, intent behavior, callbacks, failures, and readiness insights.\n- Try asking about delays, pending items, confirmations, retries, or manual review.",
 		Confidence:    "high",
 		EntitiesFound: dto.EntitiesFound{},
 		Citations:     []dto.Citation{},
@@ -155,27 +163,6 @@ func buildRCAContextBlock(rca *client.RCAClustersResponse) string {
 	)
 }
 
-func buildRCAOverviewBlock(overview *client.RCAOverviewResponse) string {
-	if overview == nil {
-		return "RCA overview: unavailable"
-	}
-	modelVersion := "-"
-	if overview.ModelVersion != nil && strings.TrimSpace(*overview.ModelVersion) != "" {
-		modelVersion = strings.TrimSpace(*overview.ModelVersion)
-	}
-	data := strings.TrimSpace(string(overview.Data))
-	if data == "" {
-		data = "{}"
-	}
-	return fmt.Sprintf(
-		"RCA overview: data_available=%t snapshot_type=%s model_version=%s reason=%s data=%s",
-		overview.DataAvailable,
-		strings.TrimSpace(overview.SnapshotType),
-		modelVersion,
-		strings.TrimSpace(overview.Reason),
-		data,
-	)
-}
 func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, error) {
 	ctx := context.Background()
 	topK := req.TopK
@@ -200,17 +187,31 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		dec, err := s.llm.ClassifyQueryIntent(req.Query)
 		if err != nil {
 			log.Printf("[prompt-layer][classify] llm-classifier failed err=%v; defaulting general", err)
-			class = classGeneral
+			class = classProduct
 		} else if dec.Confidence >= 0.60 {
 			class = mapLLMClass(dec.Class)
 		} else {
-			class = classGeneral
+			class = classProduct
 		}
 	}
 	log.Printf("[prompt-layer][classify] class=%s tenant=%s", class, req.TenantID)
 
-	if class == classGeneral {
-		return buildGeneralResponse(), nil
+	if class == classProduct {
+		txt, err := s.llm.GenerateProductExplanation(req.Query)
+		if err != nil {
+			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", err)
+		}
+		answer := utils.SanitizeAnswerText(txt)
+		if strings.TrimSpace(answer) == "" || uuidLeakRe.MatchString(answer) {
+			answer = buildGeneralResponse().Answer
+		}
+		return dto.QueryResponse{
+			Answer:        answer,
+			Confidence:    "high",
+			EntitiesFound: dto.EntitiesFound{},
+			Citations:     []dto.Citation{},
+			NextActions:   []string{},
+		}, nil
 	}
 	if class == classOutOfScope {
 		return buildOutOfScopeResponse(), nil
@@ -263,6 +264,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	entities := dto.EntitiesFound{}
 	citations := toCitations(chunks)
 	citations = utils.SanitizeCitations(citations)
+	citations = filterReadableCitations(citations)
 	conf := "medium"
 	confScore := 0.5
 
@@ -272,36 +274,37 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 
 	if len(chunks) == 0 {
 		return dto.QueryResponse{
-			Answer:        "I could not find reliable evidence for this query in the current data window.",
+			Answer:        "**I can't see enough payment progress yet**\n- I don't have clear payment status records for this question right now.\n- If you just uploaded a file, I may only be able to see that it was received, not whether each payment is done yet.",
 			Confidence:    "low",
 			EntitiesFound: entities,
 			Citations:     []dto.Citation{},
 			NextActions:   nextActions,
 		}, nil
 	}
+	if edgeOnlyResp, ok := buildLatestUploadEdgeOnlyResponse(req.Query, chunks); ok {
+		edgeOnlyResp.EntitiesFound = entities
+		if shouldReturnCitations(class, chunks, edgeOnlyResp.Confidence) {
+			edgeOnlyResp.Citations = citations
+		}
+		edgeOnlyResp.NextActions = nextActions
+		return edgeOnlyResp, nil
+	}
 	rcaContext := ""
 	if s.intelligence != nil {
-		log.Printf("[prompt-layer][rca] fetching tenant RCA context tenant=%s", req.TenantID)
-		parts := make([]string, 0, 2)
+		log.Printf("[prompt-layer][rca] fetching tenant RCA clusters tenant=%s", req.TenantID)
+
 		rcaClusters, rcaErr := s.intelligence.FetchRCAClusters(req.TenantID)
 		if rcaErr != nil {
 			log.Printf("[prompt-layer][rca] clusters fetch failed tenant=%s err=%v", req.TenantID, rcaErr)
 		} else {
 			log.Printf("[prompt-layer][rca] clusters fetched tenant=%s data_available=%t clusters=%d", req.TenantID, rcaClusters.DataAvailable, rcaClusters.ReturnedClusters)
-			parts = append(parts, buildRCAContextBlock(rcaClusters))
+
+			parts := []string{buildRCAContextBlock(rcaClusters)}
 			if len(rcaClusters.Clusters) > 0 {
 				parts = append(parts, "RCA clusters payload="+string(mustJSON(rcaClusters.Clusters)))
 			}
+			rcaContext = strings.Join(parts, "\n")
 		}
-
-		rcaOverview, ovErr := s.intelligence.FetchRCAOverview(req.TenantID)
-		if ovErr != nil {
-			log.Printf("[prompt-layer][rca] overview fetch failed tenant=%s err=%v", req.TenantID, ovErr)
-		} else {
-			log.Printf("[prompt-layer][rca] overview fetched tenant=%s data_available=%t snapshot_type=%s", req.TenantID, rcaOverview.DataAvailable, rcaOverview.SnapshotType)
-			parts = append(parts, buildRCAOverviewBlock(rcaOverview))
-		}
-		rcaContext = strings.Join(parts, "\n")
 	}
 	historyContext := ""
 	if s.memory != nil {
@@ -322,16 +325,74 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		}
 	}
 	context := ""
+
 	if strings.TrimSpace(historyContext) != "" {
 		context += "[CHAT_HISTORY_CONTEXT]\n" + historyContext + "\n"
 	}
-	context += buildContext(chunks)
+	context += buildBusinessContext(chunks)
 	if strings.TrimSpace(rcaContext) != "" {
 		context += "\n[RCA_CONTEXT]\n" + rcaContext + "\n"
 	}
-	llmOut, err := s.llm.GenerateFromContextScopedWithConfidence(req.Query, context, scope.WantsVisualization)
-	if err != nil {
-		return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", err)
+	var llmOut AnswerWithConfidence
+	if class == classNavigation {
+		txt, navErr := s.llm.GenerateNavigationHowTo(req.Query, context)
+		if navErr != nil {
+			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", navErr)
+		}
+		answer := utils.SanitizeAnswerText(txt)
+		answer = utils.StripActionLikeSections(answer)
+		if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
+			answer = "I don't see that action available in the current workspace."
+		}
+		return dto.QueryResponse{
+			Answer:        answer,
+			Confidence:    "high",
+			EntitiesFound: entities,
+			Citations:     []dto.Citation{},
+			NextActions:   nextActions,
+		}, nil
+	}
+	if class == classEvidence {
+		ev, evErr := s.llm.GenerateEvidenceJSON(req.Query, context)
+		if evErr != nil {
+			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", evErr)
+		}
+		answer := utils.SanitizeAnswerText(ev.Answer)
+		answer = utils.StripActionLikeSections(answer)
+		if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
+			return dto.QueryResponse{
+				Answer:        "**I can share a safe proof-status summary only**\n- Sensitive identifiers or secure values were removed from the response.\n- Ask for available proof items, missing proof items, and export readiness.",
+				Confidence:    "low",
+				EntitiesFound: dto.EntitiesFound{},
+				Citations:     []dto.Citation{},
+				NextActions:   []string{},
+			}, nil
+		}
+		return dto.QueryResponse{
+			Answer:        answer,
+			Confidence:    ev.Confidence,
+			EntitiesFound: entities,
+			Citations:     []dto.Citation{},
+			NextActions:   utils.SanitizeActions(ev.NextSteps),
+		}, nil
+	}
+
+	visRule := "needed=false"
+	if scope.WantsVisualization {
+		visRule = "needed=true"
+	}
+	op, opErr := s.llm.GenerateOperationalJSON(req.Query, context, visRule)
+	if opErr != nil {
+		return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", opErr)
+	}
+	llmOut = AnswerWithConfidence{
+		Answer:            op.Answer,
+		Confidence:        op.Confidence,
+		ConfidenceScore:   op.ConfidenceScore,
+		EvidenceCoverage:  op.EvidenceCoverage,
+		ScopeAdherence:    op.ScopeAdherence,
+		ContradictionRisk: op.ContradictionRisk,
+		Ambiguity:         op.Ambiguity,
 	}
 
 	answer := utils.SanitizeAnswerText(llmOut.Answer)
@@ -339,7 +400,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
 
 		return dto.QueryResponse{
-			Answer:        "I can share a safe operational summary, but I cannot expose sensitive identifiers or secure values.",
+			Answer:        "**I can share a safe operational summary only**\n- Sensitive identifiers or secure values were removed from the response.\n- Ask for status, counts, delays, or trends instead of record-level identifiers.",
 			Confidence:    "low",
 			EntitiesFound: dto.EntitiesFound{},
 			Citations:     []dto.Citation{},
@@ -358,7 +419,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		var vizNarrative string
 		viz, vizNarrative = s.buildDetailedVisualizationFromChunks(chunks, req, scope, kind, conf)
 		if strings.TrimSpace(vizNarrative) != "" {
-			answer = strings.TrimSpace(answer + " " + vizNarrative)
+			answer = strings.TrimSpace(answer + "\n\n**Visualization note:** " + vizNarrative)
 		}
 	}
 
@@ -399,7 +460,24 @@ func buildContext(chunks []model.RetrievedChunk) string {
 	}
 	return b.String()
 }
-
+func buildBusinessContext(chunks []model.RetrievedChunk) string {
+	raw := buildContext(chunks)
+	replacements := map[string]string{
+		"ambiguous_intent_count":      "Payments needing match review",
+		"ambiguity_rate":              "Review rate",
+		"provider_ref_missing_rate":   "Missing bank/PSP reference rate",
+		"avg_attachment_confidence":   "Average match confidence",
+		"risk_adjusted_leakage_minor": "Value needing review",
+		"intent":                      "payment instruction",
+		"settlement observation":      "bank/settlement record",
+		"defensibility":               "proof readiness",
+	}
+	out := raw
+	for k, v := range replacements {
+		out = strings.ReplaceAll(out, k, v)
+	}
+	return out
+}
 func toCitations(chunks []model.RetrievedChunk) []dto.Citation {
 	out := make([]dto.Citation, 0, len(chunks))
 	for _, c := range chunks {
@@ -407,12 +485,173 @@ func toCitations(chunks []model.RetrievedChunk) []dto.Citation {
 			SourceType: c.SourceType,
 			RecordID:   c.RecordID,
 			ChunkID:    c.ChunkID,
-			Snippet:    c.Text,
+			Snippet:    formatCitationSnippet(c.SourceType, c.Text),
 			Score:      c.Score,
 		})
 	}
-
 	return out
+}
+
+func formatCitationSnippet(sourceType, raw string) string {
+	kv := parseKV(raw)
+	switch strings.ToLower(strings.TrimSpace(sourceType)) {
+	case "intent_payment_intents":
+		return joinNonEmpty(" · ",
+			"Payment instruction",
+			labelValue("Status", pick(kv, "status")),
+			labelValue("Type", pick(kv, "type")),
+			labelValue("Amount", formatAmountINR(pick(kv, "amount"))),
+			labelValue("Received", formatDisplayTime(pick(kv, "created_at"))),
+		)
+	case "edge_ingress_outbox":
+		return joinNonEmpty(" · ",
+			"Ingestion handoff",
+			labelValue("Status", pick(kv, "status")),
+			labelValue("Event", pick(kv, "event_type")),
+			labelValue("Attempts", pick(kv, "attempts")),
+			labelValue("Created", formatDisplayTime(pick(kv, "created_at"))),
+			labelValue("Updated", formatDisplayTime(pick(kv, "updated_at"))),
+			labelValue("Published", formatDisplayTime(pick(kv, "published_at"))),
+		)
+	case "edge_ingress_envelopes":
+		return joinNonEmpty(" · ",
+			"Envelope received",
+			labelValue("Channel", pick(kv, "ingress_channel")),
+			labelValue("Source", pick(kv, "source_system")),
+			labelValue("Status", pick(kv, "status")),
+			labelValue("Rows", pick(kv, "row_count_estimate")),
+			labelValue("Received", formatDisplayTime(pick(kv, "received_at"))),
+		)
+	case "edge_idempotency_keys":
+		return joinNonEmpty(" · ",
+			"Duplicate-control signal",
+			labelValue("Status", pick(kv, "status")),
+			labelValue("Resolution", pick(kv, "resolution_type")),
+			labelValue("Conflicts", pick(kv, "conflict_count")),
+			labelValue("First seen", formatDisplayTime(pick(kv, "first_seen_at"))),
+			labelValue("Last seen", formatDisplayTime(pick(kv, "last_seen_at"))),
+		)
+	default:
+		parts := []string{}
+		for _, k := range []string{
+			"status", "type", "event_type", "source_system", "ingress_channel", "amount",
+			"created_at", "updated_at", "published_at", "received_at",
+		} {
+			v := pick(kv, k)
+			if v == "" {
+				continue
+			}
+			if strings.Contains(k, "_at") {
+				v = formatDisplayTime(v)
+			}
+			if k == "amount" {
+				v = formatAmountINR(v)
+			}
+			parts = append(parts, labelValue(humanLabel(k), v))
+		}
+		if len(parts) == 0 {
+			return ""
+		}
+		return joinNonEmpty(" · ", append([]string{"Operational evidence"}, parts...)...)
+	}
+}
+
+func parseKV(raw string) map[string]string {
+	out := map[string]string{}
+	for _, f := range strings.Fields(raw) {
+		if !strings.Contains(f, "=") {
+			continue
+		}
+		parts := strings.SplitN(f, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		k := strings.TrimSpace(parts[0])
+		v := strings.Trim(strings.TrimSpace(parts[1]), ",")
+		out[strings.ToLower(k)] = v
+	}
+	return out
+}
+
+func pick(m map[string]string, key string) string {
+	v := strings.TrimSpace(m[strings.ToLower(key)])
+	switch strings.ToLower(v) {
+	case "", "-", "null", "nil", "none", "n/a":
+		return ""
+	default:
+		return v
+	}
+}
+
+func labelValue(label, value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return label + ": " + value
+}
+
+func joinNonEmpty(sep string, vals ...string) string {
+	clean := make([]string, 0, len(vals))
+	for _, v := range vals {
+		v = strings.TrimSpace(v)
+		if v != "" {
+			clean = append(clean, v)
+		}
+	}
+	return strings.Join(clean, sep)
+}
+
+func humanLabel(k string) string {
+	switch k {
+	case "created_at":
+		return "Created"
+	case "updated_at":
+		return "Updated"
+	case "published_at":
+		return "Published"
+	case "received_at":
+		return "Received"
+	case "source_system":
+		return "Source"
+	case "ingress_channel":
+		return "Channel"
+	case "event_type":
+		return "Event"
+	default:
+		return strings.Title(strings.ReplaceAll(k, "_", " "))
+	}
+}
+
+func formatDisplayTime(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "-" {
+		return ""
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999-07",
+		"2006-01-02 15:04:05-07",
+		"2006-01-02 15:04:05",
+	}
+	var t time.Time
+	var err error
+	for _, l := range layouts {
+		t, err = time.Parse(l, s)
+		if err == nil {
+			loc, _ := time.LoadLocation("Asia/Kolkata")
+			return t.In(loc).Format("02 Jan 2006, 03:04 PM MST")
+		}
+	}
+	return s
+}
+
+func formatAmountINR(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	return "₹" + s
 }
 func calibrateConfidence(out AnswerWithConfidence, chunks []model.RetrievedChunk) (string, float64) {
 	// Retrieval-backed factors
@@ -500,7 +739,20 @@ func sourceGroup(sourceType string) string {
 func round2(v float64) float64 {
 	return math.Round(v*100) / 100
 }
-
+func filterReadableCitations(in []dto.Citation) []dto.Citation {
+	out := make([]dto.Citation, 0, len(in))
+	for _, c := range in {
+		s := strings.TrimSpace(c.Snippet)
+		if s == "" || s == "-" || s == "—" {
+			continue
+		}
+		if strings.Count(s, ":") == 0 && len(s) < 18 {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
 func extractCorridorID(q string) string {
 	m := corridorIDRe.FindStringSubmatch(q)
 	if len(m) < 2 {
@@ -508,6 +760,97 @@ func extractCorridorID(q string) string {
 	}
 	return strings.TrimSpace(m[1])
 }
+
+func buildLatestUploadEdgeOnlyResponse(query string, chunks []model.RetrievedChunk) (dto.QueryResponse, bool) {
+	if !isLatestUploadProgressQuery(query) || !hasOnlyEdgeEvidence(chunks) {
+		return dto.QueryResponse{}, false
+	}
+
+	rowCount := 0
+	inProcess := 0
+	failed := 0
+	uploaded := false
+
+	for _, c := range chunks {
+		switch strings.ToLower(strings.TrimSpace(c.SourceType)) {
+		case "edge_ingress_envelopes":
+			if rowCount == 0 {
+				if m := rowCountEstimateRe.FindStringSubmatch(c.Text); len(m) == 2 {
+					fmt.Sscanf(m[1], "%d", &rowCount)
+				}
+			}
+			uploaded = true
+		case "edge_ingress_outbox":
+			m := outboxStatusRe.FindStringSubmatch(strings.ToUpper(c.Text))
+			if len(m) != 2 {
+				continue
+			}
+			switch m[1] {
+			case "FAILED":
+				failed++
+			case "PENDING", "SENT":
+				inProcess++
+			}
+		}
+	}
+
+	if !uploaded || rowCount <= 0 {
+		return dto.QueryResponse{}, false
+	}
+
+	if inProcess == 0 && failed == 0 {
+		inProcess = rowCount
+	}
+	if inProcess > rowCount {
+		inProcess = rowCount
+	}
+	if failed > rowCount {
+		failed = rowCount
+	}
+
+	answer := fmt.Sprintf("**Your latest upload has %d payments, and they are still being processed.**\n- I can see the file was received by Zord.\n- The payments have entered the pipeline, but I do not see final done/not-done updates yet.", rowCount)
+	if failed > 0 {
+		answer = fmt.Sprintf("**Your latest upload has %d payments. %d are still being processed and %d did not go through.**\n- I can see the file was received by Zord.\n- The latest upload is still mid-flow, so final payment updates may still be catching up.", rowCount, maxInt(inProcess, rowCount-failed), failed)
+	}
+
+	return dto.QueryResponse{
+		Answer:     answer,
+		Confidence: "medium",
+	}, true
+}
+
+func hasOnlyEdgeEvidence(chunks []model.RetrievedChunk) bool {
+	if len(chunks) == 0 {
+		return false
+	}
+	for _, c := range chunks {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(c.SourceType)), "edge_") {
+			return false
+		}
+	}
+	return true
+}
+
+func isLatestUploadProgressQuery(q string) bool {
+	s := strings.ToLower(strings.TrimSpace(q))
+	if s == "" {
+		return false
+	}
+	if !(strings.Contains(s, "latest upload") || strings.Contains(s, "recent upload") || strings.Contains(s, "latest batch")) {
+		return false
+	}
+	mentionsPayments := strings.Contains(s, "payment") || strings.Contains(s, "payout") || strings.Contains(s, "disbursement")
+	mentionsProgress := strings.Contains(s, "in process") || strings.Contains(s, "pending") || strings.Contains(s, "still") || strings.Contains(s, "status")
+	return mentionsPayments && mentionsProgress
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
 func (s *DefaultRAGService) buildDetailedVisualizationFromChunks(
 	chunks []model.RetrievedChunk,
 	req dto.QueryRequest,

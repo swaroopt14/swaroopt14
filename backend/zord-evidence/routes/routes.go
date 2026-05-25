@@ -7,6 +7,25 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// RegisterProofRoutes adds the spec §4–§7 enrichment, timeline, lineage,
+// verify, and dispute-export endpoints. It is called from main() in addition
+// to the existing Register() call — no existing routes are touched.
+func RegisterProofRoutes(r *gin.Engine, ph *handlers.ProofHandler) {
+	v1 := r.Group("/v1/evidence")
+	{
+		// Spec §4: enriched pack with proof status + score
+		v1.GET("/packs/:packID/enriched", ph.GetEnrichedPack)
+		// Spec §5 Engine A: operational timeline
+		v1.GET("/packs/:packID/timeline", ph.GetTimeline)
+		// Spec §5 Engine B: Merkle DAG lineage graph
+		v1.GET("/packs/:packID/lineage-graph", ph.GetLineageGraph)
+		// Spec §7: cryptographic verification
+		v1.POST("/packs/:packID/verify", ph.VerifyPack)
+	}
+	// Spec §6: dispute export (separate path prefix as per spec)
+	r.POST("/v1/dispute/export", ph.DisputeExport)
+}
+
 func Register(r *gin.Engine, h *handlers.EvidenceHandler, outboxHandler *handlers.OutboxHandler) {
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

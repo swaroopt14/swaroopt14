@@ -25,6 +25,7 @@ var validModes = []string{"INTELLIGENCE_ATTACH", "SECONDARY_DISPATCH", "FULL_CON
 type EvidenceService struct {
 	repo                *repositories.EvidenceRepository
 	pendingLeafRepo     repositories.PendingLeafRepository
+	enrichRepo          *repositories.EnrichmentRepository
 	s3                  storage.S3Store
 	signer              *Signer
 	archiveCrypto       *ArchiveCrypto
@@ -36,6 +37,7 @@ type EvidenceService struct {
 func NewEvidenceService(
 	repo *repositories.EvidenceRepository,
 	pendingLeafRepo repositories.PendingLeafRepository,
+	enrichRepo *repositories.EnrichmentRepository,
 	s3 storage.S3Store,
 	signer *Signer,
 	archiveCrypto *ArchiveCrypto,
@@ -46,6 +48,7 @@ func NewEvidenceService(
 	return &EvidenceService{
 		repo:                repo,
 		pendingLeafRepo:     pendingLeafRepo,
+		enrichRepo:          enrichRepo,
 		s3:                  s3,
 		signer:              signer,
 		archiveCrypto:       archiveCrypto,
@@ -587,6 +590,10 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 	}
 	log.Printf("evidence.service.generate_pack save_ok pack=%s", packID)
 
+	// Persist proof enrichment columns (status, score, components, signatures) immediately.
+	// This ensures proof_status, proof_score, and proof_components_json are never stale.
+	s.writeProofEnrichment(ctx, pack)
+
 	return pack, nil
 }
 
@@ -732,6 +739,9 @@ func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.Gene
 		return nil, fmt.Errorf("save batch pack metadata: %w", err)
 	}
 	log.Printf("evidence.service.generate_batch_pack save_ok pack=%s", packID)
+
+	// Persist proof enrichment columns immediately after batch pack generation.
+	s.writeProofEnrichment(ctx, pack)
 
 	return pack, nil
 }
@@ -926,6 +936,75 @@ func (s *EvidenceService) GetPackView(ctx context.Context, packID, viewType stri
 		CreatedAt:      pack.CreatedAt,
 		Highlights:     highlights,
 	}, nil
+}
+
+// writeProofEnrichment computes and persists proof_status, proof_score, proof_components,
+// cryptographic_signatures, and score_breakdown immediately after a pack is saved.
+// This keeps the enrichment columns always in sync with the pack at generation time.
+func (s *EvidenceService) writeProofEnrichment(ctx context.Context, pack *models.EvidencePack) {
+	if s.enrichRepo == nil {
+		return
+	}
+	comp := deriveComponentsFromPack(pack)
+	sealExists := pack.PackStatus != ""
+	score := ComputeProofScore(comp, sealExists)
+	status := DeriveProofStatus(comp, sealExists, pack.PackStatus == "SUPERSEDED", false)
+	sigs := enrichPackSigsFromPack(pack)
+
+	if err := s.enrichRepo.UpdateProofEnrichment(
+		ctx, pack.EvidencePackID,
+		status, score.Score,
+		comp, sigs, score,
+		nil, nil, // svc2/svc5 JSONB not used — data lives directly on pack columns
+	); err != nil {
+		log.Printf("evidence.service.write_proof_enrichment failed pack=%s err=%v", pack.EvidencePackID, err)
+	}
+}
+
+// deriveComponentsFromPack derives ProofComponents from a fully-built EvidencePack's leaf set.
+func deriveComponentsFromPack(pack *models.EvidencePack) models.ProofComponents {
+	var c models.ProofComponents
+	for _, item := range pack.Items {
+		switch item.Type {
+		case models.LeafTypeRawSettlementLine, models.LeafTypeCanonicalIntentHash:
+			c.PaymentInstructionAvailable = true
+		case models.LeafTypeRawSettlementFile, models.LeafTypeCanonicalSettlementObservation:
+			c.SettlementRecordAvailable = true
+		case models.LeafTypeAttachmentDecision:
+			c.MatchDecisionAvailable = true
+		case models.LeafTypeGovernanceDecision:
+			c.GovernanceDecisionAvailable = true
+		case models.LeafTypeVarianceDecision:
+			c.ReplayCheckPassed = true
+		}
+	}
+	return c
+}
+
+// enrichPackSigsFromPack builds CryptographicSignatures from pack items.
+func enrichPackSigsFromPack(pack *models.EvidencePack) models.CryptographicSignatures {
+	sigs := models.CryptographicSignatures{}
+	for _, item := range pack.Items {
+		switch item.Type {
+		case models.LeafTypeRawSettlementLine:
+			sigs.RawIntentHash = item.Hash
+		case models.LeafTypeCanonicalIntentHash:
+			sigs.CanonicalIntentHash = item.Hash
+		case models.LeafTypeRawSettlementFile:
+			sigs.RawSettlementHash = item.Hash
+		case models.LeafTypeCanonicalSettlementObservation:
+			sigs.CanonicalSettlementHash = item.Hash
+		case models.LeafTypeAttachmentDecision:
+			sigs.AttachmentDecisionHash = item.Hash
+		case models.LeafTypeGovernanceDecision:
+			sigs.GovernanceDecisionHash = item.Hash
+		case models.LeafTypeEnvelopeHash:
+			sigs.EnvelopeHash = item.Hash
+		case models.LeafTypeFinalEvidenceView:
+			sigs.FinalEvidenceViewHash = item.Hash
+		}
+	}
+	return sigs
 }
 
 // sha256Hex is a local helper for non-text bytes (archive body hash).

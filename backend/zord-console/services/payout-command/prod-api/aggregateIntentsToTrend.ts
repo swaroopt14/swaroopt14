@@ -65,8 +65,24 @@ function emptyBucket(key: string, label: string): DisbursementTrendBucket {
     label,
     total_amount: 0,
     confirmed_amount: 0,
+    review_amount: 0,
     intent_count: 0,
     confirmed_count: 0,
+  }
+}
+
+function addIntentToBucket(b: DisbursementTrendBucket, minor: number, confirmed: boolean) {
+  b.intent_count += 1
+  b.total_amount += minor
+  if (confirmed) {
+    b.confirmed_count += 1
+    b.confirmed_amount += minor
+  }
+}
+
+function finalizeBucketReviewAmounts(buckets: DisbursementTrendBucket[]) {
+  for (const b of buckets) {
+    b.review_amount = Math.max(0, b.total_amount - b.confirmed_amount)
   }
 }
 
@@ -99,14 +115,11 @@ export function aggregateIntentsToTrend(
         map.set(mk, b)
       }
       const minor = parseAmountMinor(it.amount)
-      b.intent_count += 1
-      b.total_amount += minor
-      if (isConfirmedStatus(it.status)) {
-        b.confirmed_count += 1
-        b.confirmed_amount += minor
-      }
+      addIntentToBucket(b, minor, isConfirmedStatus(it.status))
     }
-    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key))
+    const sorted = Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key))
+    finalizeBucketReviewAmounts(sorted)
+    return sorted
   }
 
   if (range === 'quarter') {
@@ -137,14 +150,11 @@ export function aggregateIntentsToTrend(
         map.set(key, b)
       }
       const minor = parseAmountMinor(it.amount)
-      b.intent_count += 1
-      b.total_amount += minor
-      if (isConfirmedStatus(it.status)) {
-        b.confirmed_count += 1
-        b.confirmed_amount += minor
-      }
+      addIntentToBucket(b, minor, isConfirmedStatus(it.status))
     }
-    return Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key))
+    const sorted = Array.from(map.values()).sort((a, b) => a.key.localeCompare(b.key))
+    finalizeBucketReviewAmounts(sorted)
+    return sorted
   }
 
   const dayKeys: string[] = []
@@ -176,12 +186,9 @@ export function aggregateIntentsToTrend(
       map.set(dk, b)
     }
     const minor = parseAmountMinor(it.amount)
-    b.intent_count += 1
-    b.total_amount += minor
-    if (isConfirmedStatus(it.status)) {
-      b.confirmed_count += 1
-      b.confirmed_amount += minor
-    }
+    addIntentToBucket(b, minor, isConfirmedStatus(it.status))
   }
-  return dayKeys.map((k) => map.get(k)!).filter(Boolean)
+  const rows = dayKeys.map((k) => map.get(k)!).filter(Boolean)
+  finalizeBucketReviewAmounts(rows)
+  return rows
 }

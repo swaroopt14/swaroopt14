@@ -138,25 +138,28 @@ export function PageHeader({
           <button
             type="button"
             onClick={onAskZordToggle}
+            title="Ask questions about payments, gaps, and proof."
             className="flex h-9 items-center gap-1.5 rounded-[8px] border border-[#111111] bg-[#111111] px-2.5 text-[14px] font-semibold text-white"
           >
             <span className="h-2 w-2 rounded-full bg-white/90" />
-            Ask Zord
+            Ask about this data
           </button>
         ) : null}
 
         <Link
           href={batchCenterHref}
           className="inline-flex h-9 items-center rounded-[8px] border border-[#111111] bg-white px-2.5 text-[14px] font-semibold text-[#111111] hover:bg-[#fafafa]"
+          title="View batch-level payment details"
         >
-          Batch Center
+          View Batches
         </Link>
 
-        <ApiKeysPopoverButton />
+        <ApiKeysPopoverButton label="Integrations" />
 
         <button
           type="button"
           className="flex h-9 items-center gap-2 rounded-[8px] bg-[#111111] px-2.5 text-[14px] font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.06)]"
+          title="Export or share payment proof report"
         >
           <div className="flex -space-x-1.5">
             {TEAM_AVATARS.map(({ initial, bg }) => (
@@ -169,7 +172,7 @@ export function PageHeader({
               </span>
             ))}
           </div>
-          <span>Share</span>
+          <span>Export / Share</span>
         </button>
       </div>
     </div>

@@ -1,6 +1,7 @@
 'use client'
 
 import type { DefensibilityKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { leakageCopy } from '../../leakage/copy/leakageCopy'
 import type { PortfolioLeakageViewModel } from '../normalizeLeakagePayload'
 import { deriveRiskScore } from '../utils/deriveRiskScore'
 
@@ -16,7 +17,8 @@ export function RiskScoreGauge({ data, defensibility }: RiskScoreGaugeProps) {
 
   return (
     <article className="flex h-full flex-col rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-      <h2 className="text-[15px] font-semibold text-slate-900">Risk Score</h2>
+      <h2 className="text-[15px] font-semibold text-slate-900">{leakageCopy.severity.title}</h2>
+      <p className="mt-1 text-[12px] text-slate-500">{leakageCopy.severity.helper}</p>
 
       <div className="relative mx-auto mt-4 flex flex-1 flex-col items-center justify-center">
         <svg
@@ -64,7 +66,6 @@ export function RiskScoreGauge({ data, defensibility }: RiskScoreGaugeProps) {
         </div>
       </div>
 
-      <p className="mt-2 text-center text-[13px] text-slate-500">Stability improved by +4%</p>
     </article>
   )
 }

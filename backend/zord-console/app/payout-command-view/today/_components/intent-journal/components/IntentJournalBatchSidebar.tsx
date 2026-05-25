@@ -105,9 +105,9 @@ export function IntentJournalBatchSidebar({
           <div className="flex-1 overflow-y-auto px-2 py-2">
             {journalUsesBackendFeed && sidebarPageRows.length === 0 ? (
               <p className="rounded-lg border border-dashed border-[#E5E5E5] bg-slate-50 px-3 py-4 text-center text-[15px] leading-relaxed text-[#94a3b8]">
-                No batches yet for this tenant. After ingest, batches load first from the intent engine (
-                <span className="font-mono text-[13px] text-[#64748b]">GET /api/prod/intents/batches</span>
-                ); if that list is empty, the UI falls back to intelligence when available.
+                No batches yet for this tenant. After ingest, batches load from{' '}
+                <span className="font-mono text-[13px] text-[#64748b]">GET /api/prod/intents/batch-ids</span>
+                ; if empty, the UI may fall back to intelligence batch list when available.
               </p>
             ) : null}
             {sidebarPageRows.map((batch) => {

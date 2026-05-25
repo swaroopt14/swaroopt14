@@ -63,6 +63,7 @@ export type CanonicalSettlementObservation = {
   corridor_id?: string
   beneficiary_fingerprint?: string | null
   zord_signature_carrier?: string | null
+  matched_intent_id?: string | null
   warnings_json?: unknown
   created_at?: string
   updated_at?: string
@@ -198,6 +199,7 @@ export type SettlementObservationTableRow = {
   corridorId: string
   beneficiaryFingerprint: string
   zordSignatureCarrier: string
+  matchedIntentId: string
 }
 
 function parseMoney(raw: string | number | null | undefined): number {
@@ -298,6 +300,7 @@ export function mapObservationToTableRow(
     corridorId: displayOrDash(full.corridor_id),
     beneficiaryFingerprint: displayOrDash(full.beneficiary_fingerprint ?? undefined),
     zordSignatureCarrier: displayOrDash(full.zord_signature_carrier ?? undefined),
+    matchedIntentId: displayOrDash(full.matched_intent_id ?? undefined),
   }
 }
 

@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { NavyMetricHero } from '../today/_components/command-center/NavyMetricHero'
@@ -14,6 +14,7 @@ import {
 } from '../today/_components/command-center/homeCommandCenterTokens'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
+import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 
 function formatINR(minorStr: string | number | undefined): string {
@@ -459,24 +460,68 @@ export default function ConnectorIntelligenceClient() {
         </section>
       )}
 
-      <section className="space-y-4">
-        <article className={COMMAND_CENTER_KPI_CARD}>
-          <CommandCenterCardGlow />
-          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Per-connector breakdown</p>
-          <p className={`relative mt-2 text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>Not available yet</p>
-          <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
-            Tenant-wide defensibility exposure is shown in the hero above. When upstream exposes per-PSP connector metrics,
-            cards and the comparison table will populate from the BFF — static demo connectors are not shown in live mode.
-          </p>
-          <Link
-            href="/payout-command-view/today?dock=ambiguity"
-            className={`relative mt-4 inline-flex text-[13px] font-semibold underline decoration-[#d0d0cc] underline-offset-4 hover:decoration-[#000000] ${HOME_TITLE_BLACK}`}
-          >
-            Open ambiguity analysis →
-          </Link>
-        </article>
-      </section>
+      <ConnectorBatchTable tenantReady={tenantReady} />
 
     </div>
+  )
+}
+
+function ConnectorBatchTable({ tenantReady }: { tenantReady: boolean }) {
+  const [rows, setRows] = useState<Array<{ batch_id: string; status?: string; review_rate?: number }>>([])
+
+  useEffect(() => {
+    if (!tenantReady) {
+      setRows([])
+      return
+    }
+    void getIntelligenceBatches({ limit: 20 }).then((res) => {
+      setRows(res?.batches ?? [])
+    })
+  }, [tenantReady])
+
+  return (
+    <section className="space-y-4">
+      <article className={COMMAND_CENTER_KPI_CARD}>
+        <CommandCenterCardGlow />
+        <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Batch traffic (proxy for connectors)</p>
+        <p className={`relative mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
+          Live list from GET /api/prod/intelligence/batches until per-PSP overview API ships.
+        </p>
+        {rows.length > 0 ? (
+          <div className="relative mt-4 overflow-x-auto">
+            <table className="w-full min-w-[520px] text-left text-[14px]">
+              <thead>
+                <tr className="border-b border-slate-200 text-[12px] uppercase text-slate-500">
+                  <th className="px-2 py-2">Batch</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2">Review rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((b) => (
+                  <tr key={b.batch_id} className="border-b border-slate-100">
+                    <td className="px-2 py-2 font-mono text-[12px]">{b.batch_id}</td>
+                    <td className="px-2 py-2">{b.status ?? '—'}</td>
+                    <td className="px-2 py-2 tabular-nums">
+                      {b.review_rate != null ? `${(b.review_rate * 100).toFixed(1)}%` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className={`relative mt-3 ${HOME_BODY_IMPERIAL_SM}`}>
+            {tenantReady ? 'No batches yet for this tenant.' : 'Sign in to load batches.'}
+          </p>
+        )}
+        <Link
+          href="/payout-command-view/today?dock=ambiguity"
+          className={`relative mt-4 inline-flex text-[13px] font-semibold underline decoration-[#d0d0cc] underline-offset-4 hover:decoration-[#000000] ${HOME_TITLE_BLACK}`}
+        >
+          Open ambiguity analysis →
+        </Link>
+      </article>
+    </section>
   )
 }

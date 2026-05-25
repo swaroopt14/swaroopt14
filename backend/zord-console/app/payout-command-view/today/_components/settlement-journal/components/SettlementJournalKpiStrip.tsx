@@ -1,15 +1,17 @@
 'use client'
 
-import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
 import {
   COMMAND_CENTER_KPI_CARD,
   COMMAND_CENTER_LABEL_GREEN,
   HOME_BODY_IMPERIAL_SM,
   HOME_TITLE_BLACK,
 } from '../../command-center/homeCommandCenterTokens'
-import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
+import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
 import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
+import { settlementJournalCopy } from '../copy/settlementJournalCopy'
+import { deriveNetSettledDisplay } from '../selectors/deriveNetSettledDisplay'
+import { deriveSettlementDataHealth } from '../selectors/deriveSettlementDataHealth'
 
 function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
@@ -31,14 +33,18 @@ type SettlementJournalKpiStripProps = {
 
 export function SettlementJournalKpiStrip({ filteredCount, filtersActive }: SettlementJournalKpiStripProps) {
   const { selectedClientBatchId } = useSettlementBatchSelection()
-  const { rows, loading, outcome, totalSettled } = useSettlementBatchSummary()
+  const { rows, loading, outcome, totalAmount, totalSettled } = useSettlementBatchSummary()
+
+  const copy = settlementJournalCopy.kpi
 
   if (!selectedClientBatchId) {
     return (
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {['Client batch', 'Observations', 'Settled volume', 'Settlement rate'].map((label) => (
-          <KpiCard key={label} label={label} value="—" sub="Select a batch from the sidebar" />
-        ))}
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {[copy.linkedBatch, copy.recordsReceived, copy.recordsMarkedSettled, copy.netSettled, copy.matchedToIntents].map(
+          (label) => (
+            <KpiCard key={label} label={label} value="—" sub={settlementJournalCopy.sidebar.selectBatch} />
+          ),
+        )}
       </div>
     )
   }
@@ -52,29 +58,34 @@ export function SettlementJournalKpiStrip({ filteredCount, filtersActive }: Sett
   }
 
   const total = rows.length
-  const settledPct = outcome.settledPct != null ? `${outcome.settledPct}%` : '—'
+  const netSettled = deriveNetSettledDisplay(totalAmount, totalSettled, outcome.settled, total)
+  const health = deriveSettlementDataHealth(rows)
+  const explicitMatches = rows.filter((r) => r.matchedIntentId && r.matchedIntentId !== '—').length
+  const matchedDisplay =
+    explicitMatches > 0 ? explicitMatches.toLocaleString('en-IN') : health.matchedCount.toLocaleString('en-IN')
+  const matchedSub =
+    explicitMatches > 0
+      ? 'From matched_intent_id on observations'
+      : 'Heuristic match status until upstream match IDs ship'
   const obsSub = filtersActive
-    ? `${filteredCount.toLocaleString('en-US')} filtered · ${total.toLocaleString('en-US')} total`
-    : `${total.toLocaleString('en-US')} canonical observations`
+    ? `${filteredCount.toLocaleString('en-IN')} filtered · ${total.toLocaleString('en-IN')} total`
+    : `${total.toLocaleString('en-IN')} settlement records`
 
   return (
-    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <KpiCard label={copy.linkedBatch} value={selectedClientBatchId} sub={`Outcome · ${outcome.label}`} />
+      <KpiCard label={copy.recordsReceived} value={filteredCount.toLocaleString('en-IN')} sub={obsSub} />
       <KpiCard
-        label="Client batch"
-        value={selectedClientBatchId}
-        sub={`Outcome · ${outcome.label}`}
-      />
-      <KpiCard label="Observations" value={filteredCount.toLocaleString('en-US')} sub={obsSub} />
-      <KpiCard label="Settled volume" value={formatJournalMoney(totalSettled)} sub="Sum of settled amounts" />
-      <KpiCard
-        label="Settlement rate"
-        value={settledPct}
+        label={copy.recordsMarkedSettled}
+        value={outcome.settled.toLocaleString('en-IN')}
         sub={
           outcome.failed > 0
-            ? `${outcome.failed.toLocaleString('en-US')} failed · ${outcome.settled.toLocaleString('en-US')} settled`
-            : `${outcome.settled.toLocaleString('en-US')} settled rows`
+            ? `${outcome.failed.toLocaleString('en-IN')} failed · ${total.toLocaleString('en-IN')} total rows`
+            : `${outcome.settledPct ?? 0}% of rows marked settled in source`
         }
       />
+      <KpiCard label={copy.netSettled} value={netSettled.value} sub={netSettled.sub} />
+      <KpiCard label={copy.matchedToIntents} value={matchedDisplay} sub={matchedSub} />
     </div>
   )
 }

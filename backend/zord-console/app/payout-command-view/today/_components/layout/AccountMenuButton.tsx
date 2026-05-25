@@ -128,9 +128,9 @@ export function AccountMenuButton({ deskRole }: AccountMenuButtonProps) {
                 {signingOut ? 'Signing out…' : 'Log out'}
               </button>
             </div>
-          </motion>
+          </div>
         </>
       ) : null}
-    </motion>
+    </div>
   )
 }

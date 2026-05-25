@@ -7,23 +7,16 @@ import {
   HOME_BODY_IMPERIAL_SM,
   HOME_TITLE_BLACK,
 } from '../../command-center/homeCommandCenterTokens'
-import { useJournalBatchFromList } from '../hooks/useJournalBatchFromList'
-import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
 import { useJournalBatchSelection } from '../context/JournalBatchSelectionContext'
+import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
+import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
+import { intentJournalCopy } from '../copy/intentJournalCopy'
 
 function formatInrRupees(rupees: number): string {
   if (!Number.isFinite(rupees)) return '—'
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(
     rupees,
   )
-}
-
-function confidencePct(batch: { avgConfidenceScore?: number; highConfidenceCount: number }): string {
-  if (typeof batch.avgConfidenceScore === 'number' && Number.isFinite(batch.avgConfidenceScore)) {
-    const pct = batch.avgConfidenceScore <= 1 ? batch.avgConfidenceScore * 100 : batch.avgConfidenceScore
-    return `${pct.toFixed(0)}%`
-  }
-  return '—'
 }
 
 function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
@@ -39,16 +32,22 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub: str
   )
 }
 
+const KPI_GRID_CLASS = 'mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5'
+
 export function IntentJournalKpiStrip() {
-  const { selectedBatchId, journalEnabled } = useJournalBatchSelection()
-  const { batch, loading } = useJournalBatchFromList(selectedBatchId, journalEnabled)
-  const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, journalEnabled)
+  const { selectedBatchId, journalEnabled, tenantReady } = useJournalBatchSelection()
+  const feedEnabled = journalEnabled && tenantReady
+  const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, feedEnabled)
+  const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, feedEnabled)
+
+  const copy = intentJournalCopy.kpi
+  const placeholderLabels = [copy.paymentWorkflow, copy.instructionsCreated, copy.intendedValue, copy.readiness, copy.needsReview]
 
   if (!selectedBatchId) {
     return (
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        {['Batch program', 'Confirmed intents', 'Batch volume', 'Confidence'].map((label) => (
-          <KpiCard key={label} label={label} value="—" sub="Select a batch from the sidebar" />
+      <div className={KPI_GRID_CLASS}>
+        {placeholderLabels.map((label) => (
+          <KpiCard key={label} label={label} value="—" sub={intentJournalCopy.sidebar.selectBatch} />
         ))}
       </div>
     )
@@ -62,31 +61,43 @@ export function IntentJournalKpiStrip() {
     )
   }
 
-  const tx = batch?.transactions ?? 0
-  const confirmed = batch?.confirmedCount ?? 0
+  const tx = metrics?.instructionCount ?? batch?.transactions ?? 0
+  const intendedValue = metrics?.intendedValue ?? batch?.totalValue ?? 0
+  const readinessPct =
+    metrics?.avgReadinessPct != null ? `${metrics.avgReadinessPct.toFixed(0)}%` : '—'
+  const needsReview = metrics?.needsReviewCount ?? batch?.unresolvedCount ?? 0
   const finality = intelDetail?.batch?.finality_status
 
   return (
-    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div className={KPI_GRID_CLASS}>
       <KpiCard
-        label="Batch program"
-        value={batch?.apiType ?? batch?.type ?? '—'}
-        sub={`${batch?.source ?? 'Intent engine'} · disbursement rail`}
+        label={copy.paymentWorkflow}
+        value={batch?.apiType !== '—' ? batch!.apiType : 'Payment batch'}
+        sub={batch?.source ?? 'Payment instructions'}
       />
       <KpiCard
-        label="Confirmed intents"
-        value={confirmed.toLocaleString('en-IN')}
-        sub={tx > 0 ? `${((confirmed / tx) * 100).toFixed(0)}% of ${tx.toLocaleString('en-IN')} intents` : 'No intents in batch'}
-      />
-      <KpiCard
-        label="Batch volume"
+        label={copy.instructionsCreated}
         value={tx.toLocaleString('en-IN')}
-        sub={batch ? `${formatInrRupees(batch.totalValue)} gross` : '—'}
+        sub={tx > 0 ? `${tx.toLocaleString('en-IN')} payment instruction${tx === 1 ? '' : 's'}` : 'No instructions yet'}
       />
       <KpiCard
-        label="Confidence"
-        value={batch ? confidencePct(batch) : '—'}
-        sub={finality ? `Finality · ${finality.replace(/_/g, ' ')}` : 'Aggregate confidence from engine'}
+        label={copy.intendedValue}
+        value={formatInrRupees(intendedValue)}
+        sub="Sum of payment instruction amounts"
+      />
+      <KpiCard
+        label={copy.readiness}
+        value={readinessPct}
+        sub={finality ? `Batch finality · ${finality.replace(/_/g, ' ')}` : 'Average intent quality score'}
+      />
+      <KpiCard
+        label={copy.needsReview}
+        value={needsReview.toLocaleString('en-IN')}
+        sub={
+          needsReview > 0
+            ? `${metrics?.dlqCount ?? 0} review items · ${metrics?.lowReadinessCount ?? 0} low readiness`
+            : 'No items need review'
+        }
       />
     </div>
   )

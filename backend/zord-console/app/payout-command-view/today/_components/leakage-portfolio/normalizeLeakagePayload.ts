@@ -10,6 +10,9 @@ export type PortfolioLeakageViewModel = {
   reversalMinor: number
   ambiguousRiskMinor: number
   riskAdjustedMinor: number
+  /** Sum of unmatched + short-settled + orphan + reversal + ambiguous (client-derived). */
+  valueNeedingReviewMinor: number
+  paymentGapRate: number
   leakageFraction: number
   riskTier: string
   tenantId: string
@@ -20,16 +23,26 @@ export type PortfolioLeakageViewModel = {
 }
 
 export function toPortfolioLeakageViewModel(leak: LeakageKpiResolved): PortfolioLeakageViewModel {
+  const unmatchedMinor = coerceMinor(leak.unmatched_amount_minor)
+  const underSettlementMinor = coerceMinor(leak.under_settlement_amount_minor)
+  const orphanMinor = coerceMinor(leak.orphan_amount_minor)
+  const reversalMinor = coerceMinor(leak.reversal_exposure_minor)
+  const ambiguousRiskMinor = coerceMinor(leak.ambiguous_value_at_risk_minor)
+  const paymentGapRate = leak.leakage_percentage ?? 0
+
   return {
     totalSettledMinor: coerceMinor(leak.total_observed_settled_amount_minor),
     intendedMinor: coerceMinor(leak.total_intended_amount_minor),
-    underSettlementMinor: coerceMinor(leak.under_settlement_amount_minor),
-    unmatchedMinor: coerceMinor(leak.unmatched_amount_minor),
-    orphanMinor: coerceMinor(leak.orphan_amount_minor),
-    reversalMinor: coerceMinor(leak.reversal_exposure_minor),
-    ambiguousRiskMinor: coerceMinor(leak.ambiguous_value_at_risk_minor),
+    underSettlementMinor,
+    unmatchedMinor,
+    orphanMinor,
+    reversalMinor,
+    ambiguousRiskMinor,
     riskAdjustedMinor: coerceMinor(leak.risk_adjusted_leakage_minor),
-    leakageFraction: leak.leakage_percentage ?? 0,
+    valueNeedingReviewMinor:
+      unmatchedMinor + underSettlementMinor + orphanMinor + reversalMinor + ambiguousRiskMinor,
+    paymentGapRate,
+    leakageFraction: paymentGapRate,
     riskTier: leak.risk_tier ?? 'N/A',
     tenantId: leak.tenant_id,
     snapshotId: leak.snapshot_id ?? '—',

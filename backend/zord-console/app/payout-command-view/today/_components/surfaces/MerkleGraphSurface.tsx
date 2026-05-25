@@ -17,6 +17,7 @@ import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/in
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
+import { evidenceCopy } from '../evidence/copy/evidenceCopy'
 import { buildEvidencePackGraphFromApi } from './evidencePackGraphFromApi'
 import type {
   BatchMeta,
@@ -78,7 +79,7 @@ const INTERMEDIATES: IntermediateNode[] = [
 // evidence pack. Service 6 §4: "one evidence pack = one lifecycle commitment".
 const SHARED_SCHEMAS = { intent: 'v1', outcome: 'v1', contract: 'v1', attachment: 'v1' }
 
-export const SAMPLE_PACK: EvidencePackGraph = {
+const SAMPLE_PACK: EvidencePackGraph = {
   packId: 'EP-2041',
   intentId: 'INT-1023',
   contractId: 'CTR-7781',
@@ -100,7 +101,7 @@ export const SAMPLE_PACK: EvidencePackGraph = {
   },
 }
 
-export const SAMPLE_PACK_PARTNER: EvidencePackGraph = {
+const SAMPLE_PACK_PARTNER: EvidencePackGraph = {
   packId: 'EP-2042',
   intentId: 'INT-1024',
   contractId: 'CTR-7782',
@@ -124,7 +125,7 @@ export const SAMPLE_PACK_PARTNER: EvidencePackGraph = {
   },
 }
 
-export const SAMPLE_PACK_THIRD: EvidencePackGraph = {
+const SAMPLE_PACK_THIRD: EvidencePackGraph = {
   packId: 'EP-2043',
   intentId: 'INT-1025',
   contractId: 'CTR-7783',
@@ -146,7 +147,7 @@ export const SAMPLE_PACK_THIRD: EvidencePackGraph = {
   },
 }
 
-export const SAMPLE_PACK_TAMPERED: EvidencePackGraph = {
+const SAMPLE_PACK_TAMPERED: EvidencePackGraph = {
   packId: 'EP-2039',
   intentId: 'INT-1019',
   contractId: 'CTR-7790',
@@ -223,9 +224,15 @@ export type MerkleGraphSurfaceProps = {
   initialPackId?: string
   /** Demo / fallback graph when no session tenant (local UI only). */
   pack?: EvidencePackGraph
+  /** Embedded in pack detail Graph tab — hides page chrome. */
+  embedMode?: boolean
 }
 
-export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_PACK }: MerkleGraphSurfaceProps = {}) {
+export function MerkleGraphSurface({
+  initialPackId,
+  pack: initialPack = SAMPLE_PACK,
+  embedMode = false,
+}: MerkleGraphSurfaceProps = {}) {
   const searchParams = useSearchParams()
   const urlBatchId = searchParams.get('batch_id')?.trim() ?? ''
   const { tenantId, tenantReady } = useSessionTenant()
@@ -480,26 +487,24 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
 
   return (
     <div className="space-y-5">
-      {/* ── Eyebrow + title + back ──────────────────────────────────── */}
+      {!embedMode ? (
       <header>
         <div className="flex items-center gap-3">
           <Link
-            href="/payout-command-view/today"
+            href="/payout-command-view/today?dock=proof"
             className="inline-flex items-center gap-1 rounded-full border border-[#E5E5E5] bg-white px-2.5 py-1 text-[15px] font-medium text-[#475569] transition hover:bg-[#fafafa]"
           >
             ← Evidence
           </Link>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-[#fafafa] px-2.5 py-0.5 text-[14px] font-semibold uppercase tracking-[0.12em] text-[#6f716d]">
             <Glyph name="shield" className="h-2.5 w-2.5" />
-            Cryptographic proof
+            Proof lineage
           </span>
         </div>
-        <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[#111111]">Evidence Pack Graph</h1>
-        <p className="mt-1 max-w-2xl text-[17px] leading-relaxed text-[#6f716d]">
-          Visual proof of how this evidence pack is constructed and verified. Choose a batch, then an intent — the graph
-          is for that pack; defensibility and leaf counts in the bar roll up across every sampled pack in the batch.
-        </p>
+        <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.02em] text-[#111111]">{evidenceCopy.graph.title}</h1>
+        <p className="mt-1 max-w-2xl text-[17px] leading-relaxed text-[#6f716d]">{evidenceCopy.graph.subtitle}</p>
       </header>
+      ) : null}
 
       {liveListError ? (
         <div className="rounded-[12px] border border-amber-200 bg-amber-50 px-4 py-3 text-[15px] text-amber-950">
@@ -526,8 +531,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
 
       {showGraph ? (
       <>
-      {/* ── Top context bar ─────────────────────────────────────────── */}
-      <section className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[16px] border border-[#E5E5E5] bg-white px-5 py-3">
+      <section className={`flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[16px] border border-[#E5E5E5] bg-white px-5 py-3 ${embedMode ? 'text-[14px]' : ''}`}>
         <div>
             <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Batch</p>
             <select
@@ -584,7 +588,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
           <ContextField label="Contract" value={pack.contractId} mono />
           <ContextField label="Mode" value={pack.mode} />
         <div>
-          <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Avg defensibility</p>
+          <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Proof score</p>
           <div className="mt-0.5 flex items-baseline gap-1">
             <span className="text-[24px] font-semibold leading-none tabular-nums text-[#111111]">{displayDefensibility}</span>
             <span className="text-[15px] text-[#94a3b8]">/ 100</span>
@@ -704,6 +708,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
         />
       </section>
 
+      {!embedMode ? (
       <BatchSummary
         batchMeta={batchMetaResolved}
         packs={batchPacks}
@@ -712,6 +717,7 @@ export function MerkleGraphSurface({ initialPackId, pack: initialPack = SAMPLE_P
           setSelected(null)
         }}
       />
+      ) : null}
       </>
       ) : null}
     </div>
@@ -1127,7 +1133,7 @@ const RootPill = forwardRef<HTMLButtonElement, RootPillProps>(function RootPill(
         <Glyph name="shield" className="h-3.5 w-3.5" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
-        <span className="text-[14px] font-semibold uppercase tracking-[0.12em] text-white/55">Merkle Root</span>
+        <span className="text-[14px] font-semibold uppercase tracking-[0.12em] text-white/55">Proof Root</span>
         <span className="truncate font-mono text-[16px] font-semibold tabular-nums">{node.hashShort}</span>
       </span>
       <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white/10 px-1.5 py-0.5 text-[14px] font-semibold capitalize text-white">
@@ -1210,22 +1216,46 @@ function SidePanel({
       selected.node.status === 'valid' ? 'bg-[#4ADE80]' : selected.node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
     return (
       <aside className="rounded-[16px] border border-[#E5E5E5] bg-white p-5">
-        <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Artifact details</p>
+        <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">{evidenceCopy.nodeDrawer.proofItem}</p>
         <div className="mt-1 flex items-center gap-2">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#fafafa] text-[#475569]">
             <Glyph name={selected.node.iconName} className="h-3.5 w-3.5" />
           </span>
           <div className="min-w-0">
             <p className="truncate text-[20px] font-semibold text-[#111111]">{selected.node.name}</p>
+            <p className="truncate font-mono text-[12px] text-[#94a3b8]">
+              {evidenceCopy.nodeDrawer.technicalName}: {selected.node.itemType}
+            </p>
             <p className="truncate text-[15px] text-[#6f716d]">{selected.node.artifact}</p>
           </div>
         </div>
+
+        <Field
+          label={evidenceCopy.nodeDrawer.status}
+          value={
+            selected.node.status === 'valid'
+              ? 'Verified'
+              : selected.node.status === 'missing'
+                ? 'Missing'
+                : 'Invalid'
+          }
+        />
+        <Field label={evidenceCopy.nodeDrawer.source} value={selected.node.source} />
+        <Field label={evidenceCopy.nodeDrawer.createdAt} value={selected.node.receivedAt} />
+        <Field label={evidenceCopy.nodeDrawer.usedInPack} value="Yes" />
+        <Field
+          label={evidenceCopy.nodeDrawer.risk}
+          value={selected.node.status === 'missing' ? 'Incomplete proof' : 'None'}
+        />
+        {selected.node.status === 'missing' ? (
+          <p className="mt-2 text-[14px] leading-relaxed text-amber-900">{evidenceCopy.nodeDrawer.missingHint}</p>
+        ) : null}
 
         <Field label="Item type" value={selected.node.itemType} mono />
         <Field label="Stable ref" value={selected.node.stableRef} mono />
         <Field label="Version" value={selected.node.version} mono />
         <Field label="Source service" value={selected.node.sourceService} mono />
-        <CopyableField label="Item hash" value={selected.node.hashFull} keyId={`leaf-${selected.node.id}-hash`} onCopy={onCopy} copiedKey={copiedKey} />
+        <CopyableField label={evidenceCopy.nodeDrawer.hash} value={selected.node.hashFull} keyId={`leaf-${selected.node.id}-hash`} onCopy={onCopy} copiedKey={copiedKey} />
         <CopyableField label="Leaf hash · SHA256(type ‖ stable_ref ‖ item_hash ‖ version)" value={selected.node.leafHash} keyId={`leaf-${selected.node.id}-leafhash`} onCopy={onCopy} copiedKey={copiedKey} />
         <Field label="Source" value={selected.node.source} />
         <Field label="Received" value={selected.node.receivedAt} />

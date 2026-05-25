@@ -13,6 +13,7 @@ import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
 import { JournalBatchSelectionProvider } from '../intent-journal/context/JournalBatchSelectionContext'
 import { IntentJournalHeroBanner } from '../intent-journal/components/IntentJournalHeroBanner'
 import { IntentJournalKpiStrip } from '../intent-journal/components/IntentJournalKpiStrip'
+import { IntentJournalHealthCards } from '../intent-journal/components/IntentJournalHealthCards'
 import { IntentJournalBatchSidebar } from '../intent-journal/components/IntentJournalBatchSidebar'
 import {
   IntentJournalActivityPanel,
@@ -432,7 +433,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   }, [selectedBatchId])
 
   useEffect(() => {
-    if (!journalUsesBackendFeed || !expandedId) {
+    if (!journalUsesBackendFeed || !tenantReady || !expandedId) {
       setLiveIntentDrawerApi(null)
       return
     }
@@ -446,7 +447,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     return () => {
       cancelled = true
     }
-  }, [journalUsesBackendFeed, expandedId])
+  }, [journalUsesBackendFeed, tenantReady, expandedId])
 
   // Dispatch modal — smart routing on use-case + connector history
   const [dispatchModalOpen, setDispatchModalOpen] = useState(false)
@@ -941,24 +942,24 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             {selectedBatch ? (
               <>
                 <IntentJournalHeroBanner
-                  onExport={() => {
-                    if (activeTab === 'failures') {
-                      downloadCsv(
-                        `intent-journal-failures${selectedBatchId ? `-${selectedBatchId}` : ''}.csv`,
-                        failuresToCsv(filteredFailures),
-                      )
-                    } else {
-                      downloadCsv(
-                        `intent-journal-intents${selectedBatchId ? `-${selectedBatchId}` : ''}.csv`,
-                        intentsToCsv(filteredIntents),
-                      )
-                    }
+                  onExportIntents={() => {
+                    downloadCsv(
+                      `intent-journal-payment-instructions${selectedBatchId ? `-${selectedBatchId}` : ''}.csv`,
+                      intentsToCsv(filteredIntents),
+                    )
+                  }}
+                  onExportReviewItems={() => {
+                    downloadCsv(
+                      `intent-journal-review-items${selectedBatchId ? `-${selectedBatchId}` : ''}.csv`,
+                      failuresToCsv(filteredFailures),
+                    )
                   }}
                   exportDisabled={
-                    activeTab === 'failures' ? filteredFailures.length === 0 : filteredIntents.length === 0
+                    filteredIntents.length === 0 && filteredFailures.length === 0
                   }
                 />
                 <IntentJournalKpiStrip />
+                <IntentJournalHealthCards />
 
                 <IntentJournalActivityPanel vm={activityVm} />
               </>

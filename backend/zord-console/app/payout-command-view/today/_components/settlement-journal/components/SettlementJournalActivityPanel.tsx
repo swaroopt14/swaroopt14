@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { Fragment } from 'react'
 import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
@@ -16,6 +17,12 @@ import {
   type AmountRangeFilter,
   type DateRangePreset,
 } from '../settlementJournalSidebarUtils'
+import { settlementJournalCopy } from '../copy/settlementJournalCopy'
+import {
+  formatClientRefDisplay,
+  mapMatchStatus,
+  matchStatusBadgeClass,
+} from '../mappers/mapMatchStatus'
 
 const JOURNAL_FILTER_LABEL =
   'mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]'
@@ -29,7 +36,7 @@ const filterSelectClass =
 const ROW_SIZE_OPTIONS = [25, 50, 100, 200] as const
 const TABLE_TH =
   'px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-[#888888] whitespace-nowrap'
-const TABLE_COL_COUNT = 9
+const TABLE_COL_COUNT = 11
 
 export type SettlementJournalActivityViewModel = {
   tableSearch: string
@@ -134,7 +141,7 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
           id="settlement-journal-search"
           value={tableSearch}
           onChange={(e) => setTableSearch(e.target.value)}
-          placeholder="Search bank ref, client ref, status, source, amount…"
+          placeholder={settlementJournalCopy.table.searchPlaceholder}
           className={`${filterInputClass} pl-9`}
         />
       </div>
@@ -263,15 +270,16 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
       <thead className="bg-[#f8fafc]">
         <tr>
 {[
-            'Settlement batch',
-            'Client ref',
-            'Bank ref',
-            'Amount',
-            'Settled',
-            'Fee',
-            'Status',
-            'Source',
-            'Observed',
+            settlementJournalCopy.table.sourceRow,
+            settlementJournalCopy.table.clientRef,
+            settlementJournalCopy.table.bankRef,
+            settlementJournalCopy.table.observedAmount,
+            settlementJournalCopy.table.netSettled,
+            settlementJournalCopy.table.fee,
+            settlementJournalCopy.table.sourceStatus,
+            settlementJournalCopy.table.matchStatus,
+            settlementJournalCopy.table.matchConfidence,
+            settlementJournalCopy.table.observedAt,
           ].map((h) => (
             <th key={h} className={TABLE_TH}>
               {h}
@@ -303,11 +311,11 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
                     setExpandedId((id) => (id === row.observationId ? null : row.observationId))
                   }
                 >
-                  <td className="truncate px-3 py-2.5 font-mono text-[12px] text-[#334155]" title={row.settlementBatchId}>
-                    {row.settlementBatchId}
+                  <td className="truncate px-3 py-2.5 font-mono text-[12px] text-[#334155]" title={row.sourceRowRef || row.settlementBatchId}>
+                    {row.sourceRowRef || row.settlementBatchId}
                   </td>
-                  <td className="truncate px-3 py-2.5 font-medium text-[#1e293b]" title={row.clientRef}>
-                    {row.clientRef}
+                  <td className="truncate px-3 py-2.5 font-medium text-[#1e293b]" title={formatClientRefDisplay(row)}>
+                    {formatClientRefDisplay(row)}
                   </td>
                   <td className="truncate px-3 py-2.5 font-mono text-[12px] text-[#334155]" title={row.bankRef}>
                     {row.bankRef}
@@ -325,9 +333,12 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
                     <span className={settlementStatusBadgeClass(row.statusRaw)}>{row.status}</span>
                   </td>
                   <td className="px-3 py-2.5">
-                    <span className="inline-flex rounded-lg border border-slate-200/90 bg-white px-2 py-1 text-[13px] font-medium capitalize text-slate-700">
-                      {row.sourceSystem}
-                    </span>
+                    <span className={matchStatusBadgeClass(mapMatchStatus(row))}>{mapMatchStatus(row)}</span>
+                  </td>
+                  <td className="px-3 py-2.5 tabular-nums text-[13px] text-[#64748b]">
+                    {row.attachmentReadinessScore != null
+                      ? `${(row.attachmentReadinessScore * 100).toFixed(0)}%`
+                      : '—'}
                   </td>
                   <td className="px-3 py-2.5 text-[13px] text-[#64748b] whitespace-nowrap">
                     {row.observationTime}
@@ -359,6 +370,21 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
                           <span className="text-[#888888]">Client batch</span>
                           <br />
                           <span className="font-mono">{row.clientBatchId}</span>
+                        </p>
+                        <p>
+                          <span className="text-[#888888]">{settlementJournalCopy.table.matchedPayment}</span>
+                          <br />
+                          {row.matchedIntentId && row.matchedIntentId !== '—' ? (
+                            <Link
+                              href={`/payout-command-view/today?dock=grid&batch_id=${encodeURIComponent(row.clientBatchId)}`}
+                              className="font-mono text-[13px] text-sky-800 underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {row.matchedIntentId}
+                            </Link>
+                          ) : (
+                            '—'
+                          )}
                         </p>
                         <p>
                           <span className="text-[#888888]">Deduction</span>

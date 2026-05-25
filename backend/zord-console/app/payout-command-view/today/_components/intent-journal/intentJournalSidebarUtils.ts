@@ -3,6 +3,20 @@ import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/in
 
 export type BatchType = 'Disbursement' | 'Settlement'
 export type BatchStatus = 'Strong' | 'Stable' | 'Risk' | 'Critical'
+
+/** Customer-facing sidebar health labels (maps from legacy BatchStatus + DLQ context). */
+export type CustomerBatchHealthLabel =
+  | 'Ready'
+  | 'Needs Review'
+  | 'Awaiting Confirmation'
+  | 'Failed Validation'
+
+export function customerHealthLabelFromStatus(status: BatchStatus, dlqCount = 0): CustomerBatchHealthLabel {
+  if (dlqCount > 0 || status === 'Critical') return 'Failed Validation'
+  if (status === 'Risk') return 'Needs Review'
+  if (status === 'Stable') return 'Awaiting Confirmation'
+  return 'Ready'
+}
 export type BatchFilter = 'All Batches' | 'Recent' | 'Needs Attention' | 'High Value' | 'Completed'
 export type SidebarMode = 'listed' | 'sectors'
 

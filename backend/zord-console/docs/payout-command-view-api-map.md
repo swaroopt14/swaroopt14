@@ -1,44 +1,46 @@
 # Payout Command View (`/payout-command-view/today` & `/sandbox`) — API data map
 
-Both routes render `PayoutCommandViewClient` with the same dock surfaces; only `EnvironmentProvider` mode (`live` vs `sandbox`) differs. Session tenant (`useSessionTenantId`) scopes `/api/prod/*` calls the same way in both.
+Both routes render `PayoutCommandViewClient` with the same dock surfaces; only `EnvironmentProvider` mode (`live` vs `sandbox`) differs. Session tenant scopes `/api/prod/*` calls.
+
+**Master gap inventory (Home → Evidence):** see [`console-execution-api-gaps.md`](./console-execution-api-gaps.md).
 
 ## Home dock — `HomeSurface`
 
 | UI region | Source | Console / upstream route |
 |-----------|--------|----------------------------|
-| Hero “Total Disbursement Value” (settled subset) | Leakage KPI | `GET /api/prod/intelligence/leakage` → zord-intelligence `/v1/intelligence/leakage` |
-| Hero subtitle (intended) | Same | `total_intended_amount_minor` on leakage payload |
-| Action panel headline (₹ exposure) | Leakage | unmatched + under_settlement + reversal from leakage |
-| Action panel copy | Patterns / leakage / ambiguity | `GET /api/prod/intelligence/patterns`, leakage, `GET /api/prod/intelligence/ambiguity` |
-| Trend chart (bars / lines) | Disbursement trend | `GET /api/prod/home/disbursement-trend?tenant_id=…&range=…` |
-| KPI cards (2×2) | Intelligence dashboards | `leakage`, `defensibility`, `patterns`, `recommendations`, `ambiguity` via `useIntelligenceKpis` → `/api/prod/intelligence/{leakage,defensibility,patterns,recommendations,ambiguity}` |
-| Period strip (Today / Week / Month / year chips, quarter grid) | **Local UI only** | Labels from `buildHomeTimeframeLayout` — not financial data |
-| Ask Zord prompt strip | **UX only** | Quick prompts update scenario copy; responses are scripted from scenario text, not a chat API |
-
-**Decoupled from mock math:** animated `buildSimulatedHomeOverviewSnapshot` + interval tick were removed from `useHomeState`. `snapshot` is now a **static shell** (`buildStaticHomeOverviewSnapshot`) for timeframe labels only — no sine-wave chart series.
+| Hero / KPI strip | Intelligence + trend | `GET /api/prod/intelligence/*`, `GET /api/prod/home/disbursement-trend` |
+| Data status bar | Intent + settlement probes | `GET /api/prod/intents/batches`, `GET /api/prod/settlement/observations/batches` |
 
 ## Intent Journal dock — `IntentJournalSurface`
 
 | UI region | Source | Route |
 |-----------|--------|--------|
-| Sidebar batches | Intelligence batch list | `GET /api/prod/intelligence/batches` |
-| Batch KPI / overview | Batch detail + patterns | `GET /api/prod/intelligence/batches/{id}`, `GET /api/prod/intelligence/patterns?batch_id=…` |
-| Intents table | Intent engine | `GET /api/prod/intents?tenant_id=…` |
-| Failures / DLQ | Intent engine | `GET /api/prod/dlq?tenant_id=…` (includes `client_batch_ref` when present) |
+| Sidebar batch list | Intent engine (split) | `GET /api/prod/intents/batch-ids` |
+| Payment Instructions table | Intent engine (split) | `GET /api/prod/intents/payment-intents?batch_id=` |
+| Review Items (DLQ) | Intent engine (split) | `GET /api/prod/intents/dlq-items?batch_id=` |
+| KPI / hero metrics | Derived client-side | Sum/count from payment-intents + dlq-items |
+| Optional intelligence overlay | Intelligence | `GET /api/prod/intelligence/batches/{id}` |
+| Row detail (when intent_id known) | Intent engine | `GET /api/prod/intents/{intent_id}` |
 
-No synthetic `__sandbox_no_batch__` row; overview KPIs render only when a real batch is selected from the API list.
+**Legacy (not used by journal):** `GET /api/prod/intents/batches?batch_id=` monolithic detail — still used by Batch Command Center.
+
+## Settlement Journal dock — `SettlementJournalSurface`
+
+| UI region | Source | Route |
+|-----------|--------|--------|
+| Sidebar batches | Outcome engine | `GET /api/prod/settlement/observations/batches` |
+| Observation rows | Outcome engine | `GET /api/prod/settlement/observations/batches?client_batch_id=` |
+| KPI / hero / data health | Derived client-side | Aggregates from observation rows |
 
 ## Other docks (snapshot)
 
 | Dock | Primary data | Notes |
 |------|----------------|-------|
-| Leakage / Ambiguity / Evidence / Merkle / Billing / Proof | Various `getIntelligence*` / prod routes | Surfaces already oriented on API where wired |
-| Connectors | `ConnectorIntelligenceClient` (live) or `SandboxConnectorsSurface` | Sandbox: connector keys UI |
-| Live sync | `LiveSyncSurface` | **Still mock telemetry** — replace with real health APIs when available |
-| Workspace | `WorkspaceSurface` | Ask-style simulation for workspace tab; not ledger-backed |
-| Batch Command Center | Separate route | May still use mock ops payload in `CommandCenterPage` when embedded |
+| Leakage / Ambiguity / Evidence | `useIntelligenceKpis`, evidence packs | See gaps doc |
+| Connectors | Partial intelligence + static PSP cards | Per-connector API gap |
+| Live sync | Placeholder | Systems sync API gap |
+| Workspace | `POST /api/prompt-layer/query` | |
 
 ## Intelligence KPI helper (`useIntelligenceKpis`)
 
-Polls every 30s (default):  
-`/api/prod/intelligence/leakage`, `ambiguity`, `defensibility`, `patterns`, `recommendations` (each forwarded to zord-intelligence v1 paths under `/v1/intelligence/...`).
+Polls: `/api/prod/intelligence/leakage`, `ambiguity`, `defensibility`, `patterns`, `recommendations`.

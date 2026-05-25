@@ -13,6 +13,11 @@ import type {
 
 const INTEL_BASE = '/api/prod/intelligence'
 
+export type IntelligenceDateQuery = {
+  from_date: string
+  to_date: string
+}
+
 /** BFF injects tenant from session; client must not send tenant_id. */
 function intelQueryPath(path: string, extraQuery: Record<string, string> = {}) {
   const params = new URLSearchParams()
@@ -23,17 +28,30 @@ function intelQueryPath(path: string, extraQuery: Record<string, string> = {}) {
   return qs ? `${path}?${qs}` : path
 }
 
+function dateQueryExtra(dates?: IntelligenceDateQuery): Record<string, string> {
+  if (!dates) return {}
+  return { from_date: dates.from_date, to_date: dates.to_date }
+}
+
 /** Tenant-wide leakage KPI — BFF injects session tenant. */
-export async function getLeakageKpis(): Promise<LeakageKpiResponse | null> {
-  return fetchProdJsonGet<LeakageKpiResponse>(intelQueryPath(`${INTEL_BASE}/leakage`))
+export async function getLeakageKpis(dates?: IntelligenceDateQuery): Promise<LeakageKpiResponse | null> {
+  return fetchProdJsonGet<LeakageKpiResponse>(
+    intelQueryPath(`${INTEL_BASE}/leakage`, dateQueryExtra(dates)),
+  )
 }
 
-export async function getAmbiguityKpis(): Promise<AmbiguityKpiResponse | null> {
-  return fetchProdJsonGet<AmbiguityKpiResponse>(intelQueryPath(`${INTEL_BASE}/ambiguity`))
+export async function getAmbiguityKpis(dates?: IntelligenceDateQuery): Promise<AmbiguityKpiResponse | null> {
+  return fetchProdJsonGet<AmbiguityKpiResponse>(
+    intelQueryPath(`${INTEL_BASE}/ambiguity`, dateQueryExtra(dates)),
+  )
 }
 
-export async function getDefensibilityKpis(): Promise<DefensibilityKpiResponse | null> {
-  return fetchProdJsonGet<DefensibilityKpiResponse>(intelQueryPath(`${INTEL_BASE}/defensibility`))
+export async function getDefensibilityKpis(
+  dates?: IntelligenceDateQuery,
+): Promise<DefensibilityKpiResponse | null> {
+  return fetchProdJsonGet<DefensibilityKpiResponse>(
+    intelQueryPath(`${INTEL_BASE}/defensibility`, dateQueryExtra(dates)),
+  )
 }
 
 /** Patterns KPI — optional `batch_id` scopes anomaly to one batch; omit for latest tenant snapshot. */
@@ -45,8 +63,12 @@ export async function getPatternsKpis(batchId?: string): Promise<PatternsKpiResp
   return fetchProdJsonGet<PatternsKpiResponse>(path)
 }
 
-export async function getRecommendationsKpis(): Promise<RecommendationsKpiResponse | null> {
-  return fetchProdJsonGet<RecommendationsKpiResponse>(intelQueryPath(`${INTEL_BASE}/recommendations`))
+export async function getRecommendationsKpis(
+  dates?: IntelligenceDateQuery,
+): Promise<RecommendationsKpiResponse | null> {
+  return fetchProdJsonGet<RecommendationsKpiResponse>(
+    intelQueryPath(`${INTEL_BASE}/recommendations`, dateQueryExtra(dates)),
+  )
 }
 
 export type BatchesListOptions = {

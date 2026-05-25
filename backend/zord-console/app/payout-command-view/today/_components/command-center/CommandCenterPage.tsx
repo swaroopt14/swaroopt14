@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 
 import type { CommandCenterPayload } from './types'
 import { AlertStrip } from './AlertStrip'
@@ -12,9 +12,12 @@ import { GlobalFilterBar } from './GlobalFilterBar'
 import { ImprovementMetrics } from './ImprovementMetrics'
 import { InsightChips } from './InsightChips'
 import { OutcomeInsightCardGroup } from './OutcomeInsightCardGroup'
-import { getMockCommandCenterPayload, MOCK_COMMAND_CENTER_ANCHOR_ISO } from './mockOpsCommandCenter'
+import { getMockCommandCenterPayload } from './mockOpsCommandCenter'
+import { mapZordOverviewToCommandCenter } from './mapZordMetricsToCommandCenter'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
+import { fetchZordOverview } from '@/services/backend/zord-analytics'
 
-const POLL_MS = 10_000
+const POLL_MS = 30_000
 
 function DataNoticeBanner({ kind }: { kind: 'delayed' | 'mismatch' }) {
   const copy =
@@ -32,19 +35,35 @@ function DataNoticeBanner({ kind }: { kind: 'delayed' | 'mismatch' }) {
 }
 
 export function CommandCenterPage() {
-  const [data, setData] = useState<CommandCenterPayload>(() =>
-    getMockCommandCenterPayload(0, MOCK_COMMAND_CENTER_ANCHOR_ISO),
-  )
+  const { tenantId, tenantReady } = useSessionTenant()
+  const [data, setData] = useState<CommandCenterPayload>(() => getMockCommandCenterPayload(0))
+  const [metricsLive, setMetricsLive] = useState(false)
   const tick = useRef(0)
 
+  const refresh = useCallback(async () => {
+    if (!tenantReady || !tenantId) {
+      setData(getMockCommandCenterPayload(tick.current))
+      setMetricsLive(false)
+      return
+    }
+    try {
+      const overview = await fetchZordOverview(tenantId, '24h')
+      setData(mapZordOverviewToCommandCenter(overview, tick.current))
+      setMetricsLive(true)
+    } catch {
+      setData(getMockCommandCenterPayload(tick.current))
+      setMetricsLive(false)
+    }
+  }, [tenantId, tenantReady])
+
   useEffect(() => {
-    setData(getMockCommandCenterPayload(0))
+    void refresh()
     const id = window.setInterval(() => {
       tick.current += 1
-      setData(getMockCommandCenterPayload(tick.current))
+      void refresh()
     }, POLL_MS)
     return () => window.clearInterval(id)
-  }, [])
+  }, [refresh])
 
   return (
     <div className="relative min-h-0 w-full bg-[#f4f4f1]">
@@ -55,8 +74,9 @@ export function CommandCenterPage() {
       <div className="mx-auto max-w-[1600px] space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <p className="max-w-2xl text-[13px] leading-relaxed text-[#64748b]">
-            Snapshot refreshes every {POLL_MS / 1000}s (mock). “Confirmed” means bank-confirmed only; processed amounts are not shown as
-            confirmed until the bank ACK is in.
+            {metricsLive
+              ? `KPI cards refresh from GET /api/prod/zord/metrics/overview every ${POLL_MS / 1000}s. Connectivity graph remains illustrative until ops graph API ships.`
+              : `Connect a tenant session to load metrics overview. Graph sections use illustrative layout until upstream ops APIs ship.`}
           </p>
           <div className="flex shrink-0 items-start">
             <AlertsInbox alerts={data.insightAlerts} />

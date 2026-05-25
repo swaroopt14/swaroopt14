@@ -1,34 +1,32 @@
 'use client'
 
+import { leakageCopy, mapReviewPriorityLabel, mapReviewPriorityShort } from '../../leakage/copy/leakageCopy'
+
 type PortfolioHeaderProps = {
   onRefresh?: () => void
   refreshing?: boolean
+  riskTier?: string
 }
 
-export function PortfolioHeader({ onRefresh, refreshing }: PortfolioHeaderProps) {
+export function PortfolioHeader({ onRefresh, refreshing, riskTier }: PortfolioHeaderProps) {
   return (
-    <header className="flex flex-wrap items-center justify-between gap-4">
-      <h1 className="text-[1.35rem] font-semibold tracking-[-0.02em] text-slate-900 sm:text-[1.5rem]">
-        Portfolio Intelligence &amp; Risk Analysis
-      </h1>
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <h1 className="text-[1.35rem] font-semibold tracking-[-0.02em] text-slate-900 sm:text-[1.5rem]">
+          {leakageCopy.pageTitle}
+        </h1>
+        <p className="mt-1 max-w-2xl text-[14px] leading-relaxed text-slate-600">{leakageCopy.pageSubtitle}</p>
+      </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <HealthScorePill />
+        {riskTier ? (
+          <span className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 shadow-sm">
+            {leakageCopy.kpi.reviewPriority}: {mapReviewPriorityShort(riskTier)} · {mapReviewPriorityLabel(riskTier)}
+          </span>
+        ) : null}
         <HeaderActions onRefresh={onRefresh} refreshing={refreshing} />
       </div>
     </header>
-  )
-}
-
-function HealthScorePill() {
-  return (
-    <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 shadow-sm">
-      <div className="flex h-2 w-16 overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full w-[76%] rounded-full bg-gradient-to-r from-emerald-400 to-emerald-500" />
-      </div>
-      <span className="text-[13px] font-semibold tabular-nums text-slate-800">76</span>
-      <span className="text-[12px] text-slate-500">Health Score</span>
-    </div>
   )
 }
 

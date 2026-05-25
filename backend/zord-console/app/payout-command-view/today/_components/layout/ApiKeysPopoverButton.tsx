@@ -14,7 +14,7 @@ type WorkspaceKeysPayload = {
   secret_key_prefix: string | null
 }
 
-export function ApiKeysPopoverButton() {
+export function ApiKeysPopoverButton({ label = 'API keys' }: { label?: string }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const [keys, setKeys] = useState<WorkspaceKeysPayload | null>(null)
@@ -95,7 +95,7 @@ export function ApiKeysPopoverButton() {
         }`}
       >
         <Glyph name="key" className="h-3.5 w-3.5 opacity-90" />
-        API keys
+        {label}
       </button>
 
       {open ? (

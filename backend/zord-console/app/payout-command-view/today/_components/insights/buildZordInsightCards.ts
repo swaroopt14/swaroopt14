@@ -64,7 +64,7 @@ export function buildZordInsightCards(params: {
       {
         type: 'metric',
         id: 'mismatch-value',
-        label: 'Active Mismatch',
+        label: 'Value Needing Review',
         valueRupee: 0,
         valueDisplay: mismatchHeadline,
         subtext: mismatchSubtext,
@@ -89,11 +89,11 @@ export function buildZordInsightCards(params: {
     cards.push({
       type: 'metric',
       id: 'mismatch-value',
-      label: 'Active Mismatch',
+      label: 'Value Needing Review',
       valueRupee: mismatchMinor / 100,
       subtext: patternsData
         ? `${patternsData.pending_count} intents pending in latest batch signal`
-        : 'in active mismatch / settlement review',
+        : 'Payment value in review across connected records',
       count: patternsData?.pending_count ?? 0,
       countLabel: 'transactions pending',
     })
@@ -111,7 +111,7 @@ export function buildZordInsightCards(params: {
     cards.push({
       type: 'trend',
       id: 'disbursement-trend',
-      label: 'Disbursement Trend',
+      label: 'Payment Value Trend',
       spark,
       currentValueRupee: totalMinor / 100,
       delta: bucketDelta(trendSeries.buckets),
@@ -123,7 +123,7 @@ export function buildZordInsightCards(params: {
     cards.push({
       type: 'alert',
       id: 'leakage',
-      label: 'Leakage patterns',
+      label: 'Payments needing attention',
       count: patternsData.pending_count,
       topPattern: `${patternsData.anomaly_level} · ${(patternsData.batch_anomaly_score * 100).toFixed(0)}% batch signal`,
       exposureRupee: exposureMinor / 100,

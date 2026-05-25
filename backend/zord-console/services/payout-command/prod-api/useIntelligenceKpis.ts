@@ -7,6 +7,7 @@ import {
   getLeakageKpis,
   getPatternsKpis,
   getRecommendationsKpis,
+  type IntelligenceDateQuery,
 } from './getIntelligenceKpis'
 import type {
   AmbiguityKpiResponse,
@@ -35,6 +36,8 @@ export type UseIntelligenceKpisOptions = {
   tenantReady: boolean
   /** Optional — scopes patterns KPI to a batch; other KPIs are tenant-wide. */
   batchId?: string
+  /** Optional date window forwarded to intelligence dashboards (from_date / to_date). */
+  dateQuery?: IntelligenceDateQuery
   intervalMs?: number
 }
 
@@ -43,7 +46,7 @@ export type UseIntelligenceKpisOptions = {
  * Does not require client `tenant_id` — BFF resolves tenant from session.
  */
 export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): IntelligenceKpis {
-  const { tenantReady, batchId, intervalMs = DEFAULT_POLL_MS } = options
+  const { tenantReady, batchId, dateQuery, intervalMs = DEFAULT_POLL_MS } = options
 
   const [leakage, setLeakage] = useState<LeakageKpiResponse | null>(null)
   const [ambiguity, setAmbiguity] = useState<AmbiguityKpiResponse | null>(null)
@@ -60,11 +63,11 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
     setLoading(true)
     try {
       const [lk, am, df, pt, rc] = await Promise.all([
-        getLeakageKpis(),
-        getAmbiguityKpis(),
-        getDefensibilityKpis(),
+        getLeakageKpis(dateQuery),
+        getAmbiguityKpis(dateQuery),
+        getDefensibilityKpis(dateQuery),
         getPatternsKpis(apiTrimmedString(batchId) || undefined),
-        getRecommendationsKpis(),
+        getRecommendationsKpis(dateQuery),
       ])
       if (cancelledRef.current) return
       setLeakage(lk)
@@ -76,7 +79,7 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
     } finally {
       if (!cancelledRef.current) setLoading(false)
     }
-  }, [tenantReady, batchId])
+  }, [tenantReady, batchId, dateQuery?.from_date, dateQuery?.to_date])
 
   useEffect(() => {
     cancelledRef.current = false

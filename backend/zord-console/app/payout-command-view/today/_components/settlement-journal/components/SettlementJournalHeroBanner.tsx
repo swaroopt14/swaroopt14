@@ -8,6 +8,7 @@ import {
 import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
 import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
+import { settlementJournalCopy } from '../copy/settlementJournalCopy'
 
 type SettlementJournalHeroBannerProps = {
   onExport: () => void
@@ -19,22 +20,28 @@ export function SettlementJournalHeroBanner({ onExport, exportDisabled }: Settle
   const { totalAmount, loading, rows } = useSettlementBatchSummary()
 
   const grossLabel = formatJournalMoney(totalAmount)
-  const countLine = rows.length.toLocaleString('en-US')
+  const countLine = rows.length.toLocaleString('en-IN')
 
   return (
     <section className={`mb-4 ${JOURNAL_HERO_BLACK_CARD}`}>
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_72%_18%,rgba(255,255,255,0.08)_0%,transparent_58%)]" aria-hidden />
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_72%_18%,rgba(255,255,255,0.08)_0%,transparent_58%)]"
+        aria-hidden
+      />
       <div className="relative flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0">
-          <p className={JOURNAL_INSIGHT_DARK_MUTED}>Settlement gross value</p>
-          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/45">INR · observations</p>
+          <p className={JOURNAL_INSIGHT_DARK_MUTED}>{settlementJournalCopy.hero.label}</p>
+          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/45">
+            {settlementJournalCopy.hero.subtitle}
+          </p>
           {loading && !rows.length ? (
-            <p className={`mt-3 text-[15px] ${JOURNAL_INSIGHT_DARK_LABEL}`}>Loading observations…</p>
+            <p className={`mt-3 text-[15px] ${JOURNAL_INSIGHT_DARK_LABEL}`}>Loading settlement records…</p>
           ) : (
             <>
               <p className="mt-2 text-[2.25rem] font-extrabold tabular-nums tracking-[-0.03em] text-white">{grossLabel}</p>
               <p className="mt-1 font-mono text-[13px] text-white/55">
-                {selectedClientBatchId || 'Select a batch'} · {countLine} observation{rows.length === 1 ? '' : 's'}
+                {selectedClientBatchId || settlementJournalCopy.sidebar.selectBatch} · {countLine}{' '}
+                {settlementJournalCopy.sidebar.records}
               </p>
             </>
           )}
@@ -48,7 +55,7 @@ export function SettlementJournalHeroBanner({ onExport, exportDisabled }: Settle
           <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v12m0 0l4-4m-4 4l-4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
           </svg>
-          Export
+          {settlementJournalCopy.export.menuLabel}
         </button>
       </div>
     </section>

@@ -1,6 +1,7 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { fetchProdJsonGet } from '@/services/payout-command/prod-api/fetchProdJsonGet'
 import {
   Line,
   LineChart,
@@ -9,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { leakageCopy } from '../../leakage/copy/leakageCopy'
 import type { PortfolioLeakageViewModel } from '../normalizeLeakagePayload'
 import { formatMinorInr } from '../utils/formatMinorInr'
 import {
@@ -63,10 +65,36 @@ function ChartTooltipContent({
   )
 }
 
+type LeakageSeriesPoint = { month: string; value: number; label?: string }
+
 export function RiskAdjustedLeakageCard({ data, loading }: RiskAdjustedLeakageCardProps) {
   const [timeframe, setTimeframe] = useState<ChartTimeframe>('1Y')
+  const [liveSeries, setLiveSeries] = useState<LeakageSeriesPoint[] | null>(null)
+  const [seriesLive, setSeriesLive] = useState(false)
 
-  const chartData = useMemo(() => CHART_MOCK_SERIES, [])
+  useEffect(() => {
+    let cancelled = false
+    void fetchProdJsonGet<{ data_available?: boolean; series?: LeakageSeriesPoint[] }>(
+      '/api/prod/intelligence/timeseries/leakage?granularity=day',
+    ).then((body) => {
+      if (cancelled) return
+      if (body?.data_available === true && Array.isArray(body.series) && body.series.length > 0) {
+        setLiveSeries(body.series)
+        setSeriesLive(true)
+      } else {
+        setLiveSeries(null)
+        setSeriesLive(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const chartData = useMemo(
+    () => (liveSeries && liveSeries.length > 0 ? liveSeries : CHART_MOCK_SERIES),
+    [liveSeries],
+  )
 
   if (loading) {
     return <div className="min-h-[420px] animate-pulse rounded-3xl bg-gradient-to-br from-orange-300 to-rose-400" />
@@ -76,10 +104,10 @@ export function RiskAdjustedLeakageCard({ data, loading }: RiskAdjustedLeakageCa
     <article className="flex min-h-[420px] flex-col overflow-hidden rounded-3xl border border-orange-200/40 bg-gradient-to-br from-orange-400 via-orange-500 to-rose-500 p-6 shadow-md">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-[13px] font-medium text-orange-50/90">Risk-Adjusted Leakage</p>
+          <p className="text-[13px] font-medium text-orange-50/90">{leakageCopy.chart.title}</p>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <p className="text-[2.5rem] font-bold tabular-nums tracking-tight text-white">
-              {formatMinorInr(data.riskAdjustedMinor || data.totalSettledMinor)}
+              {formatMinorInr(data.valueNeedingReviewMinor || data.riskAdjustedMinor)}
             </p>
             <span
               className={`rounded-full border px-3 py-1 text-[11px] font-bold uppercase tracking-wider ${tierBadgeClass(data.riskTier)}`}
@@ -87,6 +115,11 @@ export function RiskAdjustedLeakageCard({ data, loading }: RiskAdjustedLeakageCa
               {data.riskTier || 'N/A'}
             </span>
           </div>
+          {data.riskAdjustedMinor > 0 ? (
+            <p className="mt-2 text-[12px] text-orange-50/90">
+              {leakageCopy.chart.riskAdjustedTitle}: {formatMinorInr(data.riskAdjustedMinor)}
+            </p>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-3 text-[12px] font-medium text-orange-50/80" role="tablist" aria-label="Chart timeframe">
@@ -128,9 +161,12 @@ export function RiskAdjustedLeakageCard({ data, loading }: RiskAdjustedLeakageCa
           </LineChart>
         </ResponsiveContainer>
 
-        <p className="mt-2 text-[10px] text-orange-50/50">
-          Chart uses illustrative history until leakage time-series API is available.
-        </p>
+        <p className="mt-2 text-[11px] leading-relaxed text-orange-50/80">{leakageCopy.chart.helper}</p>
+        {!seriesLive ? (
+          <p className="mt-1 text-[10px] text-orange-50/50">{leakageCopy.chart.trendPending}</p>
+        ) : (
+          <p className="mt-1 text-[10px] text-orange-50/70">Live leakage time-series from intelligence BFF.</p>
+        )}
       </div>
     </article>
   )

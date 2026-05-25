@@ -144,7 +144,9 @@ export function useIntentJournalBatchFeed(options: {
       }
       const { batchDetails } = res
       setIntentRows(
-        (batchDetails.paymentIntents?.items ?? []).map((it) => mapPaymentIntentToIntentRow(it, bid)),
+        (batchDetails.paymentIntents?.items ?? []).map((it) =>
+          mapPaymentIntentToIntentRow(it, bid, tenantId),
+        ),
       )
       setFailureRows((batchDetails.dlqItems?.items ?? []).map(mapDlqToFailureRow))
       setIntentPagination(batchDetails.paymentIntents?.pagination ?? null)
@@ -156,7 +158,7 @@ export function useIntentJournalBatchFeed(options: {
     } finally {
       setDetailLoading(false)
     }
-  }, [])
+  }, [tenantId])
 
   const refreshFeed = useCallback(async () => {
     await refreshSidebar()

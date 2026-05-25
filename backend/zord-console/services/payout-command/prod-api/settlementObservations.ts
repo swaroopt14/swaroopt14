@@ -226,6 +226,22 @@ function displayOrDash(value: string | null | undefined): string {
   return v ? v : '—'
 }
 
+/** Use 1-based row index when API source_row_ref is missing or implausible. */
+function resolveSourceRowRef(
+  raw: string | null | undefined,
+  rowIndex: number | undefined,
+): string {
+  const v = raw?.trim()
+  if (!v) {
+    return rowIndex != null ? String(rowIndex + 1) : '—'
+  }
+  if (/^\d+$/.test(v)) {
+    const n = Number.parseInt(v, 10)
+    if (n >= 1000 && rowIndex != null) return String(rowIndex + 1)
+  }
+  return v
+}
+
 export function mapObservationToTableRow(
   obs: CanonicalSettlementObservation | SettlementObservationBatchDetailItem,
   opts?: { clientBatchId?: string; rowIndex?: number },
@@ -234,7 +250,7 @@ export function mapObservationToTableRow(
   const slim = obs as SettlementObservationBatchDetailItem
   const statusRaw = apiTrimmedString(full.settlement_status ?? slim.settlement_status)
   const settlementBatchId = displayOrDash(full.settlement_batch_id ?? slim.settlement_batch_id)
-  const sourceRowRef = displayOrDash(full.source_row_ref ?? slim.source_row_ref)
+  const sourceRowRef = resolveSourceRowRef(full.source_row_ref ?? slim.source_row_ref, opts?.rowIndex)
   const createdAt = formatObsTime(full.created_at ?? slim.created_at)
   const observationId =
     full.settlement_observation_id?.trim() ||

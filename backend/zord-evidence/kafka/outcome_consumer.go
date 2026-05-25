@@ -148,6 +148,13 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 
 	// Map wire leaves → pending leaf models.
 	contractID := relayEvt.ContractID
+	// Carry the originating batch_id (when present) onto every intent leaf so the
+	// resulting evidence pack inherits it and shows up in batch-scoped queries.
+	var batchIDPtr *string
+	if relayEvt.BatchID != "" {
+		b := relayEvt.BatchID
+		batchIDPtr = &b
+	}
 	pendingLeaves := make([]models.PendingLeafCandidate, 0, len(evt.Leaves))
 	for _, l := range evt.Leaves {
 		sv := l.SchemaVersion
@@ -158,6 +165,7 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 			TenantID:      tenantID,
 			IntentID:      &intentID,
 			ContractID:    &contractID,
+			BatchID:       batchIDPtr,
 			LeafType:      l.Type,
 			ItemRef:       l.Ref,
 			Hash:          l.Hash,

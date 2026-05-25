@@ -351,7 +351,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     setSelectedBatchId,
   })
 
-  const intentFeed = useJournalIntentRows(selectedBatchId, journalUsesBackendFeed && tenantReady)
+  const intentFeed = useJournalIntentRows(
+    selectedBatchId,
+    journalUsesBackendFeed && tenantReady,
+    liveTenantId,
+  )
   const failureFeed = useJournalFailureRows(selectedBatchId, journalUsesBackendFeed && tenantReady)
   const { detail: liveBatchDetail } = useJournalIntelligenceBatch(
     selectedBatchId,

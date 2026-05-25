@@ -32,11 +32,21 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 			return nil
 		}
 
+		// Carry the originating batch_id onto every buffered intent leaf so the
+		// generated pack can later be looked up via GET /v1/evidence/packs?batch_id=
+		// without joining intent-engine. Empty values stay NULL in DB.
+		var batchIDPtr *string
+		if relayEvt.BatchID != "" {
+			b := relayEvt.BatchID
+			batchIDPtr = &b
+		}
+
 		// Leaf 6: Canonical Intent Hash
 		l6 := models.PendingLeafCandidate{
 			TenantID:      relayEvt.TenantID,
 			IntentID:      &relayEvt.AggregateID,
 			ContractID:    &relayEvt.ContractID,
+			BatchID:       batchIDPtr,
 			LeafType:      models.LeafTypeCanonicalIntentHash,
 			ItemRef:       relayEvt.AggregateID,
 			Hash:          relayEvt.CanonicalHash,
@@ -57,6 +67,7 @@ func buildIntentHandler(pg PackGenerator) MessageHandler {
 			TenantID:      relayEvt.TenantID,
 			IntentID:      &relayEvt.AggregateID,
 			ContractID:    &relayEvt.ContractID,
+			BatchID:       batchIDPtr,
 			LeafType:      models.LeafTypeGovernanceDecision,
 			ItemRef:       relayEvt.AggregateID,
 			Hash:          relayEvt.GovernanceHash,

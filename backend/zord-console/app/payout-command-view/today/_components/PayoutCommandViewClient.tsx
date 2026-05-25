@@ -87,12 +87,7 @@ export default function PayoutCommandViewClient({
     return {
       pageEyebrow: same ? undefined : label,
       pageTitle: title,
-      pageSubtitle:
-        activeDock === 'workspace'
-          ? `${activeTab} context · grounded on session tenant evidence`
-          : activeDock === 'home'
-            ? activeSurface.summary
-            : undefined,
+      pageSubtitle: activeSurface.summary,
     }
   }, [activeSurface, activeDock, activeTab])
 
@@ -166,6 +161,7 @@ export default function PayoutCommandViewClient({
           workspace={workspace}
           selectedPromptLabel={selectedSuggestion}
           suggestions={activePrompt.suggestions}
+          batchId={sharedBatchId}
         />
       )
     }
@@ -180,7 +176,10 @@ export default function PayoutCommandViewClient({
       return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
     }
     if (activeDock === 'sync') return <LiveSyncSurface />
-    if (activeDock === 'proof') return <EvidenceSurface initialBatchId={sharedBatchId} />
+    if (activeDock === 'proof')
+      return (
+        <EvidenceSurface initialBatchId={sharedBatchId} />
+      )
     if (activeDock === 'billing') {
       return <BillingSurface onActivateClick={() => setActivateWizardOpen(true)} />
     }

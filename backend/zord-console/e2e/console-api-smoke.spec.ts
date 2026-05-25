@@ -26,4 +26,11 @@ test.describe('console BFF smoke', () => {
       }
     })
   }
+
+  test('POST /api/prompt-layer/query responds without server error', async ({ request }) => {
+    const res = await request.post('/api/prompt-layer/query', {
+      data: { query: 'smoke test', tenant_id: 'smoke-tenant', top_k: 1 },
+    })
+    expect(res.status()).toBeLessThan(500)
+  })
 })

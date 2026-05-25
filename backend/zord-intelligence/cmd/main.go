@@ -87,6 +87,7 @@ func main() {
 	pool := db.Connect(cfg)
 	defer pool.Close()
 	db.EnsureSchema(context.Background(), pool)
+	db.ValidateSchema(context.Background(), pool)
 	syncIntelligenceMode(context.Background(), pool, string(cfg.IntelligenceMode))
 
 	// ── Step 4: Create repositories ───────────────────────────────────────

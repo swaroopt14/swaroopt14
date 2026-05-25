@@ -33,6 +33,7 @@ export type LeakageKpiResolved = Resolved<{
   risk_adjusted_leakage_minor?: MinorAmountField
   leakage_percentage: number
   risk_tier: RiskTier
+  value_date_mismatch_count?: number
 }>
 export type LeakageKpiResponse = LeakageKpiResolved | EmptyKpiResponse
 
@@ -48,6 +49,7 @@ export type AmbiguityKpiResolved = Resolved<{
   low_confidence_rate?: number
   candidate_collision_rate?: number
   ambiguous_amount_rate?: number
+  carrier_completeness_rate?: number
 }>
 export type AmbiguityKpiResponse = AmbiguityKpiResolved | EmptyKpiResponse
 

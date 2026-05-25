@@ -3,15 +3,13 @@
 import Link from 'next/link'
 import { Glyph } from '../../shared'
 import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
-import {
-  COMMAND_CENTER_KPI_CARD,
-  HOME_BODY_IMPERIAL_SM,
-  HOME_TITLE_BLACK,
-} from '../../command-center/homeCommandCenterTokens'
+import { COMMAND_CENTER_KPI_CARD } from '../../command-center/homeCommandCenterTokens'
+import { JOURNAL_DM_SANS } from '../../journal/journalFonts'
 import { evidenceCopy } from '../copy/evidenceCopy'
 import type { PackTableRowVm } from '../types/evidenceViewModels'
-import { formatIsoDate, shortHash, EVIDENCE_ASK } from '../utils/evidenceFormat'
+import { formatIsoDate, shortHash } from '../utils/evidenceFormat'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { SearchablePicker, type PickerOption } from './SearchablePicker'
 
 type EvidencePackBrowserProps = {
   rows: PackTableRowVm[]
@@ -21,6 +19,9 @@ type EvidencePackBrowserProps = {
   onBatchChange: (id: string) => void
   batchOptions: { batch_id: string; finality_status?: string }[]
   intelBatches: IntelligenceBatchRow[]
+  intentId: string
+  onIntentChange: (id: string) => void
+  intentOptions: { intentId: string; paymentRef: string }[]
   tenantReady: boolean
   packsLoading: boolean
   packListError: string | null
@@ -28,13 +29,16 @@ type EvidencePackBrowserProps = {
   totalCount: number
 }
 
+const INTENT_FILTER_ALL = ''
+const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
+
 function CopyProofRootButton({ text }: { text: string }) {
   return (
     <button
       type="button"
       title="Copy proof root"
       onClick={() => void navigator.clipboard?.writeText(text)}
-      className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] border ${EVIDENCE_ASK.border} bg-white text-[#6f716d] transition hover:border-[#4ADE80]/30 hover:text-[#111111]`}
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[6px] border border-slate-200 bg-white text-slate-500 transition hover:border-emerald-300/60 hover:text-slate-900"
     >
       <Glyph name="copy" className="h-3.5 w-3.5" />
     </button>
@@ -45,15 +49,101 @@ function ProofStatusChip({ label }: { label: string }) {
   const ready = label === 'Proof Ready' || label === 'Verified'
   const partial = label.includes('Partial') || label.includes('Missing')
   const tone = ready
-    ? 'border-[#4ADE80]/40 bg-[#f0fdf4] text-[#166534]'
+    ? 'border-emerald-300/60 bg-emerald-50 text-emerald-800'
     : partial
       ? 'border-amber-200/80 bg-amber-50/80 text-amber-900'
-      : `border ${EVIDENCE_ASK.border} bg-white text-[#475569]`
+      : 'border-slate-200 bg-white text-slate-700'
   return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[12px] font-semibold ${tone}`}>
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>
       {label}
     </span>
   )
+}
+
+function ScopeChip({ scope }: { scope: PackTableRowVm['scope'] }) {
+  if (scope === 'batch') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-semibold text-sky-800">
+        Batch pack
+      </span>
+    )
+  }
+  if (scope === 'intent') {
+    return (
+      <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-800">
+        Intent pack
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+      Evidence
+    </span>
+  )
+}
+
+function DecisionChip({ value }: { value: string }) {
+  if (!value || value === '—') return <span className="text-slate-400">—</span>
+  const v = value.toUpperCase()
+  const pos = ['PASS', 'MATCH_EXACT', 'MATCHED', 'OK', 'TRUE'].some((k) => v.includes(k))
+  const neg = ['FAIL', 'MISMATCH', 'BLOCK', 'REJECT', 'FALSE'].some((k) => v.includes(k))
+  const tone = pos
+    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    : neg
+      ? 'border-rose-200 bg-rose-50 text-rose-800'
+      : 'border-slate-200 bg-slate-50 text-slate-700'
+  return (
+    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${tone}`}>
+      {value}
+    </span>
+  )
+}
+
+function BoolDot({ value }: { value: boolean | null }) {
+  if (value == null) return <span className="text-slate-400">—</span>
+  const cls = value ? 'bg-emerald-500' : 'bg-rose-500'
+  return <span className={`inline-block h-2 w-2 rounded-full ${cls}`} />
+}
+
+function truncateId(id: string, head = 8): string {
+  const v = id.trim()
+  if (!v || v === '—') return '—'
+  if (v.length <= head + 4) return v
+  return `${v.slice(0, head)}…`
+}
+
+function formatConfidence(score: number | null): string {
+  if (score == null || !Number.isFinite(score)) return '—'
+  const pct = score <= 1 ? score * 100 : score
+  return `${pct.toFixed(0)}%`
+}
+
+function batchToPickerOption(
+  b: { batch_id: string; finality_status?: string },
+  inIntel: boolean,
+): PickerOption {
+  const status = b.finality_status ?? (inIntel ? 'intel' : 'journal')
+  const upper = status.toUpperCase()
+  let tone: PickerOption['badgeTone'] = 'neutral'
+  if (upper.includes('SETTLED') || upper.includes('FINAL')) tone = 'success'
+  else if (upper.includes('PEND') || upper.includes('PROC')) tone = 'warn'
+  else if (inIntel) tone = 'accent'
+  return {
+    value: b.batch_id,
+    label: b.batch_id,
+    secondary: status,
+    badgeTone: tone,
+  }
+}
+
+function intentToPickerOption(opt: { intentId: string; paymentRef: string }): PickerOption {
+  return {
+    value: opt.intentId,
+    label: opt.paymentRef !== '—' ? opt.paymentRef : truncateId(opt.intentId),
+    hint: opt.paymentRef !== '—' ? truncateId(opt.intentId) : undefined,
+    secondary: 'intent pack',
+    badgeTone: 'accent',
+  }
 }
 
 export function EvidencePackBrowser({
@@ -64,139 +154,214 @@ export function EvidencePackBrowser({
   onBatchChange,
   batchOptions,
   intelBatches,
+  intentId,
+  onIntentChange,
+  intentOptions,
   tenantReady,
   packsLoading,
   packListError,
   filteredCount,
   totalCount,
 }: EvidencePackBrowserProps) {
+  const batchPickerOptions: PickerOption[] = batchOptions.map((b) =>
+    batchToPickerOption(b, intelBatches.some((x) => x.batch_id === b.batch_id)),
+  )
+
+  const intentPickerOptions: PickerOption[] = [
+    { value: INTENT_FILTER_ALL, label: evidenceCopy.browser.intentAll, secondary: 'all packs' },
+    { value: INTENT_FILTER_BATCH_ONLY, label: evidenceCopy.browser.intentBatchOnly, secondary: 'batch-level only' },
+    ...intentOptions.map(intentToPickerOption),
+  ]
+
+  const intentPickerValue = intentId || INTENT_FILTER_ALL
+
   return (
-    <section className={COMMAND_CENTER_KPI_CARD}>
+    <section className={`${COMMAND_CENTER_KPI_CARD} ${JOURNAL_DM_SANS}`}>
       <CommandCenterCardGlow />
       <div className="relative border-b border-slate-100 px-5 py-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className={`text-[17px] font-semibold ${HOME_TITLE_BLACK}`}>{evidenceCopy.browser.title}</p>
-            <p className={`mt-0.5 max-w-xl ${HOME_BODY_IMPERIAL_SM}`}>{evidenceCopy.browser.subtitle}</p>
-            <p className="mt-2 text-[13px] tabular-nums text-[#8a8a86]">
+            <p className="text-[18px] font-semibold tracking-tight text-slate-900">
+              {evidenceCopy.browser.title}
+            </p>
+            <p className="mt-0.5 max-w-xl text-[13px] leading-relaxed text-slate-500">
+              {evidenceCopy.browser.subtitle}
+            </p>
+            <p className="mt-2 text-[12.5px] tabular-nums text-slate-500">
               {packsLoading ? (
-                <span className="font-medium text-[#111111]">Loading packs…</span>
+                <span className="font-medium text-slate-900">Loading packs…</span>
               ) : search.trim() ? (
                 <>
-                  Showing <span className="font-semibold text-[#111111]">{filteredCount}</span> of {totalCount} packs
+                  Showing <span className="font-semibold text-slate-900">{filteredCount}</span> of {totalCount} packs
                 </>
               ) : (
                 <>
-                  <span className="font-semibold text-[#111111]">{totalCount}</span> packs for batch{' '}
-                  <span className="font-mono text-[#111111]">{batchId || '—'}</span>
+                  <span className="font-semibold text-slate-900">{totalCount}</span> pack{totalCount === 1 ? '' : 's'}
+                  {batchId ? (
+                    <>
+                      {' '}
+                      · batch <span className="font-mono text-slate-900">{batchId}</span>
+                    </>
+                  ) : null}
+                  {intentId && intentId !== INTENT_FILTER_BATCH_ONLY ? (
+                    <>
+                      {' '}
+                      · intent <span className="font-mono text-slate-900">{truncateId(intentId)}</span>
+                    </>
+                  ) : intentId === INTENT_FILTER_BATCH_ONLY ? (
+                    <> · batch-level only</>
+                  ) : null}
                 </>
               )}
             </p>
             {packListError ? <p className="mt-2 text-[13px] font-medium text-amber-800">{packListError}</p> : null}
           </div>
-          <div className="flex w-full shrink-0 flex-col gap-2 lg:max-w-[24rem] lg:items-end">
-            <label
-              className={`flex w-full flex-col gap-1 text-left text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86] lg:items-end`}
-            >
-              {evidenceCopy.browser.batchLabel}
-              <select
+          <div className="flex w-full shrink-0 flex-col gap-2 lg:max-w-[30rem]">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <SearchablePicker
+                id="evidence-batch-picker"
+                label={evidenceCopy.browser.batchLabel}
                 value={batchId}
-                disabled={!tenantReady || (!batchId && batchOptions.length === 0)}
-                onChange={(e) => onBatchChange(e.target.value)}
-                className={`h-10 w-full rounded-[0.85rem] border ${EVIDENCE_ASK.border} ${EVIDENCE_ASK.field} px-3 font-mono text-[14px] font-semibold text-[#111111] outline-none lg:max-w-[20rem]`}
-              >
-                {!tenantReady ? (
-                  <option value="">Sign in (tenant)</option>
-                ) : batchOptions.length === 0 ? (
-                  <option value="">No batch — ingest intelligence or evidence</option>
-                ) : (
-                  batchOptions.map((b) => {
-                    const inIntel = intelBatches.some((x) => x.batch_id === b.batch_id)
-                    return (
-                      <option key={b.batch_id} value={b.batch_id}>
-                        {b.batch_id}
-                        {inIntel ? ` · ${b.finality_status ?? 'intel'}` : ' · evidence only'}
-                      </option>
-                    )
-                  })
-                )}
-              </select>
-            </label>
+                onChange={onBatchChange}
+                options={batchPickerOptions}
+                placeholder={!tenantReady ? 'Sign in (tenant)' : 'Select batch'}
+                emptyState="No batches — ingest intents first"
+                searchPlaceholder="Search batch id…"
+                recentStorageKey="zord:evidence:recent-batches"
+                disabled={!tenantReady}
+                fallbackLabelForUnknownValue={(v) => v}
+              />
+              <SearchablePicker
+                id="evidence-intent-picker"
+                label={evidenceCopy.browser.intentLabel}
+                value={intentPickerValue}
+                onChange={onIntentChange}
+                options={intentPickerOptions}
+                placeholder={evidenceCopy.browser.intentAll}
+                emptyState="No intent packs in this batch"
+                searchPlaceholder="Search intent or payment ref…"
+                recentStorageKey="zord:evidence:recent-intents"
+                disabled={!tenantReady || !batchId}
+              />
+            </div>
             <div className="relative w-full">
               <input
                 value={search}
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder={evidenceCopy.browser.searchPlaceholder}
-                className={`h-10 w-full rounded-[0.85rem] border ${EVIDENCE_ASK.border} ${EVIDENCE_ASK.field} pl-9 pr-3 text-[15px] text-[#111111] outline-none transition placeholder:text-[#8a8a86] focus:border-[#4ADE80]/40 focus:bg-white focus:shadow-[0_0_0_3px_rgba(74,222,128,0.12)]`}
+                className="h-10 w-full rounded-[0.75rem] border border-slate-200 bg-white pl-9 pr-3 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/15"
               />
-              <Glyph name="search" className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[#8a8a86]" />
+              <Glyph name="search" className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
             </div>
           </div>
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-[960px] w-full border-separate border-spacing-0 text-left text-[15px]">
+        <table className="min-w-[1080px] w-full border-separate border-spacing-0 text-left text-[14px]">
           <thead>
-            <tr className={`border-b ${EVIDENCE_ASK.border} bg-[#fcfcfa] text-[11px] font-semibold uppercase tracking-[0.1em] text-[#8a8a86]`}>
-              <th className="border-b px-5 py-3.5">Evidence Pack</th>
-              <th className="border-b px-4 py-3.5">Payment Ref / Intent</th>
-              <th className="border-b px-4 py-3.5">Proof Root</th>
-              <th className="border-b px-4 py-3.5 text-right">Proof Score</th>
-              <th className="border-b px-4 py-3.5 text-right">Proof Items</th>
-              <th className="border-b px-4 py-3.5">Proof Status</th>
-              <th className="border-b px-4 py-3.5 text-right">Generated At</th>
-              <th className="border-b px-5 py-3.5 text-right">Action</th>
+            <tr className="bg-slate-50/70 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+              <th className="border-b border-slate-200/80 px-5 py-3">Evidence Pack</th>
+              <th className="border-b border-slate-200/80 px-4 py-3">Payment Ref / Intent</th>
+              <th className="border-b border-slate-200/80 px-4 py-3">Decisions</th>
+              <th className="border-b border-slate-200/80 px-4 py-3">Proof Root</th>
+              <th className="border-b border-slate-200/80 px-4 py-3 text-right">Score</th>
+              <th className="border-b border-slate-200/80 px-4 py-3 text-right">Leaves</th>
+              <th className="border-b border-slate-200/80 px-4 py-3">Status</th>
+              <th className="border-b border-slate-200/80 px-4 py-3 text-right">Generated</th>
+              <th className="border-b border-slate-200/80 px-5 py-3 text-right">Action</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-[#E5E5E5]">
+          <tbody className="divide-y divide-slate-100">
             {rows.map((row) => {
               const merkleShort = shortHash(row.proofRoot)
-              const href = `/payout-command-view/evidence-pack/${encodeURIComponent(row.packId)}?tab=summary${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`
+              const href = `/payout-command-view/evidence-pack/${encodeURIComponent(row.packId)}?tab=graph${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`
               return (
-                <tr key={row.packId} className="group align-top transition-colors hover:bg-[#fcfcfa]">
+                <tr key={row.packId} className="group align-top transition-colors hover:bg-slate-50/50">
                   <td className="px-5 py-4">
-                    <p className="font-mono text-[14px] font-semibold text-[#111111]">{row.packId}</p>
+                    <p className="font-mono text-[13px] font-semibold text-slate-900">{row.packId}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">
-                      <ProofStatusChip label={row.proofStatus} />
-                      <span className={`rounded-full border ${EVIDENCE_ASK.border} px-2 py-0.5 text-[11px] font-medium text-[#475569]`}>
-                        Mode: {row.modeLabel}
+                      <ScopeChip scope={row.scope} />
+                      <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                        {row.modeLabel}
                       </span>
                     </div>
-                    <p className="mt-1 text-[12px] text-[#6f716d]">
-                      Proof score: {row.proofScore ?? '—'}
-                      {row.proofScore != null ? '/100' : ''}
-                      {row.proofScoreIsEstimate ? ' (batch estimate)' : ''} · Proof items:{' '}
-                      {row.itemCount ?? '—'}/{row.totalItems}
-                    </p>
+                    {row.contractId !== '—' ? (
+                      <p className="mt-1.5 font-mono text-[11.5px] text-slate-500">
+                        contract {truncateId(row.contractId)}
+                      </p>
+                    ) : null}
                   </td>
-                  <td className="max-w-[14rem] px-4 py-4">
-                    <p className="font-mono text-[13px] font-semibold text-[#111111]">{row.intentId}</p>
-                    <p className="mt-1 text-[13px] text-[#6f716d]">{row.summaryLine}</p>
+                  <td className="max-w-[16rem] px-4 py-4">
+                    <p className="font-mono text-[13px] font-semibold text-slate-900">{row.paymentRef}</p>
+                    <p className="mt-1 font-mono text-[11.5px] text-slate-500" title={row.intentId}>
+                      {truncateId(row.intentId)}
+                    </p>
+                    {row.bankReference !== '—' ? (
+                      <p className="mt-1 font-mono text-[11.5px] text-slate-500" title={row.bankReference}>
+                        bank ref {truncateId(row.bankReference)}
+                      </p>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-col gap-1.5 text-[11.5px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500">Gov</span>
+                        <DecisionChip value={row.governanceDecision} />
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-slate-500">Match</span>
+                        <DecisionChip value={row.attachmentDecision} />
+                        {row.matchConfidence != null ? (
+                          <span className="font-mono text-slate-500">{formatConfidence(row.matchConfidence)}</span>
+                        ) : null}
+                      </div>
+                      <div className="flex items-center gap-3 text-slate-500">
+                        <span className="inline-flex items-center gap-1">
+                          <BoolDot value={row.amountMatch} /> amt
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <BoolDot value={row.valueDateCheck} /> date
+                        </span>
+                        <span className="inline-flex items-center gap-1">
+                          <BoolDot value={row.settlementPresent} /> stl
+                        </span>
+                      </div>
+                    </div>
                   </td>
                   <td className="min-w-[12rem] px-4 py-4">
-                    <div className={`rounded-[0.95rem] border ${EVIDENCE_ASK.border} ${EVIDENCE_ASK.inset} p-3`}>
+                    <div className="rounded-[0.75rem] border border-slate-200 bg-slate-50/60 p-2.5">
                       <div className="flex items-center gap-2">
-                        <code className="min-w-0 flex-1 truncate font-mono text-[12px]" title={row.proofRoot}>
+                        <code className="min-w-0 flex-1 truncate font-mono text-[11.5px]" title={row.proofRoot}>
                           {merkleShort}
                         </code>
                         <CopyProofRootButton text={row.proofRoot} />
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-4 text-right tabular-nums font-semibold">{row.proofScore ?? '—'}</td>
                   <td className="px-4 py-4 text-right tabular-nums">
+                    <span className="text-[14px] font-semibold text-slate-900">
+                      {row.proofScore ?? '—'}
+                    </span>
+                    {row.proofScore != null ? <span className="text-[11px] text-slate-500">/100</span> : null}
+                    {row.proofScoreIsEstimate ? (
+                      <span className="mt-0.5 block text-[10.5px] text-slate-400">batch est.</span>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-4 text-right tabular-nums text-[13px] text-slate-700">
                     {row.itemCount ?? '—'}/{row.totalItems}
                   </td>
                   <td className="px-4 py-4">
                     <ProofStatusChip label={row.proofStatus} />
                   </td>
-                  <td className="px-4 py-4 text-right text-[14px] tabular-nums">{formatIsoDate(row.generatedAt)}</td>
+                  <td className="px-4 py-4 text-right text-[13px] tabular-nums text-slate-600">
+                    {formatIsoDate(row.generatedAt)}
+                  </td>
                   <td className="px-5 py-4 text-right">
                     <Link
                       href={href}
-                      className={`inline-flex items-center gap-1.5 rounded-[0.85rem] border ${EVIDENCE_ASK.border} ${EVIDENCE_ASK.field} px-3 py-2 text-[14px] font-semibold text-[#111111] transition group-hover:border-[#111111]/20 group-hover:bg-[#111111] group-hover:text-white`}
+                      className="inline-flex items-center gap-1.5 rounded-[0.65rem] border border-slate-200 bg-white px-3 py-1.5 text-[13px] font-semibold text-slate-900 transition group-hover:border-slate-900 group-hover:bg-slate-900 group-hover:text-white"
                     >
-                      Open
+                      View graph
                       <Glyph name="arrow-up-right" className="h-3 w-3" />
                     </Link>
                   </td>
@@ -205,9 +370,9 @@ export function EvidencePackBrowser({
             })}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-14 text-center">
-                  <p className="text-[16px] font-semibold text-[#111111]">{evidenceCopy.empty.noPack}</p>
-                  <p className="mt-2 text-[15px] text-[#6f716d]">{evidenceCopy.empty.noPackHint}</p>
+                <td colSpan={9} className="px-5 py-14 text-center">
+                  <p className="text-[15px] font-semibold text-slate-900">{evidenceCopy.empty.noPack}</p>
+                  <p className="mt-2 text-[13.5px] text-slate-500">{evidenceCopy.empty.noPackHint}</p>
                 </td>
               </tr>
             ) : null}

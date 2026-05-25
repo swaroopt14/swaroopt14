@@ -49,7 +49,13 @@ export const SANDBOX_DOCK_DISPLAY_LABELS: Partial<Record<DockId, string>> = {
   grid: 'Intent',
   settlement: 'Settlement',
 }
-export type WorkspaceTab = 'Today' | 'Routing' | 'Proof' | 'Banks'
+export type WorkspaceTab =
+  | 'Today'
+  | 'Payment Clarity'
+  | 'Proof'
+  | 'Sources'
+  | 'Actions'
+  | 'Routing'
 /** Command center time window. 'Quarter' is set by the `onQuarterChange` handler
  * in PayoutCommandViewClient when the user picks a specific quarter. */
 export type HomeTimeframe = 'Today' | 'Week' | 'Month' | 'Custom' | 'Quarter'
@@ -202,9 +208,10 @@ export const dockItems = [
     id: 'workspace',
     label: 'Ask',
     navLabel: 'Ask Zord',
-    title: 'Ask Zord workspace',
-    breadcrumbLabel: 'Ask Zord',
-    summary: 'Ask Zord about routed value, live recovery, and finance-ready evidence — get grounded answers with citations.',
+    title: 'Payment Operations View',
+    breadcrumbLabel: 'Payment Operations',
+    summary:
+      'Track payment instructions, bank confirmations, settlement gaps, proof readiness, and review actions in one place.',
     icon: 'folder',
   },
   {
@@ -333,52 +340,94 @@ export const PAYOUT_STANDALONE_PAGE_NAMES = [
   { path: PAYOUT_VIEW_URLS.connectorIntelligence, name: 'Connector Intelligence' },
 ] as const
 
-export const workspaceTabs: WorkspaceTab[] = ['Today', 'Routing', 'Proof', 'Banks']
+/** Selectable workspace context tabs (Routing is shown disabled separately). */
+export const workspaceTabs: WorkspaceTab[] = ['Today', 'Payment Clarity', 'Proof', 'Sources', 'Actions']
 
+export const workspaceRoutingTab: WorkspaceTab = 'Routing'
+
+/** @deprecated Import from paymentOperationsCopy — kept for backward-compatible imports. */
 export const workspacePromptCopy = {
   Today: {
-    question: 'What should the intelligence layer analyze inside the payout command view?',
-    supporting: 'Grounded on routed value, callback timing, bank-side movement, and export readiness already visible in the workspace.',
+    question: 'What should Zord check in this payment data?',
+    supporting:
+      'Grounded on payment instructions, settlement outcomes, match confidence, and proof readiness for your signed-in tenant.',
     suggestions: [
-      'Show where routed value is concentrating right now',
-      'Clarify which issue belongs to bank-side operations',
-      'What is delaying proof export today?',
+      'Which payments need review?',
+      'Why is proof incomplete for this period?',
+      'Which records are missing bank references?',
+      'What value is unmatched or short-settled?',
+      'What should the accounts team upload next?',
     ],
   },
-  Routing: {
-    question: 'Which provider lane needs the next routing decision?',
-    supporting: 'Grounded on provider posture, overflow pressure, and confirmation drift already visible in the workspace.',
+  'Payment Clarity': {
+    question: 'What payment value is unmatched, short-settled, or at risk?',
+    supporting: 'Grounded on leakage KPIs: intended vs observed settlement and review exposure.',
     suggestions: [
-      'Which route should take overflow next?',
-      'What is still degraded after the reroute?',
-      'Show the lane with the highest callback risk',
+      'What value is unmatched or short-settled?',
+      'Show intended vs settled value for this period',
+      'Is any settlement data missing matching intents?',
+      'What should finance review first?',
     ],
   },
   Proof: {
-    question: 'Which payout packets are closest to close-ready proof right now?',
-    supporting: 'Grounded on callbacks, statement cues, export queue state, and finance readiness already visible in the workspace.',
+    question: 'What proof packs or evidence are ready for finance or audit?',
+    supporting: 'Grounded on defensibility, evidence pack rate, and governance coverage.',
     suggestions: [
-      'Which proof pack can finance close now?',
+      'Why is proof incomplete for this period?',
+      'Which proof packs can finance close now?',
       'What evidence is still missing today?',
-      'Show the delayed export queue',
+      'What is blocking proof export?',
     ],
   },
-  Banks: {
-    question: 'Where is bank-side behavior still slowing clean confirmation?',
-    supporting: 'Grounded on bank callbacks, statement lag, pending finality, and active escalation cues already visible in the workspace.',
+  Sources: {
+    question: 'Which data sources has Zord received for this tenant?',
+    supporting: 'Grounded on ingest status for intent files, settlement files, bank statements, and evidence.',
     suggestions: [
-      'Which bank hotspot needs escalation first?',
-      'Show callback lag by bank cluster',
-      'What is blocking clean finality now?',
+      'What should the accounts team upload next?',
+      'Which source files are missing?',
+      'Is bank confirmation data connected?',
+      'When was intent data last received?',
     ],
+  },
+  Actions: {
+    question: 'What review actions or recommendations are open?',
+    supporting: 'Grounded on recommendations KPIs and items needing operator review.',
+    suggestions: [
+      'Which payments need review?',
+      'How many actions are still unresolved?',
+      'What should ops do next?',
+      'Summarize open review items',
+    ],
+  },
+  Routing: {
+    question: 'What should Zord check in this payment data?',
+    supporting:
+      'Zord is analyzing payment proof and settlement clarity. PSP/bank routing intelligence becomes available after Mode C integration.',
+    suggestions: [] as readonly string[],
   },
 } as const
 
 export const workspaceTiles = [
-  { icon: 'folder' as GlyphName, title: 'Intelligence workspace', body: 'Read routed value, live exceptions, and finance evidence from one operating surface.' },
-  { icon: 'users' as GlyphName, title: 'Ownership routing', body: 'Clarify whether the next move belongs to ops, finance, engineering, or bank-side follow-up.' },
-  { icon: 'bank' as GlyphName, title: 'Bank coordination', body: 'Surface callback lag and bank-side drift before they begin blocking clean confirmation.' },
-  { icon: 'shield' as GlyphName, title: 'Provider guardrail', body: 'Keep route posture visible while traffic shifts around degraded providers and overflow lanes.' },
+  {
+    icon: 'chart' as GlyphName,
+    title: 'Payment Review',
+    body: 'Review unmatched, ambiguous, or low-confidence payments.',
+  },
+  {
+    icon: 'grid' as GlyphName,
+    title: 'Source Files',
+    body: 'Check uploaded intent files, settlement files, bank statements, and processing status.',
+  },
+  {
+    icon: 'document' as GlyphName,
+    title: 'Proof Reports',
+    body: 'Export evidence-ready payment reports for finance, audit, or customer review.',
+  },
+  {
+    icon: 'zap' as GlyphName,
+    title: 'Actions',
+    body: 'Track recommended fixes, accepted actions, and resolved issues.',
+  },
 ] as const
 
 export function clamp(value: number, min: number, max: number) {
@@ -869,32 +918,93 @@ export const workspaceSimulationScenarios: Record<WorkspaceTab, readonly Workspa
       ],
     },
   ],
-  Banks: [
+  'Payment Clarity': [
     {
-      prompt: 'Which bank hotspot needs escalation first?',
-      keywords: ['bank', 'hotspot', 'escalation', 'first'],
-      question: 'Where is bank-side behavior still slowing clean confirmation?',
-      supporting: 'Grounded on bank callbacks, statement lag, pending finality, and active escalation cues already visible in the workspace.',
-      assistant: 'The first escalation should go to the bank clusters where callback lag remains high even after reroute pressure eased. Those hotspots are now the primary blocker to clean finality, not provider posture.',
-      heroLabel: 'Bank-side exposure',
-      heroValue: '27',
-      heroBars: [2, 4, 5, 7, 9, 11, 10, 8, 6, 4, 3],
-      listTitle: 'Bank hotspots',
-      listRows: [['ICICI', 'High'], ['Axis', 'Medium'], ['SBI', 'Watch']],
-      listFooter: '+5 more banks',
-      listAction: 'View bank queues',
-      statTitle: 'Callback drift',
-      statValue: '+9.8%',
-      statNote: 'Pending finality pressure',
-      compareLabels: ['Callback', 'Statement'],
-      bottomTitle: 'Bank escalations',
-      bottomValue: '12',
-      bottomMeta: 'High-priority bank follow-ups ready for review.',
+      prompt: 'What value is unmatched or short-settled?',
+      keywords: ['unmatched', 'short-settled', 'value', 'clarity'],
+      question: 'What payment value is unmatched, short-settled, or at risk?',
+      supporting: 'Grounded on leakage KPIs for this tenant period.',
+      assistant:
+        'Zord compared intended payment value with observed settlement. Unmatched and short-settled amounts are listed in Payment Clarity; upload missing intent or bank data if totals look incomplete.',
+      heroLabel: 'Value needing review',
+      heroValue: '—',
+      heroBars: [3, 5, 7, 9, 8, 6, 4, 3, 2, 2, 2],
+      listTitle: 'Payment clarity',
+      listRows: [['Intended', '—'], ['Settled', '—'], ['Unmatched', '—']],
+      listFooter: 'Upload missing files to refresh',
+      listAction: 'View payment gaps',
+      statTitle: 'Value needing review',
+      statValue: '—',
+      statNote: 'From leakage and ambiguity signals',
+      compareLabels: ['Intended', 'Observed'],
+      bottomTitle: 'Items needing review',
+      bottomValue: '—',
+      bottomMeta: 'Payments requiring finance/ops review.',
       moduleBodies: [
-        'Read bank-side drift, callback lag, and finality pressure from one oversight lane.',
-        'Clarify whether the next move belongs to bank ops or routing rebalancing.',
-        'Surface which bank hotspots still block clean confirmation despite healthy provider posture.',
-        'Keep provider and proof posture visible while bank-side work clears the remaining gap.',
+        'Review unmatched, ambiguous, or low-confidence payments.',
+        'Check uploaded intent and settlement files.',
+        'Export evidence-ready proof reports.',
+        'Track recommended fixes and resolved issues.',
+      ],
+    },
+  ],
+  Sources: [
+    {
+      prompt: 'What should the accounts team upload next?',
+      keywords: ['upload', 'missing', 'source', 'file'],
+      question: 'Which data sources has Zord received for this tenant?',
+      supporting: 'Grounded on ingest status for intent, settlement, bank statement, and evidence.',
+      assistant:
+        'Check Connected Sources for what Zord has received. Upload any source marked Missing before expecting full payment clarity or proof readiness.',
+      heroLabel: 'Connected sources',
+      heroValue: '—',
+      heroBars: [2, 3, 4, 5, 4, 3, 2, 2, 2, 2, 2],
+      listTitle: 'Source health',
+      listRows: [['Intent file', '—'], ['Settlement', '—'], ['Bank statement', '—']],
+      listFooter: 'See source table for status',
+      listAction: 'Open intent journal',
+      statTitle: 'Proof readiness',
+      statValue: '—',
+      statNote: 'Depends on connected sources',
+      compareLabels: ['Received', 'Missing'],
+      bottomTitle: 'Missing sources',
+      bottomValue: '—',
+      bottomMeta: 'Sources blocking complete proof.',
+      moduleBodies: [
+        'Review unmatched, ambiguous, or low-confidence payments.',
+        'Check uploaded intent and settlement files.',
+        'Export evidence-ready proof reports.',
+        'Track recommended fixes and resolved issues.',
+      ],
+    },
+  ],
+  Actions: [
+    {
+      prompt: 'Which payments need review?',
+      keywords: ['review', 'actions', 'payments'],
+      question: 'What review actions or recommendations are open?',
+      supporting: 'Grounded on recommendations and ambiguity counts.',
+      assistant:
+        'Open items are summarized under Items Needing Review. Accept or resolve recommended actions from the payment gaps and matching surfaces.',
+      heroLabel: 'Open actions',
+      heroValue: '—',
+      heroBars: [2, 4, 6, 8, 7, 5, 4, 3, 2, 2, 2],
+      listTitle: 'Review drivers',
+      listRows: [['Missing refs', '—'], ['Low confidence', '—'], ['Collisions', '—']],
+      listFooter: 'See breakdown below',
+      listAction: 'View actions',
+      statTitle: 'Resolution rate',
+      statValue: '—',
+      statNote: 'Accepted vs resolved actions',
+      compareLabels: ['Open', 'Resolved'],
+      bottomTitle: 'Items needing review',
+      bottomValue: '—',
+      bottomMeta: 'Payments or records awaiting operator review.',
+      moduleBodies: [
+        'Review unmatched, ambiguous, or low-confidence payments.',
+        'Check uploaded intent and settlement files.',
+        'Export evidence-ready proof reports.',
+        'Track recommended fixes and resolved issues.',
       ],
     },
   ],

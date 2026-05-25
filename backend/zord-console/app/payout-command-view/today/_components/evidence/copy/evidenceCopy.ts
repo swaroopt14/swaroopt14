@@ -88,11 +88,14 @@ export const evidenceCopy = {
     batchEstimate: 'Batch estimate',
   },
   browser: {
-    title: 'Evidence Pack Browser',
+    title: 'Evidence Packs',
     subtitle:
-      'Search and export proof by payment reference, invoice number, UTR, beneficiary, batch ID, or proof root.',
+      'Each batch carries a batch-level pack plus one pack per intent. Pick a batch, then drill into a specific intent for its evidence and graph.',
     searchPlaceholder: 'Search payment ref, invoice, UTR, beneficiary, batch, or evidence hash…',
-    batchLabel: 'Intelligence batch',
+    batchLabel: 'Batch',
+    intentLabel: 'Intent',
+    intentAll: 'All intents in batch',
+    intentBatchOnly: 'Batch-level pack only',
   },
   graph: {
     title: 'Evidence Pack Lineage',

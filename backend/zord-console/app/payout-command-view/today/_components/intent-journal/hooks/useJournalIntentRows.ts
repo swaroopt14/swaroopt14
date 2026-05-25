@@ -6,7 +6,12 @@ import { LIVE_JOURNAL_POLL_MS } from '../journalConstants'
 import { mapPaymentIntentListItemToRow } from '../mappers/mapIntentTableRow'
 import type { JournalIntentRow } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
 
-export function useJournalIntentRows(batchId: string, enabled: boolean, pollMs = LIVE_JOURNAL_POLL_MS) {
+export function useJournalIntentRows(
+  batchId: string,
+  enabled: boolean,
+  sessionTenantId: string,
+  pollMs = LIVE_JOURNAL_POLL_MS,
+) {
   const [rows, setRows] = useState<JournalIntentRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -26,14 +31,18 @@ export function useJournalIntentRows(batchId: string, enabled: boolean, pollMs =
         setRows([])
         return
       }
-      setRows((res.items ?? []).map((item, index) => mapPaymentIntentListItemToRow(item, bid, index)))
+      setRows(
+        (res.items ?? []).map((item, index) =>
+          mapPaymentIntentListItemToRow(item, bid, index, sessionTenantId),
+        ),
+      )
     } catch {
       setError('Could not load payment intents.')
       setRows([])
     } finally {
       setLoading(false)
     }
-  }, [batchId, enabled])
+  }, [batchId, enabled, sessionTenantId])
 
   useEffect(() => {
     if (!enabled) {

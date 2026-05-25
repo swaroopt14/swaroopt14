@@ -6,12 +6,16 @@ import {
   intelligenceBatchesForSelector,
   pickEvidenceBatchId,
 } from '@/services/payout-command/prod-api/evidenceBatchScope'
-import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
+import { getEvidencePackFull } from '@/services/payout-command/prod-api/getEvidencePacks'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
+import {
+  getEvidenceBatchIdsForSession,
+  listEvidencePacksForBatch,
+} from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { EvidencePageTabs } from './components/EvidencePageTabs'
 import { EvidencePageHeader } from './components/EvidencePageHeader'
@@ -33,11 +37,15 @@ type EvidencePackRow = {
   itemCount?: number
 }
 
+const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
+
 export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const [pageTab, setPageTab] = useState<EvidencePageTab>('workspace')
   const [search, setSearch] = useState('')
-  const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
+  const [sessionBatchIds, setSessionBatchIds] = useState<string[]>([])
+  const [intelBatches, setIntelBatches] = useState<IntelligenceBatchRow[]>([])
   const [batchId, setBatchId] = useState<string>(() => apiTrimmedString(initialBatchId))
+  const [intentId, setIntentId] = useState<string>('')
   const [packRows, setPackRows] = useState<EvidencePackRow[]>([])
   const [packListError, setPackListError] = useState<string | null>(null)
   const [packsLoading, setPacksLoading] = useState(false)
@@ -55,6 +63,31 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
 
   const anyKpiLive = Boolean(defensibilityData || leakageData || ambiguityData || patternsData)
 
+  const batchesForSelector = useMemo(
+    () => intelligenceBatchesForSelector(intelBatches, batchId, tenantId),
+    [intelBatches, batchId, tenantId],
+  )
+
+  const batchOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const out: { batch_id: string; finality_status?: string }[] = []
+    for (const id of sessionBatchIds) {
+      if (seen.has(id)) continue
+      seen.add(id)
+      const intel = intelBatches.find((b) => apiTrimmedString(b.batch_id) === id)
+      out.push({ batch_id: id, finality_status: intel?.finality_status ?? 'journal' })
+    }
+    if (sessionBatchIds.length === 0) {
+      for (const b of intelBatches) {
+        const id = apiTrimmedString(b.batch_id)
+        if (!id || seen.has(id)) continue
+        seen.add(id)
+        out.push({ batch_id: id, finality_status: b.finality_status })
+      }
+    }
+    return out
+  }, [sessionBatchIds, intelBatches])
+
   useEffect(() => {
     const fromUrl = apiTrimmedString(initialBatchId)
     if (fromUrl) setBatchId(fromUrl)
@@ -62,26 +95,37 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
 
   useEffect(() => {
     if (!tenantReady) {
-      setBatches([])
+      setSessionBatchIds([])
+      setIntelBatches([])
       if (!apiTrimmedString(initialBatchId)) setBatchId('')
       return
     }
     let cancelled = false
-    void getIntelligenceBatches({ limit: 80 }).then((res) => {
-      if (cancelled) return
-      const intelBatches = res?.batches ?? []
-      setBatches(intelBatches)
-      setBatchId((prev) =>
-        pickEvidenceBatchId(intelBatches, apiTrimmedString(prev) || apiTrimmedString(initialBatchId)),
-      )
-    })
+    void Promise.all([getEvidenceBatchIdsForSession(), getIntelligenceBatches({ limit: 80 })]).then(
+      ([batchIds, intelRes]) => {
+        if (cancelled) return
+        setSessionBatchIds(batchIds)
+        const intel = intelRes?.batches ?? []
+        setIntelBatches(intel)
+        setBatchId((prev) => {
+          const pinned = apiTrimmedString(prev) || apiTrimmedString(initialBatchId)
+          if (pinned && (batchIds.includes(pinned) || intel.some((b) => b.batch_id === pinned))) {
+            return pinned
+          }
+          if (batchIds[0]) return batchIds[0]
+          return pickEvidenceBatchId(intel, pinned)
+        })
+      },
+    )
     return () => {
       cancelled = true
     }
   }, [tenantReady, initialBatchId])
 
   useEffect(() => {
-    if (!tenantReady || !batchId) {
+    const bid = apiTrimmedString(batchId)
+    setIntentId('')
+    if (!tenantReady || !bid) {
       setPackRows([])
       setPackListError(null)
       setPacksLoading(false)
@@ -90,17 +134,17 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     let cancelled = false
     setPacksLoading(true)
     setPackListError(null)
-    void listEvidencePacks({ batchId }).then(async (list) => {
+    void listEvidencePacksForBatch(bid).then(async (summaries) => {
       if (cancelled) return
-      if (!list) {
+      if (!summaries.length) {
         setPackListError(
-          'Evidence packs list failed. Try another batch or confirm your tenant has ingested packs for this batch.',
+          'No evidence packs for this batch. Confirm batch packs and per-intent packs exist for your tenant.',
         )
         setPackRows([])
         setPacksLoading(false)
         return
       }
-      const summaries = list.packs ?? []
+      setPackListError(null)
       setPackRows(summaries.map((s) => ({ summary: s })))
       const sliced = summaries.slice(0, 16)
       const enriched = await Promise.all(
@@ -125,31 +169,50 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     }
   }, [tenantReady, batchId])
 
-  const batchOptions = useMemo(
-    () => intelligenceBatchesForSelector(batches, batchId, tenantId),
-    [batches, batchId, tenantId],
-  )
-
   const batchScoreEstimate = defensibilityData?.defensibility_score ?? null
 
   const tableRows = useMemo(() => {
-    return packRows.map((r) =>
-      mapPackTableRow(r.summary, r.itemCount, batchScoreEstimate),
+    const itemById = new Map(packRows.map((r) => [r.summary.evidence_pack_id, r.itemCount]))
+    return packRows.map((row) =>
+      mapPackTableRow(row.summary, itemById.get(row.summary.evidence_pack_id), batchScoreEstimate),
     )
   }, [packRows, batchScoreEstimate])
 
+  /** Distinct intent IDs that have an intent-scoped pack inside the active batch. */
+  const intentOptions = useMemo(() => {
+    const seen = new Set<string>()
+    const out: { intentId: string; paymentRef: string }[] = []
+    for (const row of tableRows) {
+      if (row.scope !== 'intent') continue
+      const id = apiTrimmedString(row.intentId)
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      out.push({ intentId: id, paymentRef: row.paymentRef })
+    }
+    return out
+  }, [tableRows])
+
+  const scopedTableRows = useMemo(() => {
+    if (!intentId) return tableRows
+    if (intentId === INTENT_FILTER_BATCH_ONLY) {
+      return tableRows.filter((row) => row.scope === 'batch')
+    }
+    return tableRows.filter((row) => row.intentId === intentId)
+  }, [tableRows, intentId])
+
   const filteredTableRows = useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return tableRows
-    return tableRows.filter((row) => {
+    if (!q) return scopedTableRows
+    return scopedTableRows.filter((row) => {
       return (
         row.packId.toLowerCase().includes(q) ||
         row.intentId.toLowerCase().includes(q) ||
+        row.paymentRef.toLowerCase().includes(q) ||
         row.proofRoot.toLowerCase().includes(q) ||
         row.summaryLine.toLowerCase().includes(q)
       )
     })
-  }, [tableRows, search])
+  }, [scopedTableRows, search])
 
   const kpiCards = useMemo(
     () =>
@@ -204,12 +267,15 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
           batchId={batchId}
           onBatchChange={setBatchId}
           batchOptions={batchOptions}
-          intelBatches={batches}
+          intelBatches={batchesForSelector}
+          intentId={intentId}
+          onIntentChange={setIntentId}
+          intentOptions={intentOptions}
           tenantReady={tenantReady}
           packsLoading={packsLoading}
           packListError={packListError}
           filteredCount={filteredTableRows.length}
-          totalCount={tableRows.length}
+          totalCount={scopedTableRows.length}
         />
         <DisputeResolverPanel packRows={tableRows} />
       </div>

@@ -223,7 +223,9 @@ export function useBatchOperationsFeed(options: {
         if (engineRes?.batchDetails && engineRes.batchDetails.batchId === id) {
           const { batchDetails } = engineRes
           setIntentRows(
-            (batchDetails.paymentIntents?.items ?? []).map((it) => mapPaymentIntentToIntentRow(it, id)),
+            (batchDetails.paymentIntents?.items ?? []).map((it) =>
+              mapPaymentIntentToIntentRow(it, id, tenantId),
+            ),
           )
           setFailureRows((batchDetails.dlqItems?.items ?? []).map(mapDlqToFailureRow))
         } else {

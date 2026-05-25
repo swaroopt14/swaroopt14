@@ -72,7 +72,7 @@ export function IntentJournalKpiStrip() {
     <div className={KPI_GRID_CLASS}>
       <KpiCard
         label={copy.paymentWorkflow}
-        value={batch?.apiType !== '—' ? batch!.apiType : 'Payment batch'}
+        value={batch?.apiType && batch.apiType !== '—' ? batch.apiType : 'Payment batch'}
         sub={batch?.source ?? 'Payment instructions'}
       />
       <KpiCard

@@ -2,6 +2,7 @@ import type { IntentEngineBatchSidebarItem, PaymentIntentRecord } from './getPro
 import type { ApiDlqRow } from './prodApiTypes'
 import type { IntelligenceBatchRow } from './intelligenceTypes'
 import { apiTrimmedString } from './coerceApiField'
+import { tenantZordIdSuffix } from './tenantDisplay'
 
 export type JournalBatchType = 'Disbursement' | 'Settlement'
 export type JournalIntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
@@ -28,6 +29,9 @@ export type JournalBatchRecord = {
 
 export type JournalIntentRow = {
   batchId: string
+  /** Short tenant suffix for Zord ID column. */
+  zordId: string
+  /** Intent id (or synthetic id) for drawer selection. */
   requestId: string
   reference: string
   amount: number
@@ -168,7 +172,11 @@ export function mapIntelligenceRowToBatchRecord(b: IntelligenceBatchRow): Journa
   }
 }
 
-export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId: string): JournalIntentRow {
+export function mapPaymentIntentToIntentRow(
+  intent: PaymentIntentRecord,
+  batchId: string,
+  sessionTenantId?: string,
+): JournalIntentRow {
   const raw = intent.amount
   const amount = typeof raw === 'string' ? parseFloat(raw) : Number(raw ?? 0)
   const safe = Number.isFinite(amount) ? amount : 0
@@ -217,10 +225,9 @@ export function mapPaymentIntentToIntentRow(intent: PaymentIntentRecord, batchId
 
   return {
     batchId,
+    zordId: tenantZordIdSuffix(sessionTenantId || apiTrimmedString(intent.tenant_id)),
     requestId: intent.intent_id,
-    reference:
-      apiTrimmedString(intent.client_payout_ref) ||
-      (intent.envelope_id ? `env_${String(intent.envelope_id).slice(-8)}` : `ref_${String(intent.intent_id).slice(-8)}`),
+    reference: apiTrimmedString(intent.client_payout_ref) || '—',
     amount: safe,
     method,
     status,

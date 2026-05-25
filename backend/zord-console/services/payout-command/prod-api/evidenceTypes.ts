@@ -21,6 +21,14 @@ export type EvidencePackSummaryRow = {
   ruleset_version: string
   supersedes_pack_id?: string
   created_at: string
+  /** Extended Service 6 fields (optional per deployment). */
+  proof_status?: string
+  proof_score?: number
+  artifact_count?: number
+  missing_artifact_count?: number
+  verification_status?: string
+  last_verified_at?: string
+  export_count?: number
 }
 
 export type ListPacksResponse = {
@@ -42,4 +50,12 @@ export type EvidencePackFull = {
   signatures?: { signer: string; alg: string; sig: string; signed_at: string }[]
   supersedes_pack_id?: string
   created_at: string
+  proof_status?: string
+  proof_score?: number
+  artifact_count?: number
+  missing_artifact_count?: number
+  verification_status?: string
+  last_verified_at?: string
+  export_count?: number
+  generated_by?: string
 }

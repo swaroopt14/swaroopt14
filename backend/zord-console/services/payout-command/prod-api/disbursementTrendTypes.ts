@@ -10,6 +10,8 @@ export type DisbursementTrendBucket = {
   total_amount: number
   /** Sum of amounts for intents considered bank-confirmed / settled. */
   confirmed_amount: number
+  /** Payment value needing review in this bucket (v1: total − confirmed when not settled). */
+  review_amount: number
   intent_count: number
   confirmed_count: number
 }

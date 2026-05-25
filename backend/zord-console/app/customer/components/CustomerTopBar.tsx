@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { MOCK_INTENT_IDS } from '../mock'
-import { getCustomerSearchEntries, getSmartSuggestions, rankSearchEntries } from '../search-catalog'
+import { fetchCustomerDlq, fetchCustomerIntents } from '../_lib/customerProdApi'
+import { getCustomerSearchEntries, getSmartSuggestions, intentRowsToSearchEntries, rankSearchEntries } from '../search-catalog'
 
 type Environment = 'sandbox' | 'production'
 
@@ -144,8 +144,35 @@ export function CustomerTopBar({ tenant, environment = 'production', onEnvironme
     }
   }
 
+  const [liveIntentSearch, setLiveIntentSearch] = useState<ReturnType<typeof intentRowsToSearchEntries>>([])
+  const [liveNotifications, setLiveNotifications] = useState<
+    Array<{ title: string; desc: string; time: string; type: 'warning' | 'error' | 'success' }>
+  >([])
+
+  useEffect(() => {
+    if (currentEnv === 'sandbox') {
+      setLiveIntentSearch([])
+      return
+    }
+    void fetchCustomerIntents({ page_size: 25 }).then(({ items }) => {
+      setLiveIntentSearch(intentRowsToSearchEntries(items, 'production'))
+    })
+    void fetchCustomerDlq().then((items) => {
+      const notes = items.slice(0, 5).map((row) => ({
+        title: row.reason_code || 'DLQ item',
+        desc: row.error_detail || row.stage || 'Review required',
+        time: 'recent',
+        type: 'error' as const,
+      }))
+      setLiveNotifications(notes)
+    })
+  }, [currentEnv])
+
   const homeHref = currentEnv === 'sandbox' ? '/customer/sandbox/overview' : '/customer/overview'
-  const searchEntries = useMemo(() => getCustomerSearchEntries(currentEnv), [currentEnv])
+  const searchEntries = useMemo(
+    () => getCustomerSearchEntries(currentEnv, liveIntentSearch),
+    [currentEnv, liveIntentSearch],
+  )
   const resultEntries = useMemo(() => rankSearchEntries(searchQuery, searchEntries, 10), [searchEntries, searchQuery])
   const smartSuggestions = useMemo(() => getSmartSuggestions(searchQuery, currentEnv), [currentEnv, searchQuery])
 
@@ -344,11 +371,17 @@ export function CustomerTopBar({ tenant, environment = 'production', onEnvironme
                   </div>
                 </div>
                 <div className="max-h-72 overflow-y-auto cx-glass-scroll">
-                  {[
-                    { title: 'SLA Breach Alert', desc: 'P95 latency at 480ms (threshold: 450ms)', time: '2m ago', type: 'warning' },
-                    { title: 'Webhook Failures', desc: '12 deliveries failed for endpoint /callback', time: '14m ago', type: 'error' },
-                    { title: 'Evidence Pack Ready', desc: `Pack #EP-2847 generated for ${MOCK_INTENT_IDS[0]}`, time: '32m ago', type: 'success' },
-                  ].map((n, i) => (
+                  {(liveNotifications.length > 0
+                    ? liveNotifications
+                    : [
+                        {
+                          title: 'No live alerts',
+                          desc: 'DLQ feed is empty for this tenant',
+                          time: '—',
+                          type: 'success' as const,
+                        },
+                      ]
+                  ).map((n, i) => (
                     <div key={i} className="px-4 py-3 cursor-pointer transition-colors duration-[120ms]"
                       style={{ borderBottom: '1px solid var(--glass-divider)' }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--glass-row-hover)' }}

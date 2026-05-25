@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { Fragment } from 'react'
 import { EntityLogo } from '../../entity-logo'
 import { BankingInformationTokensBlock } from '../IntentDrawerSections'
@@ -8,13 +9,15 @@ import { downloadFailuresCsv } from '../journalExport'
 import { IntentEngineDetailPanel } from '../IntentEngineDetailPanel'
 import type { IntentDetail } from '@/services/payout-command/intent-journal-types'
 import { buildLiveIntentDetailFromRowAndApi } from '@/services/payout-command/liveJournalIntentDetail'
+import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
 import {
   COMMAND_CENTER_KPI_CARD,
   COMMAND_CENTER_LABEL_GREEN,
   HOME_BODY_IMPERIAL_SM,
   HOME_TITLE_BLACK,
 } from '../../command-center/homeCommandCenterTokens'
-import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
+import { intentJournalCopy } from '../copy/intentJournalCopy'
+import { intentRowCustomerStatus } from '../mappers/mapIntentTableRow'
 const JOURNAL_FILTER_LABEL =
   'mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]'
 
@@ -71,13 +74,14 @@ function intentStatusClass(status: IntentStatus) {
 }
 
 function intentStatusLabel(status: IntentStatus) {
-  if (status === 'Ready to Process') return 'Ready to process'
-  return status
+  if (status === 'Pending') return intentJournalCopy.status.awaitingBankConfirmation
+  if (status === 'Ready to Process') return intentJournalCopy.status.readyForDispatch
+  return intentRowCustomerStatus(status)
 }
 
 const TAB_ITEMS: { key: TabKey; label: string }[] = [
-  { key: 'transactions', label: 'Intents' },
-  { key: 'failures', label: 'Failures' },
+  { key: 'transactions', label: intentJournalCopy.tabs.instructions },
+  { key: 'failures', label: intentJournalCopy.tabs.reviewItems },
 ]
 
 const ROW_SIZE_OPTIONS = [25, 50, 100, 200] as const
@@ -85,13 +89,13 @@ const ROW_SIZE_OPTIONS = [25, 50, 100, 200] as const
 const INTENT_TABLE_COL_COUNT = 7
 
 const INTENT_TABLE_HEADERS: { key: string; label: string }[] = [
-  { key: 'intentId', label: 'Intent ID' },
-  { key: 'reference', label: 'Client ref' },
-  { key: 'amount', label: 'Amount' },
-  { key: 'status', label: 'Status' },
-  { key: 'execution', label: 'Execution' },
-  { key: 'rail', label: 'Rail' },
-  { key: 'score', label: 'Score' },
+  { key: 'intentId', label: intentJournalCopy.table.headers.zordId },
+  { key: 'reference', label: intentJournalCopy.table.headers.paymentRef },
+  { key: 'amount', label: intentJournalCopy.table.headers.amount },
+  { key: 'status', label: intentJournalCopy.table.headers.status },
+  { key: 'execution', label: intentJournalCopy.table.headers.plannedDate },
+  { key: 'rail', label: intentJournalCopy.table.headers.paymentMode },
+  { key: 'score', label: intentJournalCopy.table.headers.readiness },
 ]
 
 
@@ -236,8 +240,8 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                       onChange={(e) => setTableSearch(e.target.value)}
                       placeholder={
                         activeTab === 'transactions'
-                          ? 'Search batch, bank, connector, status, amount…'
-                          : 'Search failed intents — batch, reason, stage, connector, action…'
+                          ? intentJournalCopy.table.searchPlaceholder
+                          : 'Search review items — reason, stage, envelope…'
                       }
                       className={`${filterInputClass} pl-9`}
                     />
@@ -458,6 +462,14 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                                             </p>
                                           </div>
                                           <BankingInformationTokensBlock detail={detail} />
+                                          {row.batchId ? (
+                                            <Link
+                                              href={`/payout-command-view/today?dock=settlement&client_batch_id=${encodeURIComponent(row.batchId)}`}
+                                              className="inline-flex text-[13px] font-semibold text-sky-800 underline decoration-sky-300 underline-offset-4"
+                                            >
+                                              Open settlement journal for this batch →
+                                            </Link>
+                                          ) : null}
                                         </div>
                                       )
                                     })()

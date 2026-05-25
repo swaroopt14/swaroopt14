@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { fetchCustomerDlq, fetchCustomerIntents, formatRelativeAge } from '../_lib/customerProdApi'
 
 const failedCategories = [
   { category: 'Schema Validation', count: 47, trend: '+12', severity: 'warning', playbook: 'Verify payload against payment_v3 schema', href: '/customer/intents' },
@@ -37,6 +38,29 @@ const slaMetrics = [
 
 export default function ExceptionsSlaPage() {
   const [selectedTab, setSelectedTab] = useState<'failures' | 'sla' | 'stale'>('failures')
+  const [dlqCount, setDlqCount] = useState<number | null>(null)
+  const [liveStale, setLiveStale] = useState<typeof staleIntents>([])
+
+  useEffect(() => {
+    void fetchCustomerDlq().then((items) => setDlqCount(items.length))
+    void fetchCustomerIntents({ page_size: 20 }).then(({ items }) => {
+      const rows = items
+        .filter((i) => {
+          const s = (i.status || '').toLowerCase()
+          return s.includes('pending')
+        })
+        .map((i) => ({
+          id: i.intent_id,
+          type: i.intent_type || 'payment',
+          age: formatRelativeAge(i.created_at),
+          amount: String(i.amount ?? '—'),
+          status: i.status || 'pending',
+        }))
+      if (rows.length > 0) setLiveStale(rows)
+    })
+  }, [])
+
+  const staleRows = liveStale.length > 0 ? liveStale : staleIntents
 
   return (
     <div className="p-6 space-y-6">
@@ -44,7 +68,10 @@ export default function ExceptionsSlaPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-cx-text">Exceptions & SLA</h1>
-          <p className="text-sm text-cx-neutral mt-0.5">What&apos;s broken and what to do about it</p>
+          <p className="text-sm text-cx-neutral mt-0.5">
+            DLQ from `/api/prod/dlq` · stale intents from `/api/prod/intents` when pending
+            {dlqCount != null ? ` · ${dlqCount} DLQ item(s)` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-red-50 text-red-700 border border-red-200">
@@ -286,7 +313,7 @@ export default function ExceptionsSlaPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-50">
-              {staleIntents.map((intent) => (
+              {staleRows.map((intent) => (
                 <tr key={intent.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="px-5 py-3">
                     <Link href={`/customer/intents/${intent.id}`} className="text-sm font-mono text-cx-purple-600 hover:text-cx-purple-700 hover:underline">

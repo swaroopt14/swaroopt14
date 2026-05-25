@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bar, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   clamp,
-  dockItems,
   HOME_CHART_DOMAIN_MAX,
   HOME_QUARTERS,
   HOME_YEAR_OPTIONS,
@@ -14,26 +13,38 @@ import {
 } from '@/services/payout-command/model'
 import { buildZordInsightCards } from '../insights/buildZordInsightCards'
 import { ZordInsightCarousel } from '../insights/ZordInsightCarousel'
-import { HomeCommandCenterLightBand } from '../command-center/HomeCommandCenterLightBand'
+import { PaymentCommandCenterBand } from '../command-center/PaymentCommandCenterBand'
+import { PaymentCommandSummaryRow } from '../command-center/PaymentCommandSummaryRow'
+import { DataSourceStatusBar } from '../command-center/DataSourceStatusBar'
+import {
+  type CommandCenterPeriod,
+  type CarouselInsightPeriod,
+  commandPeriodToDateRange,
+  commandPeriodToTrendRange,
+  carouselPeriodToTrendRange,
+  COMMAND_CENTER_PERIOD_OPTIONS,
+} from '../command-center/commandCenterPeriod'
+import { fmtInrCompact, parseMinorField } from '../command-center/commandCenterFormat'
+import { PAYMENT_COMMAND_CENTER } from '../command-center/paymentCommandCopy'
+import { derivePaymentCommandDataState } from '../command-center/paymentCommandDataState'
+import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import {
   HOME_BODY_IMPERIAL,
   HOME_BODY_IMPERIAL_CENTERED,
   HOME_BODY_IMPERIAL_SM,
   HOME_TITLE_BLACK,
 } from '../command-center/homeCommandCenterTokens'
-import { DashboardDeltaPercent } from '../homeDashboardTypography'
-import { ClientChart, Glyph, LiveDataHint, SurfaceEyebrow } from '../shared'
+import { ClientChart, Glyph } from '../shared'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type { DisbursementTrendRange } from '@/services/payout-command/prod-api/disbursementTrendTypes'
 import { useDisbursementTrend } from '@/services/payout-command/prod-api/useDisbursementTrend'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCard'
 
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
-  'No live trend or intelligence KPI payload yet for this tenant — numbers above appear when leakage, patterns, or disbursement-trend APIs return data.'
+  'No payment data in this period yet. Upload payment instructions or connect bank/settlement files to populate this view.'
 
 export function HomeSurface({
   batchId,
@@ -57,25 +68,32 @@ export function HomeSurface({
   activeChartPoint: number
   onActiveChartPointChange: (point: number) => void
 }) {
-  const TREND_RANGE_FILTERS: readonly { id: DisbursementTrendRange; label: string }[] = [
-    { id: 'week', label: 'Week' },
-    { id: 'month', label: 'Month' },
-    { id: 'quarter', label: 'Quarter' },
-    { id: 'year', label: 'Year' },
-  ]
-
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [trendAnchorIdx, setTrendAnchorIdx] = useState(0)
+  const [commandPeriod, setCommandPeriod] = useState<CommandCenterPeriod>('month')
+  const [carouselPeriod, setCarouselPeriod] = useState<CarouselInsightPeriod>('weekly')
 
   const { tenantId, tenantReady } = useSessionTenant()
   const { mode } = useEnvironment()
   const isSandbox = mode === 'sandbox'
-  const [trendRange, setTrendRange] = useState<DisbursementTrendRange>('month')
+
+  const intelligenceDateQuery = useMemo(
+    () => commandPeriodToDateRange(commandPeriod),
+    [commandPeriod],
+  )
+  const trendRange = commandPeriodToTrendRange(commandPeriod)
+  const carouselTrendRange = carouselPeriodToTrendRange(carouselPeriod)
+
   const { data: trendSeries, loading: trendLoading } = useDisbursementTrend({ tenantReady, range: trendRange })
+  const { data: carouselTrendSeries, loading: carouselTrendLoading } = useDisbursementTrend({
+    tenantReady,
+    range: carouselTrendRange,
+  })
 
   const { leakage, ambiguity, defensibility, patterns, recommendations, loading } = useIntelligenceKpis({
     tenantReady,
     batchId,
+    dateQuery: intelligenceDateQuery,
   })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const ambData = isDataAvailable(ambiguity) ? ambiguity : null
@@ -104,7 +122,7 @@ export function HomeSurface({
     trendSeries,
   ])
 
-  /** When intelligence leakage has no snapshot yet, sum intent-engine trend buckets for headline INR. */
+  /** When intelligence has no snapshot yet, sum trend buckets for headline INR. */
   const trendTotalsMinor = useMemo(() => {
     if (!trendSeries?.data_available || !trendSeries.buckets?.length) return null
     let total = 0
@@ -124,16 +142,17 @@ export function HomeSurface({
     const rows = trendSeries.buckets.map((b, i) => {
       const rupeesT = b.total_amount / 100
       const rupeesC = b.confirmed_amount / 100
+      const rupeesR = (b.review_amount ?? Math.max(0, b.total_amount - b.confirmed_amount)) / 100
       return {
         point: i,
         barValue: Math.max(0.001, rupeesT / 1000),
         lineValue: Math.max(0.001, rupeesC / 1000),
-        lowerLineValue: Math.max(0.001, (rupeesC * 0.62) / 1000),
+        reviewLineValue: Math.max(0.001, rupeesR / 1000),
         selected: false,
         isHoliday: false,
       }
     })
-    const maxV = Math.max(0.001, ...rows.flatMap((r) => [r.barValue, r.lineValue, r.lowerLineValue]))
+    const maxV = Math.max(0.001, ...rows.flatMap((r) => [r.barValue, r.lineValue, r.reviewLineValue]))
     const yMax = Math.max(5, Math.ceil((maxV * 1.15) / 5) * 5)
     const ticks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map((x) => Math.round(x * 1000) / 1000)
     return {
@@ -156,7 +175,7 @@ export function HomeSurface({
     if (!tenantReady || !trendSeries?.data_available || n < 1) return
     setTrendAnchorIdx(clamp(Math.floor(n / 2), 0, Math.max(0, n - 1)))
     setHoverIndex(null)
-  }, [tenantReady, trendRange, trendSeries?.data_available, trendSeries?.buckets?.length])
+  }, [tenantReady, commandPeriod, trendSeries?.data_available, trendSeries?.buckets?.length])
 
   const displayPoint = hoverIndex ?? trendAnchorIdx
   const safePoint = clamp(displayPoint, 0, Math.max(0, chartData.length - 1))
@@ -168,10 +187,11 @@ export function HomeSurface({
     point: 0,
     barValue: 0,
     lineValue: 0,
-    lowerLineValue: 0,
+    reviewLineValue: 0,
     selected: false,
     isHoliday: false,
   }
+  const activeBucket = trendSeries?.buckets?.[safePoint]
   const totalChartBars = chartData.length
   const rangeLeftPercent = totalChartBars > 0 ? (selectedRangeStart / totalChartBars) * 100 : 0
   const rangeWidthPercent =
@@ -184,25 +204,18 @@ export function HomeSurface({
     axisLabelsForChart[safePoint] ??
     axisLabelsForChart[Math.min(safePoint, axisLabelsForChart.length - 1)] ??
     '—'
-  const deltaFromTrend =
-    activeChartDatum.lineValue > 0.002
-      ? ((activeChartDatum.barValue - activeChartDatum.lineValue) / activeChartDatum.lineValue) * 100
-      : 0
-
-  const fmtInrCompact = (minor: number | null): string => {
-    if (minor === null || !Number.isFinite(minor)) return '—'
-    if (minor === 0) return '₹0'
-    const rupees = minor / 100
-    if (rupees >= 10_000_000) return `₹${(rupees / 10_000_000).toFixed(2)} Cr`
-    if (rupees >= 100_000) return `₹${(rupees / 100_000).toFixed(2)} L`
-    if (rupees >= 1000) return `₹${(rupees / 1000).toFixed(1)} K`
-    return `₹${rupees.toFixed(0)}`
-  }
-
   const fmtTrendTooltipInr = (valueThousands: number) =>
     fmtInrCompact(Math.round(valueThousands * 1000 * 100))
 
-  const liveTooltipNote = `Disbursement and confirmation movement around ${monthLabel}. Bars: total intent volume; line: bank-confirmed / settled subset (${trendRange} window).`
+  const tooltipIntended = activeBucket
+    ? fmtInrCompact(activeBucket.total_amount)
+    : fmtTrendTooltipInr(activeChartDatum.barValue)
+  const tooltipConfirmed = activeBucket
+    ? fmtInrCompact(activeBucket.confirmed_amount)
+    : fmtTrendTooltipInr(activeChartDatum.lineValue)
+  const tooltipReview = activeBucket
+    ? fmtInrCompact(activeBucket.review_amount ?? Math.max(0, activeBucket.total_amount - activeBucket.confirmed_amount))
+    : fmtTrendTooltipInr(activeChartDatum.reviewLineValue)
 
   const chartTags = useMemo(() => {
     const data = chartData
@@ -225,98 +238,101 @@ export function HomeSurface({
     const delayI = Math.floor(data.length * 0.68)
     const denom = Math.max(data.length - 1, 1)
     return [
-      { key: 'high', leftPct: clamp((maxBarI / denom) * 100, 10, 86), label: 'High disbursement' },
-      { key: 'spike', leftPct: clamp((maxGapI / denom) * 100, 10, 86), label: 'Gap vs confirmed' },
-      { key: 'delay', leftPct: clamp((delayI / denom) * 100, 10, 86), label: 'Watch window' },
+      { key: 'high', leftPct: clamp((maxBarI / denom) * 100, 10, 86), label: PAYMENT_COMMAND_CENTER.chipHighValue },
+      { key: 'spike', leftPct: clamp((maxGapI / denom) * 100, 10, 86), label: PAYMENT_COMMAND_CENTER.chipConfirmationGap },
+      { key: 'delay', leftPct: clamp((delayI / denom) * 100, 10, 86), label: PAYMENT_COMMAND_CENTER.chipReviewNeeded },
     ]
   }, [chartData])
 
-  const homePageSummary = dockItems.find((d) => d.id === 'home')?.summary ?? ''
+  const dataSources = usePaymentCommandDataSources({
+    tenantReady,
+    evidencePackRate: defData?.evidence_pack_rate ?? null,
+    auditReadyPct: defData?.audit_ready_pct ?? null,
+  })
 
-  // Live KPI strip: leakage % · defensibility · batch anomaly · acceptance.
+  const intendedMinor = leakageData
+    ? parseMinorField(leakageData.total_intended_amount_minor)
+    : trendTotalsMinor && trendTotalsMinor.total > 0
+      ? trendTotalsMinor.total
+      : null
+  const unmatchedMinor = parseMinorField(leakageData?.unmatched_amount_minor)
+  const underSettlementMinor = parseMinorField(leakageData?.under_settlement_amount_minor)
+  const orphanMinor = parseMinorField(leakageData?.orphan_amount_minor)
+  const reversalMinor = parseMinorField(leakageData?.reversal_exposure_minor)
+  const observedFromLeakage = parseMinorField(leakageData?.total_observed_settled_amount_minor)
+  const observedMinor =
+    observedFromLeakage > 0
+      ? observedFromLeakage
+      : intendedMinor !== null
+        ? Math.max(0, intendedMinor - unmatchedMinor - underSettlementMinor)
+        : null
 
-  // KPI 2 (total_observed_settled_volume) — derived from §8.1 leakage components:
-  // observed ≈ intended − unmatched − under_settlement. Approximate but correct
-  // direction-of-truth (reflects "money that actually settled cleanly").
-  const intendedMinor = leakageData?.total_intended_amount_minor
-    ? Number(leakageData.total_intended_amount_minor)
-    : null
-  const unmatchedMinor = leakageData?.unmatched_amount_minor
-    ? Number(leakageData.unmatched_amount_minor)
-    : 0
-  const underSettlementMinor = leakageData?.under_settlement_amount_minor
-    ? Number(leakageData.under_settlement_amount_minor)
-    : 0
-  const observedMinor = intendedMinor !== null
-    ? Math.max(0, intendedMinor - unmatchedMinor - underSettlementMinor)
-    : null
+  const bankConfirmedMinor = (() => {
+    if (trendTotalsMinor && trendTotalsMinor.confirmed > 0) return trendTotalsMinor.confirmed
+    if (observedMinor != null && observedMinor > 0) return observedMinor
+    return null
+  })()
 
-  const reversalMinor = leakageData?.reversal_exposure_minor
-    ? Number(leakageData.reversal_exposure_minor)
-    : 0
   const exposureMinor =
     intendedMinor !== null
       ? Math.max(0, unmatchedMinor + underSettlementMinor + reversalMinor)
       : null
 
-  const actionHeadline =
-    exposureMinor !== null && Number.isFinite(exposureMinor) ? fmtInrCompact(exposureMinor) : loading ? '…' : '—'
+  const paymentState = derivePaymentCommandDataState({
+    intendedMinor,
+    confirmedMinor: bankConfirmedMinor ?? null,
+    reviewMinor: exposureMinor,
+    hasAmbiguitySignal: Boolean(ambData && ambData.ambiguous_intent_count > 0),
+    hasPatternsSignal: Boolean(patternsData && patternsData.total_count > 0),
+  })
 
-  const heroFromIntentTrend =
-    trendTotalsMinor && trendTotalsMinor.confirmed > 0
-      ? fmtInrCompact(trendTotalsMinor.confirmed)
-      : trendTotalsMinor && trendTotalsMinor.total > 0
-        ? fmtInrCompact(trendTotalsMinor.total)
-        : null
-
-  const heroTotalDisbursementDisplay =
-    observedMinor !== null && Number.isFinite(observedMinor)
-      ? fmtInrCompact(observedMinor)
-      : loading || trendLoading
-        ? '…'
-        : heroFromIntentTrend ?? '—'
+  const intentCountLabel =
+    trendTotalsMinor && trendTotalsMinor.intentCount > 0
+      ? trendTotalsMinor.intentCount
+      : patternsData?.total_count ?? 0
 
   const trendInsight = useMemo(() => {
-    if (trendSeries?.data_available && trendSeries.buckets.length >= 2) {
-      const intents = trendSeries.buckets.reduce((s, b) => s + b.intent_count, 0)
-      const confirmed = trendSeries.buckets.reduce((s, b) => s + b.confirmed_count, 0)
+    if (carouselTrendSeries?.data_available && carouselTrendSeries.buckets.length >= 2) {
+      const intents = carouselTrendSeries.buckets.reduce((s, b) => s + b.intent_count, 0)
+      const confirmed = carouselTrendSeries.buckets.reduce((s, b) => s + b.confirmed_count, 0)
       const share = intents > 0 ? Math.round((confirmed / intents) * 100) : 0
-      const capNote = trendSeries.note ? ` ${trendSeries.note}` : ''
-      return `Live trend (${trendRange}): ${intents} intents, ${confirmed} bank-confirmed (${share}% by count).${capNote}`
+      return `${intents} payment instructions in view; ${confirmed} bank-confirmed (${share}% by count) for the ${carouselPeriod} window.`
     }
     if (leakageData && patternsData) {
-      return `Leakage ${(leakageData.leakage_percentage * 100).toFixed(1)}% with ${patternsData.pending_count} intents still pending in the latest batch view (${patternsData.finality_status.replace(/_/g, ' ').toLowerCase()}).`
-    }
-    if (leakageData) {
-      return `Leakage ${(leakageData.leakage_percentage * 100).toFixed(1)}% · ${leakageData.risk_tier} tier — monitor unmatched and under-settlement against intended volume.`
+      return `${patternsData.pending_count} payments still pending confirmation in the latest batch view.`
     }
     if (patternsData) {
-      return `Latest batch anomaly ${(patternsData.batch_anomaly_score * 100).toFixed(0)}% (${patternsData.anomaly_level}) with ${patternsData.success_count}/${patternsData.total_count} successes.`
+      return `${patternsData.success_count} of ${patternsData.total_count} payments completed in the latest batch signal.`
     }
     return TENANT_KPI_EMPTY_CAROUSEL_INSIGHT
-  }, [trendSeries, trendRange, leakageData, patternsData])
+  }, [carouselTrendSeries, carouselPeriod, leakageData, patternsData])
 
-  const exposureInsightMetric =
-    leakageData != null
-      ? fmtInrCompact(unmatchedMinor + underSettlementMinor)
-      : heroTotalDisbursementDisplay
-  const exposureInsightMetricSub =
-    patternsData != null
-      ? `${patternsData.pending_count} intents pending in latest batch signal`
-      : 'Value in active mismatch / settlement review'
+  const reviewDisplay =
+    exposureMinor !== null && exposureMinor === 0
+      ? '₹0'
+      : exposureMinor !== null
+        ? fmtInrCompact(exposureMinor)
+        : loading
+          ? '…'
+          : '—'
 
   const insightCarouselCards = useMemo(
     () =>
       buildZordInsightCards({
         tenantReady,
-        kpiLoading: loading || trendLoading,
+        kpiLoading: loading || carouselTrendLoading,
         emptyInsightParagraph: TENANT_KPI_EMPTY_CAROUSEL_INSIGHT,
-        mismatchHeadline: exposureInsightMetric,
-        mismatchSubtext: exposureInsightMetricSub,
-        mismatchPendingCount: patternsData?.pending_count ?? 0,
+        mismatchHeadline: reviewDisplay,
+        mismatchSubtext:
+          exposureMinor === 0
+            ? 'No payment gaps detected in this period.'
+            : 'Payment value affected by missing match, short settlement, or reversal.',
+        mismatchPendingCount: patternsData?.pending_count ?? ambData?.ambiguous_intent_count ?? 0,
         trendInsight,
-        trendSeries,
-        trendChartReady,
+        trendSeries: carouselTrendSeries,
+        trendChartReady: Boolean(
+          carouselTrendSeries?.data_available && (carouselTrendSeries.buckets?.length ?? 0) > 0,
+        ),
         leakageData,
         patternsData,
         unmatchedMinor,
@@ -325,180 +341,121 @@ export function HomeSurface({
     [
       tenantReady,
       loading,
-      trendLoading,
+      carouselTrendLoading,
       trendInsight,
-      trendSeries,
-      trendChartReady,
+      carouselTrendSeries,
       leakageData,
       patternsData,
       unmatchedMinor,
       underSettlementMinor,
-      exposureInsightMetric,
-      exposureInsightMetricSub,
+      reviewDisplay,
+      exposureMinor,
+      ambData?.ambiguous_intent_count,
     ],
   )
 
   const insightCarouselLoading = Boolean(
-    tenantReady && insightCarouselCards.length === 0 && (loading || trendLoading),
+    tenantReady && insightCarouselCards.length === 0 && (loading || carouselTrendLoading),
   )
 
-  const sparkBarsForCommandCenter = useMemo(() => {
-    if (!trendSeries?.buckets?.length) return [] as number[]
-    const vals = trendSeries.buckets.map((b) => Math.max(0, Number(b.total_amount) || 0))
-    const tail = vals.length > 14 ? vals.slice(-14) : vals
-    return tail
-  }, [trendSeries])
+  const matchConfidencePct = ambData
+    ? `${Math.round((ambData.avg_attachment_confidence ?? 0) * 100)}%`
+    : loading
+      ? '…'
+      : '—'
 
-  const liveWindowBandLabel = useMemo(() => {
-    const tail = axisLabelsForChart[axisLabelsForChart.length - 1]
-    if (tail) return `LIVE WINDOW: ${String(tail).toUpperCase()}`
-    return `LIVE WINDOW: ${trendRange.toUpperCase()}`
-  }, [axisLabelsForChart, trendRange])
+  const proofCoveragePct = defData
+    ? `${Math.round((defData.evidence_pack_rate ?? 0) * 100)}%`
+    : loading
+      ? '…'
+      : '—'
 
-  const liftRupeesMinor =
-    intendedMinor !== null && exposureMinor !== null ? Math.max(0, intendedMinor - exposureMinor) : null
-  const liftIntensity =
-    intendedMinor !== null && intendedMinor > 0 && liftRupeesMinor !== null
-      ? Math.min(1, liftRupeesMinor / intendedMinor)
-      : 0.45
-
-  const insightRingPct = useMemo(() => {
-    if (trendSeries?.data_available && trendSeries.buckets.length) {
-      const intents = trendSeries.buckets.reduce((s, b) => s + b.intent_count, 0)
-      const confirmed = trendSeries.buckets.reduce((s, b) => s + b.confirmed_count, 0)
-      if (intents > 0) return Math.round((confirmed / intents) * 100)
+  const nextActions = useMemo(() => {
+    const actions: Array<{ title: string; description: string; href?: string; emphasis?: boolean }> = []
+    if (dataSources.settlementStatus === 'missing') {
+      actions.push({
+        title: 'Upload bank confirmation file',
+        description: 'Required to complete proof for this period.',
+        href: '/payout-command-view/today?dock=settlement',
+        emphasis: true,
+      })
     }
-    if (patternsData?.total_count && patternsData.total_count > 0) {
-      return Math.round(((patternsData.success_count ?? 0) / patternsData.total_count) * 100)
-    }
-    return leakageData ? Math.round((1 - leakageData.leakage_percentage) * 100) : 0
-  }, [trendSeries, patternsData, leakageData])
+    actions.push({
+      title: 'Review payments needing attention',
+      description:
+        exposureMinor === 0
+          ? 'No payments currently need review.'
+          : `${reviewDisplay} across unmatched, short-settled, and reversal exposure.`,
+      href: '/payout-command-view/today?dock=leakage',
+    })
+    actions.push({
+      title: 'Export payment proof report',
+      description: 'Download evidence summary for the selected period.',
+      href: '/payout-command-view/today?dock=proof',
+    })
+    return actions
+  }, [dataSources.settlementStatus, exposureMinor, reviewDisplay])
 
-  const recoveryProgressPct = useMemo(() => {
-    if (intendedMinor === null || observedMinor === null || intendedMinor <= 0) return 0
-    return Math.min(100, (observedMinor / intendedMinor) * 100)
-  }, [intendedMinor, observedMinor])
-
-  const recoveryStatPair = useMemo(() => {
-    const peak =
-      sparkBarsForCommandCenter.length > 0 ? Math.max(...sparkBarsForCommandCenter) : null
-    return {
-      leftValue: peak !== null ? fmtInrCompact(peak) : '—',
-      leftLabel: 'Peak bucket (this range)',
-      rightValue: patternsData != null ? String(patternsData.pending_count) : '—',
-      rightLabel: 'Pending check',
-    }
-  }, [sparkBarsForCommandCenter, patternsData])
-
-  const exceptionSharePct = useMemo(() => {
-    if (leakageData === null || intendedMinor === null || intendedMinor <= 0 || exposureMinor === null) return null
-    return Math.min(100, (exposureMinor / intendedMinor) * 100)
-  }, [leakageData, intendedMinor, exposureMinor])
-
-  const exceptionRiskPct = exceptionSharePct ?? 0
-  const exceptionHeroPct = exceptionSharePct
-
-  const exceptionStatPair = useMemo(
-    () => ({
-      leftValue: leakageData != null ? fmtInrCompact(unmatchedMinor) : '—',
-      leftLabel: 'Unmatched',
-      rightValue: leakageData != null ? fmtInrCompact(underSettlementMinor) : '—',
-      rightLabel: 'Under settlement',
-    }),
-    [leakageData, unmatchedMinor, underSettlementMinor],
-  )
-
-  const liftStatPair = useMemo(
-    () => ({
-      leftValue: intendedMinor !== null ? fmtInrCompact(intendedMinor) : '—',
-      leftLabel: 'Intended (baseline)',
-      rightValue: observedMinor !== null ? fmtInrCompact(observedMinor) : '—',
-      rightLabel: 'Observed (clean)',
-    }),
-    [intendedMinor, observedMinor],
-  )
-
-  const liftPct = useMemo(() => {
-    if (liftRupeesMinor === null || intendedMinor === null || intendedMinor <= 0) return null
-    return Math.min(100, (liftRupeesMinor / intendedMinor) * 100)
-  }, [liftRupeesMinor, intendedMinor])
-
-  const exceptionLegendRows: Array<{ dot: string; label: string }> = [
-    { dot: '#4ade80', label: 'Unmatched' },
-    { dot: '#a78bfa', label: 'Under settlement' },
-    { dot: '#94a3b8', label: 'Reversal exposure' },
-  ]
-
-  const exceptionFooterText =
-    leakageData != null
-      ? `Roughly ${fmtInrCompact(unmatchedMinor + underSettlementMinor + reversalMinor)} sits in unmatched, under-settlement, and reversal exposure for this workspace — triage in Leakage.`
-      : 'When leakage KPIs load, unmatched and under-settlement drivers appear here with rupee context.'
-
-  const recoveryFooterText =
-    'Recovered value is the portion of intended disbursement that clears without unmatched or under-settlement drag — use Leakage for the full rupee breakdown.'
-
-  const liftFooterText =
-    liftRupeesMinor !== null && intendedMinor !== null
-      ? 'Incremental value retained versus the at-risk exposure implied by unmatched and under-settlement balances on the same intended base.'
-      : 'When intelligence leakage and intended totals are available, lift compares cleared value to the at-risk pool.'
+  const completionHint =
+    dataSources.settlementStatus === 'missing'
+      ? 'To complete this dashboard: upload a bank statement or settlement file for the selected period.'
+      : paymentState.heroMessage
 
   const disbursementHeroInner = (
     <>
-      <div className={`text-[42px] font-extrabold leading-none tracking-[-0.03em] tabular-nums sm:text-[42px] ${HOME_TITLE_BLACK}`}>
-        {heroTotalDisbursementDisplay}
+      <div className="flex flex-wrap items-end justify-center gap-8">
+        <div className="text-center">
+          <div className={`text-[36px] font-extrabold leading-none tabular-nums sm:text-[40px] ${HOME_TITLE_BLACK}`}>
+            {intendedMinor !== null ? fmtInrCompact(intendedMinor) : loading || trendLoading ? '…' : '—'}
+          </div>
+          <div className={`mt-2 text-[16px] font-bold ${HOME_TITLE_BLACK}`}>Intended Payment Value</div>
+          <p className={`mt-1 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
+            {intentCountLabel > 0
+              ? `${intentCountLabel} payment instructions received in this period.`
+              : 'Payment instructions will appear when your first batch is processed.'}
+          </p>
+        </div>
+        <div className="text-center">
+          <div className={`text-[36px] font-extrabold leading-none tabular-nums sm:text-[40px] ${HOME_TITLE_BLACK}`}>
+            {bankConfirmedMinor != null && bankConfirmedMinor > 0
+              ? fmtInrCompact(bankConfirmedMinor)
+              : 'Not connected yet'}
+          </div>
+          <div className={`mt-2 text-[16px] font-bold ${HOME_TITLE_BLACK}`}>Bank-Confirmed Value</div>
+          <p className={`mt-1 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
+            {bankConfirmedMinor != null && bankConfirmedMinor > 0
+              ? 'Confirmed from bank/settlement records in this period.'
+              : PAYMENT_COMMAND_CENTER.bankPending}
+          </p>
+        </div>
       </div>
-      <div className={`mt-2 text-[18px] font-bold leading-snug tracking-[-0.02em] sm:text-[20px] ${HOME_TITLE_BLACK}`}>
-        Total Disbursement Value
-      </div>
-      <p className={`mt-2 text-center ${HOME_BODY_IMPERIAL_CENTERED}`}>
-        {intendedMinor !== null
-          ? `of ${fmtInrCompact(intendedMinor)} intended this period · settled cleanly`
-          : trendTotalsMinor && (trendTotalsMinor.total > 0 || trendTotalsMinor.intentCount > 0)
-            ? `${fmtInrCompact(trendTotalsMinor.total)} intent volume in ${trendRange} window (${trendTotalsMinor.intentCount} intents) · from intent-engine trend API`
-          : loading || trendLoading
-            ? 'Loading workspace disbursement snapshot…'
-            : 'No disbursement activity detected yet. Totals will appear after the first processed payout batch.'}
-      </p>
+      <p className={`mt-4 text-center ${HOME_BODY_IMPERIAL_CENTERED}`}>{PAYMENT_COMMAND_CENTER.intendedHelper}</p>
+      {paymentState.heroMessage ? (
+        <p className={`mt-2 text-center text-[14px] font-medium text-neutral-700`}>{paymentState.heroMessage}</p>
+      ) : null}
     </>
   )
 
   const trendPanelInner = (
     <>
         <div className="min-w-0">
-          <SurfaceEyebrow variant="stripe">Trend</SurfaceEyebrow>
-          <h2 className={`mt-1 text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
-            Disbursement &amp; confirmation trend
+          <h2 className={`text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
+            {PAYMENT_COMMAND_CENTER.chartTitle}
           </h2>
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            {TREND_RANGE_FILTERS.map((f) => (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => setTrendRange(f.id)}
-                className={`rounded-full px-3 py-1 text-[14px] font-medium tracking-[0] transition ${
-                  trendRange === f.id
-                    ? 'bg-[#39E07E] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/40'
-                    : `border border-[#e5e5e5] bg-white hover:bg-[#fafafa] ${HOME_TITLE_BLACK}`
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-            <LiveDataHint
-              isLive={trendChartReady}
-              source={tenantReady ? 'intents · trend' : 'workspace'}
-            />
-            {trendLoading ? <span className="text-[11px] font-normal text-[#888888]">Updating…</span> : null}
-          </div>
+          <p className={`mt-1 ${HOME_BODY_IMPERIAL}`}>{PAYMENT_COMMAND_CENTER.chartSubtitle}</p>
+          <p className={`mt-2 text-[13px] font-medium text-neutral-600`}>
+            Period: {COMMAND_CENTER_PERIOD_OPTIONS.find((f) => f.id === commandPeriod)?.label ?? commandPeriod}
+            {trendLoading ? ' · Updating…' : null}
+          </p>
           <p className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 ${HOME_BODY_IMPERIAL}`}>
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[#4ade80]" /> Total disbursement
+              <span className="h-2 w-2 shrink-0 rounded-full bg-[#4ade80]" /> {PAYMENT_COMMAND_CENTER.legendIntended}
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[#a78bfa]" /> Bank-confirmed
+              <span className="h-2 w-2 shrink-0 rounded-full bg-[#a78bfa]" /> {PAYMENT_COMMAND_CENTER.legendConfirmed}
             </span>
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[#94a3b8]" /> Lower bound
+              <span className="h-2 w-2 shrink-0 rounded-full bg-[#f59e0b]" /> {PAYMENT_COMMAND_CENTER.legendReview}
             </span>
           </p>
         </div>
@@ -525,16 +482,15 @@ export function HomeSurface({
               >
                 ×
               </button>
-              <div className="text-[11px] font-normal uppercase tracking-[0.06em] text-[#888888]">{monthLabel}</div>
-              <div className="mt-2 flex items-center justify-between gap-3">
-                <div className={`text-[16px] font-semibold tabular-nums tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
-                  {fmtTrendTooltipInr(activeChartDatum.barValue)}
-                </div>
-                <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-[#39E07E] px-2.5 font-semibold text-[#000000] shadow-[0_2px_10px_rgba(57,224,126,0.35)]">
-                  <DashboardDeltaPercent value={deltaFromTrend} />
-                </span>
+              <div className="text-[11px] font-normal uppercase tracking-[0.06em] text-[#888888]">Date: {monthLabel}</div>
+              <div className={`mt-2 space-y-1 ${HOME_BODY_IMPERIAL_SM}`}>
+                <p>Intended payments: {tooltipIntended}</p>
+                <p>Bank-confirmed: {tooltipConfirmed}</p>
+                <p>Needs review: {tooltipReview}</p>
               </div>
-              <div className={`mt-2 ${HOME_BODY_IMPERIAL_SM}`}>{liveTooltipNote}</div>
+              <p className={`mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
+                Zord compares your payment instructions with bank/settlement records for this date.
+              </p>
             </div>
           <ClientChart className="h-[21rem] w-full md:h-[23rem]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
@@ -577,9 +533,9 @@ export function HomeSurface({
                 </Bar>
                 <Line
                   type="monotone"
-                  dataKey="lowerLineValue"
-                  stroke="#94a3b8"
-                  strokeWidth={1.1}
+                  dataKey="lineValue"
+                  stroke="#a78bfa"
+                  strokeWidth={1.35}
                   dot={false}
                   activeDot={false}
                   strokeLinecap="round"
@@ -588,9 +544,10 @@ export function HomeSurface({
                 />
                 <Line
                   type="monotone"
-                  dataKey="lineValue"
-                  stroke="#a78bfa"
-                  strokeWidth={1.35}
+                  dataKey="reviewLineValue"
+                  stroke="#f59e0b"
+                  strokeWidth={1.2}
+                  strokeDasharray="4 3"
                   dot={false}
                   activeDot={false}
                   strokeLinecap="round"
@@ -736,7 +693,48 @@ export function HomeSurface({
           </div>
         ) : null}
 
-        <div className="relative mt-0 w-full border-b border-[#e5e5e5] bg-white px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mt-6 space-y-4 px-4 sm:px-6 lg:px-8">
+          <PaymentCommandSummaryRow
+            period={commandPeriod}
+            onPeriodChange={setCommandPeriod}
+            intendedDisplay={intendedMinor !== null ? fmtInrCompact(intendedMinor) : loading ? '…' : '—'}
+            intendedSub={
+              intentCountLabel > 0
+                ? `${intentCountLabel} payment instructions received.`
+                : 'Awaiting payment instructions for this period.'
+            }
+            bankConfirmedDisplay={
+              bankConfirmedMinor != null && bankConfirmedMinor > 0
+                ? fmtInrCompact(bankConfirmedMinor)
+                : 'Not connected yet'
+            }
+            bankConfirmedSub={
+              bankConfirmedMinor != null && bankConfirmedMinor > 0
+                ? 'Confirmed from bank/settlement records.'
+                : PAYMENT_COMMAND_CENTER.bankPending
+            }
+            reviewDisplay={reviewDisplay}
+            reviewSub={
+              exposureMinor === 0
+                ? 'No payment gaps detected in this period.'
+                : 'Affected by missing match, short settlement, or reversal.'
+            }
+            matchConfidenceDisplay={matchConfidencePct}
+            matchConfidenceSub="Average confidence in linking payments to outcomes."
+            proofReadinessDisplay={proofCoveragePct}
+            proofReadinessSub="Payments with enough evidence for review or export."
+          />
+
+          <DataSourceStatusBar
+            intentStatus={dataSources.intentStatus}
+            settlementStatus={dataSources.settlementStatus}
+            bankStatementStatus={dataSources.bankStatementStatus}
+            evidenceStatus={dataSources.evidenceStatus}
+            lastUpdatedIso={leakageData?.computed_at ?? trendSeries?.buckets?.[0]?.key}
+          />
+        </div>
+
+        <div className="relative mt-6 w-full border-b border-[#e5e5e5] bg-white px-4 py-6 sm:px-6 lg:px-8">
           {trendPanelInner}
         </div>
 
@@ -744,70 +742,65 @@ export function HomeSurface({
           className="mt-8 space-y-3 bg-[#f4f4f1] px-2 pb-3 pt-1.5 sm:px-3 lg:px-4"
           aria-labelledby="home-today-command-center-title"
         >
-          <div className="w-full max-w-none space-y-3">
-            <div className="rounded-[12px] border border-slate-200/90 bg-white/95 px-3 py-2.5 shadow-[0_2px_12px_rgba(15,23,42,0.04)] sm:px-3.5 sm:py-2.5">
-              <h2
-                id="home-today-command-center-title"
-                className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30"
-              >
-                Today · command center
-              </h2>
-              <p className={`mt-0.5 max-w-2xl ${HOME_BODY_IMPERIAL}`}>{homePageSummary}</p>
-              <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                <LiveDataHint
-                  isLive={Boolean(loading || leakageData || defData || patternsData || recsData || ambData)}
-                  source="intelligence"
-                />
-              </div>
-            </div>
-
-            <HomeCommandCenterLightBand
-              recoveryValue={heroTotalDisbursementDisplay}
-              recoverySub="Recovered value (settled cleanly)"
-              liveWindowLabel={liveWindowBandLabel}
-              sparkBars={sparkBarsForCommandCenter}
-              recoveryFooter={recoveryFooterText}
-              trendRange={trendRange}
-              onTrendRangeChange={setTrendRange}
-              recoveryStatPair={recoveryStatPair}
-              recoveryProgressPct={recoveryProgressPct}
-              exceptionValue={actionHeadline}
-              exceptionSub="At-risk & exception exposure"
-              exceptionLegend={exceptionLegendRows}
-              exceptionFooter={exceptionFooterText}
-              exceptionStatPair={exceptionStatPair}
-              exceptionRiskPct={exceptionRiskPct}
-              exceptionHeroPct={exceptionHeroPct}
-              liftValue={liftRupeesMinor !== null ? fmtInrCompact(liftRupeesMinor) : loading ? '…' : '—'}
-              liftSub="Lift over at-risk exposure"
-              liftIntensity={liftIntensity}
-              liftFooter={liftFooterText}
-              liftStatPair={liftStatPair}
-              liftPct={liftPct}
-              insightBody={trendInsight}
-              insightMetric={
-                leakageData != null
-                  ? fmtInrCompact(unmatchedMinor + underSettlementMinor)
-                  : heroTotalDisbursementDisplay
-              }
-              insightMetricSub={
-                patternsData != null
-                  ? `${patternsData.pending_count} intents pending in latest batch signal`
-                  : 'Value in active mismatch / settlement review'
-              }
-              insightRingPct={insightRingPct}
-              insightCarousel={
-                <ZordInsightCarousel
-                  key={tenantId || 'no-tenant'}
-                  tenantReady={tenantReady}
-                  autoplay
-                  interval={4000}
-                  loading={insightCarouselLoading}
-                  cards={insightCarouselCards}
-                />
-              }
-            />
-          </div>
+          <PaymentCommandCenterBand
+            carouselPeriod={carouselPeriod}
+            onCarouselPeriodChange={setCarouselPeriod}
+            cleanlyMatchedValue={observedMinor !== null ? fmtInrCompact(observedMinor) : loading ? '…' : '—'}
+            cleanlyMatchedSub="Payment value matched between instruction and confirmation."
+            cleanlyMatchedFooter="Cleanly matched means Zord can link the original payment instruction to a bank or settlement outcome."
+            awaitingConfirmation={bankConfirmedMinor == null || bankConfirmedMinor <= 0}
+            reviewValue={reviewDisplay}
+            reviewSub={
+              exposureMinor === 0
+                ? 'No payment value currently needs review.'
+                : 'Payment value affected by missing match, short settlement, reversal, or unclear status.'
+            }
+            reviewFooter="This shows payment value affected by missing matches, short settlement, reversals, or unclear status."
+            unmatchedDisplay={leakageData ? fmtInrCompact(unmatchedMinor) : '₹0'}
+            shortSettledDisplay={leakageData ? fmtInrCompact(underSettlementMinor) : '₹0'}
+            unlinkedDisplay={leakageData ? fmtInrCompact(orphanMinor) : '₹0'}
+            reversalDisplay={leakageData ? fmtInrCompact(reversalMinor) : '₹0'}
+            reviewHref="/payout-command-view/today?dock=leakage"
+            matchConfidencePct={matchConfidencePct}
+            matchConfidenceSub="Average match confidence"
+            matchConfidenceFooter="Match confidence shows how safely Zord can connect payment instructions to outcome records."
+            paymentsNeedingReview={String(ambData?.ambiguous_intent_count ?? 0)}
+            missingRefRate={
+              ambData ? `${((ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(1)}%` : '—'
+            }
+            refCompleteness={
+              ambData
+                ? `${Math.max(0, 100 - (ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(0)}%`
+                : '—'
+            }
+            multiMatchRate={
+              ambData ? `${((ambData.ambiguity_rate ?? 0) * 100).toFixed(1)}%` : '—'
+            }
+            proofCoverageDisplay={proofCoveragePct}
+            proofSub="Evidence coverage for audit or export"
+            proofFooter="Proof-ready payments have enough linked records for review, audit, or export."
+            proofReadyRow={defData ? `${Math.round((defData.audit_ready_pct ?? 0) * 100)}% audit-ready` : '—'}
+            incompleteProofRow={
+              defData
+                ? `${Math.max(0, 100 - Math.round((defData.evidence_pack_rate ?? 0) * 100))}% incomplete`
+                : '—'
+            }
+            replayReadyRow={
+              defData ? `${Math.round((defData.replayability_pct ?? 0) * 100)}% replay-ready` : '—'
+            }
+            proofHref="/payout-command-view/today?dock=proof"
+            nextActions={{ actions: nextActions, completionHint }}
+            insightCarousel={
+              <ZordInsightCarousel
+                key={`${tenantId || 'no-tenant'}-${carouselPeriod}`}
+                tenantReady={tenantReady}
+                autoplay
+                interval={4000}
+                loading={insightCarouselLoading}
+                cards={insightCarouselCards}
+              />
+            }
+          />
         </section>
 
     </div>

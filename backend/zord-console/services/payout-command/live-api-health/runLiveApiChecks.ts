@@ -163,7 +163,118 @@ export async function runLiveApiChecks(options: RunLiveApiChecksOptions = {}): P
         return { status: 'empty', detail: 'data_available: false' }
       },
     },
+    {
+      id: 'ingest-status',
+      label: 'Home · ingest status',
+      url: '/api/prod/ingest-status',
+      summarize: (d) => {
+        const body = d as { sources?: Array<{ id: string; status: string }> } | null
+        if (!body?.sources) return { status: 'error', detail: 'No response' }
+        const received = body.sources.filter((s) => s.status === 'received').length
+        return { status: 'ok', detail: `${received}/${body.sources.length} source(s) received` }
+      },
+    },
+    {
+      id: 'intents-list',
+      label: 'Customer/console · intents',
+      url: '/api/prod/intents?page=1&page_size=5',
+      summarize: (d) => {
+        const body = d as { intents?: unknown[]; items?: unknown[] } | null
+        if (!body) return { status: 'error', detail: 'No response' }
+        const n = body.intents?.length ?? body.items?.length ?? 0
+        return { status: 'ok', detail: n > 0 ? `${n} intent(s)` : 'reachable (empty)' }
+      },
+    },
+    {
+      id: 'dlq-list',
+      label: 'Customer/console · dlq',
+      url: '/api/prod/dlq?page=1&page_size=5',
+      summarize: (d) => {
+        const body = d as { items?: unknown[]; recent_failures?: unknown[] } | null
+        if (!body) return { status: 'error', detail: 'No response' }
+        const n = body.items?.length ?? body.recent_failures?.length ?? 0
+        return { status: 'ok', detail: n > 0 ? `${n} item(s)` : 'reachable (empty)' }
+      },
+    },
+    {
+      id: 'console-overview',
+      label: 'Console · overview',
+      url: '/api/prod/overview',
+      summarize: (d) => ({
+        status: d ? 'ok' : 'error',
+        detail: d ? 'overview payload' : 'No response',
+      }),
+    },
+    {
+      id: 'zord-overview',
+      label: 'Zord metrics · overview',
+      url: '/api/prod/zord/metrics/overview?time_range=24h',
+      summarize: (d) => ({
+        status: d ? 'ok' : 'error',
+        detail: d ? 'metrics reachable (synthetic BFF)' : 'No response',
+      }),
+    },
   ]
+
+  if (bid) {
+    probes.push(
+      {
+        id: 'intent-batch-ids',
+        label: 'Intent journal · batch-ids',
+        url: '/api/prod/intents/batch-ids',
+        summarize: (d) => {
+          const body = d as { items?: unknown[] } | null
+          if (!body) return { status: 'error', detail: 'No response' }
+          const n = body.items?.length ?? 0
+          return { status: n > 0 ? 'ok' : 'empty', detail: n > 0 ? `${n} batch id(s)` : 'empty list' }
+        },
+      },
+      {
+        id: 'intent-payment-intents',
+        label: `Intent journal · payment-intents (${bid})`,
+        url: `/api/prod/intents/payment-intents?batch_id=${encodeURIComponent(bid)}`,
+        summarize: (d) => {
+          const body = d as { items?: unknown[] } | null
+          if (!body) return { status: 'error', detail: 'No response' }
+          const n = body.items?.length ?? 0
+          return { status: 'ok', detail: n > 0 ? `${n} intent(s)` : 'reachable (empty)' }
+        },
+      },
+      {
+        id: 'intent-dlq-items',
+        label: `Intent journal · dlq-items (${bid})`,
+        url: `/api/prod/intents/dlq-items?batch_id=${encodeURIComponent(bid)}`,
+        summarize: (d) => {
+          const body = d as { items?: unknown[] } | null
+          if (!body) return { status: 'error', detail: 'No response' }
+          const n = body.items?.length ?? 0
+          return { status: 'ok', detail: n > 0 ? `${n} review item(s)` : 'reachable (empty)' }
+        },
+      },
+      {
+        id: 'intel-batch-detail',
+        label: `Intelligence · batch detail (${bid})`,
+        url: `/api/prod/intelligence/batches/${encodeURIComponent(bid)}`,
+        summarize: (d) => {
+          const body = d as { batch?: unknown; data_available?: boolean } | null
+          if (!body) return { status: 'error', detail: 'No response' }
+          if (body.batch) return { status: 'ok', detail: 'batch projection loaded' }
+          return { status: 'empty', detail: 'no batch detail' }
+        },
+      },
+      {
+        id: 'settlement-batch',
+        label: `Settlement · observations (${bid})`,
+        url: `/api/prod/settlement/observations/batches?client_batch_id=${encodeURIComponent(bid)}`,
+        summarize: (d) => {
+          const body = d as { observations?: unknown[] } | null
+          if (!body) return { status: 'error', detail: 'No response' }
+          const n = body.observations?.length ?? 0
+          return { status: 'ok', detail: n > 0 ? `${n} observation(s)` : 'reachable (empty)' }
+        },
+      },
+    )
+  }
 
   const results: LiveApiCheckResult[] = []
   for (const probe of probes) {

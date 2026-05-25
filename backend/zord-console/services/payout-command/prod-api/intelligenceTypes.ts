@@ -44,6 +44,10 @@ export type AmbiguityKpiResolved = Resolved<{
   provider_ref_missing_rate: number
   value_at_risk_minor: string
   risk_tier: RiskTier
+  /** Optional extended KPIs when zord-intelligence ships them. */
+  low_confidence_rate?: number
+  candidate_collision_rate?: number
+  ambiguous_amount_rate?: number
 }>
 export type AmbiguityKpiResponse = AmbiguityKpiResolved | EmptyKpiResponse
 

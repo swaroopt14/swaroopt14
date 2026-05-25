@@ -34,6 +34,10 @@ export function useSettlementSidebarBatches(options: {
   const [syncAt, setSyncAt] = useState<Date | null>(null)
 
   const refresh = useCallback(async () => {
+    if (!tenantId.trim()) {
+      setClientBatches(initialClientBatchId?.trim() ? [initialClientBatchId.trim()] : [])
+      return
+    }
     const pinned = initialClientBatchId?.trim()
 
     const fetchRes = await getSettlementObservationBatchesForSession()
@@ -60,7 +64,7 @@ export function useSettlementSidebarBatches(options: {
   }, [tenantId, initialClientBatchId, setSelectedClientBatchId])
 
   useEffect(() => {
-    if (!enabled || !tenantReady) {
+    if (!enabled || !tenantReady || !tenantId.trim()) {
       setClientBatches(initialClientBatchId?.trim() ? [initialClientBatchId.trim()] : [])
       setFeedLoaded(false)
       return
@@ -83,7 +87,7 @@ export function useSettlementSidebarBatches(options: {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [enabled, tenantReady, refresh, pollMs, initialClientBatchId])
+  }, [enabled, tenantReady, tenantId, refresh, pollMs, initialClientBatchId])
 
   useEffect(() => {
     const bid = initialClientBatchId?.trim()

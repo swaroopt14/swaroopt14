@@ -1,5 +1,5 @@
-import { MOCK_ENVELOPE_IDS, MOCK_INTENT_IDS } from './mock'
 import { SANDBOX_INTENTS } from './sandbox-fixtures'
+import type { CustomerIntentRow } from './_lib/customerProdApi'
 
 export type SearchEnvironment = 'sandbox' | 'production'
 
@@ -27,18 +27,24 @@ const routeEntries = (environment: SearchEnvironment): SearchEntry[] => {
   ]
 }
 
-const intentEntries = (environment: SearchEnvironment): SearchEntry[] => {
+export function intentRowsToSearchEntries(
+  rows: CustomerIntentRow[],
+  environment: SearchEnvironment,
+): SearchEntry[] {
+  const intentPrefix = environment === 'sandbox' ? '/customer/sandbox/intents' : '/customer/intents'
+  return rows.map((row) => ({
+    id: `live_intent_${row.intent_id}`,
+    type: 'intent' as const,
+    title: row.intent_id,
+    subtitle: `${row.status || 'intent'} · ${row.intent_type || 'payment'}`,
+    href: `${intentPrefix}/${encodeURIComponent(row.intent_id)}`,
+    keywords: [row.intent_id, row.status || '', row.intent_type || '', 'intent', 'live'],
+  }))
+}
+
+const intentEntries = (environment: SearchEnvironment, liveIntents: SearchEntry[] = []): SearchEntry[] => {
   const intentPrefix = environment === 'sandbox' ? '/customer/sandbox/intents' : '/customer/intents'
   const evidencePrefix = environment === 'sandbox' ? '/customer/sandbox/evidence/explorer' : '/customer/evidence/explorer'
-
-  const liveMocks = MOCK_INTENT_IDS.map((intentId, index) => ({
-    id: `live_intent_${intentId}`,
-    type: 'intent' as const,
-    title: intentId,
-    subtitle: `Intent #${index + 1} • live entry`,
-    href: `${intentPrefix}/${encodeURIComponent(intentId)}`,
-    keywords: [intentId, 'intent', 'payment', 'live'],
-  }))
 
   const sandboxEntries = SANDBOX_INTENTS.flatMap((intent) => {
     const beneficiaryToken = String(intent.canonicalIntent?.beneficiary_account_token || '')
@@ -81,20 +87,14 @@ const intentEntries = (environment: SearchEnvironment): SearchEntry[] => {
     return [intentEntry, traceEntry, beneficiaryEntry, evidenceEntry]
   })
 
-  const envelopeEntries = MOCK_ENVELOPE_IDS.map((envelopeId, index) => ({
-    id: `envelope_${envelopeId}`,
-    type: 'trace' as const,
-    title: envelopeId,
-    subtitle: `Envelope #${index + 1}`,
-    href: intentPrefix,
-    keywords: [envelopeId, 'envelope', 'ingest'],
-  }))
-
-  return [...liveMocks, ...sandboxEntries, ...envelopeEntries]
+  return [...liveIntents, ...sandboxEntries]
 }
 
-export function getCustomerSearchEntries(environment: SearchEnvironment): SearchEntry[] {
-  return [...routeEntries(environment), ...intentEntries(environment)]
+export function getCustomerSearchEntries(
+  environment: SearchEnvironment,
+  liveIntents: SearchEntry[] = [],
+): SearchEntry[] {
+  return [...routeEntries(environment), ...intentEntries(environment, liveIntents)]
 }
 
 export function getSmartSuggestions(query: string, environment: SearchEnvironment): SearchEntry[] {

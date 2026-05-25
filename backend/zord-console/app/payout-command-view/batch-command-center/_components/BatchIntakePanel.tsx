@@ -531,9 +531,15 @@ export function BatchIntakePanel({
                 {settlementBlockedReason && !settlementCredentialsReady ? (
                   <p className="mt-2 text-[12px] font-medium text-amber-800">{settlementBlockedReason}</p>
                 ) : null}
-                {settlementIngestOk && settlementBatchIdResolved && !settlementBatchIdResolved.startsWith('LOCAL-') && isSandboxRoute ? (
+                {settlementIngestOk &&
+                settlementBatchIdResolved &&
+                !settlementBatchIdResolved.startsWith('LOCAL-') ? (
                   <Link
-                    href={`/sandbox?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchIdResolved)}`}
+                    href={
+                      isSandboxRoute
+                        ? `/sandbox?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchIdResolved)}`
+                        : `/payout-command-view/today?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchIdResolved)}`
+                    }
                     className="mt-2 inline-flex w-fit text-[12px] font-semibold text-indigo-800 underline"
                   >
                     Open in Settlement Journal
@@ -608,14 +614,16 @@ export function BatchIntakePanel({
                   >
                     Open in Intent Journal
                   </Link>
-                  {isSandboxRoute ? (
-                    <Link
-                      href={`/sandbox?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchId)}`}
-                      className="font-semibold text-indigo-800 underline"
-                    >
-                      Open in Settlement Journal
-                    </Link>
-                  ) : null}
+                  <Link
+                    href={
+                      isSandboxRoute
+                        ? `/sandbox?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchId)}`
+                        : `/payout-command-view/today?dock=settlement&client_batch_id=${encodeURIComponent(settlementBatchId)}`
+                    }
+                    className="font-semibold text-indigo-800 underline"
+                  >
+                    Open in Settlement Journal
+                  </Link>
                 </div>
               ) : null}
             </Card>

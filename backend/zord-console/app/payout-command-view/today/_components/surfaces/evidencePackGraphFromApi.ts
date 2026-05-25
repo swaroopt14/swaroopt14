@@ -1,4 +1,5 @@
 import type { GlyphName } from '@/services/payout-command/model'
+import { PROOF_NODE_BUSINESS_LABELS } from '../evidence/copy/evidenceCopy'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import type { EvidencePackFull } from '@/services/payout-command/prod-api/evidenceTypes'
 import type {
@@ -104,9 +105,10 @@ export function buildEvidencePackGraphFromApi(
     const status = leafStatusForItem(it)
     const typeKey = apiTrimmedString(it.type)
     const itemType = normalizeItemType(typeKey)
+    const businessName = PROOF_NODE_BUSINESS_LABELS[typeKey] || humanizeType(typeKey)
     return {
       id,
-      name: humanizeType(typeKey),
+      name: businessName,
       artifact: `${typeKey.toLowerCase().replace(/_/g, '-')}.json`,
       itemType,
       stableRef: apiTrimmedString(it.ref) || '—',

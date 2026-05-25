@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { fetchJournalSidebarBatches } from '../journalBatchCache'
-import { JOURNAL_BATCHES_BFF_PATH, LIVE_JOURNAL_POLL_MS } from '../journalConstants'
+import { JOURNAL_BATCH_IDS_BFF_PATH, LIVE_JOURNAL_POLL_MS } from '../journalConstants'
 import type { JournalBatchRecord } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
-import { getProdIntentEngineBatchesForSession } from '@/services/payout-command/prod-api/getProdIntentEngineBatches'
+import { getIntentJournalBatchIdsForSession } from '@/services/payout-command/prod-api/intentJournalApi'
 
 export type JournalSidebarFetchMeta = {
   ok: boolean
@@ -31,12 +31,17 @@ export function useJournalSidebarBatches(options: {
   const [syncAt, setSyncAt] = useState<Date | null>(null)
 
   const refresh = useCallback(async () => {
-    const fetchRes = await getProdIntentEngineBatchesForSession()
+    if (!tenantId.trim()) {
+      setBatches([])
+      setFeedError('No tenant on session — sign in with a workspace that has a tenant_id.')
+      return
+    }
+    const fetchRes = await getIntentJournalBatchIdsForSession()
     setFeedMeta({
       ok: fetchRes.ok,
       status: fetchRes.status,
       sidebarCount: fetchRes.data?.items?.length ?? 0,
-      bffPath: JOURNAL_BATCHES_BFF_PATH,
+      bffPath: JOURNAL_BATCH_IDS_BFF_PATH,
     })
 
     if (!fetchRes.ok || !fetchRes.data) {
@@ -66,7 +71,7 @@ export function useJournalSidebarBatches(options: {
   }, [tenantId, initialBatchId, setSelectedBatchId])
 
   useEffect(() => {
-    if (!enabled || !tenantReady) {
+    if (!enabled || !tenantReady || !tenantId.trim()) {
       setBatches([])
       setFeedLoaded(false)
       return
@@ -89,7 +94,7 @@ export function useJournalSidebarBatches(options: {
       cancelled = true
       window.clearInterval(id)
     }
-  }, [enabled, tenantReady, refresh, pollMs])
+  }, [enabled, tenantReady, tenantId, refresh, pollMs])
 
   useEffect(() => {
     if (initialBatchId) setSelectedBatchId(initialBatchId)

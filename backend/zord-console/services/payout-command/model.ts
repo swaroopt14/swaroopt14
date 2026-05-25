@@ -191,10 +191,11 @@ export const dockItems = [
   {
     id: 'home',
     label: 'Today',
-    navLabel: 'Command center',
-    title: 'Command center',
-    breadcrumbLabel: 'Command center',
-    summary: 'Unified view of disbursements, confirmations, and risk across all systems.',
+    navLabel: 'Today',
+    title: 'Payment Command Center',
+    breadcrumbLabel: 'Payment Command Center',
+    summary:
+      'Track payment instructions, bank confirmations, settlement gaps, and proof readiness in one place.',
     icon: 'home',
   },
   {
@@ -208,20 +209,22 @@ export const dockItems = [
   },
   {
     id: 'leakage',
-    label: 'Leakage',
-    navLabel: 'Leakage',
-    title: 'Leakage',
-    breadcrumbLabel: 'Leakage',
-    summary: 'Where money is leaking — unmatched intents, under-settlement, reversals — quantified in rupees for CFO action.',
+    label: 'Payment Gaps',
+    navLabel: 'Payment Gaps',
+    title: 'Payment Gaps & Value at Risk',
+    breadcrumbLabel: 'Payment Gaps',
+    summary:
+      'Compare intended payments with bank or settlement outcomes. Identify unmatched, short-settled, reversed, or unlinked value that needs review.',
     icon: 'zap',
   },
   {
     id: 'ambiguity',
-    label: 'Ambiguity',
-    navLabel: 'Open signals',
-    title: 'Ambiguity',
-    breadcrumbLabel: 'Ambiguity',
-    summary: 'Open signals, unresolved intents, attachment confidence — operational queue for the ops manager.',
+    label: 'Matching',
+    navLabel: 'Matching',
+    title: 'Matching Confidence',
+    breadcrumbLabel: 'Matching',
+    summary:
+      'See where Zord cannot confidently connect payment instructions to bank, PSP, or settlement outcomes.',
     icon: 'chart',
   },
   {
@@ -230,7 +233,8 @@ export const dockItems = [
     navLabel: 'Intent Journal',
     title: 'Intent Journal',
     breadcrumbLabel: 'Intent Journal',
-    summary: 'One screen to explain exactly what happened to a payout end-to-end, from request to final outcome.',
+    summary:
+      'Payment instructions your business submitted — track readiness, review items, and bank confirmation status per batch.',
     icon: 'grid',
   },
   {
@@ -240,7 +244,7 @@ export const dockItems = [
     title: 'Settlement Journal',
     breadcrumbLabel: 'Settlement Journal',
     summary:
-      'Canonical settlement observations per client batch — PSP exports normalized after ingest and canonicalization.',
+      'What banks and payment partners reported — settlement records, match status, and observed amounts per batch.',
     icon: 'bank',
   },
   {
@@ -265,9 +269,10 @@ export const dockItems = [
     id: 'proof',
     label: 'Evidence',
     navLabel: 'Evidence',
-    title: 'Defensibility & Evidence',
+    title: 'Evidence & Dispute Resolution',
     breadcrumbLabel: 'Evidence',
-    summary: 'Cryptographic proof packs per intent · audit-ready exports · active dispute tracker. Win disputes by downloading evidence, not by chasing PSP logs.',
+    summary:
+      'Build, verify, and export proof for payments, settlements, disputes, and audit review — one structured pack instead of screenshots and PSP log chases.',
     icon: 'document',
   },
   {

@@ -391,7 +391,9 @@ export default function BatchCommandCenterClient() {
 
   const settlementJournalHref = useMemo(() => {
     if (!activeBatchId || activeBatchId.startsWith('LOCAL-')) return null
-    const base = isSandboxRoute ? '/sandbox?dock=settlement' : '/sandbox?dock=settlement'
+    const base = isSandboxRoute
+      ? '/sandbox?dock=settlement'
+      : '/payout-command-view/today?dock=settlement'
     return `${base}&client_batch_id=${encodeURIComponent(activeBatchId)}`
   }, [activeBatchId, isSandboxRoute])
 
@@ -450,7 +452,7 @@ export default function BatchCommandCenterClient() {
             >
               Intent Journal
             </Link>
-            {settlementJournalHref && isSandboxRoute ? (
+            {settlementJournalHref ? (
               <Link
                 href={settlementJournalHref}
                 className="h-9 rounded-xl border border-[#E5E5E5] bg-white px-3.5 text-[14px] font-medium text-[#000000] transition hover:bg-slate-50"

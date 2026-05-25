@@ -90,7 +90,9 @@ export default function PayoutCommandViewClient({
       pageSubtitle:
         activeDock === 'workspace'
           ? `${activeTab} context · grounded on session tenant evidence`
-          : undefined,
+          : activeDock === 'home'
+            ? activeSurface.summary
+            : undefined,
     }
   }, [activeSurface, activeDock, activeTab])
 

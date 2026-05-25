@@ -65,6 +65,8 @@ type leakageKPIFields struct {
 	ReversalExposureMinor           decimal.Decimal `json:"reversal_exposure_minor"`
 	LeakagePercentage               float64         `json:"leakage_percentage"`
 	RiskTier                        string          `json:"risk_tier"`
+	DuplicateRiskCount              int             `json:"duplicate_risk_count"`
+	DuplicateRiskExposureMinor      decimal.Decimal `json:"duplicate_risk_exposure_minor"`
 }
 
 // DashboardLeakageResponse is the frontend-ready payload for the leakage dashboard card.
@@ -102,6 +104,10 @@ type DashboardLeakageResponse struct {
 
 	// Risk classification tier — included for frontend colour-coding
 	RiskTier string `json:"risk_tier,omitempty"`
+
+	// L7 — duplicate_risk_exposure: intents flagged as duplicate risk
+	DuplicateRiskCount         int             `json:"duplicate_risk_count"`
+	DuplicateRiskExposureMinor decimal.Decimal `json:"duplicate_risk_exposure_minor"`
 }
 
 // GetLeakageKPIs handles GET /v1/intelligence/dashboard/leakage
@@ -152,6 +158,8 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 	resp.ReversalExposureMinor = kpis.ReversalExposureMinor
 	resp.LeakagePercentage = kpis.LeakagePercentage
 	resp.RiskTier = kpis.RiskTier
+	resp.DuplicateRiskCount = kpis.DuplicateRiskCount
+	resp.DuplicateRiskExposureMinor = kpis.DuplicateRiskExposureMinor
 
 	// ── L4 and L10: fetch AMBIGUITY snapshot for cross-category derivation ──
 	// L4 = ambiguous_amount_minor (already computed in ambiguity snapshot)

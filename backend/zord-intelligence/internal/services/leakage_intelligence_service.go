@@ -97,6 +97,10 @@ type LeakageSnapshot struct {
 	// ── P7 numerator: value-date mismatch count ────────────────────────────
 	ValueDateMismatchCount int `json:"value_date_mismatch_count"`
 
+	// ── L7: Duplicate settlement risk ────────────────────────────────────────
+	DuplicateRiskCount         int             `json:"duplicate_risk_count"`
+	DuplicateRiskExposureMinor decimal.Decimal `json:"duplicate_risk_exposure_minor"`
+
 	// ── Top leakage drivers (deterministic ranking) ───────────────────────
 	// Sorted by amount desc. Used by the recommendation layer.
 	TopDrivers []LeakageDriver `json:"top_drivers"`
@@ -219,6 +223,8 @@ func (s *LeakageIntelligenceService) buildSnapshot(lv *models.LeakageValue) Leak
 		TotalIntendedAmountMinor:        lv.TotalIntendedAmountMinor,
 		TotalObservedSettledAmountMinor: lv.TotalObservedSettledAmountMinor,
 		ValueDateMismatchCount:          lv.ValueDateMismatchCount,
+		DuplicateRiskCount:              lv.DuplicateRiskCount,
+		DuplicateRiskExposureMinor:      lv.DuplicateRiskExposureMinor,
 		UnmatchedAmountMinor:            lv.UnmatchedAmountMinor,
 		UnderSettlementAmountMinor:      lv.UnderSettlementAmountMinor,
 		OrphanAmountMinor:               lv.OrphanAmountMinor,
@@ -256,6 +262,7 @@ func (s *LeakageIntelligenceService) buildTopDrivers(lv *models.LeakageValue) []
 		{"UNDER_SETTLEMENT", lv.UnderSettlementAmountMinor, lv.UnderSettlementCount},
 		{"ORPHAN_SETTLEMENT", lv.OrphanAmountMinor, lv.OrphanSettlementCount},
 		{"REVERSAL", lv.ReversalExposureMinor, lv.ReversalCount},
+		{"DUPLICATE_RISK", lv.DuplicateRiskExposureMinor, lv.DuplicateRiskCount},
 	}
 
 	// Sort descending by amount (simple insertion sort — 4 elements max)

@@ -65,6 +65,14 @@ type PatternSnapshot struct {
 	BatchRiskScore float64 `json:"batch_risk_score"`
 	FinalityStatus string  `json:"finality_status"`
 
+	// ── P1: Batch attachment quality score ────────────────────────────────────
+	BatchQualityScore  float64 `json:"batch_quality_score"`   // primary P1 output
+	ExactMatchCount    int     `json:"exact_match_count"`
+	HighConfidenceCount int    `json:"high_confidence_count"`
+	AmbiguousCount     int     `json:"ambiguous_count"`
+	UnresolvedCount    int     `json:"unresolved_count"`
+	ConflictedCount    int     `json:"conflicted_count"`
+
 	RiskSignals []BatchRiskSignal `json:"risk_signals"`
 	RiskTier    string            `json:"risk_tier"`
 
@@ -154,6 +162,12 @@ func (s *PatternIntelligenceService) ComputeAndSave(
 		log.Printf("pattern_svc: UpsertPatternTenantSummary failed tenant=%s batch=%s: %v", tenantID, batchID, err)
 	}
 
+	// ── P2/P3/P6: Tenant-level pattern KPI snapshot ────────────────────────
+	if err := s.computeAndSaveTenantPatternKPIs(ctx, tenantID, batchID, windowStart, windowEnd); err != nil {
+		log.Printf("pattern_svc: computeAndSaveTenantPatternKPIs failed tenant=%s batch=%s: %v",
+			tenantID, batchID, err)
+	}
+
 	if err := s.persistMLFeatures(ctx, tenantID, batchID, snapID, batchHealth, inputs, windowStart, windowEnd); err != nil {
 		_ = err
 	}
@@ -168,17 +182,23 @@ func (s *PatternIntelligenceService) buildSnapshot(
 	inputs patternFeatureInputs,
 ) PatternSnapshot {
 	snap := PatternSnapshot{
-		BatchID:            batchID,
-		TotalCount:         bh.TotalCount,
-		SuccessCount:       bh.SuccessCount,
-		FailedCount:        bh.FailedCount,
-		PendingCount:       bh.PendingCount,
-		ReversedCount:      bh.ReversedCount,
-		PartialReconCount:  bh.PartialReconCount,
-		TotalVarianceMinor: bh.TotalVarianceMinor,
-		AmbiguityScore:     bh.AmbiguityScore,
-		FinalityStatus:     bh.FinalityStatus,
-		ComputedAt:         time.Now().UTC(),
+		BatchID:             batchID,
+		TotalCount:          bh.TotalCount,
+		SuccessCount:        bh.SuccessCount,
+		FailedCount:         bh.FailedCount,
+		PendingCount:        bh.PendingCount,
+		ReversedCount:       bh.ReversedCount,
+		PartialReconCount:   bh.PartialReconCount,
+		TotalVarianceMinor:  bh.TotalVarianceMinor,
+		AmbiguityScore:      bh.AmbiguityScore,
+		FinalityStatus:      bh.FinalityStatus,
+		BatchQualityScore:   bh.AggregateScore,
+		ExactMatchCount:     bh.ExactMatchCount,
+		HighConfidenceCount: bh.HighConfidenceCount,
+		AmbiguousCount:      bh.AmbiguousCount,
+		UnresolvedCount:     bh.UnresolvedCount,
+		ConflictedCount:     bh.ConflictedCount,
+		ComputedAt:          time.Now().UTC(),
 	}
 
 	snap.BatchRiskScore, snap.RiskSignals = s.computeRiskScore(inputs)
@@ -493,4 +513,76 @@ func levelFromScore(score float64) string {
 	default:
 		return "LOW"
 	}
+}
+
+// PatternTenantKPISnapshot is the TENANT-scoped pattern snapshot holding P2/P3/P6.
+type PatternTenantKPISnapshot struct {
+	DuplicateRiskRate            float64 `json:"duplicate_risk_rate"`             // P2
+	DuplicateRiskCount           int     `json:"duplicate_risk_count"`            // P2 numerator
+	TotalIntentCount             int     `json:"total_intent_count"`              // P2 denominator
+	SameBeneficiaryAmountDensity float64 `json:"same_beneficiary_amount_density"` // P3
+	SettlementDelayP95Days       float64 `json:"settlement_delay_p95_days"`       // P6
+	ComputedAt                   time.Time `json:"computed_at"`
+}
+
+// computeAndSaveTenantPatternKPIs reads P2/P3/P6 projections and writes a
+// TENANT-scoped PATTERN intelligence snapshot for these rolling KPIs.
+//
+// P2: duplicate_risk_rate = duplicate_risk_count / total_intent_count
+// P3: same_beneficiary_amount_density = max_pair_count / total_batch_intents
+// P6: settlement_delay_p95_days = 95th-percentile of settlement_delay_samples
+func (s *PatternIntelligenceService) computeAndSaveTenantPatternKPIs(
+	ctx context.Context,
+	tenantID, batchID string,
+	windowStart, windowEnd time.Time,
+) error {
+	// Read P2 and P6 from the pattern.p2_p6 projection
+	p2p6, err := s.projRepo.GetPatternP2P6Summary(ctx, tenantID)
+	if err != nil {
+		return fmt.Errorf("GetPatternP2P6Summary tenant=%s: %w", tenantID, err)
+	}
+	if p2p6 == nil {
+		return nil // no data yet, skip
+	}
+
+	kpiSnap := PatternTenantKPISnapshot{
+		DuplicateRiskRate:      p2p6.DuplicateRiskRate,
+		DuplicateRiskCount:     p2p6.DuplicateRiskCount,
+		TotalIntentCount:       p2p6.TotalIntentCount,
+		SettlementDelayP95Days: p2p6.SettlementDelayP95Days,
+		ComputedAt:             time.Now().UTC(),
+	}
+
+	// Read P3 from the pattern.batch_density.{batchID} projection
+	if batchID != "" {
+		density, densityErr := s.projRepo.GetBatchIntentDensity(ctx, tenantID, batchID)
+		if densityErr != nil {
+			log.Printf("pattern_svc: GetBatchIntentDensity failed tenant=%s batch=%s: %v",
+				tenantID, batchID, densityErr)
+		} else if density != nil {
+			kpiSnap.SameBeneficiaryAmountDensity = density.SameBeneficiaryAmountDensity
+		}
+	}
+
+	snapJSON, err := json.Marshal(kpiSnap)
+	if err != nil {
+		return fmt.Errorf("marshal tenant kpi snapshot: %w", err)
+	}
+	projRefs := []string{"pattern.p2_p6", fmt.Sprintf("pattern.batch_density.%s", batchID)}
+	projRefsJSON, _ := json.Marshal(projRefs)
+	modelVer := "deterministic_v1"
+	snapID := "snap_" + uuid.New().String()
+	return s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
+		SnapshotID:         snapID,
+		TenantID:           tenantID,
+		SnapshotType:       "PATTERN",
+		ScopeType:          "TENANT",
+		ScopeRef:           nil,
+		WindowStart:        windowStart,
+		WindowEnd:          windowEnd,
+		ProjectionRefsJSON: projRefsJSON,
+		SnapshotJSON:       snapJSON,
+		ModelVersion:       &modelVer,
+		CreatedAt:          time.Now().UTC(),
+	})
 }

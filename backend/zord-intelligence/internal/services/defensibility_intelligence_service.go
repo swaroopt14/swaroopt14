@@ -83,6 +83,19 @@ type DefensibilitySnapshot struct {
 	GovernanceRejectedCount  int `json:"governance_rejected_count"`  // compliance risk flag
 	GovernanceEscalatedCount int `json:"governance_escalated_count"`
 
+	// ── D2: Average evidence pack completeness score ─────────────────────────
+	AvgPackCompletenessScore float64 `json:"avg_pack_completeness_score"`
+
+	// ── D4: Settlement evidence coverage ─────────────────────────────────────
+	SettlementEvidenceCoverage float64 `json:"settlement_evidence_coverage"`
+
+	// ── D5: Attachment evidence coverage ─────────────────────────────────────
+	AttachmentEvidenceCoverage float64 `json:"attachment_evidence_coverage"`
+
+	// ── D7: Weak evidence rate ────────────────────────────────────────────────
+	WeakEvidenceCount int     `json:"weak_evidence_count"`
+	WeakEvidenceRate  float64 `json:"weak_evidence_rate"`
+
 	// ── Composite defensibility score (0–100) ────────────────────────────
 	// Computed from the rubric in spec §10.3.
 	DefensibilityScore float64 `json:"defensibility_score"`
@@ -181,11 +194,16 @@ func (s *DefensibilityIntelligenceService) buildSnapshot(dv *models.Defensibilit
 		WithReplayEquivalence:    dv.WithReplayEquivalence,
 		WithKYCChecked:           dv.WithKYCChecked,
 		WithAMLChecked:           dv.WithAMLChecked,
-		GovernanceApprovedCount:  dv.GovernanceApprovedCount,
-		GovernanceRejectedCount:  dv.GovernanceRejectedCount,
-		GovernanceEscalatedCount: dv.GovernanceEscalatedCount,
-		WeakestProofRef:          dv.WeakestProofRef,
-		ComputedAt:               time.Now().UTC(),
+		GovernanceApprovedCount:    dv.GovernanceApprovedCount,
+		GovernanceRejectedCount:    dv.GovernanceRejectedCount,
+		GovernanceEscalatedCount:   dv.GovernanceEscalatedCount,
+		WeakestProofRef:            dv.WeakestProofRef,
+		AvgPackCompletenessScore:   dv.AvgPackCompletenessScore,
+		SettlementEvidenceCoverage: dv.SettlementEvidenceCoverage,
+		AttachmentEvidenceCoverage: dv.AttachmentEvidenceCoverage,
+		WeakEvidenceCount:          dv.WeakEvidenceCount,
+		WeakEvidenceRate:           dv.WeakEvidenceRate,
+		ComputedAt:                 time.Now().UTC(),
 	}
 
 	// Compute defensibility score from the spec rubric (total = 100 points)
@@ -226,9 +244,14 @@ func (s *DefensibilityIntelligenceService) computeScore(dv *models.Defensibility
 	}
 	n := float64(dv.TotalIntents)
 
-	// Component 1 (weight 0.20): pack completeness
-	// EvidencePackRate is already 0–1; multiply by 100 then re-weight.
-	packCompleteness := float64(dv.WithEvidencePack) / n // 0–1
+	// Component 1 (weight 0.20): pack completeness — D2 real value
+	// Use AvgPackCompletenessScore (0–1) when packs exist; fall back to pack presence rate.
+	var packCompleteness float64
+	if dv.AvgPackCompletenessScore > 0 {
+		packCompleteness = dv.AvgPackCompletenessScore // D2 real value
+	} else {
+		packCompleteness = float64(dv.WithEvidencePack) / n // fallback: pack presence rate
+	}
 
 	// Component 2 (weight 0.15): governance coverage
 	govCoverage := float64(dv.WithGovernanceDecision) / n // 0–1
@@ -245,13 +268,18 @@ func (s *DefensibilityIntelligenceService) computeScore(dv *models.Defensibility
 	amlRate := float64(dv.WithAMLChecked) / n
 	carrierRichness := (kycRate + amlRate) / 2.0 // 0–1
 
-	// Component 5 (weight 0.15): settlement evidence (replay equivalence as best proxy)
-	// replay_equivalence means the evidence pack can reproduce the exact outcome —
-	// the gold standard for settlement evidence.
-	settlementEvidence := float64(dv.WithReplayEquivalence) / n // 0–1
+	// Component 5 (weight 0.15): settlement evidence — D4 real value
+	// SettlementEvidenceCoverage = fraction of packs with settlement leaf (D4).
+	// Falls back to replay-equivalence proxy when D4 not yet accumulated.
+	var settlementEvidence float64
+	if dv.SettlementEvidenceCoverage > 0 {
+		settlementEvidence = dv.SettlementEvidenceCoverage // D4 real value
+	} else {
+		settlementEvidence = float64(dv.WithReplayEquivalence) / n // fallback proxy
+	}
 
-	// Component 6 (weight 0.10): replay equivalence flag (same data, explicit weight)
-	replayFlag := settlementEvidence // reuse — both measure replay readiness
+	// Component 6 (weight 0.10): replay equivalence flag (D6)
+	replayFlag := float64(dv.WithReplayEquivalence) / n // 0–1
 
 	// Component 7 (weight 0.10): low ambiguity score
 	// governance_rejected / total is the best available ambiguity signal:
@@ -262,7 +290,7 @@ func (s *DefensibilityIntelligenceService) computeScore(dv *models.Defensibility
 		lowAmbiguity = 0
 	}
 
-	// Weighted sum → scale to 0–100
+	// Weighted sum → scale to 0–100 (ML doc §7.3 D8 formula)
 	score := (0.20*packCompleteness +
 		0.15*govCoverage +
 		0.15*attachConfidence +

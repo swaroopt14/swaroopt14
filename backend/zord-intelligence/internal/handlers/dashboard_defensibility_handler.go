@@ -38,15 +38,20 @@ func NewDashboardDefensibilityHandler(snapshotRepo *persistence.IntelligenceSnap
 	return &DashboardDefensibilityHandler{snapshotRepo: snapshotRepo}
 }
 
-// defensibilityKPIFields reads only the 3 KPI fields from DefensibilitySnapshot JSON.
+// defensibilityKPIFields reads the KPI fields from DefensibilitySnapshot JSON.
 type defensibilityKPIFields struct {
-	EvidencePackRate      float64 `json:"evidence_pack_rate"`
-	GovernanceCoveragePct float64 `json:"governance_coverage_pct"`
-	ReplayabilityPct      float64 `json:"replayability_pct"`
-	DefensibilityScore    float64 `json:"defensibility_score"`
-	DefensibilityTier     string  `json:"defensibility_tier"`
-	AuditReadyPct         float64 `json:"audit_ready_pct"`
-	DisputeReadyPct       float64 `json:"dispute_ready_pct"`
+	EvidencePackRate           float64 `json:"evidence_pack_rate"`
+	GovernanceCoveragePct      float64 `json:"governance_coverage_pct"`
+	ReplayabilityPct           float64 `json:"replayability_pct"`
+	DefensibilityScore         float64 `json:"defensibility_score"`
+	DefensibilityTier          string  `json:"defensibility_tier"`
+	AuditReadyPct              float64 `json:"audit_ready_pct"`
+	DisputeReadyPct            float64 `json:"dispute_ready_pct"`
+	AvgPackCompletenessScore   float64 `json:"avg_pack_completeness_score"`
+	SettlementEvidenceCoverage float64 `json:"settlement_evidence_coverage"`
+	AttachmentEvidenceCoverage float64 `json:"attachment_evidence_coverage"`
+	WeakEvidenceCount          int     `json:"weak_evidence_count"`
+	WeakEvidenceRate           float64 `json:"weak_evidence_rate"`
 }
 
 // DashboardDefensibilityResponse is the frontend-ready payload for the defensibility dashboard card.
@@ -71,6 +76,16 @@ type DashboardDefensibilityResponse struct {
 	DefensibilityTier  string  `json:"defensibility_tier,omitempty"`
 	AuditReadyPct      float64 `json:"audit_ready_pct"`
 	DisputeReadyPct    float64 `json:"dispute_ready_pct"`
+
+	// D2 — avg_pack_completeness_score: average completeness fraction (0–1) across evidence packs
+	AvgPackCompletenessScore float64 `json:"avg_pack_completeness_score"`
+	// D4 — settlement_evidence_coverage: fraction of packs with settlement leaf present
+	SettlementEvidenceCoverage float64 `json:"settlement_evidence_coverage"`
+	// D5 — attachment_evidence_coverage: fraction of packs with attachment decision leaf present
+	AttachmentEvidenceCoverage float64 `json:"attachment_evidence_coverage"`
+	// D7 — weak_evidence_rate: fraction of intents flagged with evidence gap
+	WeakEvidenceCount int     `json:"weak_evidence_count"`
+	WeakEvidenceRate  float64 `json:"weak_evidence_rate"`
 }
 
 // GetDefensibilityKPIs handles GET /v1/intelligence/dashboard/defensibility
@@ -120,6 +135,11 @@ func (h *DashboardDefensibilityHandler) GetDefensibilityKPIs(w http.ResponseWrit
 	resp.DefensibilityTier = kpis.DefensibilityTier
 	resp.AuditReadyPct = kpis.AuditReadyPct
 	resp.DisputeReadyPct = kpis.DisputeReadyPct
+	resp.AvgPackCompletenessScore = kpis.AvgPackCompletenessScore
+	resp.SettlementEvidenceCoverage = kpis.SettlementEvidenceCoverage
+	resp.AttachmentEvidenceCoverage = kpis.AttachmentEvidenceCoverage
+	resp.WeakEvidenceCount = kpis.WeakEvidenceCount
+	resp.WeakEvidenceRate = kpis.WeakEvidenceRate
 
 	writeJSON(w, http.StatusOK, resp)
 }

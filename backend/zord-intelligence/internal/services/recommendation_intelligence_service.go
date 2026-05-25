@@ -81,6 +81,14 @@ type RecommendationSnapshot struct {
 	// Total amount at stake across all CRITICAL + HIGH recommendations
 	TotalAmountAtStakeMinor decimal.Decimal `json:"total_amount_at_stake_minor"`
 
+	// Rec1: recommendation_priority_score — highest priority_score across all cards
+	// Summarises the urgency of the most critical outstanding recommendation (0.0–1.0).
+	RecommendationPriorityScore float64 `json:"recommendation_priority_score"`
+
+	// Rec2: recommendation_impact_estimate — total financial exposure of CRITICAL+HIGH cards
+	// Gives the finance team a single headline figure for all high-priority open actions.
+	RecommendationImpactEstimateMinor decimal.Decimal `json:"recommendation_impact_estimate_minor"`
+
 	// Source snapshot IDs used to build this recommendation set
 	SourceSnapshotIDs []string `json:"source_snapshot_ids"`
 
@@ -231,13 +239,19 @@ func (s *RecommendationIntelligenceService) ComputeAndSave(
 		case "CRITICAL":
 			snap.CriticalCount++
 			snap.TotalAmountAtStakeMinor = snap.TotalAmountAtStakeMinor.Add(c.AmountAtStakeMinor)
+			snap.RecommendationImpactEstimateMinor = snap.RecommendationImpactEstimateMinor.Add(c.AmountAtStakeMinor)
 		case "HIGH":
 			snap.HighCount++
 			snap.TotalAmountAtStakeMinor = snap.TotalAmountAtStakeMinor.Add(c.AmountAtStakeMinor)
+			snap.RecommendationImpactEstimateMinor = snap.RecommendationImpactEstimateMinor.Add(c.AmountAtStakeMinor)
 		case "MEDIUM":
 			snap.MediumCount++
 		case "LOW":
 			snap.LowCount++
+		}
+		// Rec1: track the highest priority_score across all cards
+		if c.PriorityScore > snap.RecommendationPriorityScore {
+			snap.RecommendationPriorityScore = c.PriorityScore
 		}
 	}
 
@@ -340,11 +354,20 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 
 // cardFromRCA extracts a recommendation card from an RCA_CLUSTER (HDBSCAN) snapshot.
 // Uses the highest-severity cluster as the primary card signal.
+// Handles both the old flat format (mlclient.RCAClusterResult) and the new enriched
+// TENANT format that wraps the cluster result under the "cluster_result" key.
 func (s *RecommendationIntelligenceService) cardFromRCA(
 	snap *persistence.IntelligenceSnapshot,
 ) *RecommendationCard {
 	var result mlclient.RCAClusterResult
-	if err := json.Unmarshal(snap.SnapshotJSON, &result); err != nil {
+
+	// Try enriched TENANT format first (new: cluster_result key)
+	var enriched struct {
+		ClusterResult mlclient.RCAClusterResult `json:"cluster_result"`
+	}
+	if err := json.Unmarshal(snap.SnapshotJSON, &enriched); err == nil && len(enriched.ClusterResult.TopClusters) > 0 {
+		result = enriched.ClusterResult
+	} else if err := json.Unmarshal(snap.SnapshotJSON, &result); err != nil {
 		return nil
 	}
 

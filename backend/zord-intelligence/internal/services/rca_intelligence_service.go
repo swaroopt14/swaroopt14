@@ -366,14 +366,96 @@ func (s *RCAIntelligenceService) ComputeAndSaveGradeA(
 		log.Printf("rca_svc.ComputeAndSaveGradeA save BATCH snapshot batch=%s: %v", batchID, err)
 	}
 
-	// Step 5b: persist TENANT rollup snapshot
-	if err := s.saveSnapshot(ctx, tenantID, batchID, "TENANT", nil, windowStart, windowEnd, result); err != nil {
+	// ── R8: RCA concentration (Herfindahl index over cluster sizes) ────────
+	rcaConcentration := computeHerfindahl(result.TopClusters, result.TotalPoints)
+	if err := s.projRepo.AtomicUpdateRCAConcentration(
+		ctx, tenantID, rcaConcentration, windowStart, windowEnd,
+	); err != nil {
+		log.Printf("rca_svc.ComputeAndSaveGradeA: AtomicUpdateRCAConcentration batch=%s: %v",
+			batchID, err)
+	}
+
+	// ── R4/R5/R6: Read accumulated quality metrics for TENANT snapshot ─────
+	rcaSummary, summaryErr := s.projRepo.GetRCASummary(ctx, tenantID)
+	if summaryErr != nil {
+		log.Printf("rca_svc.ComputeAndSaveGradeA: GetRCASummary tenant=%s: %v", tenantID, summaryErr)
+	}
+
+	// Step 5b: persist TENANT rollup snapshot (enriched with R4/R5/R6/R8)
+	if err := s.saveTenantSnapshot(
+		ctx, tenantID, batchID, windowStart, windowEnd, result, rcaConcentration, rcaSummary,
+	); err != nil {
 		log.Printf("rca_svc.ComputeAndSaveGradeA save TENANT snapshot batch=%s: %v", batchID, err)
 	}
 
-	log.Printf("rca_svc.ComputeAndSaveGradeA: ok batch=%s candidates=%d clusters=%d noise=%d tenant=%s",
-		batchID, result.TotalPoints, result.ClusterCount, result.NoisePoints, tenantID)
+	log.Printf("rca_svc.ComputeAndSaveGradeA: ok batch=%s candidates=%d clusters=%d noise=%d concentration=%.3f tenant=%s",
+		batchID, result.TotalPoints, result.ClusterCount, result.NoisePoints, rcaConcentration, tenantID)
 	return nil
+}
+
+// computeHerfindahl computes the Herfindahl-Hirschman Index (HHI) over cluster sizes.
+// Result is 0–1: 1.0 = one cluster dominates all failures, 0 = perfectly uniform spread.
+// This is R8: rca_concentration.
+func computeHerfindahl(clusters []mlclient.RCAClusterSummary, total int) float64 {
+	if total == 0 || len(clusters) == 0 {
+		return 0
+	}
+	hhi := 0.0
+	for _, c := range clusters {
+		share := float64(c.Size) / float64(total)
+		hhi += share * share
+	}
+	if hhi > 1.0 {
+		hhi = 1.0
+	}
+	return hhi
+}
+
+// saveTenantSnapshot persists the TENANT-scoped RCA snapshot enriched with
+// R4/R5/R6/R8 quality metrics from the rca.summary projection.
+func (s *RCAIntelligenceService) saveTenantSnapshot(
+	ctx context.Context,
+	tenantID, batchID string,
+	windowStart, windowEnd time.Time,
+	result mlclient.RCAClusterResult,
+	rcaConcentration float64,
+	summary *models.RCASummaryValue,
+) error {
+	tenantSnap := map[string]interface{}{
+		"cluster_result":    result,
+		"rca_concentration": rcaConcentration,
+		"computed_at":       time.Now().UTC(),
+	}
+	if summary != nil {
+		tenantSnap["parser_weakness_rate"] = summary.ParserWeaknessRate
+		tenantSnap["mapping_weakness_rate"] = summary.MappingWeaknessRate
+		tenantSnap["source_system_defect_rate"] = summary.SourceSystemDefectRate
+		tenantSnap["source_system_defects"] = summary.SourceSystemDefects
+		tenantSnap["weak_parse_count"] = summary.WeakParseCount
+		tenantSnap["weak_mapping_count"] = summary.WeakMappingCount
+		tenantSnap["total_settlements"] = summary.TotalSettlements
+	}
+	snapJSON, err := json.Marshal(tenantSnap)
+	if err != nil {
+		return fmt.Errorf("marshal tenant snapshot: %w", err)
+	}
+	projRefs := []string{rcaFragPrefix(batchID), "rca.summary"}
+	projRefsJSON, _ := json.Marshal(projRefs)
+	modelVer := "rca_hdbscan_v1"
+	snapID := "snap_rca_" + uuid.New().String()
+	return s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
+		SnapshotID:         snapID,
+		TenantID:           tenantID,
+		SnapshotType:       "RCA_CLUSTER",
+		ScopeType:          "TENANT",
+		ScopeRef:           nil,
+		WindowStart:        windowStart,
+		WindowEnd:          windowEnd,
+		ProjectionRefsJSON: projRefsJSON,
+		SnapshotJSON:       snapJSON,
+		ModelVersion:       &modelVer,
+		CreatedAt:          time.Now().UTC(),
+	})
 }
 
 func (s *RCAIntelligenceService) saveSnapshot(

@@ -44,19 +44,33 @@ func NewDashboardPatternHandler(
 	return &DashboardPatternHandler{snapshotRepo: snapshotRepo, projRepo: projRepo}
 }
 
-// patternKPIFields reads only the KPI 14 fields from PatternSnapshot JSON.
+// patternKPIFields reads KPI fields from BATCH-scoped PatternSnapshot JSON.
 type patternKPIFields struct {
-	BatchID           string  `json:"batch_id"`
-	BatchAnomalyScore float64 `json:"batch_anomaly_score"`
-	AnomalyLevel      string  `json:"anomaly_level"`
-	AnomalyType       string  `json:"anomaly_type"`
-	BatchRiskScore    float64 `json:"batch_risk_score"`
-	RiskTier          string  `json:"risk_tier"`
-	FinalityStatus    string  `json:"finality_status"`
-	TotalCount        int     `json:"total_count"`
-	SuccessCount      int     `json:"success_count"`
-	FailedCount       int     `json:"failed_count"`
-	PendingCount      int     `json:"pending_count"`
+	BatchID            string  `json:"batch_id"`
+	BatchAnomalyScore  float64 `json:"batch_anomaly_score"`
+	AnomalyLevel       string  `json:"anomaly_level"`
+	AnomalyType        string  `json:"anomaly_type"`
+	BatchRiskScore     float64 `json:"batch_risk_score"`
+	RiskTier           string  `json:"risk_tier"`
+	FinalityStatus     string  `json:"finality_status"`
+	TotalCount         int     `json:"total_count"`
+	SuccessCount       int     `json:"success_count"`
+	FailedCount        int     `json:"failed_count"`
+	PendingCount       int     `json:"pending_count"`
+	BatchQualityScore  float64 `json:"batch_quality_score"`
+	ExactMatchCount    int     `json:"exact_match_count"`
+	HighConfidenceCount int    `json:"high_confidence_count"`
+	AmbiguousCount     int     `json:"ambiguous_count"`
+	UnresolvedCount    int     `json:"unresolved_count"`
+	ConflictedCount    int     `json:"conflicted_count"`
+}
+
+// tenantPatternKPIFields reads P2/P3/P6 fields from TENANT-scoped PatternSnapshot JSON.
+type tenantPatternKPIFields struct {
+	DuplicateRiskRate            float64 `json:"duplicate_risk_rate"`
+	DuplicateRiskCount           int     `json:"duplicate_risk_count"`
+	SameBeneficiaryAmountDensity float64 `json:"same_beneficiary_amount_density"`
+	SettlementDelayP95Days       float64 `json:"settlement_delay_p95_days"`
 }
 
 // DashboardPatternResponse is the frontend-ready payload for the pattern dashboard card.
@@ -79,6 +93,24 @@ type DashboardPatternResponse struct {
 	// denominator: total_decisions - unresolved_settlement_count from ambiguity projection
 	ValueDateMismatchCount int     `json:"value_date_mismatch_count"`
 	ValueDateMismatchRate  float64 `json:"value_date_mismatch_rate"`
+
+	// P1 — batch_quality_score: composite quality score derived from batch health breakdown
+	BatchQualityScore   float64 `json:"batch_quality_score"`
+	ExactMatchCount     int     `json:"exact_match_count"`
+	HighConfidenceCount int     `json:"high_confidence_count"`
+	AmbiguousCount      int     `json:"ambiguous_count"`
+	UnresolvedCount     int     `json:"unresolved_count"`
+	ConflictedCount     int     `json:"conflicted_count"`
+
+	// P2 — duplicate_risk_rate: fraction of intents with duplicate risk flag
+	DuplicateRiskRate  float64 `json:"duplicate_risk_rate"`
+	DuplicateRiskCount int     `json:"duplicate_risk_count"`
+
+	// P3 — same_beneficiary_amount_density: max density of same beneficiary+amount pairs in a batch
+	SameBeneficiaryAmountDensity float64 `json:"same_beneficiary_amount_density"`
+
+	// P6 — settlement_delay_p95_days: 95th-percentile settlement delay in days
+	SettlementDelayP95Days float64 `json:"settlement_delay_p95_days"`
 
 	// Supplementary pattern fields for frontend context
 	AnomalyType    string  `json:"anomaly_type,omitempty"`
@@ -175,6 +207,29 @@ func (h *DashboardPatternHandler) GetPatternKPIs(w http.ResponseWriter, r *http.
 	resp.SuccessCount = kpis.SuccessCount
 	resp.FailedCount = kpis.FailedCount
 	resp.PendingCount = kpis.PendingCount
+	// P1: batch quality fields from the same BATCH snapshot
+	resp.BatchQualityScore = kpis.BatchQualityScore
+	resp.ExactMatchCount = kpis.ExactMatchCount
+	resp.HighConfidenceCount = kpis.HighConfidenceCount
+	resp.AmbiguousCount = kpis.AmbiguousCount
+	resp.UnresolvedCount = kpis.UnresolvedCount
+	resp.ConflictedCount = kpis.ConflictedCount
+
+	// ── P2/P3/P6: fetch TENANT-scoped PATTERN snapshot ───────────────────────
+	// These rolling KPIs are written to a separate TENANT-scoped snapshot by
+	// computeAndSaveTenantPatternKPIs (triggered on every BatchSummaryUpdated).
+	tenantPatSnap, _ := h.snapshotRepo.GetLatestByTypeFiltered(
+		r.Context(), tenantID, "PATTERN", "TENANT", nil, from, to,
+	)
+	if tenantPatSnap != nil {
+		var tKPIs tenantPatternKPIFields
+		if jsonErr := json.Unmarshal(tenantPatSnap.SnapshotJSON, &tKPIs); jsonErr == nil {
+			resp.DuplicateRiskRate = tKPIs.DuplicateRiskRate
+			resp.DuplicateRiskCount = tKPIs.DuplicateRiskCount
+			resp.SameBeneficiaryAmountDensity = tKPIs.SameBeneficiaryAmountDensity
+			resp.SettlementDelayP95Days = tKPIs.SettlementDelayP95Days
+		}
+	}
 
 	writeJSON(w, http.StatusOK, resp)
 }

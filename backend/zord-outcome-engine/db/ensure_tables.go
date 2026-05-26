@@ -337,6 +337,7 @@ CREATE TABLE IF NOT EXISTS settlement_parse_errors(
 	mapping_profile_id TEXT NOT NULL,
 	mapping_profile_version TEXT NOT NULL,
 	parser_version TEXT NOT NULL DEFAULT '',
+	client_batch_id TEXT,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );`,
 		`CREATE INDEX IF NOT EXISTS settlement_parse_errors_run_idx ON settlement_parse_errors(ingest_run_id);`,

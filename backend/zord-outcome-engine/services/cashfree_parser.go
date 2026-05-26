@@ -93,6 +93,28 @@ func (p *CashfreeParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 		}
 		rowIndex++
 
+		// ── Duplicate header detection ────────────────────────────────────
+		if len(row) > 0 && strings.ToLower(strings.TrimSpace(row[0])) == cashfreeHeaders[0] {
+			results = append(results, ParsedRowResult{
+				RowIndex:      rowIndex,
+				Failed:        true,
+				FailureReason: "SYS_DUPLICATE_HEADER_ROW",
+			})
+			continue
+		}
+
+		// ── Footer/summary row detection ─────────────────────────────────
+		firstCell := strings.ToLower(strings.TrimSpace(cellStr(row, 0)))
+		if firstCell == "total" || firstCell == "grand total" ||
+			firstCell == "subtotal" || firstCell == "summary" {
+			results = append(results, ParsedRowResult{
+				RowIndex:      rowIndex,
+				Failed:        true,
+				FailureReason: "SYS_FOOTER_ROW_DETECTED",
+			})
+			continue
+		}
+
 		isEmpty := true
 		for _, col := range row {
 			if strings.TrimSpace(col) != "" {
@@ -149,30 +171,10 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 	extRef := cellStr(row, cfColOrderID)
 	batchRef := cellStr(row, cfColSettlementID)
 
-	// ── Technical Confidence Scoring ──────────────────────────────────────────
-	// Measure physical parser reliability instead of business identifier richness.
-	confidenceInputs := ParseConfidenceInputs{
-		FileFormatValid:        true, // If we're here, CSV was readable
-		RowDecodedSuccessfully: true,
-		ColumnCountConsistent:  len(row) >= len(cashfreeHeaders),
-		HeaderDetected:         true,
-		EncodingValid:          true,
-		RawLineHashCreated:     true,
-		TimestampFallbackUsed:  tsWarning != "",
-		AmountFallbackUsed:     orderAmount.IsZero() && cellStr(row, cfColOrderAmount) != "0" && cellStr(row, cfColOrderAmount) != "0.00",
-	}
-	confidence, parseReasons := ComputeParseConfidence(confidenceInputs)
-
-	if bankRef == "" {
-		warnings = append(warnings, "missing bank_reference (merchant_settlement_utr)")
-	}
-	if providerRef == "" {
-		warnings = append(warnings, "missing provider_reference (cf_payment_id)")
-	}
-
 	txType := strings.ToUpper(strings.TrimSpace(cellStr(row, cfColTxType)))
 	observationKind := "OUTCOME_EXPORT"
 	statusCandidate := ""
+	statusAmbiguous := false
 
 	switch txType {
 	case "SETTLEMENT":
@@ -187,6 +189,44 @@ func parseCashfreeRow(row []string, rowIndex int, sourceFileRef string, envelope
 		// Add new cases above as Cashfree introduces new transaction_type values.
 		observationKind = "OUTCOME_EXPORT"
 		statusCandidate = "UNKNOWN"
+		statusAmbiguous = true
+		if txType != "" {
+			warnings = append(warnings, "status_ambiguous: unrecognised transaction_type="+txType)
+		} else {
+			warnings = append(warnings, "status_ambiguous: transaction_type is empty")
+		}
+	}
+
+	partialRowParse := len(row) < len(cashfreeHeaders)
+	if partialRowParse {
+		warnings = append(warnings, fmt.Sprintf(
+			"partial_row: got %d columns, expected %d — trailing fields may be missing",
+			len(row), len(cashfreeHeaders),
+		))
+	}
+
+	// ── Technical Confidence Scoring ──────────────────────────────────────────
+	// Measure physical parser reliability instead of business identifier richness.
+	confidenceInputs := ParseConfidenceInputs{
+		FileFormatValid:        true, // If we're here, CSV was readable
+		RowDecodedSuccessfully: true,
+		ColumnCountConsistent:  !partialRowParse,
+		HeaderDetected:         true,
+		EncodingValid:          true,
+		RawLineHashCreated:     true,
+		TimestampFallbackUsed:  tsWarning != "",
+		AmountFallbackUsed:     orderAmount.IsZero() && cellStr(row, cfColOrderAmount) != "0" && cellStr(row, cfColOrderAmount) != "0.00",
+		StatusAmbiguous:        statusAmbiguous,
+		PartialRowParse:        partialRowParse,
+		DuplicateHeaderOrFooterDetected: false, // Handled at loop level
+	}
+	confidence, parseReasons := ComputeParseConfidence(confidenceInputs)
+
+	if bankRef == "" {
+		warnings = append(warnings, "missing bank_reference (merchant_settlement_utr)")
+	}
+	if providerRef == "" {
+		warnings = append(warnings, "missing provider_reference (cf_payment_id)")
 	}
 
 	shape := models.UniversalSettlementShape{

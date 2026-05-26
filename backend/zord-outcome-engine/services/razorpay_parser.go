@@ -60,6 +60,28 @@ func (p *RazorpayParser) Parse(fileBytes []byte, sourceFileRef string, envelopeI
 	for i, row := range rows[1:] {
 		rowIndex := i + 1
 
+		// ── Duplicate header detection ────────────────────────────────────
+		if len(row) > 0 && strings.ToLower(strings.TrimSpace(row[0])) == razorpayHeaders[0] {
+			results = append(results, ParsedRowResult{
+				RowIndex:      rowIndex,
+				Failed:        true,
+				FailureReason: "SYS_DUPLICATE_HEADER_ROW",
+			})
+			continue
+		}
+
+		// ── Footer/summary row detection ─────────────────────────────────
+		firstCell := strings.ToLower(strings.TrimSpace(cellStr(row, 0)))
+		if firstCell == "total" || firstCell == "grand total" ||
+			firstCell == "subtotal" || firstCell == "summary" {
+			results = append(results, ParsedRowResult{
+				RowIndex:      rowIndex,
+				Failed:        true,
+				FailureReason: "SYS_FOOTER_ROW_DETECTED",
+			})
+			continue
+		}
+
 		isEmpty := true
 		for _, col := range row {
 			if strings.TrimSpace(col) != "" {
@@ -130,17 +152,59 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	clientRefCand := cellStr(row, 18) // order_receipt
 	batchRef := cellStr(row, 23)      // settlement_id
 
+	// Determine Observation Kind based on Razorpay's entity type.
+	txEntity := strings.ToLower(strings.TrimSpace(cellStr(row, 0)))
+	observationKind := "OUTCOME_EXPORT"
+	statusAmbiguous := false
+
+	switch txEntity {
+	case "payout":
+		observationKind = "SETTLEMENT"
+	case "refund":
+		observationKind = "REVERSAL"
+	default:
+		// transaction_entity has an unrecognised value — status cannot be
+		// determined with confidence. Mark ambiguous so parse_confidence is penalised.
+		statusAmbiguous = true
+		if txEntity != "" {
+			warnings = append(warnings, "status_ambiguous: unrecognised transaction_entity="+txEntity)
+		} else {
+			warnings = append(warnings, "status_ambiguous: transaction_entity is empty")
+		}
+	}
+
+	// Determine Status based on entity type.
+	statusCandidate := "SETTLED"
+	if txEntity == "refund" {
+		statusCandidate = "REVERSED"
+	}
+
+	// A partial row means the xlsx library returned fewer cells than the header
+	// has columns — trailing empty cells were stripped. Fields beyond len(row)
+	// will silently return "" from cellStr(), making them indistinguishable from
+	// genuinely empty values. Penalise parse confidence for this.
+	partialRowParse := len(row) < len(razorpayHeaders)
+	if partialRowParse {
+		warnings = append(warnings, fmt.Sprintf(
+			"partial_row: got %d columns, expected %d — trailing fields may be missing",
+			len(row), len(razorpayHeaders),
+		))
+	}
+
 	// ── Technical Confidence Scoring ──────────────────────────────────────────
 	// Measure physical parser reliability instead of business identifier richness.
 	confidenceInputs := ParseConfidenceInputs{
-		FileFormatValid:        true, // If we're here, XLSX structure was readable
-		RowDecodedSuccessfully: true,
-		ColumnCountConsistent:  len(row) >= len(razorpayHeaders),
-		HeaderDetected:         true,
-		EncodingValid:          true,
-		RawLineHashCreated:     true,
-		TimestampFallbackUsed:  tsWarning != "",
-		AmountFallbackUsed:     amount.IsZero() && cellStr(row, 2) != "0" && cellStr(row, 2) != "0.00",
+		FileFormatValid:                 true, // If we're here, XLSX structure was readable
+		RowDecodedSuccessfully:          true,
+		ColumnCountConsistent:           !partialRowParse,
+		HeaderDetected:                  true,
+		EncodingValid:                   true,
+		RawLineHashCreated:              true,
+		TimestampFallbackUsed:           tsWarning != "",
+		AmountFallbackUsed:              amount.IsZero() && cellStr(row, 2) != "0" && cellStr(row, 2) != "0.00",
+		StatusAmbiguous:                 statusAmbiguous,
+		PartialRowParse:                 partialRowParse,
+		DuplicateHeaderOrFooterDetected: false, // Handled at loop level
 	}
 	confidence, parseReasons := ComputeParseConfidence(confidenceInputs)
 
@@ -149,22 +213,6 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	}
 	if providerRef == "" {
 		warnings = append(warnings, "missing provider_reference (entity_id)")
-	}
-
-	// Determine Observation Kind based on Razorpay's entity type.
-	txEntity := strings.ToLower(strings.TrimSpace(cellStr(row, 0)))
-	observationKind := "OUTCOME_EXPORT"
-	switch txEntity {
-	case "payment":
-		observationKind = "SETTLEMENT"
-	case "refund":
-		observationKind = "REVERSAL"
-	}
-
-	// Determine Status based on entity type.
-	statusCandidate := "SETTLED"
-	if txEntity == "refund" {
-		statusCandidate = "REVERSED"
 	}
 
 	// Construct the Universal Shape.
@@ -195,20 +243,20 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		RawEnvelopeRef:           envelopeID,
 		CarrierCandidates:        map[string]interface{}{},
 		MappingInputs: models.MappingConfidenceInputs{
-			AmountExisted:     true,
-			AmountMapped:      !amount.IsZero() || cellStr(row, 2) == "0" || cellStr(row, 2) == "0.00",
-			CurrencyExisted:   true,
-			CurrencyMapped:    cellStr(row, 3) != "",
-			StatusExisted:     true,
-			StatusMapped:      statusCandidate != "",
-			TimestampExisted:  true,
-			TimestampMapped:   tsWarning == "",
+			AmountExisted:      true,
+			AmountMapped:       !amount.IsZero() || cellStr(row, 2) == "0" || cellStr(row, 2) == "0.00",
+			CurrencyExisted:    true,
+			CurrencyMapped:     cellStr(row, 3) != "",
+			StatusExisted:      true,
+			StatusMapped:       statusCandidate != "",
+			TimestampExisted:   true,
+			TimestampMapped:    tsWarning == "",
 			ProviderRefExisted: true,
-			ProviderRefMapped: providerRef != "",
+			ProviderRefMapped:  providerRef != "",
 			BankRefExisted:     true,
-			BankRefMapped:     bankRef != "",
+			BankRefMapped:      bankRef != "",
 			ClientRefExisted:   true,
-			ClientRefMapped:   clientRefCand != "",
+			ClientRefMapped:    clientRefCand != "",
 		},
 	}
 
@@ -226,4 +274,3 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		Confidence: confidence,
 	}
 }
-

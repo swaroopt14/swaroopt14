@@ -17,9 +17,9 @@ var synonymDict = map[string]string{
 	"txnamount":       "amount.value",
 	"net_amount":      "amount.value",
 	// Tally export variants
-	"amt":             "amount.value",
-	"debit amount":    "amount.value",
-	"credit amount":   "amount.value",
+	"amt":           "amount.value",
+	"debit amount":  "amount.value",
+	"credit amount": "amount.value",
 
 	// ── Currency ──────────────────────────────────────────────────
 	"currency":        "amount.currency",
@@ -37,12 +37,14 @@ var synonymDict = map[string]string{
 	"account name":     "beneficiary.name",
 	"name":             "beneficiary.name",
 	// Tally export variants
-	"ledger name":      "beneficiary.name",
-	"ledger_name":      "beneficiary.name",
+	"ledger name": "beneficiary.name",
+	"ledger_name": "beneficiary.name",
 
 	// ── Instrument kind ───────────────────────────────────────────
 	"instrument_kind": "beneficiary.instrument.kind",
 	"payment_mode":    "beneficiary.instrument.kind",
+	"payment_method":  "beneficiary.instrument.kind",
+	"rail_hint":       "beneficiary.instrument.kind",
 	"transfer_mode":   "beneficiary.instrument.kind",
 	"mode":            "beneficiary.instrument.kind",
 
@@ -98,7 +100,7 @@ var synonymDict = map[string]string{
 	"transfer_date":          "intended_execution_at",
 	"scheduled_execution_at": "intended_execution_at",
 	// Tally export variants
-	"date":                   "intended_execution_at",
+	"date": "intended_execution_at",
 
 	// ── Account number ────────────────────────────────────────────
 	"account_number":             "account_number",
@@ -159,10 +161,10 @@ var synonymDict = map[string]string{
 	"invoice_id":     "invoice_id",
 	"voucher_id":     "voucher_id",
 	// Tally export variants
-	"vch no":         "voucher_id",
-	"vch no.": 	  "voucher_id",
-	"voucher no":     "voucher_id",
-	"voucher type":   "purpose_code",
+	"vch no":       "voucher_id",
+	"vch no.":      "voucher_id",
+	"voucher no":   "voucher_id",
+	"voucher type": "purpose_code",
 
 	// ── KYC / Compliance ──────────────────────────────────────────
 	"vendor_type":      "vendor_type",
@@ -186,4 +188,5 @@ var synonymDict = map[string]string{
 	"constraints.execution_window": "constraints.execution_window",
 	"approval_ref":                 "approval_ref",
 	"bank_account_ref":             "bank_account_ref",
+	"source_row_ref":               "source_row_ref",
 }

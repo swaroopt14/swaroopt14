@@ -36,6 +36,9 @@ func (p *GenericSourceParser) ParseToCanonicalJSON(
 	}
 
 	canonical := make(map[string]any)
+	if sourceRowRef, ok := raw["source_row_ref"]; ok {
+		canonical["source_row_ref"] = sourceRowRef
+	}
 
 	// For each entry in profile.ColumnMap: universalField → tenantColumnName
 	// Read the value from lowerRaw using tenantColumnName (lowercased)

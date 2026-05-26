@@ -1,4 +1,4 @@
-package handlers_test
+﻿package handlers_test
 
 // dashboard_e2e_test.go
 //
@@ -170,7 +170,7 @@ func TestDashboard_Leakage_HappyPath(t *testing.T) {
 		"risk_tier":                     "HIGH"
 	}`))
 
-	h := handlers.NewDashboardLeakageHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardLeakageHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/leakage?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -207,7 +207,7 @@ func TestDashboard_Leakage_NoData(t *testing.T) {
 	pool := setupE2EDB(t)
 	tenantID := uniqueTenant("tnt_leak_empty")
 
-	h := handlers.NewDashboardLeakageHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardLeakageHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/leakage?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -228,7 +228,7 @@ func TestDashboard_Leakage_NoData(t *testing.T) {
 func TestDashboard_Leakage_MissingTenantID(t *testing.T) {
 	pool := setupE2EDB(t)
 
-	h := handlers.NewDashboardLeakageHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardLeakageHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet, "/v1/intelligence/dashboard/leakage", nil)
 	rr := httptest.NewRecorder()
 	h.GetLeakageKPIs(rr, req)
@@ -257,7 +257,7 @@ func TestDashboard_Leakage_DateRangeFilter(t *testing.T) {
 	seedSnapshotAt(t, pool, "snap_e2e_leak_new", tenantID, "LEAKAGE", "TENANT", nil,
 		[]byte(`{"leakage_percentage":0.02,"risk_tier":"LOW"}`), recent)
 
-	h := handlers.NewDashboardLeakageHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardLeakageHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	// from_date set to yesterday — old snapshot is excluded, recent is within range.
 	yesterday := time.Now().UTC().AddDate(0, 0, -1).Format("2006-01-02")
 	req := httptest.NewRequest(http.MethodGet,
@@ -292,7 +292,7 @@ func TestDashboard_Ambiguity_HappyPath(t *testing.T) {
 		"risk_tier":                 "MEDIUM"
 	}`))
 
-	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/ambiguity?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -324,7 +324,7 @@ func TestDashboard_Ambiguity_NoData(t *testing.T) {
 	pool := setupE2EDB(t)
 	tenantID := uniqueTenant("tnt_ambig_empty")
 
-	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/ambiguity?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -342,7 +342,7 @@ func TestDashboard_Ambiguity_NoData(t *testing.T) {
 func TestDashboard_Ambiguity_MissingTenantID(t *testing.T) {
 	pool := setupE2EDB(t)
 
-	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet, "/v1/intelligence/dashboard/ambiguity", nil)
 	rr := httptest.NewRecorder()
 	h.GetAmbiguityKPIs(rr, req)
@@ -368,7 +368,7 @@ func TestDashboard_Defensibility_HappyPath(t *testing.T) {
 		"dispute_ready_pct":       0.89
 	}`))
 
-	h := handlers.NewDashboardDefensibilityHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardDefensibilityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/defensibility?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -400,7 +400,7 @@ func TestDashboard_Defensibility_NoData(t *testing.T) {
 	pool := setupE2EDB(t)
 	tenantID := uniqueTenant("tnt_def_empty")
 
-	h := handlers.NewDashboardDefensibilityHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardDefensibilityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/defensibility?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -418,7 +418,7 @@ func TestDashboard_Defensibility_NoData(t *testing.T) {
 func TestDashboard_Defensibility_MissingTenantID(t *testing.T) {
 	pool := setupE2EDB(t)
 
-	h := handlers.NewDashboardDefensibilityHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardDefensibilityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet, "/v1/intelligence/dashboard/defensibility", nil)
 	rr := httptest.NewRecorder()
 	h.GetDefensibilityKPIs(rr, req)
@@ -449,7 +449,7 @@ func TestDashboard_Pattern_HappyPath_NoBatchID(t *testing.T) {
 		"pending_count":       7
 	}`))
 
-	h := handlers.NewDashboardPatternHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardPatternHandler(persistence.NewIntelligenceSnapshotRepo(pool), nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/patterns?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -488,7 +488,7 @@ func TestDashboard_Pattern_HappyPath_WithBatchID(t *testing.T) {
 		"batch_id":"batch_e2e_B","batch_anomaly_score":0.85,"anomaly_level":"HIGH"
 	}`))
 
-	h := handlers.NewDashboardPatternHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardPatternHandler(persistence.NewIntelligenceSnapshotRepo(pool), nil, "GRADE_A")
 
 	// Request scoped to batch A — should not return batch B.
 	req := httptest.NewRequest(http.MethodGet,
@@ -509,7 +509,7 @@ func TestDashboard_Pattern_NoData(t *testing.T) {
 	pool := setupE2EDB(t)
 	tenantID := uniqueTenant("tnt_pat_empty")
 
-	h := handlers.NewDashboardPatternHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardPatternHandler(persistence.NewIntelligenceSnapshotRepo(pool), nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/patterns?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -527,7 +527,7 @@ func TestDashboard_Pattern_NoData(t *testing.T) {
 func TestDashboard_Pattern_MissingTenantID(t *testing.T) {
 	pool := setupE2EDB(t)
 
-	h := handlers.NewDashboardPatternHandler(persistence.NewIntelligenceSnapshotRepo(pool))
+	h := handlers.NewDashboardPatternHandler(persistence.NewIntelligenceSnapshotRepo(pool), nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet, "/v1/intelligence/dashboard/patterns", nil)
 	rr := httptest.NewRecorder()
 	h.GetPatternKPIs(rr, req)
@@ -559,7 +559,7 @@ func TestDashboard_Recommendation_HappyPath(t *testing.T) {
 	seedAction(t, pool, fmt.Sprintf("act_rec_dism1_%d", ns), tenantID, "DISMISSED")
 	seedAction(t, pool, fmt.Sprintf("act_rec_expr1_%d", ns), tenantID, "EXPIRED") // excluded
 
-	h := handlers.NewDashboardRecommendationHandler(persistence.NewActionContractRepo(pool))
+	h := handlers.NewDashboardRecommendationHandler(persistence.NewActionContractRepo(pool), nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/recommendations?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -598,7 +598,7 @@ func TestDashboard_Recommendation_NoData(t *testing.T) {
 	pool := setupE2EDB(t)
 	tenantID := uniqueTenant("tnt_rec_empty")
 
-	h := handlers.NewDashboardRecommendationHandler(persistence.NewActionContractRepo(pool))
+	h := handlers.NewDashboardRecommendationHandler(persistence.NewActionContractRepo(pool), nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/recommendations?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -625,7 +625,7 @@ func TestDashboard_Recommendation_OnlyExpired(t *testing.T) {
 	seedAction(t, pool, fmt.Sprintf("act_rec_xp1_%d", ns), tenantID, "EXPIRED")
 	seedAction(t, pool, fmt.Sprintf("act_rec_xp2_%d", ns), tenantID, "EXPIRED")
 
-	h := handlers.NewDashboardRecommendationHandler(persistence.NewActionContractRepo(pool))
+	h := handlers.NewDashboardRecommendationHandler(persistence.NewActionContractRepo(pool), nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/recommendations?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -643,7 +643,7 @@ func TestDashboard_Recommendation_OnlyExpired(t *testing.T) {
 func TestDashboard_Recommendation_MissingTenantID(t *testing.T) {
 	pool := setupE2EDB(t)
 
-	h := handlers.NewDashboardRecommendationHandler(persistence.NewActionContractRepo(pool))
+	h := handlers.NewDashboardRecommendationHandler(persistence.NewActionContractRepo(pool), nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet, "/v1/intelligence/dashboard/recommendations", nil)
 	rr := httptest.NewRecorder()
 	h.GetRecommendationKPIs(rr, req)

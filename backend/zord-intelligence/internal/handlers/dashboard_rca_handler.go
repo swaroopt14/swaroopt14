@@ -31,12 +31,13 @@ import (
 
 // DashboardRCAHandler serves GET /v1/intelligence/dashboard/rca.
 type DashboardRCAHandler struct {
-	snapshotRepo *persistence.IntelligenceSnapshotRepo
+	snapshotRepo    *persistence.IntelligenceSnapshotRepo
+	intelligenceMode string
 }
 
 // NewDashboardRCAHandler creates a DashboardRCAHandler.
-func NewDashboardRCAHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo) *DashboardRCAHandler {
-	return &DashboardRCAHandler{snapshotRepo: snapshotRepo}
+func NewDashboardRCAHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo, mode string) *DashboardRCAHandler {
+	return &DashboardRCAHandler{snapshotRepo: snapshotRepo, intelligenceMode: mode}
 }
 
 // rcaSourceDefect is the per-source-system breakdown stored in the RCA_CLUSTER snapshot.
@@ -90,6 +91,9 @@ type DashboardRCAResponse struct {
 
 	// Supporting context
 	TotalSettlements int `json:"total_settlements"`
+
+	// Intelligence mode — GRADE_A or GRADE_B
+	IntelligenceMode string `json:"intelligence_mode,omitempty"`
 }
 
 // GetRCAKPIs handles GET /v1/intelligence/dashboard/rca
@@ -112,11 +116,11 @@ func (h *DashboardRCAHandler) GetRCAKPIs(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	resp := DashboardRCAResponse{TenantID: tenantID}
+	resp := DashboardRCAResponse{TenantID: tenantID, IntelligenceMode: h.intelligenceMode}
 
 	if snap == nil {
 		resp.DataAvailable = false
-		resp.Reason = "no_data — no batch clustering events received yet"
+		resp.Reason = "No settlement quality data available yet"
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}

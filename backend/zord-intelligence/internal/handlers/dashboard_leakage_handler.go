@@ -46,17 +46,19 @@ type ambiguityKPIsForLeakage struct {
 
 // DashboardLeakageHandler serves GET /v1/intelligence/dashboard/leakage.
 type DashboardLeakageHandler struct {
-	snapshotRepo *persistence.IntelligenceSnapshotRepo
+	snapshotRepo    *persistence.IntelligenceSnapshotRepo
+	intelligenceMode string
 }
 
 // NewDashboardLeakageHandler creates a DashboardLeakageHandler.
-func NewDashboardLeakageHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo) *DashboardLeakageHandler {
-	return &DashboardLeakageHandler{snapshotRepo: snapshotRepo}
+func NewDashboardLeakageHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo, mode string) *DashboardLeakageHandler {
+	return &DashboardLeakageHandler{snapshotRepo: snapshotRepo, intelligenceMode: mode}
 }
 
 // leakageKPIFields contains the KPI fields extracted from LeakageSnapshot JSON.
 // We unmarshal just these fields to avoid coupling to the full service snapshot struct.
 type leakageKPIFields struct {
+	TotalAmountMinor                decimal.Decimal `json:"total_amount_minor"`
 	TotalIntendedAmountMinor        decimal.Decimal `json:"total_intended_amount_minor"`
 	TotalObservedSettledAmountMinor decimal.Decimal `json:"total_observed_settled_amount_minor"`
 	UnmatchedAmountMinor            decimal.Decimal `json:"unmatched_amount_minor"`
@@ -67,6 +69,8 @@ type leakageKPIFields struct {
 	RiskTier                        string          `json:"risk_tier"`
 	DuplicateRiskCount              int             `json:"duplicate_risk_count"`
 	DuplicateRiskExposureMinor      decimal.Decimal `json:"duplicate_risk_exposure_minor"`
+	ConfirmedDuplicateCount         int             `json:"confirmed_duplicate_count"`
+	ConfirmedDuplicateExposureMinor decimal.Decimal `json:"confirmed_duplicate_exposure_minor"`
 }
 
 // DashboardLeakageResponse is the frontend-ready payload for the leakage dashboard card.
@@ -105,9 +109,16 @@ type DashboardLeakageResponse struct {
 	// Risk classification tier — included for frontend colour-coding
 	RiskTier string `json:"risk_tier,omitempty"`
 
-	// L7 — duplicate_risk_exposure: intents flagged as duplicate risk
+	// Intelligence mode — GRADE_A or GRADE_B
+	IntelligenceMode string `json:"intelligence_mode,omitempty"`
+
+	// L7 — duplicate_risk_exposure: intents flagged as duplicate risk at intent creation
 	DuplicateRiskCount         int             `json:"duplicate_risk_count"`
 	DuplicateRiskExposureMinor decimal.Decimal `json:"duplicate_risk_exposure_minor"`
+
+	// L7b — confirmed_duplicate_exposure: decisions confirmed as MATCH_DUPLICATE by Service 5C
+	ConfirmedDuplicateCount         int             `json:"confirmed_duplicate_count"`
+	ConfirmedDuplicateExposureMinor decimal.Decimal `json:"confirmed_duplicate_exposure_minor"`
 }
 
 // GetLeakageKPIs handles GET /v1/intelligence/dashboard/leakage
@@ -130,11 +141,11 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 		return
 	}
 
-	resp := DashboardLeakageResponse{TenantID: tenantID}
+	resp := DashboardLeakageResponse{TenantID: tenantID, IntelligenceMode: h.intelligenceMode}
 
 	if snap == nil {
 		resp.DataAvailable = false
-		resp.Reason = "no_data — no attachment decisions or variance records received yet"
+		resp.Reason = "No payment data available for this period"
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}
@@ -160,6 +171,8 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 	resp.RiskTier = kpis.RiskTier
 	resp.DuplicateRiskCount = kpis.DuplicateRiskCount
 	resp.DuplicateRiskExposureMinor = kpis.DuplicateRiskExposureMinor
+	resp.ConfirmedDuplicateCount = kpis.ConfirmedDuplicateCount
+	resp.ConfirmedDuplicateExposureMinor = kpis.ConfirmedDuplicateExposureMinor
 
 	// ── L4 and L10: fetch AMBIGUITY snapshot for cross-category derivation ──
 	// L4 = ambiguous_amount_minor (already computed in ambiguity snapshot)
@@ -189,7 +202,7 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 				ambiguityRiskWeight = 0.60
 			}
 			weightedRisk := ambKPIs.ValueAtRiskMinor.Mul(decimal.NewFromFloat(ambiguityRiskWeight))
-			resp.RiskAdjustedLeakageMinor = kpis.TotalObservedSettledAmountMinor.Add(weightedRisk)
+			resp.RiskAdjustedLeakageMinor = kpis.TotalAmountMinor.Add(weightedRisk)
 		}
 	}
 

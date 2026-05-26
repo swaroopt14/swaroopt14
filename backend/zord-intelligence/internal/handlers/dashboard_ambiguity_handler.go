@@ -32,12 +32,13 @@ import (
 
 // DashboardAmbiguityHandler serves GET /v1/intelligence/dashboard/ambiguity.
 type DashboardAmbiguityHandler struct {
-	snapshotRepo *persistence.IntelligenceSnapshotRepo
+	snapshotRepo     *persistence.IntelligenceSnapshotRepo
+	intelligenceMode string
 }
 
 // NewDashboardAmbiguityHandler creates a DashboardAmbiguityHandler.
-func NewDashboardAmbiguityHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo) *DashboardAmbiguityHandler {
-	return &DashboardAmbiguityHandler{snapshotRepo: snapshotRepo}
+func NewDashboardAmbiguityHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo, mode string) *DashboardAmbiguityHandler {
+	return &DashboardAmbiguityHandler{snapshotRepo: snapshotRepo, intelligenceMode: mode}
 }
 
 // ambiguityKPIFields contains the KPI fields from AmbiguitySnapshot JSON.
@@ -101,6 +102,9 @@ type DashboardAmbiguityResponse struct {
 	// Supplementary fields for dashboard context (not separate KPIs)
 	ValueAtRiskMinor decimal.Decimal `json:"value_at_risk_minor"`
 	RiskTier         string          `json:"risk_tier,omitempty"`
+
+	// Intelligence mode — GRADE_A or GRADE_B
+	IntelligenceMode string `json:"intelligence_mode,omitempty"`
 }
 
 // GetAmbiguityKPIs handles GET /v1/intelligence/dashboard/ambiguity
@@ -123,11 +127,11 @@ func (h *DashboardAmbiguityHandler) GetAmbiguityKPIs(w http.ResponseWriter, r *h
 		return
 	}
 
-	resp := DashboardAmbiguityResponse{TenantID: tenantID}
+	resp := DashboardAmbiguityResponse{TenantID: tenantID, IntelligenceMode: h.intelligenceMode}
 
 	if snap == nil {
 		resp.DataAvailable = false
-		resp.Reason = "no_data — no attachment decisions received yet"
+		resp.Reason = "No attachment data available for this period"
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}

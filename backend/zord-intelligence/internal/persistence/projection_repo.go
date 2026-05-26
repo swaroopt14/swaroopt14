@@ -1,4 +1,4 @@
-package persistence
+﻿package persistence
 
 import (
 	"context"
@@ -2869,6 +2869,46 @@ func (r *ProjectionRepo) AtomicIncrementLeakageDuplicateRisk(
 	`
 	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, intendedMinor.String()); err != nil {
 		return fmt.Errorf("projection_repo.AtomicIncrementLeakageDuplicateRisk tenant=%s: %w", tenantID, err)
+	}
+	return nil
+}
+
+// AtomicIncrementLeakageConfirmedDuplicate records one confirmed duplicate
+// (MATCH_DUPLICATE decision) into the LEAKAGE projection.
+// Distinct from AtomicIncrementLeakageDuplicateRisk (intent-level risk flags).
+func (r *ProjectionRepo) AtomicIncrementLeakageConfirmedDuplicate(
+	ctx context.Context,
+	tenantID string,
+	intendedMinor decimal.Decimal,
+	windowStart, windowEnd time.Time,
+) error {
+	key := "leakage.total"
+	sql := `
+		INSERT INTO projection_state
+			(tenant_id, projection_key, window_start, window_end,
+			 value_json, computed_at, projection_version,
+			 projection_family, entity_scope_type)
+		VALUES ($1, $2, $3, $4,
+			jsonb_build_object(
+				'confirmed_duplicate_count',          1,
+				'confirmed_duplicate_exposure_minor', $5::numeric
+			),
+			now(), 1, 'LEAKAGE', 'TENANT')
+		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
+		DO UPDATE SET
+			value_json = jsonb_set(
+				jsonb_set(
+					projection_state.value_json,
+					'{confirmed_duplicate_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'confirmed_duplicate_count')::int, 0) + 1)
+				),
+				'{confirmed_duplicate_exposure_minor}',
+				to_jsonb(COALESCE((projection_state.value_json->>'confirmed_duplicate_exposure_minor')::numeric, 0) + $5::numeric)
+			),
+			computed_at = now()
+	`
+	if _, err := r.pool.Exec(ctx, sql, tenantID, key, windowStart, windowEnd, intendedMinor.String()); err != nil {
+		return fmt.Errorf("projection_repo.AtomicIncrementLeakageConfirmedDuplicate tenant=%s: %w", tenantID, err)
 	}
 	return nil
 }

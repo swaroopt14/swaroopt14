@@ -32,16 +32,18 @@ import (
 
 // DashboardPatternHandler serves GET /v1/intelligence/dashboard/patterns.
 type DashboardPatternHandler struct {
-	snapshotRepo *persistence.IntelligenceSnapshotRepo
-	projRepo     *persistence.ProjectionRepo
+	snapshotRepo    *persistence.IntelligenceSnapshotRepo
+	projRepo        *persistence.ProjectionRepo
+	intelligenceMode string
 }
 
 // NewDashboardPatternHandler creates a DashboardPatternHandler.
 func NewDashboardPatternHandler(
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
 	projRepo *persistence.ProjectionRepo,
+	mode string,
 ) *DashboardPatternHandler {
-	return &DashboardPatternHandler{snapshotRepo: snapshotRepo, projRepo: projRepo}
+	return &DashboardPatternHandler{snapshotRepo: snapshotRepo, projRepo: projRepo, intelligenceMode: mode}
 }
 
 // patternKPIFields reads KPI fields from BATCH-scoped PatternSnapshot JSON.
@@ -121,6 +123,9 @@ type DashboardPatternResponse struct {
 	SuccessCount   int     `json:"success_count"`
 	FailedCount    int     `json:"failed_count"`
 	PendingCount   int     `json:"pending_count"`
+
+	// Intelligence mode — GRADE_A or GRADE_B
+	IntelligenceMode string `json:"intelligence_mode,omitempty"`
 }
 
 // GetPatternKPIs handles GET /v1/intelligence/dashboard/patterns
@@ -158,7 +163,7 @@ func (h *DashboardPatternHandler) GetPatternKPIs(w http.ResponseWriter, r *http.
 		return
 	}
 
-	resp := DashboardPatternResponse{TenantID: tenantID}
+	resp := DashboardPatternResponse{TenantID: tenantID, IntelligenceMode: h.intelligenceMode}
 
 	// ── P7: value_date_mismatch_rate ─────────────────────────────────────
 	// Always computed from projections, regardless of whether a PATTERN snapshot exists.
@@ -178,7 +183,7 @@ func (h *DashboardPatternHandler) GetPatternKPIs(w http.ResponseWriter, r *http.
 
 	if snap == nil {
 		resp.DataAvailable = false
-		resp.Reason = "no_data — no batch summary events received yet"
+		resp.Reason = "No batch data available for this period"
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}

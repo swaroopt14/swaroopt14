@@ -282,12 +282,14 @@ type LeakageValue struct {
 	ReversalCount         int `json:"reversal_count"`          // REVERSAL variance events
 
 	// ── L7: Duplicate risk exposure ───────────────────────────────────────
-	// Incremented from IntentCreatedEvent.DuplicateRiskFlag=true
-	// AND from AttachmentDecisionCreatedEvent.DecisionType==MATCH_DUPLICATE.
-	// Both paths increment the same counters; idempotency is ensured by event
-	// dedup in IsProcessed — no double-counting across the two sources.
-	DuplicateRiskCount         int             `json:"duplicate_risk_count"`          // intents flagged as duplicate risk
-	DuplicateRiskExposureMinor decimal.Decimal `json:"duplicate_risk_exposure_minor"` // sum of intended amounts for duplicate-flagged intents
+	// Incremented from IntentCreatedEvent.DuplicateRiskFlag=true.
+	DuplicateRiskCount         int             `json:"duplicate_risk_count"`          // intents flagged as duplicate risk at intent creation
+	DuplicateRiskExposureMinor decimal.Decimal `json:"duplicate_risk_exposure_minor"` // sum of intended amounts for risk-flagged intents
+
+	// ── L7b: Confirmed duplicate exposure ─────────────────────────────────
+	// Incremented from AttachmentDecisionCreatedEvent.DecisionType==MATCH_DUPLICATE.
+	ConfirmedDuplicateCount         int             `json:"confirmed_duplicate_count"`          // decisions confirmed as MATCH_DUPLICATE
+	ConfirmedDuplicateExposureMinor decimal.Decimal `json:"confirmed_duplicate_exposure_minor"` // sum of intended amounts for confirmed duplicates
 
 	// ── Denominator for percentage ────────────────────────────────────────
 	// We track total intended so we can compute leakage_percentage without

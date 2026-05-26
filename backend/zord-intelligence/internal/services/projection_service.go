@@ -824,7 +824,11 @@ func (s *ProjectionService) HandleSettlementCreated(
 		e.UTR, e.RRN, e.BankRef, e.ProviderRef, e.ClientRef,
 		e.CarrierRichness, e.AttachmentReadiness, e.StatusObservation, e.IngestRunID)
 
-	window := todayWindow(e.OccurredAt)
+	settlementOccurredAt := e.OccurredAt
+	if settlementOccurredAt.IsZero() {
+		settlementOccurredAt = time.Now().UTC()
+	}
+	window := todayWindow(settlementOccurredAt)
 
 	// Classify both float scores from Service 5B into tiers.
 	// ZPI owns the threshold constants; Service 5B only sends raw numbers.
@@ -989,12 +993,12 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		}
 	}
 
-	// ── L7: Duplicate risk exposure for MATCH_DUPLICATE ──────────────────
+	// ── L7b: Confirmed duplicate exposure for MATCH_DUPLICATE ────────────
 	if strings.EqualFold(e.DecisionType, "MATCH_DUPLICATE") {
-		if err := s.projRepo.AtomicIncrementLeakageDuplicateRisk(
+		if err := s.projRepo.AtomicIncrementLeakageConfirmedDuplicate(
 			ctx, e.TenantID, e.IntendedAmountMinor, window.start, window.end,
 		); err != nil {
-			log.Printf("HandleAttachmentDecision: AtomicIncrementLeakageDuplicateRisk failed decision=%s: %v",
+			log.Printf("HandleAttachmentDecision: AtomicIncrementLeakageConfirmedDuplicate failed decision=%s: %v",
 				e.DecisionID, err)
 		}
 	}
@@ -1304,7 +1308,11 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		e.AmbiguityScore,
 		e.BatchFinalityStatus,
 	)
-	window := todayWindow(e.OccurredAt)
+	occurredAt := e.OccurredAt
+	if occurredAt.IsZero() {
+		occurredAt = time.Now().UTC()
+	}
+	window := todayWindow(occurredAt)
 
 	// Step 1: Update batch.health projection (full snapshot replacement) — P1 fields included
 	if err := s.projRepo.AtomicUpdateBatchHealthFull(

@@ -11,7 +11,7 @@ var (
 		"NBFC":     &NBFCParser{},
 		"MERCHANT": &MerchantParser{},
 		"VENDOR":   &VendorParser{},
-		"GATEWAY":  &BankParser{}, // Defaulting to Bank for now
+		"GATEWAY":  &BankParser{},
 	}
 )
 

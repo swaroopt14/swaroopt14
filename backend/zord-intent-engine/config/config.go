@@ -2,6 +2,7 @@ package config
 
 import (
 	"database/sql"
+	_ "embed"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,13 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
+
+// GlobalProfilesJSON is the content of global_profiles.json embedded at compile time.
+// It contains source-system detection signatures and default column maps for known
+// ERP/accounting sources (TALLY, SAP, ERP, QUICKBOOKS, ZORD_RAW).
+//
+//go:embed global_profiles.json
+var GlobalProfilesJSON []byte
 
 type Config struct {
 	VaultKey string

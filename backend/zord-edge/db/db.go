@@ -1,9 +1,7 @@
 package db
 
 import (
-	"context"
 	"database/sql"
-	"fmt"
 	"log"
 )
 
@@ -143,7 +141,8 @@ func CreateTable() error {
 	published_at TIMESTAMPTZ,
 	failure_reason_code TEXT,
 	batchid TEXT,
-	file_content_hash TEXT
+	file_content_hash TEXT,
+	source_system TEXT NOT NULL DEFAULT ''
 	);`
 
 	_, err = DB.Exec(ingress_outbox)
@@ -184,98 +183,6 @@ func CreateTable() error {
 	_, err = DB.Exec(connectors)
 	if err != nil {
 		log.Fatal(err)
-	}
-
-	// ── Mapping profiles ─────────────────────────────────────────────────────
-	mappingProfiles := `
-	CREATE TABLE IF NOT EXISTS intent_mapping_profiles (
-	    profile_id       TEXT PRIMARY KEY,
-	    profile_version  TEXT NOT NULL DEFAULT '1.0.0',
-	    tenant_id        UUID NOT NULL REFERENCES tenants(tenant_id),
-	    tenant_name      TEXT NOT NULL,
-	    file_format      TEXT NOT NULL CHECK (file_format IN ('csv', 'xlsx')),
-	    delimiter        TEXT NOT NULL DEFAULT ',',
-	    header_row_index INT  NOT NULL DEFAULT 0,
-	    column_map       JSONB NOT NULL DEFAULT '{}',
-	    amount_format    TEXT NOT NULL DEFAULT 'DECIMAL',
-	    date_format      TEXT NOT NULL DEFAULT '2006-01-02',
-	    required_fields  TEXT[] NOT NULL DEFAULT '{}',
-	    is_active        BOOLEAN NOT NULL DEFAULT true,
-	    created_at       TIMESTAMPTZ DEFAULT now(),
-	    updated_at       TIMESTAMPTZ DEFAULT now(),
-	    UNIQUE (tenant_id, file_format, profile_version)
-	);`
-
-	_, err = DB.Exec(mappingProfiles)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	alterProfile := `
-	ALTER TABLE intent_mapping_profiles
-	ADD COLUMN IF NOT EXISTS parser_class TEXT NOT NULL DEFAULT 'generic'
-	    CHECK (parser_class IN ('generic', 'merchant', 'vendor'));
-	`
-	_, err = DB.Exec(alterProfile)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// ── Ingest run audit trail ────────────────────────────────────────────────
-	ingestRuns := `
-	CREATE TABLE IF NOT EXISTS intent_ingest_runs (
-	    run_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-	    batch_id       TEXT NOT NULL UNIQUE,
-	    tenant_id      UUID NOT NULL,
-	    profile_id     TEXT,  --Hint for which parser was used(BANK,NBFC etc)
-	    file_name      TEXT,
-	    file_hash      TEXT,
-	    total_rows     INT  DEFAULT 0,
-	    accepted_rows  INT  DEFAULT 0,
-	    failed_rows    INT  DEFAULT 0,
-	    duplicate_rows INT  DEFAULT 0,
-	    status         TEXT NOT NULL DEFAULT 'PROCESSING',
-	    started_at     TIMESTAMPTZ DEFAULT now(),
-	    completed_at   TIMESTAMPTZ
-	);`
-
-	_, err = DB.Exec(ingestRuns)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return nil
-}
-
-// UpsertIngestRun inserts or updates an intent_ingest_runs row at the end of
-// a bulk ingest. It uses ON CONFLICT on batch_id to update run stats atomically.
-func UpsertIngestRun(
-	ctx context.Context,
-	db *sql.DB,
-	runID, batchID, tenantID, profileID, fileName, fileHash string,
-	total, accepted, failed, duplicate int,
-	status string,
-) error {
-	const q = `
-		INSERT INTO intent_ingest_runs
-		    (run_id, batch_id, tenant_id, profile_id, file_name, file_hash,
-		     total_rows, accepted_rows, failed_rows, duplicate_rows, status, completed_at)
-		VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''),
-		        $7, $8, $9, $10, $11, now())
-		ON CONFLICT (batch_id) DO UPDATE SET
-		    total_rows     = EXCLUDED.total_rows,
-		    accepted_rows  = EXCLUDED.accepted_rows,
-		    failed_rows    = EXCLUDED.failed_rows,
-		    duplicate_rows = EXCLUDED.duplicate_rows,
-		    status         = EXCLUDED.status,
-		    completed_at   = now()`
-
-	_, err := db.ExecContext(ctx, q,
-		runID, batchID, tenantID, profileID, fileName, fileHash,
-		total, accepted, failed, duplicate, status,
-	)
-	if err != nil {
-		return fmt.Errorf("UpsertIngestRun: %w", err)
 	}
 	return nil
 }

@@ -21,7 +21,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"zord-edge/db"
 	"zord-edge/model"
 	"zord-edge/services"
 	"zord-edge/vault"
@@ -221,30 +220,54 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 
-	// Resolve static parser based on tenant type
-	tenantType := c.GetHeader("X-Zord-Tenant-Type")
-	if tenantType == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "X-Zord-Tenant-Type header is required for static mapping"})
-		return
+	// ── Parser resolution — profile-driven first, type-based fallback ──────────
+
+	tenantType := strings.ToUpper(strings.TrimSpace(c.GetHeader("X-Zord-Tenant-Type")))
+	sourceSystem := strings.ToUpper(strings.TrimSpace(c.GetHeader("X-Zord-Source-System"))) // e.g. "TALLY", "SAP", "ERP"
+
+	var parser services.IntentParser
+	var parserErr error
+
+	switch {
+	case sourceSystem != "":
+		log.Printf("[BulkHandler] using profile-driven pass-through for source_system=%s tenant=%s",
+			sourceSystem, tenantID)
+
+	case tenantType == "TALLY" || tenantType == "SAP" || tenantType == "ERP" || tenantType == "QUICKBOOKS":
+		sourceSystem = tenantType
+		log.Printf("[BulkHandler] using profile-driven pass-through for source_system=%s tenant=%s",
+			sourceSystem, tenantID)
+
+	case tenantType != "":
+		parser, parserErr = services.GetParserByType(tenantType)
+		if parserErr != nil {
+			c.JSON(http.StatusUnprocessableEntity, gin.H{
+				"error":  "invalid tenant type",
+				"detail": parserErr.Error(),
+				"hint":   "Valid static parser types: BANK, NBFC, MERCHANT, VENDOR, GATEWAY",
+			})
+			return
+		}
+		sourceSystem = "UNKNOWN"
+		log.Printf("[BulkHandler] using type-based parser type=%s tenant=%s",
+			tenantType, tenantID)
+
+	default:
+		sourceSystem = "UNKNOWN"
+		log.Printf("[BulkHandler] using profile-driven pass-through with source auto-detection tenant=%s",
+			tenantID)
 	}
 
-	parser, err := services.GetParserByType(tenantType)
-	if err != nil {
-		c.JSON(http.StatusUnprocessableEntity, gin.H{
-			"error":  "invalid tenant type",
-			"detail": err.Error(),
-			"hint":   "Valid types: BANK, NBFC, MERCHANT, GATEWAY",
-		})
-		return
+	profileIDForAudit := tenantType
+	if sourceSystem != "UNKNOWN" {
+		profileIDForAudit = sourceSystem + "_pass_through"
+	} else if profileIDForAudit == "" {
+		profileIDForAudit = "auto_detect_pass_through"
 	}
 
 	headersBytes, _ := json.Marshal(c.Request.Header)
 	headersHashSum := sha256.Sum256(headersBytes)
 	headersHash := headersHashSum[:]
-	sourceSystem := c.GetHeader("X-Zord-Source-System")
-	if sourceSystem == "" {
-		sourceSystem = "UNKNOWN"
-	}
 
 	switch ext {
 
@@ -312,7 +335,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 						&fileHash,
 						&rowCountEstimate,
 						func(s string) *string { return &s }("CSV"),
-						&tenantType, // Use tenantType as the audit hint
+						&profileIDForAudit, // Use profileIDForAudit as the audit hint
 					)
 
 					resultsMu.Lock()
@@ -389,50 +412,79 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 			}
 		}
 
-		// ── Parse all rows through the static parser ───────────────────────
-		shapes, parseErrors := parser.Parse(allCSVRows, headers)
+		var jobsToSend []BulkJob
+		if parser == nil {
+			// Profile-driven path: Bypass static parser.
+			// Construct raw row JSON payloads.
+			for idx, row := range allCSVRows {
+				rowNum := idx + 1
+				rawJSON, err := buildRowPayload(headers, row, rowNum)
+				if err != nil {
+					resultsMu.Lock()
+					resultsMap[rowNum] = BulkResult{Row: rowNum, Status: "FAILED", Error: "failed to build raw row payload"}
+					resultsMu.Unlock()
+					continue
+				}
 
-		// Record parse failures directly in resultsMap
-		for _, pe := range parseErrors {
-			resultsMu.Lock()
-			resultsMap[pe.RowIndex] = BulkResult{
-				Row:    pe.RowIndex,
-				Status: "FAILED",
-				Error:  fmt.Sprintf("parse error on field %q: %s", pe.Field, pe.Message),
+				rowIdempotencyKey := extractIdempotencyKey(rawJSON)
+				if rowIdempotencyKey == "" {
+					var input string
+					if forceReprocess {
+						input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, rowNum, tenantID.String(), batchIDHeader)
+					} else {
+						input = fmt.Sprintf("%s:%d:%s", fileHash, rowNum, tenantID.String())
+					}
+					sum := sha256.Sum256([]byte(input))
+					rowIdempotencyKey = hex.EncodeToString(sum[:])
+				}
+
+				jobsToSend = append(jobsToSend, BulkJob{Row: rowNum, Payload: rawJSON, IdempotencyKey: rowIdempotencyKey})
 			}
-			resultsMu.Unlock()
+		} else {
+			// Type-based static parser path: Parse into UniversalIntentShape.
+			shapes, parseErrors := parser.Parse(allCSVRows, headers)
+
+			// Record parse failures directly in resultsMap
+			for _, pe := range parseErrors {
+				resultsMu.Lock()
+				resultsMap[pe.RowIndex] = BulkResult{
+					Row:    pe.RowIndex,
+					Status: "FAILED",
+					Error:  fmt.Sprintf("parse error on field %q: %s", pe.Field, pe.Message),
+				}
+				resultsMu.Unlock()
+			}
+
+			// Fan out clean shapes
+			for _, shape := range shapes {
+				rowNum, _ := strconv.Atoi(strings.TrimPrefix(shape.SourceRowRef, "row:"))
+
+				jsonPayload, err := json.Marshal(shape)
+				if err != nil {
+					resultsMu.Lock()
+					resultsMap[rowNum] = BulkResult{Row: rowNum, Status: "FAILED", Error: "failed to serialize shape"}
+					resultsMu.Unlock()
+					continue
+				}
+
+				rowIdempotencyKey := extractIdempotencyKey(jsonPayload)
+				if rowIdempotencyKey == "" {
+					var input string
+					if forceReprocess {
+						input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, rowNum, tenantID.String(), batchIDHeader)
+					} else {
+						input = fmt.Sprintf("%s:%d:%s", fileHash, rowNum, tenantID.String())
+					}
+					sum := sha256.Sum256([]byte(input))
+					rowIdempotencyKey = hex.EncodeToString(sum[:])
+				}
+
+				jobsToSend = append(jobsToSend, BulkJob{Row: rowNum, Payload: jsonPayload, IdempotencyKey: rowIdempotencyKey})
+			}
 		}
 
-		// Fan out clean shapes to the jobs channel
-		for _, shape := range shapes {
-			// Recover original 1-based row number from SourceRowRef ("row:N")
-			rowNum, _ := strconv.Atoi(strings.TrimPrefix(shape.SourceRowRef, "row:"))
-
-			jsonPayload, err := json.Marshal(shape)
-			if err != nil {
-				resultsMu.Lock()
-				resultsMap[rowNum] = BulkResult{Row: rowNum, Status: "FAILED", Error: "failed to serialize shape"}
-				resultsMu.Unlock()
-				continue
-			}
-
-			// Resolve idempotency key — priority order:
-			//   1. Client-provided "idempotency_key" field in payload (always wins)
-			//   2. Force-reprocess: SHA256(fileHash:rowNum:tenantID:reprocess:batchID)
-			//   3. Normal upload:   SHA256(fileHash:rowNum:tenantID)
-			rowIdempotencyKey := extractIdempotencyKey(jsonPayload)
-			if rowIdempotencyKey == "" {
-				var input string
-				if forceReprocess {
-					input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, rowNum, tenantID.String(), batchIDHeader)
-				} else {
-					input = fmt.Sprintf("%s:%d:%s", fileHash, rowNum, tenantID.String())
-				}
-				sum := sha256.Sum256([]byte(input))
-				rowIdempotencyKey = hex.EncodeToString(sum[:])
-			}
-
-			jobs <- BulkJob{Row: rowNum, Payload: jsonPayload, IdempotencyKey: rowIdempotencyKey}
+		for _, job := range jobsToSend {
+			jobs <- job
 		}
 
 		close(jobs)
@@ -538,7 +590,7 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 						&fileHash,
 						&xlsxRowCount,
 						func(s string) *string { return &s }("XLSX"),
-						&tenantType, // Use tenantType as the audit hint
+						&profileIDForAudit, // Use profileIDForAudit as the audit hint
 					)
 
 					resultsMu.Lock()
@@ -625,50 +677,79 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 			}
 		}
 
-		// ── Parse all rows through the static parser ───────────────────────
-		shapes, parseErrors := parser.Parse(allXLSXRows, headers)
+		var jobsToSend []BulkJob
+		if parser == nil {
+			// Profile-driven path: Bypass static parser.
+			// Construct raw row JSON payloads.
+			for idx, row := range allXLSXRows {
+				rowNum := idx + 1
+				rawJSON, err := buildRowPayload(headers, row, rowNum)
+				if err != nil {
+					resultsMu.Lock()
+					resultsMap[rowNum] = BulkResult{Row: rowNum, Status: "FAILED", Error: "failed to build raw row payload"}
+					resultsMu.Unlock()
+					continue
+				}
 
-		// Record parse failures directly in resultsMap
-		for _, pe := range parseErrors {
-			resultsMu.Lock()
-			resultsMap[pe.RowIndex] = BulkResult{
-				Row:    pe.RowIndex,
-				Status: "FAILED",
-				Error:  fmt.Sprintf("parse error on field %q: %s", pe.Field, pe.Message),
+				rowIdempotencyKey := extractIdempotencyKey(rawJSON)
+				if rowIdempotencyKey == "" {
+					var input string
+					if forceReprocess {
+						input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, rowNum, tenantID.String(), batchIDHeader)
+					} else {
+						input = fmt.Sprintf("%s:%d:%s", fileHash, rowNum, tenantID.String())
+					}
+					sum := sha256.Sum256([]byte(input))
+					rowIdempotencyKey = hex.EncodeToString(sum[:])
+				}
+
+				jobsToSend = append(jobsToSend, BulkJob{Row: rowNum, Payload: rawJSON, IdempotencyKey: rowIdempotencyKey})
 			}
-			resultsMu.Unlock()
+		} else {
+			// Type-based static parser path: Parse into UniversalIntentShape.
+			shapes, parseErrors := parser.Parse(allXLSXRows, headers)
+
+			// Record parse failures directly in resultsMap
+			for _, pe := range parseErrors {
+				resultsMu.Lock()
+				resultsMap[pe.RowIndex] = BulkResult{
+					Row:    pe.RowIndex,
+					Status: "FAILED",
+					Error:  fmt.Sprintf("parse error on field %q: %s", pe.Field, pe.Message),
+				}
+				resultsMu.Unlock()
+			}
+
+			// Fan out clean shapes
+			for _, shape := range shapes {
+				rowNum, _ := strconv.Atoi(strings.TrimPrefix(shape.SourceRowRef, "row:"))
+
+				jsonPayload, err := json.Marshal(shape)
+				if err != nil {
+					resultsMu.Lock()
+					resultsMap[rowNum] = BulkResult{Row: rowNum, Status: "FAILED", Error: "failed to serialize shape"}
+					resultsMu.Unlock()
+					continue
+				}
+
+				rowIdempotencyKey := extractIdempotencyKey(jsonPayload)
+				if rowIdempotencyKey == "" {
+					var input string
+					if forceReprocess {
+						input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, rowNum, tenantID.String(), batchIDHeader)
+					} else {
+						input = fmt.Sprintf("%s:%d:%s", fileHash, rowNum, tenantID.String())
+					}
+					sum := sha256.Sum256([]byte(input))
+					rowIdempotencyKey = hex.EncodeToString(sum[:])
+				}
+
+				jobsToSend = append(jobsToSend, BulkJob{Row: rowNum, Payload: jsonPayload, IdempotencyKey: rowIdempotencyKey})
+			}
 		}
 
-		// Fan out clean shapes to the jobs channel
-		for _, shape := range shapes {
-			// Recover original 1-based row number from SourceRowRef ("row:N")
-			rowNum, _ := strconv.Atoi(strings.TrimPrefix(shape.SourceRowRef, "row:"))
-
-			jsonPayload, err := json.Marshal(shape)
-			if err != nil {
-				resultsMu.Lock()
-				resultsMap[rowNum] = BulkResult{Row: rowNum, Status: "FAILED", Error: "failed to serialize shape"}
-				resultsMu.Unlock()
-				continue
-			}
-
-			// Resolve idempotency key — priority order:
-			//   1. Client-provided "idempotency_key" field in payload (always wins)
-			//   2. Force-reprocess: SHA256(fileHash:rowNum:tenantID:reprocess:batchID)
-			//   3. Normal upload:   SHA256(fileHash:rowNum:tenantID)
-			rowIdempotencyKey := extractIdempotencyKey(jsonPayload)
-			if rowIdempotencyKey == "" {
-				var input string
-				if forceReprocess {
-					input = fmt.Sprintf("%s:%d:%s:reprocess:%s", fileHash, rowNum, tenantID.String(), batchIDHeader)
-				} else {
-					input = fmt.Sprintf("%s:%d:%s", fileHash, rowNum, tenantID.String())
-				}
-				sum := sha256.Sum256([]byte(input))
-				rowIdempotencyKey = hex.EncodeToString(sum[:])
-			}
-
-			jobs <- BulkJob{Row: rowNum, Payload: jsonPayload, IdempotencyKey: rowIdempotencyKey}
+		for _, job := range jobsToSend {
+			jobs <- job
 		}
 
 		close(jobs)
@@ -688,13 +769,6 @@ func (h *Handler) BulkIntentHandler(c *gin.Context) {
 		}
 
 		respondBulkResults(c, actualResults, file.Filename, fileHash)
-
-		// ── Final Audit Trail: Persist run stats to DB ──────────────────────
-		runStatus := "COMPLETED"
-		if int(failedCount) > 0 {
-			runStatus = "PARTIAL"
-		}
-		db.UpsertIngestRun(c.Request.Context(), db.DB, fileTraceID, *finalBatchID, tenantID.String(), tenantType, file.Filename, fileHash, len(actualResults), int(acceptedCount), int(failedCount), int(duplicateCount), runStatus)
 
 	default:
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -778,8 +852,9 @@ func extractIdempotencyKey(payload []byte) string {
 
 // buildRowPayload converts headers + row into a dot-notation-expanded JSON
 // payload. Logic is identical to the original producer loop.
-func buildRowPayload(headers, row []string) ([]byte, error) {
+func buildRowPayload(headers, row []string, rowNum int) ([]byte, error) {
 	payloadMap := make(map[string]interface{})
+	payloadMap["source_row_ref"] = fmt.Sprintf("row:%d", rowNum)
 
 	for j, header := range headers {
 		value := ""

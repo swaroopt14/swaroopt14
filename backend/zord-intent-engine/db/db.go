@@ -1,7 +1,9 @@
 package db
 
 import (
+	"context"
 	"database/sql"
+	"fmt"
 	"log"
 )
 
@@ -426,5 +428,166 @@ CREATE TABLE IF NOT EXISTS etl_quality_results (
 		log.Fatal("canonical_batches:", err)
 	}
 
+	mappingProfiles := `
+	CREATE TABLE IF NOT EXISTS mapping_profiles (
+	    profile_id                TEXT        PRIMARY KEY,
+	    profile_version           TEXT        NOT NULL DEFAULT '1.0.0',
+	    tenant_id                 UUID,
+	    tenant_name               TEXT        NOT NULL DEFAULT '',
+	    source_vendor             TEXT        NOT NULL DEFAULT '',
+	    source_system             TEXT        NOT NULL DEFAULT '',
+	    artifact_family           TEXT        NOT NULL DEFAULT 'LIVE_INTENT_JSON',
+	    file_format               TEXT        NOT NULL DEFAULT 'json',
+	    delimiter                 TEXT        NOT NULL DEFAULT ',',
+	    header_row_index          INT         NOT NULL DEFAULT 0,
+	    mapping_strategy          TEXT        NOT NULL DEFAULT 'column_map',
+	    column_map                JSONB       NOT NULL DEFAULT '{}',
+	    amount_format             TEXT        NOT NULL DEFAULT 'DECIMAL',
+	    date_format               TEXT        NOT NULL DEFAULT '2006-01-02',
+	    default_currency          TEXT        NOT NULL DEFAULT 'INR',
+	    default_intent_type      TEXT        NOT NULL DEFAULT 'PAYOUT',
+	    source_timezone           TEXT        NOT NULL DEFAULT 'Asia/Kolkata',
+	    strict_required_fields_json JSONB     NOT NULL DEFAULT '[]',
+	    soft_inferable_fields_json  JSONB     NOT NULL DEFAULT '[]',
+	    field_kind_policy_json      JSONB     NOT NULL DEFAULT '{}',
+	    sensitive_field_policy_json JSONB     NOT NULL DEFAULT '{}',
+	    output_entity_family      TEXT        NOT NULL DEFAULT 'INTENT',
+	    status                    TEXT        NOT NULL DEFAULT 'active',
+	    notes                     TEXT        NOT NULL DEFAULT '',
+	    created_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+	    updated_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
+	    created_by                TEXT        NOT NULL DEFAULT '',
+	    UNIQUE (tenant_id, source_system, artifact_family, profile_version)
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_mapping_profiles_tenant_source
+	    ON mapping_profiles (tenant_id, source_system)
+	    WHERE status = 'active';
+	`
+	if _, err := DB.Exec(mappingProfiles); err != nil {
+		return err
+	}
+
+	// Migration: add default_intent_type if it doesn't exist yet (idempotent)
+	_, _ = DB.Exec(`ALTER TABLE mapping_profiles ADD COLUMN IF NOT EXISTS default_intent_type TEXT NOT NULL DEFAULT 'PAYOUT'`)
+
+	// ── Ingest run audit trail (batch level) ──────────────────────────────────
+	intentIngestRuns := `
+	CREATE TABLE IF NOT EXISTS intent_ingest_runs (
+	    run_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+	    batch_id       TEXT NOT NULL UNIQUE,
+	    tenant_id      UUID NOT NULL,
+	    mapping_id     TEXT,         -- profile_id resolved by the intent-engine for this batch
+	    profile_id     TEXT,         -- legacy audit hint (e.g. "system-tally-v1")
+	    file_name      TEXT,
+	    file_hash      TEXT,
+	    total_rows     INT  DEFAULT 0,
+	    accepted_rows  INT  DEFAULT 0,
+	    failed_rows    INT  DEFAULT 0,
+	    duplicate_rows INT  DEFAULT 0,
+	    status         TEXT NOT NULL DEFAULT 'PROCESSING',
+	    started_at     TIMESTAMPTZ DEFAULT now(),
+	    completed_at   TIMESTAMPTZ
+	);`
+
+	if _, err := DB.Exec(intentIngestRuns); err != nil {
+		log.Fatal("intent_ingest_runs:", err)
+	}
+
+	// ── Per-row ingest records (one entry per row, per tenant, per mapping) ───
+	intentIngestRows := `
+	CREATE TABLE IF NOT EXISTS intent_ingest_rows (
+	    row_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+	    batch_id        TEXT NOT NULL,
+	    tenant_id       UUID NOT NULL,
+	    mapping_id      TEXT NOT NULL DEFAULT '',  -- profile_id from mapping_profiles used
+	    profile_id      TEXT,                       -- legacy: human-readable source profile
+	    row_index       INT  NOT NULL DEFAULT 0,    -- 1-based row number within the file
+	    idempotency_key TEXT,
+	    status          TEXT NOT NULL DEFAULT 'ACCEPTED', -- ACCEPTED | FAILED | DUPLICATE
+	    error_detail    TEXT,
+	    source_system   TEXT,
+	    file_name       TEXT,
+	    file_hash       TEXT,
+	    raw_row_json    JSONB,
+	    created_at      TIMESTAMPTZ DEFAULT now()
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_iir_tenant_batch
+	    ON intent_ingest_rows (tenant_id, batch_id);
+
+	CREATE INDEX IF NOT EXISTS idx_iir_mapping_id
+	    ON intent_ingest_rows (mapping_id);`
+
+	if _, err := DB.Exec(intentIngestRows); err != nil {
+		log.Fatal("intent_ingest_rows:", err)
+	}
+
+	return nil
+}
+
+// UpsertIngestRun inserts or updates an intent_ingest_runs row at the end of
+// a bulk ingest. It uses ON CONFLICT on batch_id to update run stats atomically.
+func UpsertIngestRun(
+	ctx context.Context,
+	db *sql.DB,
+	runID, batchID, tenantID, mappingID, profileID, fileName, fileHash string,
+	total, accepted, failed, duplicate int,
+	status string,
+) error {
+	const q = `
+		INSERT INTO intent_ingest_runs
+		    (run_id, batch_id, tenant_id, mapping_id, profile_id, file_name, file_hash,
+		     total_rows, accepted_rows, failed_rows, duplicate_rows, status, completed_at)
+		VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''),
+		        $8, $9, $10, $11, $12, now())
+		ON CONFLICT (batch_id) DO UPDATE SET
+		    mapping_id     = EXCLUDED.mapping_id,
+		    total_rows     = EXCLUDED.total_rows,
+		    accepted_rows  = EXCLUDED.accepted_rows,
+		    failed_rows    = EXCLUDED.failed_rows,
+		    duplicate_rows = EXCLUDED.duplicate_rows,
+		    status         = EXCLUDED.status,
+		    completed_at   = now()`
+
+	_, err := db.ExecContext(ctx, q,
+		runID, batchID, tenantID, mappingID, profileID, fileName, fileHash,
+		total, accepted, failed, duplicate, status,
+	)
+	if err != nil {
+		return fmt.Errorf("UpsertIngestRun: %w", err)
+	}
+	return nil
+}
+
+// InsertIngestRow writes a single per-row audit record into intent_ingest_rows.
+// Called by the intent-engine when it processes each row-level envelope from Kafka.
+// The full match entry (mapping_id, profile_id, status, raw_row_json, etc.) is written
+// in one shot — same pattern as UpsertIngestRun was used in zord-edge bulk_handler.
+func InsertIngestRow(
+	ctx context.Context,
+	db *sql.DB,
+	batchID, tenantID, mappingID, profileID string,
+	rowIndex int,
+	idempotencyKey, status, errorDetail, sourceSystem, fileName, fileHash string,
+	rawRowJSON []byte,
+) error {
+	const q = `
+		INSERT INTO intent_ingest_rows
+		    (batch_id, tenant_id, mapping_id, profile_id, row_index,
+		     idempotency_key, status, error_detail, source_system,
+		     file_name, file_hash, raw_row_json)
+		VALUES ($1, $2, $3, NULLIF($4,''), $5,
+		        NULLIF($6,''), $7, NULLIF($8,''), NULLIF($9,''),
+		        NULLIF($10,''), NULLIF($11,''), $12)`
+
+	_, err := db.ExecContext(ctx, q,
+		batchID, tenantID, mappingID, profileID, rowIndex,
+		idempotencyKey, status, errorDetail, sourceSystem,
+		fileName, fileHash, rawRowJSON,
+	)
+	if err != nil {
+		return fmt.Errorf("InsertIngestRow: %w", err)
+	}
 	return nil
 }

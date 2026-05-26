@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/sync/singleflight"
 
+	"zord-intent-engine/db"
 	"zord-intent-engine/internal/canonicalizer"
 	"zord-intent-engine/internal/models"
 	"zord-intent-engine/internal/normalizer"
@@ -98,11 +100,11 @@ const (
 var batchAggregateGroup singleflight.Group
 
 type IntentService struct {
-	validator *validator.Validator
-	//tokenizer *pii.Tokenizer
+	validator     *validator.Validator
 	repo          CanonicalIntentRepository
 	s3            *storage.S3Store
 	tokenizeQueue *KafkaTokenizeQueue
+	db            *sql.DB
 }
 
 var enclaveHTTPClient = &http.Client{
@@ -170,17 +172,17 @@ type CanonicalIntentRepository interface {
 
 func NewIntentService(
 	v *validator.Validator,
-	//t *pii.Tokenizer,
 	r CanonicalIntentRepository,
-	s3 *storage.S3Store, // ✅ ADD
+	s3 *storage.S3Store,
 	q *KafkaTokenizeQueue,
+	db *sql.DB,
 ) *IntentService {
 	return &IntentService{
-		validator: v,
-		//tokenizer: t,
+		validator:     v,
 		repo:          r,
 		s3:            s3,
 		tokenizeQueue: q,
+		db:            db,
 	}
 }
 
@@ -870,7 +872,7 @@ func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req mode
 func (s *IntentService) ProcessIncomingIntent(
 	ctx context.Context,
 	event *models.Event,
-) (*models.CanonicalIntent, *models.DLQEntry, error) {
+) (retCanonical *models.CanonicalIntent, retDlq *models.DLQEntry, retErr error) {
 
 	//Unmarshal Payload into IncomingIntent struct
 	var in *models.IncomingIntent
@@ -887,7 +889,120 @@ func (s *IntentService) ProcessIncomingIntent(
 		PayloadHash:      event.PayloadHash,
 		ReceivedAt:       event.ReceivedAt,
 		BatchID:          event.BatchID,
+		FileName:         event.FileName,
+		FileContentHash:  event.FileContentHash,
+		RowCountEstimate: event.RowCountEstimate,
 	}
+
+	var resolvedProfile *models.MappingProfile
+	var decryptedPayload []byte
+	var err error
+
+	defer func() {
+		if in.BatchID == nil || *in.BatchID == "" {
+			return
+		}
+
+		if retErr != nil {
+			return
+		}
+
+		var status = "ACCEPTED"
+		var errDetail = ""
+		var mappingID = ""
+		var profileIDHint = ""
+
+		if retDlq != nil {
+			if retDlq.ReasonCode == "DUPLICATE_BUSINESS_KEY" || retDlq.ReasonCode == "DUPLICATE_IDEMPOTENCY_KEY" {
+				status = "DUPLICATE"
+			} else {
+				status = "FAILED"
+			}
+			errDetail = retDlq.ReasonCode
+		}
+
+		if resolvedProfile != nil {
+			mappingID = resolvedProfile.ProfileID
+			profileIDHint = resolvedProfile.ProfileVersion
+		}
+
+		// Helper to extract row index
+		extractRowIndex := func(payload []byte) int {
+			var m map[string]interface{}
+			if err := json.Unmarshal(payload, &m); err == nil {
+				if ref, ok := m["source_row_ref"].(string); ok {
+					var idx int
+					if _, err := fmt.Sscanf(ref, "row:%d", &idx); err == nil {
+						return idx
+					}
+				}
+			}
+			return 0
+		}
+		rowIndex := extractRowIndex(decryptedPayload)
+
+		fileName := ""
+		fileHash := ""
+		var totalRows int = 0
+
+		if in.FileName != nil {
+			fileName = *in.FileName
+		}
+		if in.FileContentHash != nil {
+			fileHash = *in.FileContentHash
+		}
+		if in.RowCountEstimate != nil {
+			totalRows = *in.RowCountEstimate
+		}
+
+		errInsert := db.InsertIngestRow(ctx, s.db,
+			*in.BatchID, in.TenantID.String(), mappingID, profileIDHint,
+			rowIndex, in.IdempotencyKey, status, errDetail, in.SourceSystem,
+			fileName, fileHash, decryptedPayload,
+		)
+		if errInsert != nil {
+			log.Printf("⚠️ Audit: failed to insert row audit for batch=%s row=%d: %v", *in.BatchID, rowIndex, errInsert)
+		}
+
+		acceptedCount := 0
+		failedCount := 0
+		duplicateCount := 0
+		errStats := s.db.QueryRowContext(ctx, `
+			SELECT
+				COUNT(*) FILTER (WHERE status = 'ACCEPTED'),
+				COUNT(*) FILTER (WHERE status = 'FAILED'),
+				COUNT(*) FILTER (WHERE status = 'DUPLICATE')
+			FROM intent_ingest_rows
+			WHERE batch_id = $1`,
+			*in.BatchID,
+		).Scan(&acceptedCount, &failedCount, &duplicateCount)
+
+		if errStats != nil {
+			log.Printf("⚠️ Audit: failed to query batch stats for batch=%s: %v", *in.BatchID, errStats)
+			return
+		}
+
+		processedRows := acceptedCount + failedCount + duplicateCount
+		hasTotalRows := totalRows > 0
+		if !hasTotalRows {
+			totalRows = processedRows
+		}
+
+		runStatus := "PROCESSING"
+		if hasTotalRows && processedRows >= totalRows {
+			runStatus = "COMPLETED"
+		}
+
+		errUpsert := db.UpsertIngestRun(ctx, s.db,
+			uuid.New().String(), *in.BatchID, in.TenantID.String(),
+			mappingID, profileIDHint, fileName, fileHash,
+			totalRows, acceptedCount, failedCount, duplicateCount,
+			runStatus,
+		)
+		if errUpsert != nil {
+			log.Printf("⚠️ Audit: failed to upsert run audit for batch=%s: %v", *in.BatchID, errUpsert)
+		}
+	}()
 
 	// -------- STEP 0: Transport guards --------
 
@@ -924,7 +1039,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 
 	// -------- STEP 5: Parse raw payload into domain model --------
-	decryptedPayload, err := vault.DecryptPayload(in.EncryptedPayload)
+	decryptedPayload, err = vault.DecryptPayload(in.EncryptedPayload)
 	if err != nil {
 		log.Printf("⚠️ Payload decryption failed for EnvelopeID=%s: %v", in.EnvelopeID, err)
 		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "PAYLOAD_DECRYPTION_FAILED", DLQStatus: models.ClassifyDLQ("PAYLOAD_DECRYPTION_FAILED"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
@@ -946,6 +1061,58 @@ func (s *IntentService) ProcessIncomingIntent(
 		log.Printf("⚠️ Raw payload hash mismatch for EnvelopeID=%s", in.EnvelopeID)
 		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "RAW_PAYLOAD_INTEGRITY_FAILED", DLQStatus: models.ClassifyDLQ("RAW_PAYLOAD_INTEGRITY_FAILED"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
 	}
+
+	in.SourceSystem = strings.ToUpper(strings.TrimSpace(in.SourceSystem))
+	if in.SourceSystem == "" || in.SourceSystem == "UNKNOWN" {
+		var rawFields map[string]any
+		if err := json.Unmarshal(decryptedPayload, &rawFields); err == nil {
+			headers := make([]string, 0, len(rawFields))
+			for header := range rawFields {
+				headers = append(headers, header)
+			}
+			if detected := DetectSourceType(headers); detected != "" {
+				in.SourceSystem = detected
+				log.Printf("ℹ️ [profile] detected source_system=%s envelope=%s", detected, in.EnvelopeID)
+			}
+		}
+	}
+
+	// -------- STEP 4: Mapping Profile Application ─────────────────────────────
+	// If a mapping profile is configured for this tenant + source_system,
+	// apply column_map to translate tenant headers → canonical JSON keys.
+	// This is the correct location for profile-driven normalization.
+	// The normalizer at Step 5.1 then runs as a fast-path (no-op for canonical JSON).
+	if in.SourceSystem != "" && in.SourceSystem != "UNKNOWN" {
+		artifactFamily := models.ArtifactFamilyLiveIntentJSON
+		if in.Source == "CSV" || in.Source == "XLSX" || in.Source == "BULK_FILE" {
+			artifactFamily = models.ArtifactFamilyPayoutFile
+		}
+
+		profile, profileErr := ResolveProfileForIntent(
+			ctx,
+			s.db,
+			in.TenantID,
+			in.SourceSystem,
+			artifactFamily,
+		)
+		if profileErr != nil {
+			log.Printf("⚠️ [profile] lookup failed envelope=%s: %v — continuing without profile",
+				in.EnvelopeID, profileErr)
+		} else if profile != nil {
+			resolvedProfile = profile
+			parser := NewGenericSourceParser()
+			mapped, mapErr := parser.ParseToCanonicalJSON(decryptedPayload, profile)
+			if mapErr != nil {
+				log.Printf("⚠️ [profile] ParseToCanonicalJSON failed envelope=%s: %v — continuing with raw payload",
+					in.EnvelopeID, mapErr)
+			} else {
+				decryptedPayload = mapped
+				log.Printf("ℹ️ [profile] applied profile=%s source=%s envelope=%s",
+					profile.ProfileID, in.SourceSystem, in.EnvelopeID)
+			}
+		}
+	}
+	// ── END STEP 4 ────────────────────────────────────────────────────────────
 
 	// -------- STEP 5.1: Header normalization (ETL 10.1 / 10.2 / 10.3) --------
 	// Normalize tenant-specific field names → Zord canonical JSON keys.
@@ -1020,12 +1187,16 @@ func (s *IntentService) ProcessIncomingIntent(
 	fieldsJSON, _ := json.Marshal(fieldsMap)
 
 	profileID := "generic_json_profile"
-	if in.SourceSystem != "" {
+	if resolvedProfile != nil {
+		profileID = resolvedProfile.ProfileID
+	} else if in.SourceSystem != "" {
 		profileID = fmt.Sprintf("%s_%s_json_profile", in.TenantID.String(), strings.ToLower(in.SourceSystem))
 	}
 
 	profileVersion := "v1"
-	if parsed.SchemaVersion != "" {
+	if resolvedProfile != nil {
+		profileVersion = resolvedProfile.ProfileVersion
+	} else if parsed.SchemaVersion != "" {
 		profileVersion = parsed.SchemaVersion
 	}
 

@@ -88,6 +88,7 @@ func main() {
 		intentRepo,
 		s3store,
 		tokenizeQueue,
+		db.DB,
 	)
 
 	// -------- DLQ HTTP (READ-ONLY) --------
@@ -139,6 +140,11 @@ func main() {
 	mux.HandleFunc("/internal/outbox/nack", outboxHandler.Nack)
 	mux.HandleFunc("/internal/airflow/transform", airflowHandler.Transform)
 	mux.HandleFunc("/internal/normalization/quality", normHandler.Quality)
+
+	// ── Admin: Mapping Profile CRUD ───────────────────────────────────────────
+	profileHandler := handlers.NewMappingProfileHandler(db.DB)
+	mux.HandleFunc("/v1/admin/mapping-profiles", profileHandler.ListOrCreate)
+	mux.HandleFunc("/v1/admin/mapping-profiles/", profileHandler.GetUpdateOrDeactivate)
 
 	handler := func(msg []byte) error {
 		var event models.Event

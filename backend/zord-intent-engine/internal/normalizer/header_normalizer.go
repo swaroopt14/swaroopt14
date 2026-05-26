@@ -459,54 +459,47 @@ func isAlreadyCanonical(raw map[string]any) bool {
 
 // ensureDefaults applies 10.3 row-level defaults.
 func ensureDefaults(canonical map[string]any, warnings *[]string) {
-	// Default currency to INR if amount.value present but currency missing
-	// if amtMap, ok := canonical["amount"].(map[string]any); ok {
-	// 	if amtMap["currency"] == nil || amtMap["currency"] == "" {
-	// 		amtMap["currency"] = "INR"
-	// 		*warnings = append(*warnings, "currency defaulted to INR")
-	// 	}
-	// }
-	// Default instrument kind to NEFT if IFSC present but kind missing
+	// ── Default intent_type to PAYOUT ────────────────────────────────────────
+	// ERP/Tally/SAP CSVs never contain an intent_type column. Without this
+	// default the field arrives empty → ApplyPolicy sets SemanticValid=false
+	// with MissingFields=["intent_type"] but SemanticErrors=[] (confusing log).
+	if v, _ := canonical["intent_type"].(string); v == "" {
+		canonical["intent_type"] = "PAYOUT"
+		*warnings = append(*warnings, "intent_type defaulted to PAYOUT")
+	}
+
+	// ── Default amount.currency to INR ────────────────────────────────────────
+	// Tally/SAP CSVs rarely carry a currency column. If amount.value is present
+	// but currency is absent, default to INR (the system's base currency).
+	if amtMap, ok := canonical["amount"].(map[string]any); ok {
+		if amtMap["currency"] == nil || amtMap["currency"] == "" {
+			amtMap["currency"] = "INR"
+			*warnings = append(*warnings, "amount.currency defaulted to INR")
+		}
+	}
+
+	// ── Normalize beneficiary.instrument.kind ─────────────────────────────────
 	if benMap, ok := canonical["beneficiary"].(map[string]any); ok {
 		if instMap, ok := benMap["instrument"].(map[string]any); ok {
-			// Always normalize the kind if present
+			// Normalize the kind enum if present (e.g. "neft" → "NEFT")
 			if kind, ok := instMap["kind"].(string); ok && kind != "" {
 				instMap["kind"] = normalizeRail(kind)
 			}
 
-			// if instMap["kind"] == nil || instMap["kind"] == "" {
-			// 	if instMap["ifsc"] != nil && instMap["ifsc"] != "" {
-			// 		instMap["kind"] = "NEFT"
-			// 		*warnings = append(*warnings, "instrument.kind defaulted to NEFT (ifsc present)")
-			// 	} else if instMap["vpa"] != nil && instMap["vpa"] != "" {
-			// 		instMap["kind"] = "UPI"
-			// 		*warnings = append(*warnings, "instrument.kind defaulted to UPI (vpa present)")
-			// 	} else {
-			// 		// Final fallback: default to BANK_ACCOUNT to satisfy validation
-			// 		instMap["kind"] = "BANK_ACCOUNT"
-			// 		*warnings = append(*warnings, "instrument.kind defaulted to BANK_ACCOUNT")
-			// 	}
-			// }
-			// If it's a bank rail, explicitly clear VPA to avoid policy violations from accidental mappings
-			// kind := strings.ToUpper(fmt.Sprintf("%v", instMap["kind"]))
-			// if kind == "BANK" || kind == "NEFT" || kind == "IMPS" || kind == "RTGS" {
-			// 	if instMap["vpa"] != nil && instMap["vpa"] != "" {
-			// 		instMap["vpa"] = ""
-			// 		*warnings = append(*warnings, "vpa cleared for bank-rail intent")
-			// 	}
-			// }
+			// If kind is still missing but IFSC or VPA is present, infer the rail
+			kindVal, _ := instMap["kind"].(string)
+			if kindVal == "" {
+				ifsc, _ := instMap["ifsc"].(string)
+				vpa, _ := instMap["vpa"].(string)
+				if ifsc != "" {
+					instMap["kind"] = "NEFT"
+					*warnings = append(*warnings, "instrument.kind inferred as NEFT (ifsc present)")
+				} else if vpa != "" {
+					instMap["kind"] = "UPI"
+					*warnings = append(*warnings, "instrument.kind inferred as UPI (vpa present)")
+				}
+			}
 		}
-		// if benMap["instrument"] == nil {
-		// 	// beneficiary exists but instrument is missing
-		// 	benMap["instrument"] = map[string]any{"kind": "BANK_ACCOUNT"}
-		// 	*warnings = append(*warnings, "instrument.kind defaulted to BANK_ACCOUNT")
-		// }
-		// } else if canonical["beneficiary"] == nil {
-		// 	// beneficiary is missing entirely
-		// 	canonical["beneficiary"] = map[string]any{
-		// 		"instrument": map[string]any{"kind": "BANK_ACCOUNT"},
-		// 	}
-		// 	*warnings = append(*warnings, "instrument.kind defaulted to BANK_ACCOUNT")
 	}
 }
 

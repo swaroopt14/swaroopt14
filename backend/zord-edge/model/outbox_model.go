@@ -33,4 +33,5 @@ type OutboxEvent struct {
 	FailureReasonCode *string    `json:"failure_reason_code" db:"failure_reason_code"`
 	BatchID           *string    `json:"batchid,omitempty" db:"batchid"`
 	FileContentHash   *string    `json:"file_content_hash,omitempty" db:"file_content_hash"`
+	SourceSystem      string     `json:"source_system" db:"source_system"`
 }

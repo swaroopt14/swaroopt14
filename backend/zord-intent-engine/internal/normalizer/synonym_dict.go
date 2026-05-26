@@ -16,6 +16,10 @@ var synonymDict = map[string]string{
 	"txn amount":      "amount.value",
 	"txnamount":       "amount.value",
 	"net_amount":      "amount.value",
+	// Tally export variants
+	"amt":             "amount.value",
+	"debit amount":    "amount.value",
+	"credit amount":   "amount.value",
 
 	// ── Currency ──────────────────────────────────────────────────
 	"currency":        "amount.currency",
@@ -32,6 +36,9 @@ var synonymDict = map[string]string{
 	"recipient name":   "beneficiary.name",
 	"account name":     "beneficiary.name",
 	"name":             "beneficiary.name",
+	// Tally export variants
+	"ledger name":      "beneficiary.name",
+	"ledger_name":      "beneficiary.name",
 
 	// ── Instrument kind ───────────────────────────────────────────
 	"instrument_kind": "beneficiary.instrument.kind",
@@ -90,6 +97,8 @@ var synonymDict = map[string]string{
 	"value_date":             "intended_execution_at",
 	"transfer_date":          "intended_execution_at",
 	"scheduled_execution_at": "intended_execution_at",
+	// Tally export variants
+	"date":                   "intended_execution_at",
 
 	// ── Account number ────────────────────────────────────────────
 	"account_number":             "account_number",
@@ -149,6 +158,11 @@ var synonymDict = map[string]string{
 	"payout_purpose": "payout_purpose",
 	"invoice_id":     "invoice_id",
 	"voucher_id":     "voucher_id",
+	// Tally export variants
+	"vch no":         "voucher_id",
+	"vch no.": 	  "voucher_id",
+	"voucher no":     "voucher_id",
+	"voucher type":   "purpose_code",
 
 	// ── KYC / Compliance ──────────────────────────────────────────
 	"vendor_type":      "vendor_type",

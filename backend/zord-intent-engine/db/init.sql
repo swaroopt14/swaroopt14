@@ -280,6 +280,49 @@ CREATE INDEX IF NOT EXISTS idx_intent_versions_intent_id ON intent_versions(inte
 CREATE INDEX IF NOT EXISTS idx_intent_versions_intent_version ON intent_versions(intent_id, version_no);
 
 -- ============================================================================
+-- INTENT INGEST RUNS TABLE (BATCH-LEVEL AUDIT)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS intent_ingest_runs (
+    run_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    batch_id       TEXT NOT NULL UNIQUE,
+    tenant_id      UUID NOT NULL,
+    mapping_id     TEXT,         -- profile_id resolved by the intent-engine for this batch
+    profile_id     TEXT,         -- legacy audit hint (e.g. "system-tally-v1")
+    file_name      TEXT,
+    file_hash      TEXT,
+    total_rows     INT  DEFAULT 0,
+    accepted_rows  INT  DEFAULT 0,
+    failed_rows    INT  DEFAULT 0,
+    duplicate_rows INT  DEFAULT 0,
+    status         TEXT NOT NULL DEFAULT 'PROCESSING',
+    started_at     TIMESTAMPTZ DEFAULT now(),
+    completed_at   TIMESTAMPTZ
+);
+
+-- ============================================================================
+-- INTENT INGEST ROWS TABLE (PER-ROW AUDIT)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS intent_ingest_rows (
+    row_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    batch_id        TEXT NOT NULL,
+    tenant_id       UUID NOT NULL,
+    mapping_id      TEXT NOT NULL DEFAULT '',  -- profile_id from mapping_profiles used
+    profile_id      TEXT,                       -- legacy: human-readable source profile
+    row_index       INT  NOT NULL DEFAULT 0,    -- 1-based row number within the file
+    idempotency_key TEXT,
+    status          TEXT NOT NULL DEFAULT 'ACCEPTED', -- ACCEPTED | FAILED | DUPLICATE
+    error_detail    TEXT,
+    source_system   TEXT,
+    file_name       TEXT,
+    file_hash       TEXT,
+    raw_row_json    JSONB,
+    created_at      TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_iir_tenant_batch ON intent_ingest_rows (tenant_id, batch_id);
+CREATE INDEX IF NOT EXISTS idx_iir_mapping_id ON intent_ingest_rows (mapping_id);
+
+-- ============================================================================
 -- VERIFICATION QUERIES
 -- Run these to verify tables were created successfully
 -- ============================================================================

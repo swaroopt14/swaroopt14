@@ -186,12 +186,13 @@ func main() {
 	explanationHandler := handlers.NewExplanationHandler(explSvc)
 
 	// ── Dashboard handlers (frontend-facing /dashboard/ endpoints) ────────
-	dashLeakageH := handlers.NewDashboardLeakageHandler(snapshotRepo)
-	dashAmbiguityH := handlers.NewDashboardAmbiguityHandler(snapshotRepo)
-	dashDefensibilityH := handlers.NewDashboardDefensibilityHandler(snapshotRepo)
-	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo, projRepo)
-	dashRecommendationH := handlers.NewDashboardRecommendationHandler(actionRepo, snapshotRepo)
-	dashRCAH := handlers.NewDashboardRCAHandler(snapshotRepo)
+	intelligenceMode := string(cfg.IntelligenceMode)
+	dashLeakageH := handlers.NewDashboardLeakageHandler(snapshotRepo, intelligenceMode)
+	dashAmbiguityH := handlers.NewDashboardAmbiguityHandler(snapshotRepo, intelligenceMode)
+	dashDefensibilityH := handlers.NewDashboardDefensibilityHandler(snapshotRepo, intelligenceMode)
+	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo, projRepo, intelligenceMode)
+	dashRecommendationH := handlers.NewDashboardRecommendationHandler(actionRepo, snapshotRepo, intelligenceMode)
+	dashRCAH := handlers.NewDashboardRCAHandler(snapshotRepo, intelligenceMode)
 
 	// ── Step 9: Build the HTTP router ─────────────────────────────────────
 	router := handlers.NewRouter(

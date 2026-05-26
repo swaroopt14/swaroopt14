@@ -30,12 +30,13 @@ import (
 
 // DashboardDefensibilityHandler serves GET /v1/intelligence/dashboard/defensibility.
 type DashboardDefensibilityHandler struct {
-	snapshotRepo *persistence.IntelligenceSnapshotRepo
+	snapshotRepo     *persistence.IntelligenceSnapshotRepo
+	intelligenceMode string
 }
 
 // NewDashboardDefensibilityHandler creates a DashboardDefensibilityHandler.
-func NewDashboardDefensibilityHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo) *DashboardDefensibilityHandler {
-	return &DashboardDefensibilityHandler{snapshotRepo: snapshotRepo}
+func NewDashboardDefensibilityHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo, mode string) *DashboardDefensibilityHandler {
+	return &DashboardDefensibilityHandler{snapshotRepo: snapshotRepo, intelligenceMode: mode}
 }
 
 // defensibilityKPIFields reads the KPI fields from DefensibilitySnapshot JSON.
@@ -86,6 +87,9 @@ type DashboardDefensibilityResponse struct {
 	// D7 — weak_evidence_rate: fraction of intents flagged with evidence gap
 	WeakEvidenceCount int     `json:"weak_evidence_count"`
 	WeakEvidenceRate  float64 `json:"weak_evidence_rate"`
+
+	// Intelligence mode — GRADE_A or GRADE_B
+	IntelligenceMode string `json:"intelligence_mode,omitempty"`
 }
 
 // GetDefensibilityKPIs handles GET /v1/intelligence/dashboard/defensibility
@@ -108,11 +112,11 @@ func (h *DashboardDefensibilityHandler) GetDefensibilityKPIs(w http.ResponseWrit
 		return
 	}
 
-	resp := DashboardDefensibilityResponse{TenantID: tenantID}
+	resp := DashboardDefensibilityResponse{TenantID: tenantID, IntelligenceMode: h.intelligenceMode}
 
 	if snap == nil {
 		resp.DataAvailable = false
-		resp.Reason = "no_data — no evidence packs or governance decisions received yet"
+		resp.Reason = "No evidence pack data available for this period"
 		writeJSON(w, http.StatusOK, resp)
 		return
 	}

@@ -38,16 +38,18 @@ import (
 
 // DashboardRecommendationHandler serves GET /v1/intelligence/dashboard/recommendations.
 type DashboardRecommendationHandler struct {
-	actionRepo   *persistence.ActionContractRepo
-	snapshotRepo *persistence.IntelligenceSnapshotRepo
+	actionRepo      *persistence.ActionContractRepo
+	snapshotRepo    *persistence.IntelligenceSnapshotRepo
+	intelligenceMode string
 }
 
 // NewDashboardRecommendationHandler creates a DashboardRecommendationHandler.
 func NewDashboardRecommendationHandler(
 	actionRepo *persistence.ActionContractRepo,
 	snapshotRepo *persistence.IntelligenceSnapshotRepo,
+	mode string,
 ) *DashboardRecommendationHandler {
-	return &DashboardRecommendationHandler{actionRepo: actionRepo, snapshotRepo: snapshotRepo}
+	return &DashboardRecommendationHandler{actionRepo: actionRepo, snapshotRepo: snapshotRepo, intelligenceMode: mode}
 }
 
 // recSnapshotFields reads Rec1/Rec2 fields from RecommendationSnapshot JSON.
@@ -77,6 +79,9 @@ type DashboardRecommendationResponse struct {
 	RecommendationPriorityScore float64 `json:"recommendation_priority_score"`
 	// Rec2 — recommendation_impact_estimate_minor: sum of impact amounts for CRITICAL + HIGH cards
 	RecommendationImpactEstimateMinor decimal.Decimal `json:"recommendation_impact_estimate_minor"`
+
+	// Intelligence mode — GRADE_A or GRADE_B
+	IntelligenceMode string `json:"intelligence_mode,omitempty"`
 }
 
 // GetRecommendationKPIs handles GET /v1/intelligence/dashboard/recommendations
@@ -98,30 +103,16 @@ func (h *DashboardRecommendationHandler) GetRecommendationKPIs(w http.ResponseWr
 	now := time.Now().UTC()
 	resp := DashboardRecommendationResponse{
 		TenantID:        tenantID,
-		DataAvailable:   summary.Total > 0,
+		IntelligenceMode: h.intelligenceMode,
 		ComputedAt:      &now,
 		TotalActions:    summary.Total,
 		AcceptedActions: summary.Accepted,
 		ResolvedActions: summary.Resolved,
 	}
 
-	if summary.Total == 0 {
-		resp.Reason = "no_data — no action contracts exist for this tenant yet"
-		writeJSON(w, http.StatusOK, resp)
-		return
-	}
-
-	// KPI 15 — action_acceptance_rate = accepted / total_recommendations
-	resp.ActionAcceptanceRate = float64(summary.Accepted) / float64(summary.Total)
-
-	// KPI 16 — action_resolution_rate = resolved / total_accepted_actions
-	// "resolved" = reached a terminal decision (APPROVED or DISMISSED).
-	// "total_accepted_actions" = all non-EXPIRED contracts accepted for review = Total.
-	resp.ActionResolutionRate = float64(summary.Resolved) / float64(summary.Total)
-
 	// ── Rec1 / Rec2: fetch RECOMMENDATION snapshot ────────────────────────────
-	// These fields live in the RECOMMENDATION intelligence snapshot, not in the
-	// action_contracts table, so we fetch them separately.
+	// Fetched unconditionally — these KPIs are written by the intelligence service
+	// independently of whether any action contracts exist yet.
 	if h.snapshotRepo != nil {
 		recSnap, recErr := h.snapshotRepo.GetLatestByTypeFiltered(
 			r.Context(), tenantID, "RECOMMENDATION", "TENANT", nil, from, to,
@@ -134,6 +125,26 @@ func (h *DashboardRecommendationHandler) GetRecommendationKPIs(w http.ResponseWr
 			}
 		}
 	}
+
+	hasRecData := resp.RecommendationPriorityScore > 0 || !resp.RecommendationImpactEstimateMinor.IsZero()
+	resp.DataAvailable = summary.Total > 0 || hasRecData
+
+	if summary.Total == 0 {
+		if !hasRecData {
+			resp.Reason = "No recommendation data available for this period"
+		}
+		// KPI 15/16 stay zero — no action contracts to compute rates from.
+		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+
+	// KPI 15 — action_acceptance_rate = accepted / total_recommendations
+	resp.ActionAcceptanceRate = float64(summary.Accepted) / float64(summary.Total)
+
+	// KPI 16 — action_resolution_rate = resolved / total_accepted_actions
+	// "resolved" = reached a terminal decision (APPROVED or DISMISSED).
+	// "total_accepted_actions" = all non-EXPIRED contracts accepted for review = Total.
+	resp.ActionResolutionRate = float64(summary.Resolved) / float64(summary.Total)
 
 	writeJSON(w, http.StatusOK, resp)
 }

@@ -97,9 +97,13 @@ type LeakageSnapshot struct {
 	// ── P7 numerator: value-date mismatch count ────────────────────────────
 	ValueDateMismatchCount int `json:"value_date_mismatch_count"`
 
-	// ── L7: Duplicate settlement risk ────────────────────────────────────────
+	// ── L7: Duplicate settlement risk (intent-level risk flag) ──────────────
 	DuplicateRiskCount         int             `json:"duplicate_risk_count"`
 	DuplicateRiskExposureMinor decimal.Decimal `json:"duplicate_risk_exposure_minor"`
+
+	// ── L7b: Confirmed duplicates (MATCH_DUPLICATE decisions) ────────────────
+	ConfirmedDuplicateCount         int             `json:"confirmed_duplicate_count"`
+	ConfirmedDuplicateExposureMinor decimal.Decimal `json:"confirmed_duplicate_exposure_minor"`
 
 	// ── Top leakage drivers (deterministic ranking) ───────────────────────
 	// Sorted by amount desc. Used by the recommendation layer.
@@ -225,6 +229,8 @@ func (s *LeakageIntelligenceService) buildSnapshot(lv *models.LeakageValue) Leak
 		ValueDateMismatchCount:          lv.ValueDateMismatchCount,
 		DuplicateRiskCount:              lv.DuplicateRiskCount,
 		DuplicateRiskExposureMinor:      lv.DuplicateRiskExposureMinor,
+		ConfirmedDuplicateCount:         lv.ConfirmedDuplicateCount,
+		ConfirmedDuplicateExposureMinor: lv.ConfirmedDuplicateExposureMinor,
 		UnmatchedAmountMinor:            lv.UnmatchedAmountMinor,
 		UnderSettlementAmountMinor:      lv.UnderSettlementAmountMinor,
 		OrphanAmountMinor:               lv.OrphanAmountMinor,

@@ -65,6 +65,7 @@ func TestBuiltInTallyProfileMapsAmountHeader(t *testing.T) {
 		ClientPayoutRef string `json:"client_payout_ref"`
 		IdempotencyKey  string `json:"idempotency_key"`
 		IntentType      string `json:"intent_type"`
+		SourceRowRef    string `json:"source_row_ref"`
 	}
 	if err := json.Unmarshal(mapped, &canonical); err != nil {
 		t.Fatalf("mapped JSON unmarshal error = %v", err)
@@ -90,5 +91,61 @@ func TestBuiltInTallyProfileMapsAmountHeader(t *testing.T) {
 	}
 	if canonical.IntentType != "PAYOUT" {
 		t.Fatalf("intent_type = %q, want PAYOUT", canonical.IntentType)
+	}
+	if canonical.SourceRowRef != "row:1" {
+		t.Fatalf("source_row_ref = %q, want row:1", canonical.SourceRowRef)
+	}
+}
+
+func TestDetectSourceTypeDoesNotClassifyGeneralPayoutAsERP(t *testing.T) {
+	headers := []string{
+		"Tenant_id",
+		"source_system",
+		"client_batch_ref",
+		"client_payout_ref",
+		"invoice_id",
+		"voucher_id",
+		"ledger_name",
+		"vendor_id",
+		"vendor_name",
+		"beneficiary_name",
+		"beneficiary_account_number",
+		"beneficiary_ifsc",
+		"beneficiary_vpa",
+		"amount",
+		"currency",
+		"payment_method",
+		"rail_hint",
+		"payout_purpose",
+		"scheduled_execution_at",
+		"expected_value_date",
+		"bank_account_ref",
+		"approval_ref",
+		"idempotency_key",
+		"remarks",
+		"pan_number",
+		"mcc_code",
+	}
+
+	if got := DetectSourceType(headers); got != "" {
+		t.Fatalf("DetectSourceType() = %q, want empty for unconfigured general payout file", got)
+	}
+}
+
+func TestAutoGenericProfileIDUsesHeaderShape(t *testing.T) {
+	raw := []byte(`{
+		"source_row_ref": "row:1",
+		"amount": "100.00",
+		"beneficiary_name": "Acme",
+		"beneficiary_ifsc": "HDFC0001",
+		"scheduled_execution_at": "2026-06-15"
+	}`)
+
+	got := autoGenericProfileID(raw)
+	if got == "system-erp-v1" {
+		t.Fatal("autoGenericProfileID returned system-erp-v1")
+	}
+	if len(got) != len("auto-generic-123456789abc-v1") || got[:13] != "auto-generic-" {
+		t.Fatalf("autoGenericProfileID() = %q, want auto-generic-<hash>-v1", got)
 	}
 }

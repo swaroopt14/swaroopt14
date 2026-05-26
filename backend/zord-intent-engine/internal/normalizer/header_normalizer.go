@@ -446,6 +446,7 @@ var canonicalTopLevelKeys = map[string]bool{
 	"bank_verified": true, "cin_number": true, "msme_number": true,
 	"gateway_name": true, "fund_account_id": true, "contact_id": true,
 	"kyc_verified_at": true, "source": true, "source_system": true,
+	"source_row_ref": true,
 }
 
 func isAlreadyCanonical(raw map[string]any) bool {
@@ -491,12 +492,12 @@ func ensureDefaults(canonical map[string]any, warnings *[]string) {
 			if kindVal == "" {
 				ifsc, _ := instMap["ifsc"].(string)
 				vpa, _ := instMap["vpa"].(string)
-				if ifsc != "" {
-					instMap["kind"] = "NEFT"
-					*warnings = append(*warnings, "instrument.kind inferred as NEFT (ifsc present)")
-				} else if vpa != "" {
+				if vpa != "" {
 					instMap["kind"] = "UPI"
 					*warnings = append(*warnings, "instrument.kind inferred as UPI (vpa present)")
+				} else if ifsc != "" {
+					instMap["kind"] = "NEFT"
+					*warnings = append(*warnings, "instrument.kind inferred as NEFT (ifsc present)")
 				}
 			}
 		}

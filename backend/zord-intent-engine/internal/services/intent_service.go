@@ -13,6 +13,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -896,6 +897,9 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	var resolvedProfile *models.MappingProfile
 	var decryptedPayload []byte
+	var rawAuditPayload []byte
+	var auditProfileID string
+	var auditProfileVersion string
 	var err error
 
 	defer func() {
@@ -924,6 +928,9 @@ func (s *IntentService) ProcessIncomingIntent(
 		if resolvedProfile != nil {
 			mappingID = resolvedProfile.ProfileID
 			profileIDHint = resolvedProfile.ProfileVersion
+		} else if auditProfileID != "" {
+			mappingID = auditProfileID
+			profileIDHint = auditProfileVersion
 		}
 
 		// Helper to extract row index
@@ -939,7 +946,11 @@ func (s *IntentService) ProcessIncomingIntent(
 			}
 			return 0
 		}
-		rowIndex := extractRowIndex(decryptedPayload)
+		auditPayload := rawAuditPayload
+		if len(auditPayload) == 0 {
+			auditPayload = decryptedPayload
+		}
+		rowIndex := extractRowIndex(auditPayload)
 
 		fileName := ""
 		fileHash := ""
@@ -958,7 +969,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		errInsert := db.InsertIngestRow(ctx, s.db,
 			*in.BatchID, in.TenantID.String(), mappingID, profileIDHint,
 			rowIndex, in.IdempotencyKey, status, errDetail, in.SourceSystem,
-			fileName, fileHash, decryptedPayload,
+			fileName, fileHash, auditPayload,
 		)
 		if errInsert != nil {
 			log.Printf("⚠️ Audit: failed to insert row audit for batch=%s row=%d: %v", *in.BatchID, rowIndex, errInsert)
@@ -1044,6 +1055,10 @@ func (s *IntentService) ProcessIncomingIntent(
 		log.Printf("⚠️ Payload decryption failed for EnvelopeID=%s: %v", in.EnvelopeID, err)
 		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "PAYLOAD_DECRYPTION_FAILED", DLQStatus: models.ClassifyDLQ("PAYLOAD_DECRYPTION_FAILED"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
 	}
+
+	rawAuditPayload = append([]byte(nil), decryptedPayload...)
+	auditProfileID = autoGenericProfileID(rawAuditPayload)
+	auditProfileVersion = "v1"
 
 	// -------- STEP 4: Recompute SHA256(raw_bytes) and compare --------
 	rawHash := sha256.Sum256(decryptedPayload)
@@ -1189,8 +1204,8 @@ func (s *IntentService) ProcessIncomingIntent(
 	profileID := "generic_json_profile"
 	if resolvedProfile != nil {
 		profileID = resolvedProfile.ProfileID
-	} else if in.SourceSystem != "" {
-		profileID = fmt.Sprintf("%s_%s_json_profile", in.TenantID.String(), strings.ToLower(in.SourceSystem))
+	} else if auditProfileID != "" {
+		profileID = auditProfileID
 	}
 
 	profileVersion := "v1"
@@ -1493,44 +1508,44 @@ func (s *IntentService) ProcessIncomingIntent(
 
 	// Score requires partial intent for signals
 	tempIntent := &models.CanonicalIntent{
-		TraceID:                in.TraceID.String(),
-		IntentID:               intentID,
-		EnvelopeID:             in.EnvelopeID.String(),
-		TenantID:               in.TenantID.String(),
-		IdempotencyKey:         in.IdempotencyKey,
-		SalientHash:            "NA",
-		PayloadHash:            in.PayloadHash,
-		IntentType:             canonicalInput.IntentType,
-		CanonicalVersion:       "v1",
-		SchemaVersion:          canonicalInput.SchemaVersion,
-		Amount:                 amount,
-		Currency:               canonicalInput.Amount.Currency,
-		IntendedExecutionAt:    executionAt,
-		Constraints:            constraintsJSON,
-		BeneficiaryType:        canonicalInput.Beneficiary.Instrument.Kind,
-		PIITokens:              piiJSON,
-		Beneficiary:            beneficiaryJSON,
-		Status:                 "CREATED",
-		CreatedAt:              time.Now().UTC(),
+		TraceID:                    in.TraceID.String(),
+		IntentID:                   intentID,
+		EnvelopeID:                 in.EnvelopeID.String(),
+		TenantID:                   in.TenantID.String(),
+		IdempotencyKey:             in.IdempotencyKey,
+		SalientHash:                "NA",
+		PayloadHash:                in.PayloadHash,
+		IntentType:                 canonicalInput.IntentType,
+		CanonicalVersion:           "v1",
+		SchemaVersion:              canonicalInput.SchemaVersion,
+		Amount:                     amount,
+		Currency:                   canonicalInput.Amount.Currency,
+		IntendedExecutionAt:        executionAt,
+		Constraints:                constraintsJSON,
+		BeneficiaryType:            canonicalInput.Beneficiary.Instrument.Kind,
+		PIITokens:                  piiJSON,
+		Beneficiary:                beneficiaryJSON,
+		Status:                     "CREATED",
+		CreatedAt:                  time.Now().UTC(),
 		PaymentInstructionReceived: &in.ReceivedAt,
-		CanonicalIntentCreated:    func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
-		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
-		ProviderHint:           canonicalInput.ProviderHint,
-		ClientBatchRef:         batchIDStr,
-		RequestFingerprint:     reqFingerprint,
-		RoutingHintsJSON:       json.RawMessage(`{}`),
-		GovernanceState:        "PENDING",
-		BusinessState:          "NEW",
-		DuplicateRiskFlag:      dupRisk,
-		MappingProfileID:       nir.ProfileID,
-		MappingProfileVersion:  nir.ProfileVersion,
-		SourceSystem:           in.SourceSystem,
-		GovernanceHash:         governanceHash,
-		BusinessIdempotencyKey: bIdemKey,
-		BeneficiaryFingerprint: bFingerprint,
-		DuplicateReasonCode:    dupReason,
-		BatchID:                in.BatchID,
-		ValidationAnomalies:    anomalies,
+		CanonicalIntentCreated:     func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		ClientPayoutRef:            canonicalInput.ClientPayoutRef,
+		ProviderHint:               canonicalInput.ProviderHint,
+		ClientBatchRef:             batchIDStr,
+		RequestFingerprint:         reqFingerprint,
+		RoutingHintsJSON:           json.RawMessage(`{}`),
+		GovernanceState:            "PENDING",
+		BusinessState:              "NEW",
+		DuplicateRiskFlag:          dupRisk,
+		MappingProfileID:           nir.ProfileID,
+		MappingProfileVersion:      nir.ProfileVersion,
+		SourceSystem:               in.SourceSystem,
+		GovernanceHash:             governanceHash,
+		BusinessIdempotencyKey:     bIdemKey,
+		BeneficiaryFingerprint:     bFingerprint,
+		DuplicateReasonCode:        dupReason,
+		BatchID:                    in.BatchID,
+		ValidationAnomalies:        anomalies,
 	}
 
 	// Update governance with duplicate detection results
@@ -1581,10 +1596,10 @@ func (s *IntentService) ProcessIncomingIntent(
 		PIITokens:       piiJSON,
 		Beneficiary:     beneficiaryJSON,
 
-		Status:    "CREATED",
-		CreatedAt: time.Now().UTC(),
+		Status:                     "CREATED",
+		CreatedAt:                  time.Now().UTC(),
 		PaymentInstructionReceived: &in.ReceivedAt,
-		CanonicalIntentCreated:    func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		CanonicalIntentCreated:     func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 
 		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
 		ProviderHint:          canonicalInput.ProviderHint,
@@ -1926,44 +1941,44 @@ func (s *IntentService) ProcessTokenizeResult(
 
 	// Score requires partial intent for signals
 	tempIntent := &models.CanonicalIntent{
-		TraceID:                event.TraceID,
-		IntentID:               intentID,
-		EnvelopeID:             event.EnvelopeID,
-		TenantID:               event.TenantID,
-		IdempotencyKey:         idempotencyKey,
-		SalientHash:            "NA",
-		PayloadHash:            canonicalInput.PayloadHash,
-		IntentType:             canonicalInput.IntentType,
-		CanonicalVersion:       "v1",
-		SchemaVersion:          canonicalInput.SchemaVersion,
-		Amount:                 amount,
-		Currency:               canonicalInput.Amount.Currency,
-		IntendedExecutionAt:    executionAt,
-		Constraints:            constraintsJSON,
-		BeneficiaryType:        canonicalInput.Beneficiary.Instrument.Kind,
-		PIITokens:              piiJSON,
-		Beneficiary:            beneficiaryJSON,
-		Status:                 "CREATED",
-		CreatedAt:              time.Now().UTC(),
+		TraceID:                    event.TraceID,
+		IntentID:                   intentID,
+		EnvelopeID:                 event.EnvelopeID,
+		TenantID:                   event.TenantID,
+		IdempotencyKey:             idempotencyKey,
+		SalientHash:                "NA",
+		PayloadHash:                canonicalInput.PayloadHash,
+		IntentType:                 canonicalInput.IntentType,
+		CanonicalVersion:           "v1",
+		SchemaVersion:              canonicalInput.SchemaVersion,
+		Amount:                     amount,
+		Currency:                   canonicalInput.Amount.Currency,
+		IntendedExecutionAt:        executionAt,
+		Constraints:                constraintsJSON,
+		BeneficiaryType:            canonicalInput.Beneficiary.Instrument.Kind,
+		PIITokens:                  piiJSON,
+		Beneficiary:                beneficiaryJSON,
+		Status:                     "CREATED",
+		CreatedAt:                  time.Now().UTC(),
 		PaymentInstructionReceived: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
-		CanonicalIntentCreated:    func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
-		ClientPayoutRef:        canonicalInput.ClientPayoutRef,
-		ProviderHint:           canonicalInput.ProviderHint,
-		ClientBatchRef:         batchIDStr,
-		RequestFingerprint:     reqFingerprint,
-		RoutingHintsJSON:       json.RawMessage(`{}`),
-		GovernanceState:        "PENDING",
-		BusinessState:          "NEW",
-		DuplicateRiskFlag:      dupRisk,
-		MappingProfileID:       nir.ProfileID,
-		MappingProfileVersion:  nir.ProfileVersion,
-		SourceSystem:           event.SourceSystem,
-		GovernanceHash:         canonicalInput.GovernanceHash,
-		BusinessIdempotencyKey: bIdemKey,
-		BeneficiaryFingerprint: bFingerprint,
-		DuplicateReasonCode:    dupReason,
-		BatchID:                event.BatchID,
-		ValidationAnomalies:    anomalies,
+		CanonicalIntentCreated:     func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		ClientPayoutRef:            canonicalInput.ClientPayoutRef,
+		ProviderHint:               canonicalInput.ProviderHint,
+		ClientBatchRef:             batchIDStr,
+		RequestFingerprint:         reqFingerprint,
+		RoutingHintsJSON:           json.RawMessage(`{}`),
+		GovernanceState:            "PENDING",
+		BusinessState:              "NEW",
+		DuplicateRiskFlag:          dupRisk,
+		MappingProfileID:           nir.ProfileID,
+		MappingProfileVersion:      nir.ProfileVersion,
+		SourceSystem:               event.SourceSystem,
+		GovernanceHash:             canonicalInput.GovernanceHash,
+		BusinessIdempotencyKey:     bIdemKey,
+		BeneficiaryFingerprint:     bFingerprint,
+		DuplicateReasonCode:        dupReason,
+		BatchID:                    event.BatchID,
+		ValidationAnomalies:        anomalies,
 	}
 
 	// Update governance with duplicate detection results
@@ -2007,10 +2022,10 @@ func (s *IntentService) ProcessTokenizeResult(
 		PIITokens:       piiJSON,
 		Beneficiary:     beneficiaryJSON,
 
-		Status:    "CREATED",
-		CreatedAt: time.Now().UTC(),
+		Status:                     "CREATED",
+		CreatedAt:                  time.Now().UTC(),
 		PaymentInstructionReceived: func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
-		CanonicalIntentCreated:    func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
+		CanonicalIntentCreated:     func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 
 		ClientPayoutRef:       canonicalInput.ClientPayoutRef,
 		ProviderHint:          canonicalInput.ProviderHint,
@@ -2272,4 +2287,28 @@ func canonicalPathToFieldName(path string) string {
 	default:
 		return path
 	}
+}
+
+func autoGenericProfileID(rawJSON []byte) string {
+	var raw map[string]any
+	if err := json.Unmarshal(rawJSON, &raw); err != nil || len(raw) == 0 {
+		sum := sha256.Sum256(rawJSON)
+		return "auto-generic-" + hex.EncodeToString(sum[:])[:12] + "-v1"
+	}
+
+	headers := make([]string, 0, len(raw))
+	for key := range raw {
+		normalized := strings.ToLower(strings.TrimSpace(key))
+		if normalized == "" || normalized == "source_row_ref" {
+			continue
+		}
+		headers = append(headers, normalized)
+	}
+	if len(headers) == 0 {
+		headers = append(headers, "json")
+	}
+	sort.Strings(headers)
+
+	sum := sha256.Sum256([]byte(strings.Join(headers, "|")))
+	return "auto-generic-" + hex.EncodeToString(sum[:])[:12] + "-v1"
 }

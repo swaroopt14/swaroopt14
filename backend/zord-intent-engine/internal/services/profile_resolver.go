@@ -151,13 +151,6 @@ func DetectSourceType(headers []string) string {
 		}
 	}
 
-	// Generic ERP special rule
-	if def, ok := detectorProfiles["ERP"]; ok {
-		if normalized["amount"] && (normalized["beneficiary_name"] || normalized["account_number"]) {
-			return def.SourceType
-		}
-	}
-
 	return ""
 }
 

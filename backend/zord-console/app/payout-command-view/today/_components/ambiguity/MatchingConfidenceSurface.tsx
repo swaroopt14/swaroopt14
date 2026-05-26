@@ -1,27 +1,30 @@
 'use client'
 
-import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
-import { LiveDataHint } from '../shared'
+import { usePathname } from 'next/navigation'
+import Link from 'next/link'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { FinalityStatus, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { ambiguityCopy } from './copy/ambiguityCopy'
-import { AmbiguityActionBar } from './components/AmbiguityActionBar'
 import { MatchingConfidenceKpiStrip } from './components/MatchingConfidenceKpiStrip'
-import { WhyPaymentsNeedReviewChart } from './components/WhyPaymentsNeedReviewChart'
 import { TopReasonsForReview } from './components/TopReasonsForReview'
-import { AverageMatchConfidenceCard } from './components/AverageMatchConfidenceCard'
-import { MissingReferenceRateCard } from './components/MissingReferenceRateCard'
+import { AmbiguityVelocityChart } from './components/AmbiguityVelocityChart'
+import { MatchingExecutionLog } from './components/MatchingExecutionLog'
 import { BatchesNeedingReviewTable } from './components/BatchesNeedingReviewTable'
+import { AmbiguityMixDonut } from './components/AmbiguityMixDonut'
+import { BatchControlList, DataQualityAuditCard } from './components/BatchControlList'
 
 export function MatchingConfidenceSurface() {
   const pathname = usePathname()
   const { tenantReady } = useSessionTenant()
-  const { ambiguity, loading: kpiLoading } = useIntelligenceKpis({ tenantReady })
+
+  const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>()
+  const { ambiguity, loading: kpiLoading, refresh } = useIntelligenceKpis({
+    tenantReady,
+    batchId: selectedBatchId,
+  })
   const amb = isDataAvailable(ambiguity) ? ambiguity : null
 
   const [finalityFilter, setFinalityFilter] = useState<'' | FinalityStatus>('')
@@ -52,37 +55,123 @@ export function MatchingConfidenceSurface() {
   }, [loadBatches])
 
   return (
-    <div className="space-y-6">
-      <div className="space-y-2">
-        <p className="max-w-3xl text-[14px] leading-relaxed text-slate-600">{ambiguityCopy.pageSubtitle}</p>
-        <Link
-          href={`${pathname}?dock=leakage`}
-          className="text-[14px] font-semibold text-slate-900 underline decoration-sky-300 underline-offset-2"
-        >
-          {ambiguityCopy.linkPaymentGaps}
-        </Link>
-        <LiveDataHint isLive={Boolean(amb)} source="ambiguity" />
+    <div className="min-h-screen space-y-4 bg-[#e8eef5] p-4 text-slate-900 sm:p-6">
+
+      {/* ── Page header ─────────────────────────────────────────────────────── */}
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-[1.25rem] font-bold tracking-tight text-[#000000]">
+              Ambiguity &amp; Match Confidence
+            </h1>
+            <Link
+              href={`${pathname}?dock=leakage`}
+              className="text-[13px] font-medium text-[#00239C] underline decoration-[#00239C]/30 underline-offset-2 hover:text-[#103a9e]"
+            >
+              ← Payment Gaps
+            </Link>
+          </div>
+          <p className="mt-1 max-w-2xl text-[13px] font-medium leading-relaxed text-[#00239C]">
+            See where Zord cannot confidently connect payment instructions to bank, PSP, or settlement outcomes.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {/* Batch selector */}
+          <div className="relative">
+            <select
+              value={selectedBatchId ?? ''}
+              onChange={(e) => setSelectedBatchId(e.target.value || undefined)}
+              className="h-9 appearance-none rounded-full border border-slate-200 bg-white pl-4 pr-8 text-[13px] font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="">All Batches (Tenant)</option>
+              {batches.map((b) => (
+                <option key={b.batch_id} value={b.batch_id}>
+                  {b.batch_id.length > 18 ? `${b.batch_id.slice(0, 18)}…` : b.batch_id}
+                </option>
+              ))}
+            </select>
+            <svg
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400"
+              fill="none" viewBox="0 0 20 20" stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 8l4 4 4-4" />
+            </svg>
+          </div>
+
+          {/* Search icon */}
+          <button
+            type="button"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm hover:bg-slate-50"
+            aria-label="Search"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </button>
+
+          {/* Refresh */}
+          <button
+            type="button"
+            onClick={() => void refresh()}
+            disabled={kpiLoading}
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+            aria-label="Refresh"
+          >
+            <svg
+              className={`h-4 w-4 ${kpiLoading ? 'animate-spin' : ''}`}
+              fill="none" viewBox="0 0 20 20"
+            >
+              <path d="M16 6.5V3.8l-2.6 2.3A6.2 6.2 0 1 0 16 10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+
+          {/* Profile circle */}
+          <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-200 text-[13px] font-bold text-slate-600 shadow-sm hover:bg-slate-300">
+            Z
+          </button>
+        </div>
+      </header>
+
+      {/* ── Row 1+2: KPIs & Velocity (left) + Zord Intelligence & Heatmap (right) */}
+      <div className="grid gap-4 xl:grid-cols-[1fr_320px]">
+
+        {/* Left column */}
+        <div className="flex flex-col gap-4">
+          {/* KPI cards strip */}
+          <MatchingConfidenceKpiStrip amb={amb} loading={kpiLoading && !amb} />
+
+          {/* Ambiguity Velocity chart */}
+          <AmbiguityVelocityChart amb={amb} batchId={selectedBatchId} />
+        </div>
+
+        {/* Right column: Zord Intelligence + Heatmap */}
+        <div className="flex flex-col gap-4">
+          <TopReasonsForReview amb={amb} />
+          <MatchingExecutionLog amb={amb} />
+        </div>
       </div>
 
-      <AmbiguityActionBar />
-      <MatchingConfidenceKpiStrip amb={amb} loading={kpiLoading && !amb} />
+      {/* ── Row 3: Batch table + Donut + Control list ─────────────────────── */}
+      <div className="grid gap-4 lg:grid-cols-[2fr_1fr_1fr]">
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <WhyPaymentsNeedReviewChart amb={amb} />
-        <TopReasonsForReview amb={amb} />
-      </section>
+        {/* Batch Performance Table */}
+        <BatchesNeedingReviewTable
+          batches={batches}
+          loading={batchesLoading}
+          finalityFilter={finalityFilter}
+          onFilterChange={setFinalityFilter}
+        />
 
-      <section className="grid gap-4 lg:grid-cols-2">
-        <AverageMatchConfidenceCard amb={amb} />
-        <MissingReferenceRateCard amb={amb} />
-      </section>
+        {/* Ambiguity Mix Donut */}
+        <AmbiguityMixDonut amb={amb} />
 
-      <BatchesNeedingReviewTable
-        batches={batches}
-        loading={batchesLoading}
-        finalityFilter={finalityFilter}
-        onFilterChange={setFinalityFilter}
-      />
+        {/* Batch Control + Data Quality Audit */}
+        <div className="flex flex-col gap-4">
+          <BatchControlList batches={batches} />
+          <DataQualityAuditCard amb={amb} />
+        </div>
+      </div>
     </div>
   )
 }

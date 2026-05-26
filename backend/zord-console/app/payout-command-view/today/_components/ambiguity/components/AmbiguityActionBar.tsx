@@ -10,16 +10,16 @@ export function AmbiguityActionBar() {
   const [message, setMessage] = useState<string | null>(null)
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center gap-3">
       <Link
         href={`${pathname}?dock=grid`}
-        className="rounded-xl bg-slate-900 px-4 py-2 text-[14px] font-semibold text-white hover:bg-slate-800"
+        className="rounded-full bg-emerald-50 px-5 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-emerald-600 transition hover:bg-emerald-100"
       >
         {ambiguityCopy.actions.reviewUnclear}
       </Link>
       <Link
         href={`${pathname}?dock=grid`}
-        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-[14px] font-semibold text-slate-700 hover:bg-slate-50"
+        className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-slate-600 transition hover:bg-slate-50"
       >
         {ambiguityCopy.actions.openMissingRefs}
       </Link>
@@ -34,11 +34,11 @@ export function AmbiguityActionBar() {
           const body = await res.json().catch(() => ({}))
           setMessage(body.message || ambiguityCopy.actions.exportPending)
         }}
-        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-[14px] font-semibold text-slate-700 hover:bg-slate-50"
+        className="rounded-full border border-slate-200 bg-white px-5 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-slate-600 transition hover:bg-slate-50"
       >
         {ambiguityCopy.actions.exportList}
       </button>
-      {message ? <p className="w-full text-[12px] text-slate-500">{message}</p> : null}
+      {message ? <p className="w-full text-[12px] text-emerald-600">{message}</p> : null}
     </div>
   )
 }

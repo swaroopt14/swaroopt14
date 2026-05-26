@@ -1,39 +1,82 @@
 'use client'
 
 import type { AmbiguityKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { ambiguityCopy } from '../copy/ambiguityCopy'
 import { deriveReviewReasons } from '../selectors/deriveReviewReasons'
 
 type TopReasonsForReviewProps = {
   amb: AmbiguityKpiResolved | null
 }
 
-const SEVERITY_STYLES = {
-  high: 'border-red-200 bg-red-50/60 text-red-950',
-  medium: 'border-amber-200 bg-amber-50/60 text-amber-950',
-  low: 'border-slate-200 bg-slate-50 text-slate-800',
-}
-
 export function TopReasonsForReview({ amb }: TopReasonsForReviewProps) {
   const reasons = deriveReviewReasons(amb)
+  const count = amb?.ambiguous_intent_count
 
   return (
-    <section className="rounded-2xl border border-slate-100 bg-white p-5 shadow-sm">
-      <h2 className="text-[15px] font-semibold text-slate-900">{ambiguityCopy.topReasons.title}</h2>
-      {reasons.length === 0 ? (
-        <p className="mt-3 text-[14px] text-slate-600">{ambiguityCopy.topReasons.empty}</p>
-      ) : (
-        <ul className="mt-4 space-y-2">
-          {reasons.map((r) => (
-            <li
+    <article className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      {/* Header */}
+      <div className="flex items-center gap-2">
+        <svg className="h-4 w-4" style={{ color: '#3dff82' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        <span className="text-[12px] font-bold uppercase tracking-wider text-[#000000]">
+          Zord Intelligence
+        </span>
+      </div>
+
+      {/* Main quote */}
+      <div className="mt-5 flex-1">
+        <p className="text-[1.35rem] font-bold leading-snug text-[#000000]">
+          {amb?.intelligence_headline ? (
+            amb.intelligence_headline
+          ) : count != null ? (
+            <>
+              &ldquo;Detected{' '}
+              <span style={{ color: '#16a34a' }}>{count.toLocaleString('en-IN')}</span> intents needing
+              review.&rdquo;
+            </>
+          ) : (
+            '—'
+          )}
+        </p>
+        {amb?.intelligence_body ? (
+          <p className="mt-3 text-[13px] font-medium leading-relaxed text-[#00239C]">{amb.intelligence_body}</p>
+        ) : null}
+      </div>
+
+      {/* CTA button */}
+      <button
+        type="button"
+        className="mt-5 w-full rounded-xl py-3 text-[12px] font-bold uppercase tracking-widest text-[#000000] transition hover:opacity-90"
+        style={{ background: '#3dff82' }}
+      >
+        Execute Optimization
+      </button>
+
+      {/* Divider */}
+      {reasons.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-5 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            Top Reasons
+          </p>
+          {reasons.slice(0, 3).map((r) => (
+            <div
               key={r.id}
-              className={`rounded-xl border px-3 py-2.5 text-[13px] leading-relaxed ${SEVERITY_STYLES[r.severity]}`}
+              className="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2.5"
             >
-              {r.label}
-            </li>
+              <div
+                className={`mt-0.5 h-2 w-2 flex-shrink-0 rounded-full ${
+                  r.severity === 'high'
+                    ? 'bg-red-500'
+                    : r.severity === 'medium'
+                    ? 'bg-amber-500'
+                    : 'bg-emerald-500'
+                }`}
+              />
+              <span className="text-[12px] leading-snug text-slate-700">{r.label}</span>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
-    </section>
+    </article>
   )
 }

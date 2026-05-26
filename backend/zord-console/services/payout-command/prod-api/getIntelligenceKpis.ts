@@ -34,15 +34,21 @@ function dateQueryExtra(dates?: IntelligenceDateQuery): Record<string, string> {
 }
 
 /** Tenant-wide leakage KPI — BFF injects session tenant. */
-export async function getLeakageKpis(dates?: IntelligenceDateQuery): Promise<LeakageKpiResponse | null> {
+export async function getLeakageKpis(dates?: IntelligenceDateQuery, batchId?: string): Promise<LeakageKpiResponse | null> {
+  const extra = dateQueryExtra(dates)
+  const bid = apiTrimmedString(batchId)
+  if (bid) extra.batch_id = bid
   return fetchProdJsonGet<LeakageKpiResponse>(
-    intelQueryPath(`${INTEL_BASE}/leakage`, dateQueryExtra(dates)),
+    intelQueryPath(`${INTEL_BASE}/leakage`, extra),
   )
 }
 
-export async function getAmbiguityKpis(dates?: IntelligenceDateQuery): Promise<AmbiguityKpiResponse | null> {
+export async function getAmbiguityKpis(dates?: IntelligenceDateQuery, batchId?: string): Promise<AmbiguityKpiResponse | null> {
+  const extra = dateQueryExtra(dates)
+  const bid = apiTrimmedString(batchId)
+  if (bid) extra.batch_id = bid
   return fetchProdJsonGet<AmbiguityKpiResponse>(
-    intelQueryPath(`${INTEL_BASE}/ambiguity`, dateQueryExtra(dates)),
+    intelQueryPath(`${INTEL_BASE}/ambiguity`, extra),
   )
 }
 

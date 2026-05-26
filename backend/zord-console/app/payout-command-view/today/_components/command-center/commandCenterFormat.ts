@@ -1,8 +1,8 @@
-/** Compact INR from minor units (paise). */
+/** Compact INR from rupee amounts (zord-intelligence field names still use *_minor suffix). */
 export function fmtInrCompact(minor: number | null): string {
   if (minor === null || !Number.isFinite(minor)) return '—'
   if (minor === 0) return '₹0'
-  const rupees = minor / 100
+  const rupees = minor
   if (rupees >= 10_000_000) return `₹${(rupees / 10_000_000).toFixed(2)} Cr`
   if (rupees >= 100_000) return `₹${(rupees / 100_000).toFixed(2)} L`
   if (rupees >= 1000) return `₹${(rupees / 1000).toFixed(1)} K`

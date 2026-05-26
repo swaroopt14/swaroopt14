@@ -3,90 +3,59 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
-  intelligenceBatchesForSelector,
-  pickEvidenceBatchId,
-} from '@/services/payout-command/prod-api/evidenceBatchScope'
-import { getEvidencePackFull } from '@/services/payout-command/prod-api/getEvidencePacks'
-import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
-import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
-import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
+  getDefensibilityKpis,
+  getIntelligenceBatches,
+  getLeakageKpis,
+} from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
+import type {
+  DefensibilityKpiResolved,
+  IntelligenceBatchRow,
+  LeakageKpiResolved,
+} from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
-import {
-  getEvidenceBatchIdsForSession,
-  listEvidencePacksForBatch,
-} from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
-import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
+import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
+import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { EvidencePageTabs } from './components/EvidencePageTabs'
-import { EvidencePageHeader } from './components/EvidencePageHeader'
-import { EvidenceTrustNote } from './components/EvidenceTrustNote'
+import { EvidenceHeroBanner } from './components/EvidenceHeroBanner'
 import { EvidenceKpiStrip } from './components/EvidenceKpiStrip'
-import { ProofCoverageSection } from './components/ProofCoverageSection'
 import { ProofBreakdownSection } from './components/ProofBreakdownSection'
 import { EvidencePackBrowser } from './components/EvidencePackBrowser'
 import { DisputeResolverPanel } from './components/DisputeResolverPanel'
+import { EvidenceQuickActions } from './components/EvidenceQuickActions'
+import { EvidencePackBreakdownChart } from './components/EvidencePackBreakdownChart'
+import { EvidencePackTrendChart } from './components/EvidencePackTrendChart'
 import { EvidenceExportCenter } from './components/export/EvidenceExportCenter'
-import { mapProofCoverageFromDefensibility } from './mappers/mapProofCoverage'
 import { mapPackTableRow } from './mappers/mapPackTableRow'
 import { deriveEvidenceKpis } from './selectors/deriveEvidenceKpis'
 import { deriveProofBreakdown } from './selectors/deriveProofBreakdown'
+import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
 import type { EvidencePageTab } from './types/evidenceViewModels'
-
-type EvidencePackRow = {
-  summary: EvidencePackSummaryRow
-  itemCount?: number
-}
 
 const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
 
+/**
+ * APIs (5 on workspace load):
+ * 1. GET /api/prod/intelligence/defensibility
+ * 2. GET /api/prod/intelligence/leakage?batch_id=
+ * 3. GET /api/prod/intelligence/batches
+ * 4. GET /api/prod/evidence/packs (+ intent journal for full batch list)
+ * Export tab: GET /api/prod/evidence/packs/{packId} on demand
+ */
 export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const [pageTab, setPageTab] = useState<EvidencePageTab>('workspace')
   const [search, setSearch] = useState('')
-  const [sessionBatchIds, setSessionBatchIds] = useState<string[]>([])
-  const [intelBatches, setIntelBatches] = useState<IntelligenceBatchRow[]>([])
   const [batchId, setBatchId] = useState<string>(() => apiTrimmedString(initialBatchId))
-  const [intentId, setIntentId] = useState<string>('')
-  const [packRows, setPackRows] = useState<EvidencePackRow[]>([])
+  const [intentId, setIntentId] = useState('')
+  const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
+  const [packSummaries, setPackSummaries] = useState<EvidencePackSummaryRow[]>([])
   const [packListError, setPackListError] = useState<string | null>(null)
   const [packsLoading, setPacksLoading] = useState(false)
+  const [defensibility, setDefensibility] = useState<DefensibilityKpiResolved | null>(null)
+  const [leakage, setLeakage] = useState<LeakageKpiResolved | null>(null)
+  const [kpisLoading, setKpisLoading] = useState(false)
 
-  const { tenantId, tenantReady } = useSessionTenant()
-  const { leakage, ambiguity, defensibility, patterns } = useIntelligenceKpis({
-    tenantReady,
-    batchId: batchId || undefined,
-  })
-
-  const defensibilityData = isDataAvailable(defensibility) ? defensibility : null
-  const leakageData = isDataAvailable(leakage) ? leakage : null
-  const ambiguityData = isDataAvailable(ambiguity) ? ambiguity : null
-  const patternsData = isDataAvailable(patterns) ? patterns : null
-
-  const anyKpiLive = Boolean(defensibilityData || leakageData || ambiguityData || patternsData)
-
-  const batchesForSelector = useMemo(
-    () => intelligenceBatchesForSelector(intelBatches, batchId, tenantId),
-    [intelBatches, batchId, tenantId],
-  )
-
-  const batchOptions = useMemo(() => {
-    const seen = new Set<string>()
-    const out: { batch_id: string; finality_status?: string }[] = []
-    for (const id of sessionBatchIds) {
-      if (seen.has(id)) continue
-      seen.add(id)
-      const intel = intelBatches.find((b) => apiTrimmedString(b.batch_id) === id)
-      out.push({ batch_id: id, finality_status: intel?.finality_status ?? 'journal' })
-    }
-    if (sessionBatchIds.length === 0) {
-      for (const b of intelBatches) {
-        const id = apiTrimmedString(b.batch_id)
-        if (!id || seen.has(id)) continue
-        seen.add(id)
-        out.push({ batch_id: id, finality_status: b.finality_status })
-      }
-    }
-    return out
-  }, [sessionBatchIds, intelBatches])
+  const { tenantReady } = useSessionTenant()
 
   useEffect(() => {
     const fromUrl = apiTrimmedString(initialBatchId)
@@ -95,38 +64,51 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
 
   useEffect(() => {
     if (!tenantReady) {
-      setSessionBatchIds([])
-      setIntelBatches([])
+      setBatches([])
       if (!apiTrimmedString(initialBatchId)) setBatchId('')
       return
     }
     let cancelled = false
-    void Promise.all([getEvidenceBatchIdsForSession(), getIntelligenceBatches({ limit: 80 })]).then(
-      ([batchIds, intelRes]) => {
-        if (cancelled) return
-        setSessionBatchIds(batchIds)
-        const intel = intelRes?.batches ?? []
-        setIntelBatches(intel)
-        setBatchId((prev) => {
-          const pinned = apiTrimmedString(prev) || apiTrimmedString(initialBatchId)
-          if (pinned && (batchIds.includes(pinned) || intel.some((b) => b.batch_id === pinned))) {
-            return pinned
-          }
-          if (batchIds[0]) return batchIds[0]
-          return pickEvidenceBatchId(intel, pinned)
-        })
-      },
-    )
+    void getIntelligenceBatches({ limit: 80 }).then((res) => {
+      if (cancelled) return
+      const list = res?.batches ?? []
+      setBatches(list)
+      setBatchId((prev) => {
+        const pinned = apiTrimmedString(prev) || apiTrimmedString(initialBatchId)
+        if (pinned && list.some((b) => b.batch_id === pinned)) return pinned
+        return list[0]?.batch_id ?? ''
+      })
+    })
     return () => {
       cancelled = true
     }
   }, [tenantReady, initialBatchId])
 
   useEffect(() => {
+    if (!tenantReady) {
+      setDefensibility(null)
+      setLeakage(null)
+      return
+    }
+    const bid = apiTrimmedString(batchId) || undefined
+    let cancelled = false
+    setKpisLoading(true)
+    void Promise.all([getDefensibilityKpis(), getLeakageKpis(undefined, bid)]).then(([def, leak]) => {
+      if (cancelled) return
+      setDefensibility(isDataAvailable(def) ? def : null)
+      setLeakage(isDataAvailable(leak) ? leak : null)
+      setKpisLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantReady, batchId])
+
+  useEffect(() => {
     const bid = apiTrimmedString(batchId)
     setIntentId('')
     if (!tenantReady || !bid) {
-      setPackRows([])
+      setPackSummaries([])
       setPackListError(null)
       setPacksLoading(false)
       return
@@ -134,34 +116,15 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     let cancelled = false
     setPacksLoading(true)
     setPackListError(null)
-    void listEvidencePacksForBatch(bid).then(async (summaries) => {
+    void listEvidencePacksForBatch(bid).then((packs) => {
       if (cancelled) return
-      if (!summaries.length) {
-        setPackListError(
-          'No evidence packs for this batch. Confirm batch packs and per-intent packs exist for your tenant.',
-        )
-        setPackRows([])
-        setPacksLoading(false)
-        return
+      if (!packs.length) {
+        setPackListError('No evidence packs for this batch.')
+        setPackSummaries([])
+      } else {
+        setPackListError(null)
+        setPackSummaries(packs)
       }
-      setPackListError(null)
-      setPackRows(summaries.map((s) => ({ summary: s })))
-      const sliced = summaries.slice(0, 16)
-      const enriched = await Promise.all(
-        sliced.map(async (s) => {
-          const packId = apiTrimmedString(s.evidence_pack_id)
-          const full = await getEvidencePackFull(packId)
-          return { id: packId, itemCount: full?.items?.length }
-        }),
-      )
-      if (cancelled) return
-      const countMap = new Map(enriched.map((e) => [e.id, e.itemCount]))
-      setPackRows((prev) =>
-        prev.map((row) => ({
-          ...row,
-          itemCount: countMap.get(apiTrimmedString(row.summary.evidence_pack_id)) ?? row.itemCount,
-        })),
-      )
       setPacksLoading(false)
     })
     return () => {
@@ -169,23 +132,30 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     }
   }, [tenantReady, batchId])
 
-  const batchScoreEstimate = defensibilityData?.defensibility_score ?? null
+  const packRows = useMemo(
+    () =>
+      packSummaries.map((summary) => ({
+        summary,
+        itemCount: summary.artifact_count ?? summary.leaf_count ?? undefined,
+      })),
+    [packSummaries],
+  )
 
-  const tableRows = useMemo(() => {
-    const itemById = new Map(packRows.map((r) => [r.summary.evidence_pack_id, r.itemCount]))
-    return packRows.map((row) =>
-      mapPackTableRow(row.summary, itemById.get(row.summary.evidence_pack_id), batchScoreEstimate),
-    )
-  }, [packRows, batchScoreEstimate])
+  const tableRows = useMemo(
+    () =>
+      packRows.map((row) =>
+        mapPackTableRow(row.summary, row.itemCount, defensibility?.defensibility_score ?? null),
+      ),
+    [packRows, defensibility],
+  )
 
-  /** Distinct intent IDs that have an intent-scoped pack inside the active batch. */
   const intentOptions = useMemo(() => {
     const seen = new Set<string>()
     const out: { intentId: string; paymentRef: string }[] = []
     for (const row of tableRows) {
       if (row.scope !== 'intent') continue
       const id = apiTrimmedString(row.intentId)
-      if (!id || seen.has(id)) continue
+      if (!id || id === '—' || seen.has(id)) continue
       seen.add(id)
       out.push({ intentId: id, paymentRef: row.paymentRef })
     }
@@ -203,82 +173,111 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const filteredTableRows = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return scopedTableRows
-    return scopedTableRows.filter((row) => {
-      return (
+    return scopedTableRows.filter(
+      (row) =>
         row.packId.toLowerCase().includes(q) ||
-        row.intentId.toLowerCase().includes(q) ||
         row.paymentRef.toLowerCase().includes(q) ||
-        row.proofRoot.toLowerCase().includes(q) ||
-        row.summaryLine.toLowerCase().includes(q)
-      )
-    })
+        row.intentId.toLowerCase().includes(q) ||
+        row.proofRoot.toLowerCase().includes(q),
+    )
   }, [scopedTableRows, search])
 
   const kpiCards = useMemo(
-    () =>
-      deriveEvidenceKpis({
-        defensibility: defensibilityData,
-        leakage: leakageData,
-        ambiguity: ambiguityData,
-        patterns: patternsData,
-        packRows,
-      }),
-    [defensibilityData, leakageData, ambiguityData, patternsData, packRows],
+    () => deriveEvidenceKpis({ defensibility, leakage, packRows }),
+    [defensibility, leakage, packRows],
   )
 
   const breakdownRows = useMemo(
     () =>
       deriveProofBreakdown({
-        defensibility: defensibilityData,
-        patterns: patternsData,
+        defensibility,
+        patterns: null,
         packCount: packRows.length,
       }),
-    [defensibilityData, patternsData, packRows.length],
+    [defensibility, packRows.length],
   )
 
-  const coverageTiles = useMemo(
-    () => mapProofCoverageFromDefensibility(defensibilityData),
-    [defensibilityData],
-  )
+  const analytics = useMemo(() => deriveEvidenceAnalytics(tableRows), [tableRows])
+  const batchOptions = useMemo(() => batches.map((b) => ({ batch_id: b.batch_id })), [batches])
+
+  const dataLoading = packsLoading || kpisLoading
 
   if (pageTab === 'export') {
     return (
-      <div className="space-y-5 pb-6">
-        <EvidencePageTabs active={pageTab} onChange={setPageTab} />
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[13px] font-medium text-slate-500">Export structured proof for audit and disputes</p>
+          <EvidencePageTabs active={pageTab} onChange={setPageTab} />
+        </div>
         <EvidenceExportCenter defaultPackId={tableRows[0]?.packId} />
       </div>
     )
   }
 
   return (
-    <div className="space-y-5 pb-6">
-      <EvidencePageTabs active={pageTab} onChange={setPageTab} />
-      <EvidencePageHeader anyKpiLive={anyKpiLive} defensibility={defensibilityData} />
-      <EvidenceTrustNote />
-      <EvidenceKpiStrip cards={kpiCards} />
-      <ProofCoverageSection tiles={coverageTiles} />
-      <ProofBreakdownSection rows={breakdownRows} />
-
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <EvidencePackBrowser
-          rows={filteredTableRows}
-          search={search}
-          onSearchChange={setSearch}
-          batchId={batchId}
-          onBatchChange={setBatchId}
-          batchOptions={batchOptions}
-          intelBatches={batchesForSelector}
-          intentId={intentId}
-          onIntentChange={setIntentId}
-          intentOptions={intentOptions}
-          tenantReady={tenantReady}
-          packsLoading={packsLoading}
-          packListError={packListError}
-          filteredCount={filteredTableRows.length}
-          totalCount={scopedTableRows.length}
-        />
-        <DisputeResolverPanel packRows={tableRows} />
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <EvidencePageTabs active={pageTab} onChange={setPageTab} />
       </div>
+
+      {!tenantReady ? (
+        <p className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-[14px] font-medium text-slate-500 shadow-sm">
+          Sign in to load evidence for your tenant.
+        </p>
+      ) : (
+        <>
+          <EvidenceHeroBanner
+            search={search}
+            onSearchChange={setSearch}
+            batchId={batchId}
+            onBatchChange={setBatchId}
+            batchOptions={batchOptions}
+          />
+
+          <EvidenceKpiStrip cards={kpiCards} loading={dataLoading} />
+
+          <ProofBreakdownSection rows={breakdownRows} />
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <EvidencePackBreakdownChart
+              segments={analytics.segments}
+              mixArea={analytics.mixArea}
+              mixSeries={analytics.mixSeries}
+              preview={analytics.usingMock}
+            />
+            <EvidencePackTrendChart trend={analytics.trend} preview={analytics.usingMock} />
+          </div>
+
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="space-y-5 min-w-0">
+              <EvidencePackBrowser
+                rows={filteredTableRows}
+                search={search}
+                onSearchChange={setSearch}
+                batchId={batchId}
+                onBatchChange={setBatchId}
+                batchOptions={batchOptions}
+                intelBatches={batches}
+                intentId={intentId}
+                onIntentChange={setIntentId}
+                intentOptions={intentOptions}
+                tenantReady={tenantReady}
+                packsLoading={dataLoading}
+                packListError={packListError}
+                filteredCount={filteredTableRows.length}
+                totalCount={scopedTableRows.length}
+              />
+              <EvidenceQuickActions
+                batchId={batchId}
+                firstPackId={tableRows[0]?.packId}
+                onExportTab={() => setPageTab('export')}
+              />
+            </div>
+
+            <DisputeResolverPanel packRows={tableRows} />
+          </div>
+        </>
+      )}
     </div>
   )
 }

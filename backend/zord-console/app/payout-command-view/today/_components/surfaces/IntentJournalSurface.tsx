@@ -696,15 +696,15 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const varianceMinor = healthTotals?.total_variance_minor
   const intendedRupees =
     intendedMinor && Number.isFinite(Number(intendedMinor))
-      ? Number(intendedMinor) / 100
+      ? Number(intendedMinor)
       : (selectedBatch?.totalValue ?? 0)
   const selectedConfirmedValue = confirmedMinor
-    ? Number(confirmedMinor) / 100
+    ? Number(confirmedMinor)
     : intendedRupees * (selectedConfirmed / pctBase)
   const varianceRupees =
-    varianceMinor && Number.isFinite(Number(varianceMinor)) ? Math.max(0, Number(varianceMinor) / 100) : null
+    varianceMinor && Number.isFinite(Number(varianceMinor)) ? Math.max(0, Number(varianceMinor)) : null
   const confirmedRupeesResolved =
-    confirmedMinor && Number.isFinite(Number(confirmedMinor)) ? Number(confirmedMinor) / 100 : selectedConfirmedValue
+    confirmedMinor && Number.isFinite(Number(confirmedMinor)) ? Number(confirmedMinor) : selectedConfirmedValue
   const selectedAttentionValue =
     varianceRupees ?? Math.max(0, intendedRupees > 0 ? intendedRupees - confirmedRupeesResolved : 0)
 

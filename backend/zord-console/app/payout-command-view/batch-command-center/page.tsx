@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 }
 
 export default function BatchCommandCenterPage() {
-  return <BatchCommandCenterShell />
+  return <BatchCommandCenterShell forceMode="live" />
 }

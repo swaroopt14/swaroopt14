@@ -296,8 +296,8 @@ export default function BatchCommandCenterClient() {
     const intendedMinor = Number(h.total_intended_amount_minor)
     const confirmedMinor = Number(h.total_confirmed_amount_minor)
     if (!Number.isFinite(intendedMinor) || !Number.isFinite(confirmedMinor)) return null
-    const totalAmount = intendedMinor / 100
-    const settledAmount = confirmedMinor / 100
+    const totalAmount = intendedMinor
+    const settledAmount = confirmedMinor
     const unresolvedInr = Math.max(0, totalAmount - settledAmount)
     const p = Math.max(0, b.pending_count)
     const f = Math.max(0, b.failed_count)

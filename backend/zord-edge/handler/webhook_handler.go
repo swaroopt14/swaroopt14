@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"zord-edge/db"
 	"zord-edge/model"
 	"zord-edge/services"
 	"zord-edge/vault"
@@ -123,7 +124,7 @@ func (h *Handler) WebhookHandler(c *gin.Context) {
 	}
 
 	// ── Idempotency ──
-	dupID, err := services.PersistIdempotency(reqCtx, msg)
+	dupID, err := services.PersistIdempotency(reqCtx, msg, db.DB)
 	if err != nil {
 		if errors.Is(err, services.ErrFingerprintMismatch) {
 			c.JSON(http.StatusBadRequest, gin.H{

@@ -949,7 +949,7 @@ func (h *Handler) processBulkIntentRow(
 		FileUploadChannel:    fileUploadChannel,
 	}
 
-	id, err := services.PersistIdempotency(ctx, rawIntent)
+	id, err := services.PersistIdempotency(ctx, rawIntent, db.DB)
 	if err != nil {
 		return nil, uuid.Nil, err
 	}

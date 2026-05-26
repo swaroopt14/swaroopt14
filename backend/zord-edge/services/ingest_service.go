@@ -24,7 +24,9 @@ func SaveRawIntent(
 	}
 
 	defer func() {
-		_ = tx.Rollback()
+		if err != nil {
+			_ = tx.Rollback()
+		}
 	}()
 
 	query := `

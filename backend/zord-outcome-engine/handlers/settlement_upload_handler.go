@@ -264,7 +264,9 @@ func (h *Handler) SettlementUploadHandler(c *gin.Context) {
 				_ = svc.PersistParsedRow(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, bgRef, rowRef, result, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID, "FAILED", result.FailureReason)
 
 				// Also mirror to settlement_parse_errors as the audit/error log.
-				_ = svc.PersistParseError(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID)
+				if err := svc.PersistParseError(bgCtx, bgTenant, bgIngestRunID, bgEnvelope, rowRef, "PARSING", result.FailureReason, pspProfile, bgIngestRunID, bgSettlementBatchID, bgClientBatchID); err != nil {
+					log.Printf("settlement.upload.persist_error_failed job_id=%s row=%d err=%v", bgIngestRunID, result.RowIndex, err)
+				}
 				continue
 			}
 

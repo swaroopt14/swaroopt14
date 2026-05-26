@@ -158,7 +158,7 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	statusAmbiguous := false
 
 	switch txEntity {
-	case "payment":
+	case "payout":
 		observationKind = "SETTLEMENT"
 	case "refund":
 		observationKind = "REVERSAL"
@@ -194,16 +194,16 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 	// ── Technical Confidence Scoring ──────────────────────────────────────────
 	// Measure physical parser reliability instead of business identifier richness.
 	confidenceInputs := ParseConfidenceInputs{
-		FileFormatValid:        true, // If we're here, XLSX structure was readable
-		RowDecodedSuccessfully: true,
-		ColumnCountConsistent:  !partialRowParse,
-		HeaderDetected:         true,
-		EncodingValid:          true,
-		RawLineHashCreated:     true,
-		TimestampFallbackUsed:  tsWarning != "",
-		AmountFallbackUsed:     amount.IsZero() && cellStr(row, 2) != "0" && cellStr(row, 2) != "0.00",
-		StatusAmbiguous:        statusAmbiguous,
-		PartialRowParse:        partialRowParse,
+		FileFormatValid:                 true, // If we're here, XLSX structure was readable
+		RowDecodedSuccessfully:          true,
+		ColumnCountConsistent:           !partialRowParse,
+		HeaderDetected:                  true,
+		EncodingValid:                   true,
+		RawLineHashCreated:              true,
+		TimestampFallbackUsed:           tsWarning != "",
+		AmountFallbackUsed:              amount.IsZero() && cellStr(row, 2) != "0" && cellStr(row, 2) != "0.00",
+		StatusAmbiguous:                 statusAmbiguous,
+		PartialRowParse:                 partialRowParse,
 		DuplicateHeaderOrFooterDetected: false, // Handled at loop level
 	}
 	confidence, parseReasons := ComputeParseConfidence(confidenceInputs)
@@ -243,20 +243,20 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		RawEnvelopeRef:           envelopeID,
 		CarrierCandidates:        map[string]interface{}{},
 		MappingInputs: models.MappingConfidenceInputs{
-			AmountExisted:     true,
-			AmountMapped:      !amount.IsZero() || cellStr(row, 2) == "0" || cellStr(row, 2) == "0.00",
-			CurrencyExisted:   true,
-			CurrencyMapped:    cellStr(row, 3) != "",
-			StatusExisted:     true,
-			StatusMapped:      statusCandidate != "",
-			TimestampExisted:  true,
-			TimestampMapped:   tsWarning == "",
+			AmountExisted:      true,
+			AmountMapped:       !amount.IsZero() || cellStr(row, 2) == "0" || cellStr(row, 2) == "0.00",
+			CurrencyExisted:    true,
+			CurrencyMapped:     cellStr(row, 3) != "",
+			StatusExisted:      true,
+			StatusMapped:       statusCandidate != "",
+			TimestampExisted:   true,
+			TimestampMapped:    tsWarning == "",
 			ProviderRefExisted: true,
-			ProviderRefMapped: providerRef != "",
+			ProviderRefMapped:  providerRef != "",
 			BankRefExisted:     true,
-			BankRefMapped:     bankRef != "",
+			BankRefMapped:      bankRef != "",
 			ClientRefExisted:   true,
-			ClientRefMapped:   clientRefCand != "",
+			ClientRefMapped:    clientRefCand != "",
 		},
 	}
 
@@ -274,4 +274,3 @@ func parseRazorpayRow(row []string, rowIndex int, sourceFileRef string, envelope
 		Confidence: confidence,
 	}
 }
-

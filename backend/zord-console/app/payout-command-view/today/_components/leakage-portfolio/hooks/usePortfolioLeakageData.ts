@@ -6,8 +6,8 @@ import { isDataAvailable } from '@/services/payout-command/prod-api/intelligence
 import type { DefensibilityKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { toPortfolioLeakageViewModel, type PortfolioLeakageViewModel } from '../normalizeLeakagePayload'
 
-export function usePortfolioLeakageData(tenantReady: boolean) {
-  const { leakage, defensibility, loading, lastFetchedAt, refresh } = useIntelligenceKpis({ tenantReady })
+export function usePortfolioLeakageData(tenantReady: boolean, batchId?: string) {
+  const { leakage, defensibility, loading, lastFetchedAt, refresh } = useIntelligenceKpis({ tenantReady, batchId })
 
   const leak = isDataAvailable(leakage) ? leakage : null
   const def = isDataAvailable(defensibility) ? defensibility : null

@@ -29,6 +29,9 @@ export const leakageCopy = {
   chart: {
     title: 'Estimated Value Needing Attention',
     riskAdjustedTitle: 'Risk-Adjusted Payment Exposure',
+    currentLeakage: 'Current leakage',
+    predictedLeakage: 'Predicted leakage',
+    projectStart: 'PROJECT START',
     helper:
       'This value is based on unmatched, ambiguous, short-settled, orphaned, or reversed payment records.',
     trendPending: 'Trend data pending — chart uses illustrative history until leakage time-series API is available.',
@@ -36,11 +39,11 @@ export const leakageCopy = {
   },
   exposure: {
     title: 'Exposure Breakdown',
-    unmatched: 'Unmatched value',
+    unmatched: 'Unmatched Payment Value',
     ambiguous: 'Ambiguous value',
-    shortSettled: 'Short-settled value',
-    reversal: 'Reversal exposure',
-    unlinked: 'Unlinked settlement value',
+    shortSettled: 'Short-Settled Value',
+    reversal: 'Reversal Exposure',
+    unlinked: 'Unlinked Settlement Value',
   },
   severity: {
     title: 'Payment Gap Severity',

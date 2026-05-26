@@ -90,7 +90,7 @@ export function buildZordInsightCards(params: {
       type: 'metric',
       id: 'mismatch-value',
       label: 'Value Needing Review',
-      valueRupee: mismatchMinor / 100,
+      valueRupee: mismatchMinor,
       subtext: patternsData
         ? `${patternsData.pending_count} intents pending in latest batch signal`
         : 'Payment value in review across connected records',
@@ -113,7 +113,7 @@ export function buildZordInsightCards(params: {
       id: 'disbursement-trend',
       label: 'Payment Value Trend',
       spark,
-      currentValueRupee: totalMinor / 100,
+      currentValueRupee: totalMinor,
       delta: bucketDelta(trendSeries.buckets),
     })
   }
@@ -126,7 +126,7 @@ export function buildZordInsightCards(params: {
       label: 'Payments needing attention',
       count: patternsData.pending_count,
       topPattern: `${patternsData.anomaly_level} · ${(patternsData.batch_anomaly_score * 100).toFixed(0)}% batch signal`,
-      exposureRupee: exposureMinor / 100,
+      exposureRupee: exposureMinor,
     })
   }
 

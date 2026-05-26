@@ -1,6 +1,5 @@
 'use client'
 
-import { DataSourceStatusBar } from '../command-center/DataSourceStatusBar'
 import { PAYMENT_OPERATIONS } from './paymentOperationsCopy'
 import type { PaymentOperationsViewModel } from './paymentOperationsTypes'
 import {
@@ -193,19 +192,3 @@ export function WorkspaceOperationsGrid({
   )
 }
 
-export function WorkspaceDataStatusSection({
-  viewModel,
-}: {
-  viewModel: PaymentOperationsViewModel
-}) {
-  const { dataSources, lastUpdatedIso } = viewModel
-  return (
-    <DataSourceStatusBar
-      intentStatus={dataSources.intentStatus}
-      settlementStatus={dataSources.settlementStatus}
-      bankStatementStatus={dataSources.bankStatementStatus}
-      evidenceStatus={dataSources.evidenceStatus}
-      lastUpdatedIso={lastUpdatedIso}
-    />
-  )
-}

@@ -67,12 +67,14 @@ function loadFromStorage(): StoredState {
   }
 }
 
-/** First paint + SSR: `routeMode` from the URL wins over default/localStorage so /today never flashes sandbox. */
+/**
+ * First paint + SSR must match — do not read localStorage here (client-only).
+ * `routeMode` from the route wins; otherwise default sandbox until hydration effect runs.
+ */
 function getInitialStoredState(routeMode?: EnvMode): StoredState {
-  const loaded = typeof window !== 'undefined' ? loadFromStorage() : DEFAULT_STATE
   return {
-    ...loaded,
-    mode: routeMode ?? loaded.mode,
+    ...DEFAULT_STATE,
+    mode: routeMode ?? DEFAULT_STATE.mode,
   }
 }
 

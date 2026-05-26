@@ -224,7 +224,7 @@ export default function PayoutCommandViewClient({
               pageSubtitle={pageHeaderMeta.pageSubtitle}
               onAskZordToggle={handleAskZordToggle}
               hideAskZordButton={activeDock === 'workspace'}
-              showUtilityIconButtons={activeDock !== 'workspace'}
+              showUtilityIconButtons={false}
             />
 
             {surfaceBody}

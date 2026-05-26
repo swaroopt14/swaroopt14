@@ -37,7 +37,60 @@ export type LeakageKpiResolved = Resolved<{
 }>
 export type LeakageKpiResponse = LeakageKpiResolved | EmptyKpiResponse
 
+/** One point on Intended Payment Value — current vs predicted leakage chart. */
+export type LeakageExposureTimeseriesPoint = {
+  /** ISO date (YYYY-MM-DD) for the bucket. */
+  date: string
+  /** Observed / realized leakage in minor units (paise). */
+  current_leakage_minor: MinorAmountField
+  /** Model or forecast leakage in minor units (paise). */
+  predicted_leakage_minor: MinorAmountField
+  /** When true, point is after `project_start_at` (forecast-only zone). */
+  is_future?: boolean
+}
+
+export type LeakageExposureGranularity = 'day' | 'week' | 'month'
+
+export type LeakageExposureTimeseriesResolved = Resolved<{
+  granularity: LeakageExposureGranularity
+  batch_id?: string
+  /** Optional vertical marker on chart (e.g. rollout / project start). ISO-8601. */
+  project_start_at?: string
+  series: LeakageExposureTimeseriesPoint[]
+}>
+
+export type LeakageExposureTimeseriesResponse =
+  | LeakageExposureTimeseriesResolved
+  | EmptyKpiResponse
+
 // ── KPIs 7–10: Ambiguity ──────────────────────────────────────────────────
+export type AmbiguityVelocityPoint = {
+  period: string
+  review_count?: number
+  low_confidence_count?: number
+  missing_ref_count?: number
+}
+
+export type AmbiguityVelocitySeries = {
+  day?: AmbiguityVelocityPoint[]
+  week?: AmbiguityVelocityPoint[]
+  month?: AmbiguityVelocityPoint[]
+  year?: AmbiguityVelocityPoint[]
+}
+
+export type AmbiguityMixSegment = {
+  name: string
+  pct: number
+}
+
+export type MatchingExecutionHeatmap = {
+  y_labels: number[]
+  x_labels: string[]
+  cells: number[][]
+  summary?: string
+  intents_under_evaluation_count?: number
+}
+
 export type AmbiguityKpiResolved = Resolved<{
   ambiguous_intent_count: number
   ambiguity_rate: number
@@ -50,6 +103,28 @@ export type AmbiguityKpiResolved = Resolved<{
   candidate_collision_rate?: number
   ambiguous_amount_rate?: number
   carrier_completeness_rate?: number
+  /** Period-over-period deltas for KPI pills (percent points). */
+  ambiguous_intent_count_delta_pct?: number
+  ambiguity_rate_delta_pct?: number
+  provider_ref_missing_rate_delta_pct?: number
+  value_at_risk_delta_pct?: number
+  value_at_risk_delta_pct_from_prior?: number
+  avg_attachment_confidence_delta_pct?: number
+  confidence_trend_label?: string
+  /** Stacked bar chart — Ambiguity Velocity. */
+  velocity_series?: AmbiguityVelocitySeries
+  /** Donut — Ambiguity Mix. When set, overrides derived mix from snapshot rates. */
+  ambiguity_mix_segments?: AmbiguityMixSegment[]
+  clearing_pct?: number
+  /** Heatmap — Matching Execution Log. */
+  matching_execution_heatmap?: MatchingExecutionHeatmap
+  matching_execution_summary?: string
+  intents_under_evaluation_count?: number
+  /** Data quality audit card. */
+  critical_alert_count?: number
+  /** Zord Intelligence panel copy (optional). */
+  intelligence_headline?: string
+  intelligence_body?: string
 }>
 export type AmbiguityKpiResponse = AmbiguityKpiResolved | EmptyKpiResponse
 
@@ -109,6 +184,10 @@ export type IntelligenceBatchRow = {
   success_count: number
   failed_count: number
   pending_count: number
+  /** When batches list includes ambiguity projections. */
+  match_confidence_pct?: number
+  value_at_risk_minor?: MinorAmountField
+  status_label?: string
 }
 export type BatchesListResponse = {
   tenant_id: string

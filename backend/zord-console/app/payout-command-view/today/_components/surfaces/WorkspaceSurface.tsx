@@ -4,11 +4,10 @@ import { useMemo } from 'react'
 import { workspacePromptCopy, type WorkspaceTab } from '@/services/payout-command/model'
 import type { WorkspaceState } from '../hooks/useWorkspaceState'
 import { buildGroundedAnswerSnapshot } from '../workspace/buildGroundedAnswerSnapshot'
-import { WorkspaceDataStatusSection, WorkspaceOperationsGrid } from '../workspace/WorkspaceOperationsGrid'
+import { WorkspaceOperationsGrid } from '../workspace/WorkspaceOperationsGrid'
 import { WorkspaceIntelligencePanel } from '../workspace/WorkspaceIntelligencePanel'
 import { paymentOpsWorkAreas } from '../workspace/paymentOperationsCopy'
 import { usePaymentOperationsView } from '../workspace/usePaymentOperationsView'
-import { WorkspaceSummaryStrip } from '../workspace/WorkspaceSummaryStrip'
 
 export function WorkspaceSurface({
   activeTab,
@@ -48,8 +47,6 @@ export function WorkspaceSurface({
   return (
     <div className="-mx-1 sm:-mx-2 lg:-mx-3">
       <div className="mt-2 space-y-4" data-testid="workspace-surface">
-        <WorkspaceSummaryStrip summary={viewModel.summary} loading={loading} />
-        <WorkspaceDataStatusSection viewModel={viewModel} />
         <div className="grid items-stretch gap-4 xl:grid-cols-[1.78fr_1.46fr]">
           <WorkspaceOperationsGrid viewModel={viewModel} loading={loading} />
           <WorkspaceIntelligencePanel

@@ -2,10 +2,10 @@
 
 import Link from 'next/link'
 import { Glyph } from '../../shared'
-import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
-import { COMMAND_CENTER_KPI_CARD } from '../../command-center/homeCommandCenterTokens'
 import { JOURNAL_DM_SANS } from '../../journal/journalFonts'
 import { evidenceCopy } from '../copy/evidenceCopy'
+import { EVIDENCE_CARD } from '../evidencePageTokens'
+import { EvidenceSectionHeader } from './EvidenceSectionHeader'
 import type { PackTableRowVm } from '../types/evidenceViewModels'
 import { formatIsoDate, shortHash } from '../utils/evidenceFormat'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
@@ -175,44 +175,44 @@ export function EvidencePackBrowser({
 
   const intentPickerValue = intentId || INTENT_FILTER_ALL
 
+  const countLine = packsLoading ? (
+    <span className="font-medium text-slate-900">Loading packs…</span>
+  ) : search.trim() ? (
+    <>
+      Showing <span className="font-semibold text-slate-900">{filteredCount}</span> of {totalCount} packs
+    </>
+  ) : (
+    <>
+      <span className="font-semibold text-slate-900">{totalCount}</span> pack{totalCount === 1 ? '' : 's'}
+      {batchId ? (
+        <>
+          {' '}
+          · batch <span className="font-mono text-slate-900">{batchId}</span>
+        </>
+      ) : null}
+      {intentId && intentId !== INTENT_FILTER_BATCH_ONLY ? (
+        <>
+          {' '}
+          · intent <span className="font-mono text-slate-900">{truncateId(intentId)}</span>
+        </>
+      ) : intentId === INTENT_FILTER_BATCH_ONLY ? (
+        <> · batch-level only</>
+      ) : null}
+    </>
+  )
+
   return (
-    <section className={`${COMMAND_CENTER_KPI_CARD} ${JOURNAL_DM_SANS}`}>
-      <CommandCenterCardGlow />
-      <div className="relative border-b border-slate-100 px-5 py-4">
+    <section className={`${EVIDENCE_CARD} ${JOURNAL_DM_SANS}`}>
+      <EvidenceSectionHeader
+        title={evidenceCopy.browser.title}
+        subtitle={evidenceCopy.browser.subtitle}
+        live={!packsLoading && totalCount > 0}
+      />
+      <div className="border-b border-slate-100/90 px-5 pb-4">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className="text-[18px] font-semibold tracking-tight text-slate-900">
-              {evidenceCopy.browser.title}
-            </p>
-            <p className="mt-0.5 max-w-xl text-[13px] leading-relaxed text-slate-500">
-              {evidenceCopy.browser.subtitle}
-            </p>
-            <p className="mt-2 text-[12.5px] tabular-nums text-slate-500">
-              {packsLoading ? (
-                <span className="font-medium text-slate-900">Loading packs…</span>
-              ) : search.trim() ? (
-                <>
-                  Showing <span className="font-semibold text-slate-900">{filteredCount}</span> of {totalCount} packs
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold text-slate-900">{totalCount}</span> pack{totalCount === 1 ? '' : 's'}
-                  {batchId ? (
-                    <>
-                      {' '}
-                      · batch <span className="font-mono text-slate-900">{batchId}</span>
-                    </>
-                  ) : null}
-                  {intentId && intentId !== INTENT_FILTER_BATCH_ONLY ? (
-                    <>
-                      {' '}
-                      · intent <span className="font-mono text-slate-900">{truncateId(intentId)}</span>
-                    </>
-                  ) : intentId === INTENT_FILTER_BATCH_ONLY ? (
-                    <> · batch-level only</>
-                  ) : null}
-                </>
-              )}
+            <p className="text-[12.5px] tabular-nums text-slate-500">
+              {countLine}
             </p>
             {packListError ? <p className="mt-2 text-[13px] font-medium text-amber-800">{packListError}</p> : null}
           </div>
@@ -276,7 +276,7 @@ export function EvidencePackBrowser({
               const merkleShort = shortHash(row.proofRoot)
               const href = `/payout-command-view/evidence-pack/${encodeURIComponent(row.packId)}?tab=graph${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`
               return (
-                <tr key={row.packId} className="group align-top transition-colors hover:bg-slate-50/50">
+                <tr key={row.packId} className="group align-top transition-colors hover:bg-[#e8eef5]/40">
                   <td className="px-5 py-4">
                     <p className="font-mono text-[13px] font-semibold text-slate-900">{row.packId}</p>
                     <div className="mt-2 flex flex-wrap gap-1.5">

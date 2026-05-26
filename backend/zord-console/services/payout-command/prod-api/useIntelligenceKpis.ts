@@ -63,8 +63,8 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
     setLoading(true)
     try {
       const [lk, am, df, pt, rc] = await Promise.all([
-        getLeakageKpis(dateQuery),
-        getAmbiguityKpis(dateQuery),
+        getLeakageKpis(dateQuery, apiTrimmedString(batchId) || undefined),
+        getAmbiguityKpis(dateQuery, apiTrimmedString(batchId) || undefined),
         getDefensibilityKpis(dateQuery),
         getPatternsKpis(apiTrimmedString(batchId) || undefined),
         getRecommendationsKpis(dateQuery),

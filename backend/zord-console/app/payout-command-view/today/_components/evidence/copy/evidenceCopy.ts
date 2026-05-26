@@ -36,7 +36,7 @@ export const PROOF_NODE_BUSINESS_LABELS: Record<string, string> = {
 }
 
 export const PROOF_SCORE_TOOLTIP =
-  'A higher score means this payment has more complete evidence for review, audit, or dispute resolution. Based on: payment instruction, settlement record, match decision, evidence pack, governance check, replay check, and missing critical items.'
+  'A higher score means this payment has more complete evidence for review, audit, or dispute resolution.'
 
 export const evidenceCopy = {
   pageTitle: 'Evidence & Dispute Resolution',
@@ -49,23 +49,25 @@ export const evidenceCopy = {
     'Sensitive payment data is masked or tokenized in evidence views. Full raw records are controlled by access permissions and audit logs.',
   dataUsed: 'Payment instructions, settlement records, match decisions, and evidence packs',
   proofTierLabel: 'Proof tier',
-  kpi: {
-    proofReadinessScore: 'Proof Readiness Score',
-    evidencePacksGenerated: 'Evidence Packs Generated',
-    valueNeedingReview: 'Value Needing Evidence Review',
-    missingProofItems: 'Missing Proof Items',
-    disputePacksReady: 'Dispute Packs Ready',
-    exportReadiness: 'Evidence Export Readiness',
-  },
   proofReadinessHelper:
     'Overall proof strength based on evidence coverage, governance checks, replay readiness, and missing proof items.',
   scoreLowExplanation:
     'Score is low because evidence packs exist, but governance and replay checks are not complete.',
   valueReviewHelper:
     'Payment value affected by unmatched records, missing references, ambiguity, or settlement gaps.',
+  kpi: {
+    proofReadinessScore: 'Proof Readiness Score',
+    evidencePacksGenerated: 'Evidence Packs Generated',
+    valueNeedingReview: 'Value Needing Evidence Review',
+    missingProofItems: 'Missing Proof Items',
+    governanceChecks: 'Governance Checks',
+    disputePacksReady: 'Dispute Packs Ready',
+    exportReadiness: 'Evidence Export Readiness',
+  },
   breakdown: {
     title: 'Proof Breakdown',
-    subtitle: 'This shows which parts of the payment proof are complete and which parts still need data or review.',
+    subtitle:
+      'This shows which parts of the payment proof are complete and which parts still need data or review.',
     compositionTitle: 'Proof Composition',
     inScope: 'Payment records in scope',
     packsGenerated: 'Evidence packs generated',
@@ -88,9 +90,9 @@ export const evidenceCopy = {
     batchEstimate: 'Batch estimate',
   },
   browser: {
-    title: 'Evidence Packs',
+    title: 'Evidence Pack Browser',
     subtitle:
-      'Each batch carries a batch-level pack plus one pack per intent. Pick a batch, then drill into a specific intent for its evidence and graph.',
+      'Search and export proof by payment reference, invoice number, UTR, beneficiary, batch ID, or proof root.',
     searchPlaceholder: 'Search payment ref, invoice, UTR, beneficiary, batch, or evidence hash…',
     batchLabel: 'Batch',
     intentLabel: 'Intent',
@@ -161,10 +163,13 @@ export const evidenceCopy = {
     createdAt: 'Created at',
     usedInPack: 'Used in evidence pack',
     risk: 'Risk',
-    missingHint: 'This proof item is missing. Upload settlement file or complete governance check to finish the evidence pack.',
+    missingHint:
+      'This proof item is missing. Upload settlement file or complete governance check to finish the evidence pack.',
     technicalName: 'Technical name',
   },
 } as const
+
+export type DisputeReason = (typeof evidenceCopy.dispute.reasons)[number]
 
 export function mapProofTierLabel(tier: string | undefined): string {
   const t = (tier || '').toUpperCase()

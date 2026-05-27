@@ -25,8 +25,11 @@ export type PostIntentBulkIngestParams = {
   apiKeyRaw?: string
   /** e.g. CSV, FILE_UPLOAD — must match zord-edge TransportValidation allowlist */
   sourceType: string
-  /** BANK / NBFC / MERCHANT / VENDOR / GATEWAY — forwarded as X-Zord-Tenant-Type (required upstream) */
-  tenantType: string
+  /**
+   * Optional static parser type (BANK / NBFC / MERCHANT / VENDOR / GATEWAY).
+   * Omit to use profile-driven pass-through + intent-engine source auto-detection (Postman default).
+   */
+  tenantType?: string
   /** Optional; forwarded as Batch-Id when set */
   optionalBatchId?: string
   /** Optional; forwarded as X-Idempotency-Key */
@@ -58,11 +61,12 @@ export async function postIntentBulkIngest(params: PostIntentBulkIngestParams): 
   const headers: Record<string, string> = {
     'x-zord-source-type': params.sourceType,
     'x-zord-source-class': 'INTENT',
-    'x-zord-tenant-type': params.tenantType,
   }
+  const tenantType = params.tenantType?.trim()
+  if (tenantType) headers['x-zord-tenant-type'] = tenantType
   if (auth) headers.authorization = auth
   const bid = params.optionalBatchId?.trim()
-  if (bid) headers['Batch-Id'] = bid
+  if (bid) headers['Batch-ID'] = bid
   const idempotencyKey = params.idempotencyKey?.trim()
   if (idempotencyKey) headers['X-Idempotency-Key'] = idempotencyKey
   const sourceSystem = params.sourceSystem?.trim()

@@ -282,6 +282,104 @@ export function deriveZordPipelineTimeline(
   return steps
 }
 
+export const PAYMENT_PROOF_PIPELINE_STEPS = [
+  { label: 'File received', description: 'Zord has received the payment file.' },
+  { label: 'File mapped', description: 'Headers and fields are mapped into Zord’s payment structure.' },
+  { label: 'Payment intents created', description: 'Each row is converted into a payment intent.' },
+  {
+    label: 'Confirmation received',
+    description: 'Bank/settlement/status file has been uploaded or connected.',
+  },
+  { label: 'Matching completed', description: 'Zord has linked payment intents with outcome records.' },
+  {
+    label: 'Ready for proof / review',
+    description: 'Batch is ready for evidence export or issue review.',
+  },
+] as const
+
+/** Payment proof lifecycle for Batch Command Center (no disbursement language). */
+export function derivePaymentProofTimeline(
+  summary: BatchSummary,
+  intake: ZordPipelineIntake,
+): BatchTimelineStep[] {
+  const fileReceived =
+    Boolean(intake.intentFileName) ||
+    Boolean(intake.uploadedFileName) ||
+    intake.intentIngestOk ||
+    intake.intakeStep !== 'idle' ||
+    Boolean(intake.settlementFileName)
+
+  const fileMapped =
+    intake.intentIngestOk ||
+    intake.intakeStep === 'intent_ready' ||
+    intake.intakeStep === 'settlement_uploading' ||
+    intake.intakeStep === 'closed' ||
+    (intake.uploadState === 'ready' && Boolean(intake.uploadedFileName))
+
+  const mappingInFlight =
+    intake.intakeStep === 'intent_uploading' ||
+    (intake.uploadState === 'uploading' && Boolean(intake.uploadedFileName))
+
+  const intentsCreated = summary.totalRows > 0 && fileMapped
+  const intentsCreating = fileMapped && summary.totalRows === 0 && !mappingInFlight
+
+  const confirmationReceived =
+    intake.settlementIngestOk || intake.intakeStep === 'closed' || Boolean(intake.settlementFileName)
+  const confirmationActive = intake.intakeStep === 'settlement_uploading'
+
+  const matchingDone =
+    confirmationReceived &&
+    summary.totalRows > 0 &&
+    summary.processed >= summary.totalRows &&
+    summary.failed === 0
+  const matchingActive =
+    confirmationReceived && summary.totalRows > 0 && summary.processed < summary.totalRows
+
+  const readyForReview =
+    matchingDone ||
+    (intentsCreated && summary.failed > 0) ||
+    (intake.intakeStep === 'closed' && summary.totalRows > 0)
+
+  const steps: BatchTimelineStep[] = PAYMENT_PROOF_PIPELINE_STEPS.map((s) => ({
+    label: s.label,
+    state: 'upcoming' as BatchStepState,
+  }))
+  const set = (i: number, state: BatchStepState) => {
+    steps[i].state = state
+  }
+
+  set(0, fileReceived ? 'done' : 'upcoming')
+  if (fileMapped) set(1, 'done')
+  else if (mappingInFlight) set(1, 'active')
+  else set(1, fileReceived ? 'upcoming' : 'upcoming')
+
+  if (intentsCreated) set(2, 'done')
+  else if (intentsCreating) set(2, 'active')
+  else set(2, fileMapped ? 'upcoming' : 'upcoming')
+
+  if (confirmationReceived) set(3, 'done')
+  else if (confirmationActive) set(3, 'active')
+  else set(3, intentsCreated ? 'warning' : 'upcoming')
+
+  if (matchingDone) set(4, 'done')
+  else if (matchingActive) set(4, 'active')
+  else if (confirmationReceived && summary.failed > 0) set(4, 'warning')
+  else set(4, 'upcoming')
+
+  if (readyForReview) set(5, summary.failed > 0 && !matchingDone ? 'warning' : 'done')
+  else if (matchingActive) set(5, 'active')
+  else set(5, 'upcoming')
+
+  return steps
+}
+
+export function paymentProofProgressPct(steps: BatchTimelineStep[]): number {
+  const n = steps.length
+  const done = steps.filter((s) => s.state === 'done').length
+  const bump = steps.some((s) => s.state === 'active') ? 0.45 : steps.some((s) => s.state === 'warning') ? 0.25 : 0
+  return Math.min(100, ((done + bump) / Math.max(n, 1)) * 100)
+}
+
 /** @deprecated Use deriveZordPipelineTimeline for intake-aware pipeline. */
 export function deriveTimeline(summary: BatchSummary, fileUploaded: boolean): BatchTimelineStep[] {
   return deriveZordPipelineTimeline(summary, {

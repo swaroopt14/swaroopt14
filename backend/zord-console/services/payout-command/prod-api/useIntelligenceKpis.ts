@@ -6,6 +6,7 @@ import {
   getDefensibilityKpis,
   getLeakageKpis,
   getPatternsKpis,
+  getRcaKpis,
   getRecommendationsKpis,
   type IntelligenceDateQuery,
 } from './getIntelligenceKpis'
@@ -14,6 +15,7 @@ import type {
   DefensibilityKpiResponse,
   LeakageKpiResponse,
   PatternsKpiResponse,
+  RcaKpiResponse,
   RecommendationsKpiResponse,
 } from './intelligenceTypes'
 import { apiTrimmedString } from './coerceApiField'
@@ -24,6 +26,7 @@ export type IntelligenceKpis = {
   defensibility: DefensibilityKpiResponse | null
   patterns: PatternsKpiResponse | null
   recommendations: RecommendationsKpiResponse | null
+  rca: RcaKpiResponse | null
   loading: boolean
   lastFetchedAt: Date | null
   refresh: () => Promise<void>
@@ -53,6 +56,7 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
   const [defensibility, setDefensibility] = useState<DefensibilityKpiResponse | null>(null)
   const [patterns, setPatterns] = useState<PatternsKpiResponse | null>(null)
   const [recommendations, setRecommendations] = useState<RecommendationsKpiResponse | null>(null)
+  const [rca, setRca] = useState<RcaKpiResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [lastFetchedAt, setLastFetchedAt] = useState<Date | null>(null)
 
@@ -62,12 +66,13 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
     if (!tenantReady) return
     setLoading(true)
     try {
-      const [lk, am, df, pt, rc] = await Promise.all([
-        getLeakageKpis(dateQuery),
-        getAmbiguityKpis(dateQuery),
+      const [lk, am, df, pt, rc, rcaRes] = await Promise.all([
+        getLeakageKpis(dateQuery, apiTrimmedString(batchId) || undefined),
+        getAmbiguityKpis(dateQuery, apiTrimmedString(batchId) || undefined),
         getDefensibilityKpis(dateQuery),
         getPatternsKpis(apiTrimmedString(batchId) || undefined),
         getRecommendationsKpis(dateQuery),
+        getRcaKpis(dateQuery),
       ])
       if (cancelledRef.current) return
       setLeakage(lk)
@@ -75,6 +80,7 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
       setDefensibility(df)
       setPatterns(pt)
       setRecommendations(rc)
+      setRca(rcaRes)
       setLastFetchedAt(new Date())
     } finally {
       if (!cancelledRef.current) setLoading(false)
@@ -89,6 +95,7 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
       setDefensibility(null)
       setPatterns(null)
       setRecommendations(null)
+      setRca(null)
       return
     }
     void refresh()
@@ -101,5 +108,5 @@ export function useIntelligenceKpis(options: UseIntelligenceKpisOptions): Intell
     }
   }, [tenantReady, refresh, intervalMs])
 
-  return { leakage, ambiguity, defensibility, patterns, recommendations, loading, lastFetchedAt, refresh }
+  return { leakage, ambiguity, defensibility, patterns, recommendations, rca, loading, lastFetchedAt, refresh }
 }

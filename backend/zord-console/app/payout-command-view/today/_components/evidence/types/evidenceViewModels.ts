@@ -26,8 +26,11 @@ export type ProofBreakdownRow = {
   note?: string
 }
 
+export type PackScope = 'batch' | 'intent' | 'other'
+
 export type PackTableRowVm = {
   packId: string
+  paymentRef: string
   intentId: string
   proofRoot: string
   proofScore: number | null
@@ -39,6 +42,16 @@ export type PackTableRowVm = {
   generatedAt: string
   modeLabel: string
   summaryLine: string
+  scope: PackScope
+  contractId: string
+  governanceDecision: string
+  attachmentDecision: string
+  matchConfidence: number | null
+  bankReference: string
+  amountMatch: boolean | null
+  valueDateCheck: boolean | null
+  settlementPresent: boolean | null
+  packCompleteness: number | null
 }
 
 export type TimelineEventVm = {

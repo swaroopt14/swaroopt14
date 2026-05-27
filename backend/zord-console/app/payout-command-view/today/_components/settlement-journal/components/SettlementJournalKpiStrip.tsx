@@ -65,8 +65,10 @@ export function SettlementJournalKpiStrip({ filteredCount, filtersActive }: Sett
     explicitMatches > 0 ? explicitMatches.toLocaleString('en-IN') : health.matchedCount.toLocaleString('en-IN')
   const matchedSub =
     explicitMatches > 0
-      ? 'From matched_intent_id on observations'
-      : 'Heuristic match status until upstream match IDs ship'
+      ? copy.matchedFromIntentId
+      : total > 0 && health.matchedCount === 0
+        ? copy.matchedAwaitingPipeline
+        : 'Heuristic match status until upstream match IDs ship'
   const obsSub = filtersActive
     ? `${filteredCount.toLocaleString('en-IN')} filtered · ${total.toLocaleString('en-IN')} total`
     : `${total.toLocaleString('en-IN')} settlement records`

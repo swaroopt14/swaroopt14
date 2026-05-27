@@ -146,6 +146,16 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		}
 	}
 
+	// 5b.1 Resolve batchID from buffered leaves — intent leaves now carry the
+	// originating batch_id so the persisted pack can be queried by batch.
+	var batchID string
+	for _, l := range leaves {
+		if l.BatchID != nil && *l.BatchID != "" {
+			batchID = *l.BatchID
+			break
+		}
+	}
+
 	// 5c. Defensive: ensure we have a traceID (even if hardcoded here) to satisfy NOT NULL constraints.
 	if traceID == "" {
 		traceID = "00000000-0000-0000-0000-000000000000"
@@ -191,6 +201,7 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		EnvelopeID:                 envelopeID,
 		TraceID:                    traceID,
 		ContractID:                 contractID,
+		BatchID:                    batchID,
 		Mode:                       "INTELLIGENCE_ATTACH",
 		RulesetVersion:             "v1",
 		SchemaVersions:             map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
@@ -402,6 +413,10 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		TenantID:         req.TenantID,
 		IntentID:         req.IntentID,
 		ContractID:       req.ContractID,
+		// Carry batch_id onto intent-scoped packs so GET /v1/evidence/packs?batch_id=
+		// surfaces every INTELLIGENCE_ATTACH pack belonging to the batch — not just
+		// the BATCH_ATTACH summary pack.
+		BatchID:          req.BatchID,
 		Mode:             req.Mode,
 		PackStatus:       "ACTIVE",
 		Items:            items,
@@ -810,6 +825,9 @@ func (s *EvidenceService) ReplayPack(ctx context.Context, req models.ReplayReque
 		TenantID:       req.TenantID,
 		IntentID:       req.IntentID,
 		ContractID:     req.ContractID,
+		// Preserve the original pack's batch lineage on the replay so the new
+		// pack remains queryable via GET /v1/evidence/packs?batch_id=.
+		BatchID:        oldPack.BatchID,
 		Mode:           req.Mode,
 		RulesetVersion: req.RulesetVersion,
 		SchemaVersions: req.SchemaVersions,

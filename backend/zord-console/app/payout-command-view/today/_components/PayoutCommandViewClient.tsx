@@ -87,12 +87,7 @@ export default function PayoutCommandViewClient({
     return {
       pageEyebrow: same ? undefined : label,
       pageTitle: title,
-      pageSubtitle:
-        activeDock === 'workspace'
-          ? `${activeTab} context · grounded on session tenant evidence`
-          : activeDock === 'home'
-            ? activeSurface.summary
-            : undefined,
+      pageSubtitle: activeSurface.summary,
     }
   }, [activeSurface, activeDock, activeTab])
 
@@ -160,18 +155,21 @@ export default function PayoutCommandViewClient({
 
     if (activeDock === 'workspace') {
       return (
-        <WorkspaceSurface
-          activeTab={activeTab}
-          setActiveTab={handleTabChange}
-          workspace={workspace}
-          selectedPromptLabel={selectedSuggestion}
-          suggestions={activePrompt.suggestions}
-        />
+        <div className={manropeHome.className}>
+          <WorkspaceSurface
+            activeTab={activeTab}
+            setActiveTab={handleTabChange}
+            workspace={workspace}
+            selectedPromptLabel={selectedSuggestion}
+            suggestions={activePrompt.suggestions}
+            batchId={sharedBatchId}
+          />
+        </div>
       )
     }
 
-    if (activeDock === 'leakage') return <LeakageSurface />
-    if (activeDock === 'ambiguity') return <AmbiguitySurface />
+    if (activeDock === 'leakage') return <LeakageSurface initialBatchId={sharedBatchId} />
+    if (activeDock === 'ambiguity') return <AmbiguitySurface initialBatchId={sharedBatchId} />
     if (activeDock === 'grid') return <IntentJournalSurface initialBatchId={initialJournalBatchId} />
     if (activeDock === 'settlement') {
       return <SettlementJournalSurface initialClientBatchId={initialSettlementClientBatchId} />
@@ -180,7 +178,10 @@ export default function PayoutCommandViewClient({
       return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
     }
     if (activeDock === 'sync') return <LiveSyncSurface />
-    if (activeDock === 'proof') return <EvidenceSurface initialBatchId={sharedBatchId} />
+    if (activeDock === 'proof')
+      return (
+        <EvidenceSurface initialBatchId={sharedBatchId} />
+      )
     if (activeDock === 'billing') {
       return <BillingSurface onActivateClick={() => setActivateWizardOpen(true)} />
     }
@@ -225,7 +226,7 @@ export default function PayoutCommandViewClient({
               pageSubtitle={pageHeaderMeta.pageSubtitle}
               onAskZordToggle={handleAskZordToggle}
               hideAskZordButton={activeDock === 'workspace'}
-              showUtilityIconButtons={activeDock !== 'workspace'}
+              showUtilityIconButtons={false}
             />
 
             {surfaceBody}

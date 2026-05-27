@@ -1,6 +1,7 @@
 import { fetchProdJsonGet } from './fetchProdJsonGet'
 import { apiTrimmedString } from './coerceApiField'
 import type {
+  AmbiguityHeatmapResponse,
   AmbiguityKpiResponse,
   BatchDetailResponse,
   BatchesListResponse,
@@ -8,6 +9,7 @@ import type {
   FinalityStatus,
   LeakageKpiResponse,
   PatternsKpiResponse,
+  RcaKpiResponse,
   RecommendationsKpiResponse,
 } from './intelligenceTypes'
 
@@ -34,16 +36,27 @@ function dateQueryExtra(dates?: IntelligenceDateQuery): Record<string, string> {
 }
 
 /** Tenant-wide leakage KPI — BFF injects session tenant. */
-export async function getLeakageKpis(dates?: IntelligenceDateQuery): Promise<LeakageKpiResponse | null> {
+export async function getLeakageKpis(dates?: IntelligenceDateQuery, batchId?: string): Promise<LeakageKpiResponse | null> {
+  const extra = dateQueryExtra(dates)
+  const bid = apiTrimmedString(batchId)
+  if (bid) extra.batch_id = bid
   return fetchProdJsonGet<LeakageKpiResponse>(
-    intelQueryPath(`${INTEL_BASE}/leakage`, dateQueryExtra(dates)),
+    intelQueryPath(`${INTEL_BASE}/leakage`, extra),
   )
 }
 
-export async function getAmbiguityKpis(dates?: IntelligenceDateQuery): Promise<AmbiguityKpiResponse | null> {
+export async function getAmbiguityKpis(dates?: IntelligenceDateQuery, batchId?: string): Promise<AmbiguityKpiResponse | null> {
+  const extra = dateQueryExtra(dates)
+  const bid = apiTrimmedString(batchId)
+  if (bid) extra.batch_id = bid
   return fetchProdJsonGet<AmbiguityKpiResponse>(
-    intelQueryPath(`${INTEL_BASE}/ambiguity`, dateQueryExtra(dates)),
+    intelQueryPath(`${INTEL_BASE}/ambiguity`, extra),
   )
+}
+
+/** Per-batch matching execution heatmap — BFF injects session tenant. */
+export async function getAmbiguityHeatmap(): Promise<AmbiguityHeatmapResponse | null> {
+  return fetchProdJsonGet<AmbiguityHeatmapResponse>(`${INTEL_BASE}/ambiguity/heatmap`)
 }
 
 export async function getDefensibilityKpis(
@@ -68,6 +81,12 @@ export async function getRecommendationsKpis(
 ): Promise<RecommendationsKpiResponse | null> {
   return fetchProdJsonGet<RecommendationsKpiResponse>(
     intelQueryPath(`${INTEL_BASE}/recommendations`, dateQueryExtra(dates)),
+  )
+}
+
+export async function getRcaKpis(dates?: IntelligenceDateQuery): Promise<RcaKpiResponse | null> {
+  return fetchProdJsonGet<RcaKpiResponse>(
+    intelQueryPath(`${INTEL_BASE}/rca`, dateQueryExtra(dates)),
   )
 }
 

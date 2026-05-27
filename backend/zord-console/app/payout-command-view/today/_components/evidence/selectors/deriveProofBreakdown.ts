@@ -50,6 +50,18 @@ export function deriveProofBreakdown(input: {
         total: inScope,
       },
       {
+        id: 'audit',
+        label: 'Audit-ready',
+        completed: Math.round(inScope * defensibility.audit_ready_pct),
+        total: inScope,
+      },
+      {
+        id: 'dispute',
+        label: 'Dispute-ready',
+        completed: Math.round(inScope * defensibility.dispute_ready_pct),
+        total: inScope,
+      },
+      {
         id: 'governance',
         label: evidenceCopy.breakdown.governanceCompleted,
         completed: governanceDone,

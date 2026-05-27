@@ -7,11 +7,20 @@ import {
   getProdIntentEngineBatchesForSession,
 } from '@/services/payout-command/prod-api/getProdIntentEngineBatches'
 import {
+  getAmbiguityKpis,
+  getDefensibilityKpis,
   getIntelligenceBatchDetail,
   getIntelligenceBatches,
+  getLeakageKpis,
   getPatternsKpis,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
-import type { BatchDetailResponse, PatternsKpiResponse } from '@/services/payout-command/prod-api/intelligenceTypes'
+import type {
+  AmbiguityKpiResponse,
+  BatchDetailResponse,
+  DefensibilityKpiResponse,
+  LeakageKpiResponse,
+  PatternsKpiResponse,
+} from '@/services/payout-command/prod-api/intelligenceTypes'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import {
   mapDlqToFailureRow,
@@ -63,6 +72,9 @@ export type BatchOperationsFeed = {
   attentionTotal: number
   intelBatchDetail: BatchDetailResponse | null
   patternsKpi: PatternsKpiResponse | null
+  leakageKpi: LeakageKpiResponse | null
+  ambiguityKpi: AmbiguityKpiResponse | null
+  defensibilityKpi: DefensibilityKpiResponse | null
   intelligenceSummary: BatchSummary | null
   settlementSummary: SettlementBatchSummary | null
   feedLoaded: boolean
@@ -156,6 +168,9 @@ export function useBatchOperationsFeed(options: {
   const [failureRows, setFailureRows] = useState<JournalFailureRow[]>([])
   const [intelBatchDetail, setIntelBatchDetail] = useState<BatchDetailResponse | null>(null)
   const [patternsKpi, setPatternsKpi] = useState<PatternsKpiResponse | null>(null)
+  const [leakageKpi, setLeakageKpi] = useState<LeakageKpiResponse | null>(null)
+  const [ambiguityKpi, setAmbiguityKpi] = useState<AmbiguityKpiResponse | null>(null)
+  const [defensibilityKpi, setDefensibilityKpi] = useState<DefensibilityKpiResponse | null>(null)
   const [settlementSummary, setSettlementSummary] = useState<SettlementBatchSummary | null>(null)
   const [feedLoaded, setFeedLoaded] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -200,6 +215,9 @@ export function useBatchOperationsFeed(options: {
       setFailureRows([])
       setIntelBatchDetail(null)
       setPatternsKpi(null)
+      setLeakageKpi(null)
+      setAmbiguityKpi(null)
+      setDefensibilityKpi(null)
       setSettlementSummary(null)
       return
     }
@@ -210,20 +228,26 @@ export function useBatchOperationsFeed(options: {
     const isLocalPreview = id.startsWith('LOCAL-')
 
     try {
-      const [engineRes, intelRes, patternsRes, settleRes] = await Promise.all([
-        isLocalPreview
-          ? Promise.resolve(null)
-          : getProdIntentEngineBatchDetailAll(undefined, id),
-        isLocalPreview ? Promise.resolve(null) : getIntelligenceBatchDetail(id),
-        isLocalPreview ? Promise.resolve(null) : getPatternsKpis(id),
-        getSettlementObservationsForClientBatch(id),
-      ])
+      const [engineRes, intelRes, patternsRes, leakageRes, ambiguityRes, defensibilityRes, settleRes] =
+        await Promise.all([
+          isLocalPreview
+            ? Promise.resolve(null)
+            : getProdIntentEngineBatchDetailAll(undefined, id),
+          isLocalPreview ? Promise.resolve(null) : getIntelligenceBatchDetail(id),
+          isLocalPreview ? Promise.resolve(null) : getPatternsKpis(id),
+          isLocalPreview ? Promise.resolve(null) : getLeakageKpis(undefined, id),
+          isLocalPreview ? Promise.resolve(null) : getAmbiguityKpis(undefined, id),
+          isLocalPreview ? Promise.resolve(null) : getDefensibilityKpis(),
+          getSettlementObservationsForClientBatch(id),
+        ])
 
       if (!isLocalPreview) {
         if (engineRes?.batchDetails && engineRes.batchDetails.batchId === id) {
           const { batchDetails } = engineRes
           setIntentRows(
-            (batchDetails.paymentIntents?.items ?? []).map((it) => mapPaymentIntentToIntentRow(it, id)),
+            (batchDetails.paymentIntents?.items ?? []).map((it) =>
+              mapPaymentIntentToIntentRow(it, id, tenantId),
+            ),
           )
           setFailureRows((batchDetails.dlqItems?.items ?? []).map(mapDlqToFailureRow))
         } else {
@@ -237,11 +261,17 @@ export function useBatchOperationsFeed(options: {
         }
         setIntelBatchDetail(intelRes)
         setPatternsKpi(patternsRes)
+        setLeakageKpi(leakageRes)
+        setAmbiguityKpi(ambiguityRes)
+        setDefensibilityKpi(defensibilityRes)
       } else {
         setIntentRows([])
         setFailureRows([])
         setIntelBatchDetail(null)
         setPatternsKpi(null)
+        setLeakageKpi(null)
+        setAmbiguityKpi(null)
+        setDefensibilityKpi(null)
       }
 
       if (settleRes.ok && settleRes.data?.items?.length) {
@@ -330,6 +360,9 @@ export function useBatchOperationsFeed(options: {
     attentionTotal,
     intelBatchDetail,
     patternsKpi,
+    leakageKpi,
+    ambiguityKpi,
+    defensibilityKpi,
     intelligenceSummary,
     settlementSummary,
     feedLoaded,

@@ -23,59 +23,58 @@ type LeakageKpiStripProps = {
 export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
   if (loading) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-28 animate-pulse rounded-2xl bg-slate-100" />
-        ))}
+      <div className="flex h-full flex-col gap-4">
+        <div className="h-32 animate-pulse rounded-2xl bg-slate-100" />
+        <div className="grid grid-cols-2 gap-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-24 animate-pulse rounded-2xl bg-slate-100" />
+          ))}
+        </div>
       </div>
     )
   }
 
-  const heroCards = [
-    { label: leakageCopy.kpi.intendedValue, value: formatMinorInr(data.intendedMinor), helper: leakageCopy.kpi.intendedHelper },
-    {
-      label: leakageCopy.kpi.bankObserved,
-      value: formatMinorInr(data.totalSettledMinor),
-      helper: leakageCopy.kpi.bankObservedHelper,
-    },
-    {
-      label: leakageCopy.kpi.valueNeedingReview,
-      value: formatMinorInr(data.valueNeedingReviewMinor),
-      helper: leakageCopy.kpi.valueNeedingReviewHelper,
-      accent: true,
-    },
-    {
-      label: leakageCopy.kpi.paymentGapRate,
-      value: `${(data.paymentGapRate <= 1 ? data.paymentGapRate * 100 : data.paymentGapRate).toFixed(1)}%`,
-      helper: leakageCopy.kpi.paymentGapRateHelper,
-    },
-    {
-      label: leakageCopy.kpi.reviewPriority,
-      value: mapReviewPriorityShort(data.riskTier),
-      helper: mapReviewPriorityLabel(data.riskTier),
-    },
-  ]
+  const gapRate = `${(data.paymentGapRate <= 1 ? data.paymentGapRate * 100 : data.paymentGapRate).toFixed(1)}%`
 
   return (
-    <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {heroCards.map((card) => (
-          <article
-            key={card.label}
-            className={`rounded-2xl border bg-white p-4 shadow-sm ${card.accent ? 'border-amber-200/80' : 'border-slate-100'}`}
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{card.label}</p>
-            <p className="mt-2 text-[1.75rem] font-bold tabular-nums text-slate-900">{card.value}</p>
-            <p className="mt-2 text-[12px] leading-relaxed text-slate-500">{card.helper}</p>
-          </article>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div className="flex h-full flex-col gap-4">
+      {/* Top Hero Card - Value Needing Review */}
+      <article 
+        className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/10 p-5 shadow-sm min-h-[140px]"
+        style={{ background: 'linear-gradient(140deg,#4a6fe6 0%,#103a9e 28%,#00239c 52%,#5c7ec9 100%)' }}
+      >
+        <div
+          className="pointer-events-none absolute -right-20 -top-24 h-52 w-52 rounded-full blur-3xl"
+          style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.3) 0%, transparent 70%)' }}
+          aria-hidden
+        />
+        <p className="relative text-[14px] font-medium text-white/80">{leakageCopy.kpi.valueNeedingReview}</p>
+        <div className="relative mt-4 flex items-end gap-3">
+          <p className="text-[2.25rem] font-bold leading-none tabular-nums text-white">
+            {formatMinorInr(data.valueNeedingReviewMinor)}
+          </p>
+          <span className="mb-1 inline-flex items-center rounded-full bg-white/20 px-2 py-0.5 text-[12px] font-semibold text-white">
+            ↗ {gapRate}
+          </span>
+        </div>
+      </article>
+
+      {/* 2x2 Grid for Secondary Metrics */}
+      <div className="grid grid-cols-2 gap-3">
         {SECONDARY.map((item) => (
-          <article key={item.key} className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm" title={item.tooltip}>
-            <p className="text-[12px] font-medium text-slate-500">{item.label}</p>
-            <p className="mt-1 text-[1.1rem] font-semibold tabular-nums text-slate-900">{formatMinorInr(data[item.key])}</p>
-            {item.tooltip ? <p className="mt-2 text-[11px] text-slate-400">{item.tooltip}</p> : null}
+          <article key={item.key} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" title={item.tooltip}>
+            <div
+              className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full blur-2xl"
+              style={{ background: 'radial-gradient(circle, rgba(61,255,130,0.2) 0%, transparent 72%)' }}
+              aria-hidden
+            />
+            <div className="relative z-[1]">
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-1 rounded-full bg-[#16a34a]" />
+                <p className="text-[11px] font-medium text-slate-500">{item.label}</p>
+              </div>
+              <p className="mt-3 text-[1.1rem] font-semibold tabular-nums text-slate-900">{formatMinorInr(data[item.key])}</p>
+            </div>
           </article>
         ))}
       </div>

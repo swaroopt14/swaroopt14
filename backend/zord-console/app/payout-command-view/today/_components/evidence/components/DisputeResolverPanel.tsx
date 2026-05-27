@@ -1,27 +1,25 @@
 'use client'
 
 import { useState } from 'react'
-import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
-import {
-  COMMAND_CENTER_KPI_CARD,
-  HOME_BODY_IMPERIAL_SM,
-  HOME_TITLE_BLACK,
-} from '../../command-center/homeCommandCenterTokens'
-import { evidenceCopy } from '../copy/evidenceCopy'
+import { evidenceCopy, type DisputeReason } from '../copy/evidenceCopy'
 import type { PackTableRowVm } from '../types/evidenceViewModels'
 import { downloadDisputeBundle } from '../utils/verifyProofIntegrity'
 import { getEvidencePackFull } from '@/services/payout-command/prod-api/getEvidencePacks'
 import { mapProofTimeline } from '../mappers/mapProofTimeline'
 import { deriveMissingProofChecklist } from '../selectors/deriveMissingProofChecklist'
-import { EVIDENCE_ASK } from '../utils/evidenceFormat'
+import { EVIDENCE_CARD } from '../evidencePageTokens'
+import { EvidenceSectionHeader } from './EvidenceSectionHeader'
 
 type DisputeResolverPanelProps = {
   packRows: PackTableRowVm[]
 }
 
+const inputClass =
+  'h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[14px] text-slate-900 shadow-sm outline-none transition focus:border-[#4a6fe6]/50 focus:ring-2 focus:ring-[#4a6fe6]/15'
+
 export function DisputeResolverPanel({ packRows }: DisputeResolverPanelProps) {
   const [paymentRef, setPaymentRef] = useState('')
-  const [reason, setReason] = useState(evidenceCopy.dispute.reasons[0])
+  const [reason, setReason] = useState<DisputeReason>(evidenceCopy.dispute.reasons[0])
   const [packId, setPackId] = useState('')
   const [message, setMessage] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -59,34 +57,31 @@ export function DisputeResolverPanel({ packRows }: DisputeResolverPanelProps) {
   }
 
   return (
-    <section className={COMMAND_CENTER_KPI_CARD}>
-      <CommandCenterCardGlow />
-      <div className="relative border-b border-slate-100 px-5 py-4">
-        <p className={`text-[17px] font-semibold ${HOME_TITLE_BLACK}`}>{evidenceCopy.dispute.title}</p>
-        <p className={`mt-2 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-[12px] font-medium text-amber-900`}>
+    <section className={`${EVIDENCE_CARD} lg:sticky lg:top-4`}>
+      <EvidenceSectionHeader title={evidenceCopy.dispute.title} />
+      <div className="space-y-4 px-5 pb-5">
+        <p className="rounded-xl border border-amber-200/90 bg-gradient-to-r from-amber-50 to-amber-50/40 px-3 py-2.5 text-[12px] font-medium leading-relaxed text-amber-900">
           {evidenceCopy.dispute.apiBanner}
         </p>
-      </div>
-      <div className="relative space-y-4 p-5">
-        <label className="block space-y-1">
-          <span className={`text-[11px] font-semibold uppercase tracking-wide ${EVIDENCE_ASK.muted}`}>
+        <label className="block space-y-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
             {evidenceCopy.dispute.paymentRef}
           </span>
           <input
             value={paymentRef}
             onChange={(e) => setPaymentRef(e.target.value)}
             placeholder="Payment ref, invoice, or UTR"
-            className={`h-10 w-full rounded-[0.85rem] border ${EVIDENCE_ASK.border} ${EVIDENCE_ASK.field} px-3 text-[15px] outline-none`}
+            className={inputClass}
           />
         </label>
-        <label className="block space-y-1">
-          <span className={`text-[11px] font-semibold uppercase tracking-wide ${EVIDENCE_ASK.muted}`}>
+        <label className="block space-y-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
             {evidenceCopy.dispute.reason}
           </span>
           <select
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            className={`h-10 w-full rounded-[0.85rem] border ${EVIDENCE_ASK.border} ${EVIDENCE_ASK.field} px-3 text-[15px] outline-none`}
+            onChange={(e) => setReason(e.target.value as DisputeReason)}
+            className={inputClass}
           >
             {evidenceCopy.dispute.reasons.map((r) => (
               <option key={r} value={r}>
@@ -95,14 +90,14 @@ export function DisputeResolverPanel({ packRows }: DisputeResolverPanelProps) {
             ))}
           </select>
         </label>
-        <label className="block space-y-1">
-          <span className={`text-[11px] font-semibold uppercase tracking-wide ${EVIDENCE_ASK.muted}`}>
+        <label className="block space-y-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
             {evidenceCopy.dispute.selectPack}
           </span>
           <select
             value={effectivePackId}
             onChange={(e) => setPackId(e.target.value)}
-            className={`h-10 w-full rounded-[0.85rem] border ${EVIDENCE_ASK.border} ${EVIDENCE_ASK.field} px-3 font-mono text-[14px] outline-none`}
+            className={`${inputClass} font-mono text-[13px]`}
           >
             {packRows.length === 0 ? <option value="">No packs loaded</option> : null}
             {packRows.map((r) => (
@@ -116,13 +111,19 @@ export function DisputeResolverPanel({ packRows }: DisputeResolverPanelProps) {
           type="button"
           disabled={busy || !effectivePackId}
           onClick={() => void handleGenerate()}
-          className="w-full rounded-[0.85rem] bg-[#111111] px-4 py-2.5 text-[14px] font-semibold text-white transition hover:bg-[#222] disabled:opacity-50"
+          className="w-full rounded-xl px-4 py-2.5 text-[14px] font-semibold text-white shadow-[0_8px_24px_rgba(0,35,156,0.25)] transition hover:opacity-95 disabled:opacity-50"
+          style={{ background: 'linear-gradient(135deg,#103a9e 0%,#00239c 100%)' }}
         >
           {evidenceCopy.dispute.generate}
         </button>
-        {message ? <p className={`text-[13px] ${HOME_BODY_IMPERIAL_SM}`}>{message}</p> : null}
-        <p className={`text-[12px] ${HOME_BODY_IMPERIAL_SM}`}>
-          Output includes JSON evidence, proof hash, timeline, and missing proof checklist. PDF summary pending export API.
+        {message ? (
+          <p className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[12px] font-medium text-[#00239C]">
+            {message}
+          </p>
+        ) : null}
+        <p className="text-[11px] leading-relaxed text-slate-500">
+          Output includes JSON evidence, proof hash, timeline, and missing proof checklist. PDF summary
+          pending export API.
         </p>
       </div>
     </section>

@@ -50,9 +50,7 @@ export function derivePaymentCommandDataState(input: PaymentCommandDataStateInpu
   }
 
   let heroMessage: string | null = null
-  if (!hasPatternsSignal) {
-    heroMessage = 'Not enough batch data yet for pattern analysis.'
-  } else if (reviewMinor === 0 && !hasAmbiguitySignal) {
+  if (hasPatternsSignal && reviewMinor === 0 && !hasAmbiguitySignal) {
     heroMessage = 'No ambiguous payment matches detected.'
   }
 

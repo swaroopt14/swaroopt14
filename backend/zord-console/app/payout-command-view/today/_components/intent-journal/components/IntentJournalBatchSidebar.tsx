@@ -175,7 +175,7 @@ export function IntentJournalBatchSidebar({
                 selected &&
                 liveBatchDetail?.batch_health &&
                 liveBatchDetail.batch?.batch_id === batch.batchId
-                  ? formatInrRupees(Number(liveBatchDetail.batch_health.total_confirmed_amount_minor) / 100)
+                  ? formatInrRupees(Number(liveBatchDetail.batch_health.total_confirmed_amount_minor))
                   : null
 
               return (

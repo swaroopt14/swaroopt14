@@ -14,8 +14,6 @@ import {
 import { buildZordInsightCards } from '../insights/buildZordInsightCards'
 import { ZordInsightCarousel } from '../insights/ZordInsightCarousel'
 import { PaymentCommandCenterBand } from '../command-center/PaymentCommandCenterBand'
-import { PaymentCommandSummaryRow } from '../command-center/PaymentCommandSummaryRow'
-import { DataSourceStatusBar } from '../command-center/DataSourceStatusBar'
 import {
   type CommandCenterPeriod,
   type CarouselInsightPeriod,
@@ -24,9 +22,8 @@ import {
   carouselPeriodToTrendRange,
   COMMAND_CENTER_PERIOD_OPTIONS,
 } from '../command-center/commandCenterPeriod'
-import { fmtInrCompact, parseMinorField } from '../command-center/commandCenterFormat'
+import { fmtInrFull, parseMinorField } from '../command-center/commandCenterFormat'
 import { PAYMENT_COMMAND_CENTER } from '../command-center/paymentCommandCopy'
-import { derivePaymentCommandDataState } from '../command-center/paymentCommandDataState'
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import {
   HOME_BODY_IMPERIAL,
@@ -72,6 +69,7 @@ export function HomeSurface({
   const [trendAnchorIdx, setTrendAnchorIdx] = useState(0)
   const [commandPeriod, setCommandPeriod] = useState<CommandCenterPeriod>('month')
   const [carouselPeriod, setCarouselPeriod] = useState<CarouselInsightPeriod>('weekly')
+  const [heroMetric, setHeroMetric] = useState<'intended' | 'confirmed'>('intended')
 
   const { tenantId, tenantReady } = useSessionTenant()
   const { mode } = useEnvironment()
@@ -83,6 +81,15 @@ export function HomeSurface({
   )
   const trendRange = commandPeriodToTrendRange(commandPeriod)
   const carouselTrendRange = carouselPeriodToTrendRange(carouselPeriod)
+
+  // Sync the dropdown timeframe to the commandPeriod (which drives the chart/cards API)
+  useEffect(() => {
+    if (timeframe === 'Week') setCommandPeriod('week')
+    else if (timeframe === 'Month') setCommandPeriod('month')
+    else if (timeframe === 'Year') setCommandPeriod('year')
+    // Quarter/Custom fallback to month for the command API since it only supports week/month/year
+    else setCommandPeriod('month')
+  }, [timeframe])
 
   const { data: trendSeries, loading: trendLoading } = useDisbursementTrend({ tenantReady, range: trendRange })
   const { data: carouselTrendSeries, loading: carouselTrendLoading } = useDisbursementTrend({
@@ -140,9 +147,9 @@ export function HomeSurface({
   const liveTrendChart = useMemo(() => {
     if (!tenantReady || !trendSeries?.data_available || trendSeries.buckets.length < 1) return null
     const rows = trendSeries.buckets.map((b, i) => {
-      const rupeesT = b.total_amount / 100
-      const rupeesC = b.confirmed_amount / 100
-      const rupeesR = (b.review_amount ?? Math.max(0, b.total_amount - b.confirmed_amount)) / 100
+      const rupeesT = b.total_amount
+      const rupeesC = b.confirmed_amount
+      const rupeesR = b.review_amount ?? Math.max(0, b.total_amount - b.confirmed_amount)
       return {
         point: i,
         barValue: Math.max(0.001, rupeesT / 1000),
@@ -205,16 +212,16 @@ export function HomeSurface({
     axisLabelsForChart[Math.min(safePoint, axisLabelsForChart.length - 1)] ??
     '—'
   const fmtTrendTooltipInr = (valueThousands: number) =>
-    fmtInrCompact(Math.round(valueThousands * 1000 * 100))
+    fmtInrFull(Math.round(valueThousands * 1000))
 
   const tooltipIntended = activeBucket
-    ? fmtInrCompact(activeBucket.total_amount)
+    ? fmtInrFull(activeBucket.total_amount)
     : fmtTrendTooltipInr(activeChartDatum.barValue)
   const tooltipConfirmed = activeBucket
-    ? fmtInrCompact(activeBucket.confirmed_amount)
+    ? fmtInrFull(activeBucket.confirmed_amount)
     : fmtTrendTooltipInr(activeChartDatum.lineValue)
   const tooltipReview = activeBucket
-    ? fmtInrCompact(activeBucket.review_amount ?? Math.max(0, activeBucket.total_amount - activeBucket.confirmed_amount))
+    ? fmtInrFull(activeBucket.review_amount ?? Math.max(0, activeBucket.total_amount - activeBucket.confirmed_amount))
     : fmtTrendTooltipInr(activeChartDatum.reviewLineValue)
 
   const chartTags = useMemo(() => {
@@ -278,14 +285,6 @@ export function HomeSurface({
       ? Math.max(0, unmatchedMinor + underSettlementMinor + reversalMinor)
       : null
 
-  const paymentState = derivePaymentCommandDataState({
-    intendedMinor,
-    confirmedMinor: bankConfirmedMinor ?? null,
-    reviewMinor: exposureMinor,
-    hasAmbiguitySignal: Boolean(ambData && ambData.ambiguous_intent_count > 0),
-    hasPatternsSignal: Boolean(patternsData && patternsData.total_count > 0),
-  })
-
   const intentCountLabel =
     trendTotalsMinor && trendTotalsMinor.intentCount > 0
       ? trendTotalsMinor.intentCount
@@ -311,7 +310,7 @@ export function HomeSurface({
     exposureMinor !== null && exposureMinor === 0
       ? '₹0'
       : exposureMinor !== null
-        ? fmtInrCompact(exposureMinor)
+        ? fmtInrFull(exposureMinor)
         : loading
           ? '…'
           : '—'
@@ -398,66 +397,136 @@ export function HomeSurface({
 
   const completionHint =
     dataSources.settlementStatus === 'missing'
-      ? 'To complete this dashboard: upload a bank statement or settlement file for the selected period.'
-      : paymentState.heroMessage
+      ? 'Upload a bank statement or settlement file for this period.'
+      : null
+
+  const lastUpdatedIso = leakageData?.computed_at ?? trendSeries?.buckets?.[0]?.key
+  const lastUpdatedDisplay = lastUpdatedIso
+    ? new Date(lastUpdatedIso).toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true,
+      })
+    : null
 
   const disbursementHeroInner = (
-    <>
-      <div className="flex flex-wrap items-end justify-center gap-8">
-        <div className="text-center">
-          <div className={`text-[36px] font-extrabold leading-none tabular-nums sm:text-[40px] ${HOME_TITLE_BLACK}`}>
-            {intendedMinor !== null ? fmtInrCompact(intendedMinor) : loading || trendLoading ? '…' : '—'}
-          </div>
-          <div className={`mt-2 text-[16px] font-bold ${HOME_TITLE_BLACK}`}>Intended Payment Value</div>
-          <p className={`mt-1 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
-            {intentCountLabel > 0
-              ? `${intentCountLabel} payment instructions received in this period.`
-              : 'Payment instructions will appear when your first batch is processed.'}
-          </p>
-        </div>
-        <div className="text-center">
-          <div className={`text-[36px] font-extrabold leading-none tabular-nums sm:text-[40px] ${HOME_TITLE_BLACK}`}>
-            {bankConfirmedMinor != null && bankConfirmedMinor > 0
-              ? fmtInrCompact(bankConfirmedMinor)
-              : 'Not connected yet'}
-          </div>
-          <div className={`mt-2 text-[16px] font-bold ${HOME_TITLE_BLACK}`}>Bank-Confirmed Value</div>
-          <p className={`mt-1 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
-            {bankConfirmedMinor != null && bankConfirmedMinor > 0
-              ? 'Confirmed from bank/settlement records in this period.'
-              : PAYMENT_COMMAND_CENTER.bankPending}
-          </p>
-        </div>
+    <div className="flex flex-col items-center justify-center">
+      <div className="mx-auto mb-6 flex w-fit rounded-full border border-slate-200 bg-slate-50 p-1">
+        <button
+          type="button"
+          onClick={() => setHeroMetric('intended')}
+          className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition ${
+            heroMetric === 'intended'
+              ? 'bg-white text-[#000000] shadow-sm ring-1 ring-black/5'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Intended
+        </button>
+        <button
+          type="button"
+          onClick={() => setHeroMetric('confirmed')}
+          className={`rounded-full px-4 py-1.5 text-[13px] font-medium transition ${
+            heroMetric === 'confirmed'
+              ? 'bg-white text-[#000000] shadow-sm ring-1 ring-black/5'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          Bank-Confirmed
+        </button>
       </div>
-      <p className={`mt-4 text-center ${HOME_BODY_IMPERIAL_CENTERED}`}>{PAYMENT_COMMAND_CENTER.intendedHelper}</p>
-      {paymentState.heroMessage ? (
-        <p className={`mt-2 text-center text-[14px] font-medium text-neutral-700`}>{paymentState.heroMessage}</p>
-      ) : null}
-    </>
+
+      <div className="text-center min-h-[110px]">
+        {heroMetric === 'intended' ? (
+          <>
+            <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
+              {intendedMinor !== null ? fmtInrFull(intendedMinor) : loading || trendLoading ? '₹…' : '₹0'}
+            </div>
+            <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Intended Payment Value</div>
+            {intentCountLabel > 0 ? (
+              <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
+                {intentCountLabel} payment instructions received in this period.
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <>
+            <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
+              {bankConfirmedMinor != null && bankConfirmedMinor > 0
+                ? fmtInrFull(bankConfirmedMinor)
+                : '₹0'}
+            </div>
+            <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Bank-Confirmed Value</div>
+            {bankConfirmedMinor != null && bankConfirmedMinor > 0 ? (
+              <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
+                Confirmed from bank/settlement records in this period.
+              </p>
+            ) : null}
+          </>
+        )}
+        {lastUpdatedDisplay ? (
+          <p className="mt-4 text-[13px] font-medium text-slate-500">
+            Last updated: {lastUpdatedDisplay}
+          </p>
+        ) : null}
+      </div>
+    </div>
   )
 
   const trendPanelInner = (
     <>
-        <div className="min-w-0">
-          <h2 className={`text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
-            {PAYMENT_COMMAND_CENTER.chartTitle}
-          </h2>
-          <p className={`mt-1 ${HOME_BODY_IMPERIAL}`}>{PAYMENT_COMMAND_CENTER.chartSubtitle}</p>
-          <p className={`mt-2 text-[13px] font-medium text-neutral-600`}>
-            Period: {COMMAND_CENTER_PERIOD_OPTIONS.find((f) => f.id === commandPeriod)?.label ?? commandPeriod}
-            {trendLoading ? ' · Updating…' : null}
-          </p>
-          <p className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 ${HOME_BODY_IMPERIAL}`}>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[#4ade80]" /> {PAYMENT_COMMAND_CENTER.legendIntended}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[#a78bfa]" /> {PAYMENT_COMMAND_CENTER.legendConfirmed}
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[#f59e0b]" /> {PAYMENT_COMMAND_CENTER.legendReview}
-            </span>
-          </p>
+        <div className="flex flex-wrap items-start justify-between gap-4 min-w-0">
+          <div>
+            <h2 className={`text-[20px] font-semibold leading-snug tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>
+              {PAYMENT_COMMAND_CENTER.chartTitle}
+            </h2>
+            <p className={`mt-1 ${HOME_BODY_IMPERIAL}`}>{PAYMENT_COMMAND_CENTER.chartSubtitle}</p>
+            <p className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 ${HOME_BODY_IMPERIAL}`}>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[#4ade80]" /> {PAYMENT_COMMAND_CENTER.legendIntended}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[#a78bfa]" /> {PAYMENT_COMMAND_CENTER.legendConfirmed}
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[#f59e0b]" /> {PAYMENT_COMMAND_CENTER.legendReview}
+              </span>
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`text-[14px] font-medium tracking-[0] ${HOME_TITLE_BLACK} mr-1`}>
+                Timeframe
+              </span>
+              <select
+                value={timeframe}
+                onChange={(e) => onTimeframeChange(e.target.value as HomeTimeframe)}
+                className="rounded-md border border-[#E5E5E5] bg-white px-3 py-1.5 text-[13px] font-medium text-neutral-800 focus:border-[#39E07E] focus:outline-none focus:ring-1 focus:ring-[#39E07E]/40"
+              >
+                <option value="Week">Week</option>
+                <option value="Month">Month</option>
+                <option value="Quarter">Quarter</option>
+                <option value="Year">Year</option>
+                <option value="Custom">Custom</option>
+              </select>
+
+              <select
+                value={snapshot.selectedYear}
+                onChange={(e) => onYearChange(Number(e.target.value) as 2026 | 2027 | 2028)}
+                className="rounded-md border border-[#E5E5E5] bg-white px-3 py-1.5 text-[13px] font-medium text-neutral-800 focus:border-[#39E07E] focus:outline-none focus:ring-1 focus:ring-[#39E07E]/40"
+              >
+                {HOME_YEAR_OPTIONS.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {trendLoading ? <span className="text-[12px] text-neutral-500">Updating…</span> : null}
+          </div>
         </div>
         <div className="relative z-[1] mt-6 min-w-0" onMouseLeave={() => setHoverIndex(null)}>
           {trendChartReady ? (
@@ -637,36 +706,6 @@ export function HomeSurface({
           <div className="px-4 pt-2 text-center sm:px-6 lg:px-8">{disbursementHeroInner}</div>
         )}
 
-        <div className="mt-6 flex w-full min-h-[48px] items-stretch border-y border-[#e8e8e5] bg-white">
-          <div className={`flex w-1/2 min-w-0 items-center border-r border-[#ecece9] px-4 py-3 text-left text-[14px] font-medium tracking-[0] sm:px-6 lg:px-8 ${HOME_TITLE_BLACK}`}>
-            <span className="truncate">{snapshot.timeframeLabel}</span>
-          </div>
-          <div className="flex w-1/2 min-w-0 items-center justify-end gap-2 px-4 py-3 sm:px-6 lg:px-8">
-            {HOME_YEAR_OPTIONS.map((year) => (
-              <button
-                key={year}
-                type="button"
-                onClick={() => onYearChange(year)}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-[14px] font-medium tracking-[0] transition ${
-                  snapshot.selectedYear === year
-                    ? 'bg-[#39E07E] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/35'
-                    : `border border-[#E5E5E5] bg-white hover:bg-[#f5f5f5] ${HOME_TITLE_BLACK}`
-                }`}
-              >
-                {year}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {timeframe === 'Week' && snapshot.holidayLabels.length > 0 ? (
-          <div className="mt-3 px-4 sm:px-6 lg:px-8">
-            <div className={`rounded-[0.95rem] border border-[#E5E5E5] bg-white px-3 py-2 ${HOME_BODY_IMPERIAL}`}>
-              Holidays included: {snapshot.holidayLabels.join(' • ')}
-            </div>
-          </div>
-        ) : null}
-
         {timeframe === 'Custom' ? (
           <div className="mt-3 px-4 sm:px-6 lg:px-8">
         <div className="overflow-hidden rounded-[1rem] border border-[#E5E5E5] bg-white text-[13px] font-normal tracking-[0]">
@@ -693,45 +732,8 @@ export function HomeSurface({
           </div>
         ) : null}
 
-        <div className="mt-6 space-y-4 px-4 sm:px-6 lg:px-8">
-          <PaymentCommandSummaryRow
-            period={commandPeriod}
-            onPeriodChange={setCommandPeriod}
-            intendedDisplay={intendedMinor !== null ? fmtInrCompact(intendedMinor) : loading ? '…' : '—'}
-            intendedSub={
-              intentCountLabel > 0
-                ? `${intentCountLabel} payment instructions received.`
-                : 'Awaiting payment instructions for this period.'
-            }
-            bankConfirmedDisplay={
-              bankConfirmedMinor != null && bankConfirmedMinor > 0
-                ? fmtInrCompact(bankConfirmedMinor)
-                : 'Not connected yet'
-            }
-            bankConfirmedSub={
-              bankConfirmedMinor != null && bankConfirmedMinor > 0
-                ? 'Confirmed from bank/settlement records.'
-                : PAYMENT_COMMAND_CENTER.bankPending
-            }
-            reviewDisplay={reviewDisplay}
-            reviewSub={
-              exposureMinor === 0
-                ? 'No payment gaps detected in this period.'
-                : 'Affected by missing match, short settlement, or reversal.'
-            }
-            matchConfidenceDisplay={matchConfidencePct}
-            matchConfidenceSub="Average confidence in linking payments to outcomes."
-            proofReadinessDisplay={proofCoveragePct}
-            proofReadinessSub="Payments with enough evidence for review or export."
-          />
-
-          <DataSourceStatusBar
-            intentStatus={dataSources.intentStatus}
-            settlementStatus={dataSources.settlementStatus}
-            bankStatementStatus={dataSources.bankStatementStatus}
-            evidenceStatus={dataSources.evidenceStatus}
-            lastUpdatedIso={leakageData?.computed_at ?? trendSeries?.buckets?.[0]?.key}
-          />
+        <div className="mt-6">
+          {/* DataSourceStatusBar removed per user request */}
         </div>
 
         <div className="relative mt-6 w-full border-b border-[#e5e5e5] bg-white px-4 py-6 sm:px-6 lg:px-8">
@@ -745,9 +747,8 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            cleanlyMatchedValue={observedMinor !== null ? fmtInrCompact(observedMinor) : loading ? '…' : '—'}
+            cleanlyMatchedValue={observedMinor !== null ? fmtInrFull(observedMinor) : loading ? '…' : '—'}
             cleanlyMatchedSub="Payment value matched between instruction and confirmation."
-            cleanlyMatchedFooter="Cleanly matched means Zord can link the original payment instruction to a bank or settlement outcome."
             awaitingConfirmation={bankConfirmedMinor == null || bankConfirmedMinor <= 0}
             reviewValue={reviewDisplay}
             reviewSub={
@@ -755,15 +756,13 @@ export function HomeSurface({
                 ? 'No payment value currently needs review.'
                 : 'Payment value affected by missing match, short settlement, reversal, or unclear status.'
             }
-            reviewFooter="This shows payment value affected by missing matches, short settlement, reversals, or unclear status."
-            unmatchedDisplay={leakageData ? fmtInrCompact(unmatchedMinor) : '₹0'}
-            shortSettledDisplay={leakageData ? fmtInrCompact(underSettlementMinor) : '₹0'}
-            unlinkedDisplay={leakageData ? fmtInrCompact(orphanMinor) : '₹0'}
-            reversalDisplay={leakageData ? fmtInrCompact(reversalMinor) : '₹0'}
+            unmatchedDisplay={leakageData ? fmtInrFull(unmatchedMinor) : '—'}
+            shortSettledDisplay={leakageData ? fmtInrFull(underSettlementMinor) : '—'}
+            unlinkedDisplay={leakageData ? fmtInrFull(orphanMinor) : '—'}
+            reversalDisplay={leakageData ? fmtInrFull(reversalMinor) : '—'}
             reviewHref="/payout-command-view/today?dock=leakage"
             matchConfidencePct={matchConfidencePct}
             matchConfidenceSub="Average match confidence"
-            matchConfidenceFooter="Match confidence shows how safely Zord can connect payment instructions to outcome records."
             paymentsNeedingReview={String(ambData?.ambiguous_intent_count ?? 0)}
             missingRefRate={
               ambData ? `${((ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(1)}%` : '—'
@@ -778,7 +777,6 @@ export function HomeSurface({
             }
             proofCoverageDisplay={proofCoveragePct}
             proofSub="Evidence coverage for audit or export"
-            proofFooter="Proof-ready payments have enough linked records for review, audit, or export."
             proofReadyRow={defData ? `${Math.round((defData.audit_ready_pct ?? 0) * 100)}% audit-ready` : '—'}
             incompleteProofRow={
               defData

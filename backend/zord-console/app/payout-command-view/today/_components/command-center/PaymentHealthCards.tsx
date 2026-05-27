@@ -3,15 +3,13 @@
 import Link from 'next/link'
 import { HeroMetricWithSuperPercent } from '../homeDashboardTypography'
 import {
+  COMMAND_CENTER_KPI_CARD,
   HOME_BODY_IMPERIAL_SM,
   HOME_INSIGHT_PROSE,
   HOME_TITLE_BLACK,
 } from './homeCommandCenterTokens'
 
-const CARD_SHELL =
-  'relative flex min-h-[280px] flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_10px_44px_rgba(15,23,42,0.07)] ring-1 ring-black/[0.03]'
-
-function CardGlow() {
+export function CommandCenterCardGlow() {
   return (
     <div
       className="pointer-events-none absolute -right-20 -top-24 h-52 w-52 rounded-full blur-3xl"
@@ -33,12 +31,12 @@ function BreakdownRow({ label, value }: { label: string; value: string }) {
 export type PaymentHealthCardsProps = {
   cleanlyMatchedValue: string
   cleanlyMatchedSub: string
-  cleanlyMatchedFooter: string
+  cleanlyMatchedFooter?: string
   awaitingConfirmation?: boolean
 
   reviewValue: string
   reviewSub: string
-  reviewFooter: string
+  reviewFooter?: string
   unmatchedDisplay: string
   shortSettledDisplay: string
   unlinkedDisplay: string
@@ -47,7 +45,7 @@ export type PaymentHealthCardsProps = {
 
   matchConfidencePct: string
   matchConfidenceSub: string
-  matchConfidenceFooter: string
+  matchConfidenceFooter?: string
   paymentsNeedingReview: string
   missingRefRate: string
   refCompleteness: string
@@ -55,7 +53,7 @@ export type PaymentHealthCardsProps = {
 
   proofCoverageDisplay: string
   proofSub: string
-  proofFooter: string
+  proofFooter?: string
   proofReadyRow: string
   incompleteProofRow: string
   replayReadyRow: string
@@ -92,8 +90,8 @@ export function PaymentHealthCards({
 }: PaymentHealthCardsProps) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <article className={CARD_SHELL}>
-        <CardGlow />
+      <article className={COMMAND_CENTER_KPI_CARD + ' min-h-[280px]'}>
+        <CommandCenterCardGlow />
         <div className="relative z-[1]">
           <h3 className="text-[14px] font-medium text-[#000000]">Cleanly Matched Value</h3>
           {awaitingConfirmation ? (
@@ -112,20 +110,22 @@ export function PaymentHealthCards({
             </>
           )}
         </div>
-        <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{cleanlyMatchedFooter}</p>
+        {cleanlyMatchedFooter?.trim() ? (
+          <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{cleanlyMatchedFooter}</p>
+        ) : null}
       </article>
 
       <Link
         href={reviewHref}
-        className={`${CARD_SHELL} transition hover:border-slate-300 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400`}
+        className={`${COMMAND_CENTER_KPI_CARD} min-h-[280px] transition hover:border-slate-300 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400`}
       >
-        <CardGlow />
+        <CommandCenterCardGlow />
         <div className="relative z-[1]">
           <h3 className="text-[14px] font-medium text-[#000000]">Value Needing Review</h3>
           <p className="mt-4 text-center text-[36px] leading-none">
             <HeroMetricWithSuperPercent text={reviewValue} />
           </p>
-          <p className={`mt-2 text-center text-[14px] font-medium ${HOME_TITLE_BLACK}`}>{reviewSub}</p>
+          <p className={`mt-2 text-center text-[14px] font-medium text-[#000000]`}>{reviewSub}</p>
           <div className="mt-4">
             <BreakdownRow label="Unmatched payments" value={unmatchedDisplay} />
             <BreakdownRow label="Short-settled value" value={shortSettledDisplay} />
@@ -133,11 +133,13 @@ export function PaymentHealthCards({
             <BreakdownRow label="Reversal exposure" value={reversalDisplay} />
           </div>
         </div>
-        <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{reviewFooter}</p>
+        {reviewFooter?.trim() ? (
+          <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{reviewFooter}</p>
+        ) : null}
       </Link>
 
-      <article className={CARD_SHELL}>
-        <CardGlow />
+      <article className={COMMAND_CENTER_KPI_CARD + ' min-h-[280px]'}>
+        <CommandCenterCardGlow />
         <div className="relative z-[1]">
           <h3 className="text-[14px] font-medium text-[#000000]">Match Confidence</h3>
           <p className="mt-4 text-center text-[36px] leading-none">
@@ -151,14 +153,16 @@ export function PaymentHealthCards({
             <BreakdownRow label="Multiple match possibility" value={multiMatchRate} />
           </div>
         </div>
-        <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{matchConfidenceFooter}</p>
+        {matchConfidenceFooter?.trim() ? (
+          <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{matchConfidenceFooter}</p>
+        ) : null}
       </article>
 
       <Link
         href={proofHref}
-        className={`${CARD_SHELL} transition hover:border-slate-300 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400`}
+        className={`${COMMAND_CENTER_KPI_CARD} min-h-[280px] transition hover:border-slate-300 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400`}
       >
-        <CardGlow />
+        <CommandCenterCardGlow />
         <div className="relative z-[1]">
           <h3 className="text-[14px] font-medium text-[#000000]">Proof Readiness</h3>
           <p className="mt-4 text-center text-[36px] leading-none">
@@ -171,7 +175,9 @@ export function PaymentHealthCards({
             <BreakdownRow label="Replay-ready records" value={replayReadyRow} />
           </div>
         </div>
-        <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{proofFooter}</p>
+        {proofFooter?.trim() ? (
+          <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{proofFooter}</p>
+        ) : null}
       </Link>
     </div>
   )

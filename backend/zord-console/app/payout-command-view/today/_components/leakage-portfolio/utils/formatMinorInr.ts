@@ -11,5 +11,5 @@ export function formatMinorInr(value: MinorAmountField | number | null | undefin
   if (value == null || value === '') return '—'
   const minor = coerceMinor(value)
   if (!Number.isFinite(minor)) return '—'
-  return formatInrPrecise(minor / 100)
+  return formatInrPrecise(minor)
 }

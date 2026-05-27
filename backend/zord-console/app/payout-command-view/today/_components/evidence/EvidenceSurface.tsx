@@ -30,9 +30,25 @@ import { mapPackTableRow } from './mappers/mapPackTableRow'
 import { deriveEvidenceKpis } from './selectors/deriveEvidenceKpis'
 import { deriveProofBreakdown } from './selectors/deriveProofBreakdown'
 import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
-import type { EvidencePageTab } from './types/evidenceViewModels'
+import type { EvidencePageTab, PackTableRowVm } from './types/evidenceViewModels'
+import { evidenceCopy } from './copy/evidenceCopy'
+import { MerkleGraphSurface } from '../surfaces/MerkleGraphSurface'
 
 const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
+
+function resolveGraphPackId(tableRows: PackTableRowVm[], intentId: string): string {
+  if (intentId && intentId !== INTENT_FILTER_BATCH_ONLY) {
+    const match = tableRows.find((r) => r.intentId === intentId)
+    if (match) return match.packId
+  }
+  if (intentId === INTENT_FILTER_BATCH_ONLY) {
+    const batchRow = tableRows.find((r) => r.scope === 'batch')
+    return batchRow?.packId ?? ''
+  }
+  const batchRow = tableRows.find((r) => r.scope === 'batch')
+  if (batchRow) return batchRow.packId
+  return tableRows[0]?.packId ?? ''
+}
 
 /**
  * APIs (5 on workspace load):
@@ -153,7 +169,6 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     const seen = new Set<string>()
     const out: { intentId: string; paymentRef: string }[] = []
     for (const row of tableRows) {
-      if (row.scope !== 'intent') continue
       const id = apiTrimmedString(row.intentId)
       if (!id || id === '—' || seen.has(id)) continue
       seen.add(id)
@@ -161,6 +176,11 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     }
     return out
   }, [tableRows])
+
+  const graphPackId = useMemo(
+    () => resolveGraphPackId(tableRows, intentId),
+    [tableRows, intentId],
+  )
 
   const scopedTableRows = useMemo(() => {
     if (!intentId) return tableRows
@@ -247,6 +267,35 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
             />
             <EvidencePackTrendChart trend={analytics.trend} preview={analytics.usingMock} />
           </div>
+
+          {batchId ? (
+            <section data-testid="evidence-batch-graph" className="space-y-3">
+              <div>
+                <h2 className="text-[18px] font-semibold tracking-tight text-slate-900">
+                  {evidenceCopy.graph.title}
+                </h2>
+                <p className="mt-1 max-w-2xl text-[14px] text-slate-500">{evidenceCopy.graph.subtitle}</p>
+              </div>
+              {packsLoading ? (
+                <p className="rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center text-[14px] font-medium text-slate-500">
+                  Loading proof lineage for batch {batchId}…
+                </p>
+              ) : graphPackId ? (
+                <MerkleGraphSurface
+                  embedMode
+                  hideScopePickers
+                  controlledBatchId={batchId}
+                  controlledPackId={graphPackId}
+                  initialPackId={graphPackId}
+                  intentOptionsSource="table"
+                />
+              ) : (
+                <p className="rounded-2xl border border-amber-200/80 bg-amber-50/80 px-5 py-6 text-[14px] font-medium text-amber-900">
+                  {packListError ?? 'Select a batch with evidence packs to view the lineage graph.'}
+                </p>
+              )}
+            </section>
+          ) : null}
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="space-y-5 min-w-0">

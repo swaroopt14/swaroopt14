@@ -322,7 +322,7 @@ test.describe('evidence batch → intent → pack wiring', () => {
     await preparePage(page, context, installEvidenceFixtureMocks)
   })
 
-  test('fan-out API calls and table + graph on Evidence dock', async ({ page }) => {
+  test('fan-out API calls and table on Evidence dock', async ({ page }) => {
     const captures: ProdCapture[] = []
     page.on('request', (req) => {
       if (req.method() !== 'GET') return
@@ -336,8 +336,7 @@ test.describe('evidence batch → intent → pack wiring', () => {
     await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
-    await expect(page.getByTestId('evidence-batch-graph')).toBeVisible({ timeout: 25_000 })
-    await expect(page.getByText('Evidence Pack Lineage')).toBeVisible()
+    await expect(page.getByRole('link', { name: 'View graph' }).first()).toBeVisible({ timeout: 25_000 })
     await expect(page.getByText(PACK_BATCH).first()).toBeVisible({ timeout: 25_000 })
     await expect(page.getByText(PACK_INTENT_A).first()).toBeVisible({ timeout: 25_000 })
 

@@ -33,7 +33,8 @@ export type LeakageKpiResolved = Resolved<{
   risk_adjusted_leakage_minor?: MinorAmountField
   leakage_percentage: number
   risk_tier: RiskTier
-  value_date_mismatch_count?: number
+  duplicate_risk_count?: number
+  duplicate_risk_exposure_minor?: MinorAmountField
 }>
 export type LeakageKpiResponse = LeakageKpiResolved | EmptyKpiResponse
 
@@ -91,6 +92,26 @@ export type MatchingExecutionHeatmap = {
   intents_under_evaluation_count?: number
 }
 
+export type AmbiguityHeatmapBatchRow = {
+  batch_id: string
+  total_intended_amount_minor?: number
+  total_count: number
+  finality_status?: string
+  exact_match_count: number
+  high_confidence_count: number
+  ambiguous_count: number
+  unresolved_count: number
+  conflicted_count: number
+  aggregate_score: number
+}
+
+export type AmbiguityHeatmapResolved = Resolved<{
+  intelligence_mode?: string
+  batches: AmbiguityHeatmapBatchRow[]
+}>
+
+export type AmbiguityHeatmapResponse = AmbiguityHeatmapResolved | EmptyKpiResponse
+
 export type AmbiguityKpiResolved = Resolved<{
   ambiguous_intent_count: number
   ambiguity_rate: number
@@ -129,20 +150,25 @@ export type AmbiguityKpiResolved = Resolved<{
 export type AmbiguityKpiResponse = AmbiguityKpiResolved | EmptyKpiResponse
 
 // ── KPIs 11–13: Defensibility ─────────────────────────────────────────────
-export type DefensibilityTier = 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR'
+export type DefensibilityTier = 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'WEAK' | 'STRONG'
 export type DefensibilityKpiResolved = Resolved<{
   evidence_pack_rate: number
   governance_coverage_pct: number
   replayability_pct: number
   defensibility_score: number
-  defensibility_tier: DefensibilityTier
+  defensibility_tier: DefensibilityTier | string
   audit_ready_pct: number
   dispute_ready_pct: number
+  avg_pack_completeness_score?: number
+  settlement_evidence_coverage?: number
+  attachment_evidence_coverage?: number
+  weak_evidence_count?: number
+  weak_evidence_rate?: number
 }>
 export type DefensibilityKpiResponse = DefensibilityKpiResolved | EmptyKpiResponse
 
 // ── KPI 14: Pattern / Batch anomaly ───────────────────────────────────────
-export type AnomalyLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+export type AnomalyLevel = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'INSUFFICIENT_DATA' | string
 export type FinalityStatus =
   | 'PENDING'
   | 'PARTIALLY_SETTLED'
@@ -150,18 +176,33 @@ export type FinalityStatus =
   | 'FAILED'
   | 'CANCELLED'
   | 'REQUIRES_REVIEW'
+  | 'PROCESSING'
+  | 'FULLY_SETTLED'
+  | string
 export type PatternsKpiResolved = Resolved<{
   batch_id?: string
   batch_anomaly_score: number
   anomaly_level: AnomalyLevel
   anomaly_type?: string
+  batch_quality_score?: number
   batch_risk_score: number
-  risk_tier: RiskTier
+  risk_tier: RiskTier | string
   finality_status: FinalityStatus
   total_count: number
   success_count: number
   failed_count: number
   pending_count: number
+  exact_match_count?: number
+  high_confidence_count?: number
+  ambiguous_count?: number
+  unresolved_count?: number
+  conflicted_count?: number
+  duplicate_risk_rate?: number
+  duplicate_risk_count?: number
+  value_date_mismatch_count?: number
+  value_date_mismatch_rate?: number
+  settlement_delay_p95_days?: number
+  same_beneficiary_amount_density?: number
 }>
 export type PatternsKpiResponse = PatternsKpiResolved | EmptyKpiResponse
 
@@ -172,8 +213,23 @@ export type RecommendationsKpiResolved = Resolved<{
   total_actions: number
   accepted_actions: number
   resolved_actions: number
+  recommendation_priority_score?: number
+  recommendation_impact_estimate_minor?: MinorAmountField
 }>
 export type RecommendationsKpiResponse = RecommendationsKpiResolved | EmptyKpiResponse
+
+// ── RCA dashboard (R4–R8) ─────────────────────────────────────────────────
+export type RcaKpiResolved = Resolved<{
+  parser_weakness_rate: number
+  weak_parse_count: number
+  mapping_weakness_rate: number
+  weak_mapping_count: number
+  source_system_defect_rate: number
+  source_system_defects?: Record<string, number>
+  rca_concentration: number
+  total_settlements: number
+}>
+export type RcaKpiResponse = RcaKpiResolved | EmptyKpiResponse
 
 // ── Batches list ──────────────────────────────────────────────────────────
 export type IntelligenceBatchRow = {
@@ -198,11 +254,24 @@ export type BatchesListResponse = {
 
 // ── Single batch detail (row + projection) ────────────────────────────────
 export type BatchHealth = {
-  total_intended_amount_minor: string
-  total_confirmed_amount_minor: string
-  total_variance_minor: string
+  total_count?: number
+  success_count?: number
+  failed_count?: number
+  pending_count?: number
+  reversed_count?: number
+  partial_recon_count?: number
+  total_intended_amount_minor: string | number
+  total_confirmed_amount_minor: string | number
+  total_variance_minor: string | number
   ambiguity_score: number
-  finality_status: FinalityStatus
+  exact_match_count?: number
+  high_confidence_count?: number
+  ambiguous_count?: number
+  unresolved_count?: number
+  conflicted_count?: number
+  aggregate_score?: number
+  finality_status: FinalityStatus | string
+  updated_at?: string
 }
 export type BatchDetailResponse = {
   tenant_id: string

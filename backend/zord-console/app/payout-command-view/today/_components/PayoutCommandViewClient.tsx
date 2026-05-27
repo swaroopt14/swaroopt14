@@ -155,19 +155,21 @@ export default function PayoutCommandViewClient({
 
     if (activeDock === 'workspace') {
       return (
-        <WorkspaceSurface
-          activeTab={activeTab}
-          setActiveTab={handleTabChange}
-          workspace={workspace}
-          selectedPromptLabel={selectedSuggestion}
-          suggestions={activePrompt.suggestions}
-          batchId={sharedBatchId}
-        />
+        <div className={manropeHome.className}>
+          <WorkspaceSurface
+            activeTab={activeTab}
+            setActiveTab={handleTabChange}
+            workspace={workspace}
+            selectedPromptLabel={selectedSuggestion}
+            suggestions={activePrompt.suggestions}
+            batchId={sharedBatchId}
+          />
+        </div>
       )
     }
 
-    if (activeDock === 'leakage') return <LeakageSurface />
-    if (activeDock === 'ambiguity') return <AmbiguitySurface />
+    if (activeDock === 'leakage') return <LeakageSurface initialBatchId={sharedBatchId} />
+    if (activeDock === 'ambiguity') return <AmbiguitySurface initialBatchId={sharedBatchId} />
     if (activeDock === 'grid') return <IntentJournalSurface initialBatchId={initialJournalBatchId} />
     if (activeDock === 'settlement') {
       return <SettlementJournalSurface initialClientBatchId={initialSettlementClientBatchId} />

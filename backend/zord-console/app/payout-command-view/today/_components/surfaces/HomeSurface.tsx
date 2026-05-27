@@ -22,7 +22,7 @@ import {
   carouselPeriodToTrendRange,
   COMMAND_CENTER_PERIOD_OPTIONS,
 } from '../command-center/commandCenterPeriod'
-import { fmtInrCompact, parseMinorField } from '../command-center/commandCenterFormat'
+import { fmtInrFull, parseMinorField } from '../command-center/commandCenterFormat'
 import { PAYMENT_COMMAND_CENTER } from '../command-center/paymentCommandCopy'
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import {
@@ -212,16 +212,16 @@ export function HomeSurface({
     axisLabelsForChart[Math.min(safePoint, axisLabelsForChart.length - 1)] ??
     '—'
   const fmtTrendTooltipInr = (valueThousands: number) =>
-    fmtInrCompact(Math.round(valueThousands * 1000))
+    fmtInrFull(Math.round(valueThousands * 1000))
 
   const tooltipIntended = activeBucket
-    ? fmtInrCompact(activeBucket.total_amount)
+    ? fmtInrFull(activeBucket.total_amount)
     : fmtTrendTooltipInr(activeChartDatum.barValue)
   const tooltipConfirmed = activeBucket
-    ? fmtInrCompact(activeBucket.confirmed_amount)
+    ? fmtInrFull(activeBucket.confirmed_amount)
     : fmtTrendTooltipInr(activeChartDatum.lineValue)
   const tooltipReview = activeBucket
-    ? fmtInrCompact(activeBucket.review_amount ?? Math.max(0, activeBucket.total_amount - activeBucket.confirmed_amount))
+    ? fmtInrFull(activeBucket.review_amount ?? Math.max(0, activeBucket.total_amount - activeBucket.confirmed_amount))
     : fmtTrendTooltipInr(activeChartDatum.reviewLineValue)
 
   const chartTags = useMemo(() => {
@@ -310,7 +310,7 @@ export function HomeSurface({
     exposureMinor !== null && exposureMinor === 0
       ? '₹0'
       : exposureMinor !== null
-        ? fmtInrCompact(exposureMinor)
+        ? fmtInrFull(exposureMinor)
         : loading
           ? '…'
           : '—'
@@ -443,7 +443,7 @@ export function HomeSurface({
         {heroMetric === 'intended' ? (
           <>
             <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
-              {intendedMinor !== null ? fmtInrCompact(intendedMinor) : loading || trendLoading ? '₹…' : '₹0'}
+              {intendedMinor !== null ? fmtInrFull(intendedMinor) : loading || trendLoading ? '₹…' : '₹0'}
             </div>
             <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Intended Payment Value</div>
             {intentCountLabel > 0 ? (
@@ -456,7 +456,7 @@ export function HomeSurface({
           <>
             <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
               {bankConfirmedMinor != null && bankConfirmedMinor > 0
-                ? fmtInrCompact(bankConfirmedMinor)
+                ? fmtInrFull(bankConfirmedMinor)
                 : '₹0'}
             </div>
             <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Bank-Confirmed Value</div>
@@ -747,7 +747,7 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            cleanlyMatchedValue={observedMinor !== null ? fmtInrCompact(observedMinor) : loading ? '…' : '—'}
+            cleanlyMatchedValue={observedMinor !== null ? fmtInrFull(observedMinor) : loading ? '…' : '—'}
             cleanlyMatchedSub="Payment value matched between instruction and confirmation."
             awaitingConfirmation={bankConfirmedMinor == null || bankConfirmedMinor <= 0}
             reviewValue={reviewDisplay}
@@ -756,10 +756,10 @@ export function HomeSurface({
                 ? 'No payment value currently needs review.'
                 : 'Payment value affected by missing match, short settlement, reversal, or unclear status.'
             }
-            unmatchedDisplay={leakageData ? fmtInrCompact(unmatchedMinor) : '₹0'}
-            shortSettledDisplay={leakageData ? fmtInrCompact(underSettlementMinor) : '₹0'}
-            unlinkedDisplay={leakageData ? fmtInrCompact(orphanMinor) : '₹0'}
-            reversalDisplay={leakageData ? fmtInrCompact(reversalMinor) : '₹0'}
+            unmatchedDisplay={leakageData ? fmtInrFull(unmatchedMinor) : '—'}
+            shortSettledDisplay={leakageData ? fmtInrFull(underSettlementMinor) : '—'}
+            unlinkedDisplay={leakageData ? fmtInrFull(orphanMinor) : '—'}
+            reversalDisplay={leakageData ? fmtInrFull(reversalMinor) : '—'}
             reviewHref="/payout-command-view/today?dock=leakage"
             matchConfidencePct={matchConfidencePct}
             matchConfidenceSub="Average match confidence"

@@ -19,12 +19,10 @@ const G = {
   pill: 'rgba(255,255,255,0.18)',
 } as const
 
+import { fmtInrFull } from '../command-center/commandCenterFormat'
+
 function fmtINR(n: number): string {
-  if (!Number.isFinite(n)) return '₹—'
-  const v = Math.abs(n)
-  if (v >= 10_000_000) return `₹${(n / 10_000_000).toFixed(1)} Cr`
-  if (v >= 100_000) return `₹${(n / 100_000).toFixed(1)} L`
-  return `₹${Math.round(n).toLocaleString('en-IN')}`
+  return fmtInrFull(n, { decimals: 0 })
 }
 
 function BoltSvg() {

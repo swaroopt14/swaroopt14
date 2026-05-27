@@ -1,13 +1,20 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { usePathname } from 'next/navigation'
 import Link from 'next/link'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
+import { useAmbiguityHeatmap } from '@/services/payout-command/prod-api/useAmbiguityHeatmap'
+import { batchHealthToAmbiguityKpis } from '@/services/payout-command/prod-api/mapBatchHealthKpis'
+import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type { FinalityStatus, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
+import type {
+  AmbiguityKpiResolved,
+  FinalityStatus,
+  IntelligenceBatchRow,
+} from '@/services/payout-command/prod-api/intelligenceTypes'
 import { MatchingConfidenceKpiStrip } from './components/MatchingConfidenceKpiStrip'
 import { TopReasonsForReview } from './components/TopReasonsForReview'
 import { AmbiguityVelocityChart } from './components/AmbiguityVelocityChart'
@@ -16,16 +23,62 @@ import { BatchesNeedingReviewTable } from './components/BatchesNeedingReviewTabl
 import { AmbiguityMixDonut } from './components/AmbiguityMixDonut'
 import { BatchControlList, DataQualityAuditCard } from './components/BatchControlList'
 
-export function MatchingConfidenceSurface() {
+export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const pathname = usePathname()
   const { tenantReady } = useSessionTenant()
 
-  const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>()
+  const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>(() =>
+    initialBatchId?.trim() || undefined,
+  )
   const { ambiguity, loading: kpiLoading, refresh } = useIntelligenceKpis({
     tenantReady,
     batchId: selectedBatchId,
   })
+  const {
+    heatmap: matchingHeatmap,
+    loading: heatmapLoading,
+    refresh: refreshHeatmap,
+  } = useAmbiguityHeatmap(tenantReady)
   const amb = isDataAvailable(ambiguity) ? ambiguity : null
+
+  const { batchHealth, loading: batchHealthLoading } = useIntelligenceBatchHealth(
+    tenantReady,
+    selectedBatchId,
+  )
+
+  useEffect(() => {
+    const pinned = initialBatchId?.trim()
+    if (pinned) setSelectedBatchId(pinned)
+  }, [initialBatchId])
+
+  const effectiveAmb = useMemo((): AmbiguityKpiResolved | null => {
+    if (batchHealth && selectedBatchId) {
+      const kpis = batchHealthToAmbiguityKpis(batchHealth)
+      return {
+        ...(amb ?? {}),
+        data_available: true,
+        tenant_id: amb?.tenant_id ?? '',
+        ambiguous_intent_count: kpis.ambiguous_intent_count,
+        ambiguity_rate: kpis.ambiguity_rate,
+        provider_ref_missing_rate: kpis.provider_ref_missing_rate,
+        value_at_risk_minor: String(kpis.value_at_risk_minor ?? ''),
+        avg_attachment_confidence: amb?.avg_attachment_confidence ?? 0,
+        risk_tier: amb?.risk_tier ?? 'LOW',
+      } as AmbiguityKpiResolved
+    }
+    return amb
+  }, [amb, batchHealth, selectedBatchId])
+
+  const kpiScopeHint =
+    selectedBatchId && batchHealth
+      ? 'Batch health projection'
+      : selectedBatchId
+        ? 'Tenant-wide snapshot'
+        : 'Tenant-wide snapshot'
+
+  const stripLoading =
+    (kpiLoading && !effectiveAmb) ||
+    (Boolean(selectedBatchId) && batchHealthLoading && !batchHealth && !amb)
 
   const [finalityFilter, setFinalityFilter] = useState<'' | FinalityStatus>('')
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
@@ -113,8 +166,11 @@ export function MatchingConfidenceSurface() {
           {/* Refresh */}
           <button
             type="button"
-            onClick={() => void refresh()}
-            disabled={kpiLoading}
+            onClick={() => {
+              void refresh()
+              void refreshHeatmap()
+            }}
+            disabled={kpiLoading || heatmapLoading}
             className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
             aria-label="Refresh"
           >
@@ -139,16 +195,24 @@ export function MatchingConfidenceSurface() {
         {/* Left column */}
         <div className="flex flex-col gap-4">
           {/* KPI cards strip */}
-          <MatchingConfidenceKpiStrip amb={amb} loading={kpiLoading && !amb} />
+          <MatchingConfidenceKpiStrip
+            amb={effectiveAmb}
+            loading={stripLoading}
+            scopeHint={kpiScopeHint}
+          />
 
           {/* Ambiguity Velocity chart */}
-          <AmbiguityVelocityChart amb={amb} batchId={selectedBatchId} />
+          <AmbiguityVelocityChart amb={effectiveAmb ?? amb} batchId={selectedBatchId} />
         </div>
 
         {/* Right column: Zord Intelligence + Heatmap */}
         <div className="flex flex-col gap-4">
           <TopReasonsForReview amb={amb} />
-          <MatchingExecutionLog amb={amb} />
+          <MatchingExecutionLog
+            amb={amb}
+            heatmap={matchingHeatmap}
+            heatmapLoading={heatmapLoading && !matchingHeatmap}
+          />
         </div>
       </div>
 

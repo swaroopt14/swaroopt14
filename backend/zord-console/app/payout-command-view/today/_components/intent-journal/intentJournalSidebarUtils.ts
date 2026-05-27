@@ -62,13 +62,10 @@ export function engineDispatchConfidencePct(batch: BatchRecord): number {
   return (batch.confirmedCount / total) * 100
 }
 
+import { fmtInrFull } from '../command-center/commandCenterFormat'
+
 export function formatInrRupees(rupees: number): string {
-  if (!Number.isFinite(rupees)) return '—'
-  const r = Math.abs(rupees)
-  if (r >= 1e7) return `₹${(rupees / 1e7).toFixed(2)} Cr`
-  if (r >= 1e5) return `₹${(rupees / 1e5).toFixed(2)} L`
-  if (r >= 1e3) return `₹${(rupees / 1e3).toFixed(1)} K`
-  return `₹${Math.round(rupees).toLocaleString('en-IN')}`
+  return fmtInrFull(rupees, { decimals: 0 })
 }
 
 /**

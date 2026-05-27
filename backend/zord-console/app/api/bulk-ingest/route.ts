@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   applyRefreshedSessionCookies,
-  resolveProxyForwardAuthorization,
+  resolveBulkIngestForwardAuthorization,
 } from '@/services/auth/resolvePayoutTenant.server'
 
 /** Proxies multipart bulk file to zord-edge `POST /v1/bulk-ingest` only (never zord-intelligence).
@@ -20,26 +20,38 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Expected multipart/form-data with a file field.' }, { status: 400 })
   }
 
-  const authResolution = await resolveProxyForwardAuthorization(req, process.env.ZORD_BULK_INGEST_API_KEY)
+  const authResolution = await resolveBulkIngestForwardAuthorization(req, process.env.ZORD_BULK_INGEST_API_KEY)
   if (!authResolution.ok) return authResolution.response
 
   const bodyBuffer = Buffer.from(await req.arrayBuffer())
-  const sourceType = req.headers.get('x-zord-source-type') || process.env.ZORD_BULK_INGEST_SOURCE_TYPE || 'CSV'
-  const sourceClass = req.headers.get('x-zord-source-class') || process.env.ZORD_BULK_INGEST_SOURCE_CLASS || 'INTENT'
+  const sourceType =
+    req.headers.get('x-zord-source-type')?.trim() ||
+    req.headers.get('X-Zord-Source-Type')?.trim() ||
+    'CSV'
+  const sourceClass =
+    req.headers.get('x-zord-source-class')?.trim() ||
+    req.headers.get('X-Zord-Source-Class')?.trim() ||
+    'INTENT'
   const tenantType =
-    req.headers.get('x-zord-tenant-type') || process.env.ZORD_BULK_INGEST_TENANT_TYPE || 'MERCHANT'
+    req.headers.get('x-zord-tenant-type')?.trim() ||
+    req.headers.get('X-Zord-Tenant-Type')?.trim() ||
+    ''
 
   const headers: Record<string, string> = {
     'content-type': contentType,
     'x-zord-source-type': sourceType,
     'x-zord-source-class': sourceClass,
-    'x-zord-tenant-type': tenantType,
     authorization: authResolution.authorization,
   }
+  if (tenantType) headers['x-zord-tenant-type'] = tenantType
 
   const batchId =
-    req.headers.get('batch-id') || req.headers.get('Batch-Id') || req.headers.get('batchid') || req.headers.get('BatchId')
-  if (batchId?.trim()) headers['Batch-Id'] = batchId.trim()
+    req.headers.get('batch-id') ||
+    req.headers.get('Batch-ID') ||
+    req.headers.get('Batch-Id') ||
+    req.headers.get('batchid') ||
+    req.headers.get('BatchId')
+  if (batchId?.trim()) headers['Batch-ID'] = batchId.trim()
 
   const idempotencyKey =
     req.headers.get('x-idempotency-key')?.trim() || req.headers.get('X-Idempotency-Key')?.trim()

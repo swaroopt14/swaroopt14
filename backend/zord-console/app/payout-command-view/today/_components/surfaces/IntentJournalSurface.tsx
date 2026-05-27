@@ -13,7 +13,6 @@ import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
 import { JournalBatchSelectionProvider } from '../intent-journal/context/JournalBatchSelectionContext'
 import { IntentJournalHeroBanner } from '../intent-journal/components/IntentJournalHeroBanner'
 import { IntentJournalKpiStrip } from '../intent-journal/components/IntentJournalKpiStrip'
-import { IntentJournalHealthCards } from '../intent-journal/components/IntentJournalHealthCards'
 import { IntentJournalBatchSidebar } from '../intent-journal/components/IntentJournalBatchSidebar'
 import {
   IntentJournalActivityPanel,
@@ -963,7 +962,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   }
                 />
                 <IntentJournalKpiStrip />
-                <IntentJournalHealthCards />
 
                 <IntentJournalActivityPanel vm={activityVm} />
               </>

@@ -21,8 +21,8 @@ services:
       # Default 8089 matches zord-intelligence (see config/api.endpoints.ts). 8080 is zord-edge — wrong target for KPI/batch proxies.
       - ZORD_INTELLIGENCE_URL=${ZORD_INTELLIGENCE_URL:-http://host.docker.internal:8089}
       - ZORD_BULK_INGEST_API_KEY=${ZORD_BULK_INGEST_API_KEY:-}
-      - ZORD_BULK_INGEST_SOURCE_TYPE=${ZORD_BULK_INGEST_SOURCE_TYPE:-batch_upload}
-      - ZORD_BULK_INGEST_SOURCE_CLASS=${ZORD_BULK_INGEST_SOURCE_CLASS:-operator}
+      - ZORD_BULK_INGEST_SOURCE_TYPE=${ZORD_BULK_INGEST_SOURCE_TYPE:-CSV}
+      - ZORD_BULK_INGEST_SOURCE_CLASS=${ZORD_BULK_INGEST_SOURCE_CLASS:-INTENT}
       - ZORD_EDGE_URL=${ZORD_EDGE_URL:-http://host.docker.internal:8080}
       # Outcome-engine settlement upload (BFF default is localhost:8081 — wrong inside this container).
       - ZORD_SETTLEMENT_URL=${ZORD_SETTLEMENT_URL:-http://host.docker.internal:8081}

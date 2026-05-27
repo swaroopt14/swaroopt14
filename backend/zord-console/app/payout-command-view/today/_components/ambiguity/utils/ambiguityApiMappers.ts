@@ -112,11 +112,16 @@ export function getAmbiguityMix(
 
 export function getMatchingHeatmap(
   amb: AmbiguityKpiResolved | null,
+  heatmapOverride?: MatchingExecutionHeatmap | null,
 ): MatchingExecutionHeatmap | null {
-  return amb?.matching_execution_heatmap ?? null
+  return heatmapOverride ?? amb?.matching_execution_heatmap ?? null
 }
 
-export function getMatchingSummary(amb: AmbiguityKpiResolved | null): string | null {
+export function getMatchingSummary(
+  amb: AmbiguityKpiResolved | null,
+  heatmapOverride?: MatchingExecutionHeatmap | null,
+): string | null {
+  if (heatmapOverride?.summary) return heatmapOverride.summary
   if (amb?.matching_execution_summary) return amb.matching_execution_summary
   const n = amb?.intents_under_evaluation_count
   if (n != null && n > 0) {

@@ -18,9 +18,8 @@ import {
 } from '@/services/payout-command/batch-intake/postSettlementFileUpload'
 import { CreatePaymentRequestForm } from '../../../customer/intents/create/page'
 
-function bulkIngestSourceTypeFromFilename(filename: string): string {
-  const lower = filename.toLowerCase()
-  if (lower.endsWith('.xlsx') || lower.endsWith('.xls')) return 'FILE_UPLOAD'
+/** Match Postman bulk-ingest defaults (`X-Zord-Source-Type: CSV`). */
+function bulkIngestSourceTypeFromFilename(_filename: string): string {
   return 'CSV'
 }
 
@@ -65,7 +64,7 @@ export function BatchIntakePanel({
   onSnapshotChange,
 }: BatchIntakePanelProps) {
   const { tenantId, tenantReady, refreshTenant } = useSessionTenant()
-  const tenantType = 'BANK' as const
+  const [sourceSystem, setSourceSystem] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [bulkForceReprocess, setBulkForceReprocess] = useState(false)
@@ -202,7 +201,7 @@ export function BatchIntakePanel({
         file,
         apiKeyRaw: apiKey.trim() || undefined,
         sourceType: bulkIngestSourceTypeFromFilename(file.name),
-        tenantType,
+        sourceSystem: sourceSystem.trim() || undefined,
         optionalBatchId: bid || undefined,
         forceReprocess: bulkForceReprocess,
       })
@@ -266,7 +265,7 @@ export function BatchIntakePanel({
     onIntentIngestSuccess,
     refreshTenant,
     selectedIntentFile,
-    tenantType,
+    sourceSystem,
   ])
 
   const onSettlementFileChosen = useCallback(
@@ -404,10 +403,15 @@ export function BatchIntakePanel({
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <label className="flex flex-col gap-1">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">Tenant type</span>
-                <div className="flex h-9 items-center rounded-lg border border-[#E5E5E5] bg-[#f8fafc] px-2.5 text-[13px] font-medium text-[#0A0A0A]">
-                  Bank
-                </div>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">
+                  Source system (optional)
+                </span>
+                <input
+                  value={sourceSystem}
+                  onChange={(e) => setSourceSystem(e.target.value)}
+                  placeholder="Auto-detect from file headers"
+                  className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0A0A0A] outline-none focus:border-[#6366f1]/50"
+                />
               </label>
               <label className="flex flex-col gap-1">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">Batch-Id (optional)</span>
@@ -429,6 +433,17 @@ export function BatchIntakePanel({
                   />
                   Force reprocess
                 </span>
+              </label>
+              <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">
+                  API key (optional)
+                </span>
+                <input
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Same Bearer token as Postman"
+                  className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0A0A0A] outline-none focus:border-[#6366f1]/50"
+                />
               </label>
               <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">PSP</span>

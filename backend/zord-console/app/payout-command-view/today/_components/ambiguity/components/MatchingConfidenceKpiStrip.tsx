@@ -50,9 +50,9 @@ function KpiCard({ label, value, pill, icon }: KpiCardConfig) {
   )
 }
 
-type Props = { amb: AmbiguityKpiResolved | null; loading?: boolean }
+type Props = { amb: AmbiguityKpiResolved | null; loading?: boolean; scopeHint?: string }
 
-export function MatchingConfidenceKpiStrip({ amb, loading }: Props) {
+export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
   if (loading) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -114,10 +114,15 @@ export function MatchingConfidenceKpiStrip({ amb, loading }: Props) {
   ]
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-      {cards.map((card) => (
-        <KpiCard key={card.label} {...card} />
-      ))}
+    <div className="space-y-2">
+      {scopeHint ? (
+        <p className="text-[12px] font-medium text-slate-600">{scopeHint}</p>
+      ) : null}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map((card) => (
+          <KpiCard key={card.label} {...card} />
+        ))}
+      </div>
     </div>
   )
 }

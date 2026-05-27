@@ -1,6 +1,9 @@
 'use client'
 
-import type { AmbiguityKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
+import type {
+  AmbiguityKpiResolved,
+  MatchingExecutionHeatmap,
+} from '@/services/payout-command/prod-api/intelligenceTypes'
 import { getMatchingHeatmap, getMatchingSummary } from '../utils/ambiguityApiMappers'
 
 function cellClass(v: number) {
@@ -9,11 +12,15 @@ function cellClass(v: number) {
   return 'bg-slate-100'
 }
 
-type Props = { amb: AmbiguityKpiResolved | null }
+type Props = {
+  amb: AmbiguityKpiResolved | null
+  heatmap?: MatchingExecutionHeatmap | null
+  heatmapLoading?: boolean
+}
 
-export function MatchingExecutionLog({ amb }: Props) {
-  const heatmap = getMatchingHeatmap(amb)
-  const summary = getMatchingSummary(amb)
+export function MatchingExecutionLog({ amb, heatmap: heatmapProp, heatmapLoading }: Props) {
+  const heatmap = getMatchingHeatmap(amb, heatmapProp)
+  const summary = getMatchingSummary(amb, heatmapProp)
   const yLabels = heatmap?.y_labels ?? []
   const xLabels = heatmap?.x_labels ?? []
   const cells = heatmap?.cells ?? []
@@ -71,11 +78,14 @@ export function MatchingExecutionLog({ amb }: Props) {
               ) : null}
             </div>
           </>
+        ) : heatmapLoading ? (
+          <div className="flex min-h-[160px] flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
+            <p className="text-[12px] font-medium text-slate-500">Loading matching execution heatmap…</p>
+          </div>
         ) : (
           <div className="flex min-h-[160px] flex-1 items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 text-center">
             <p className="text-[12px] font-medium text-[#00239C]">
-              Heatmap not available. Backend should return{' '}
-              <code className="text-[11px]">matching_execution_heatmap</code>.
+              Heatmap not available for this tenant yet.
             </p>
           </div>
         )}

@@ -152,6 +152,28 @@ export type ProxyForwardAuthResolution =
  * Case 4: none → 401.
  * When session exists and a server env fallback key is used, its tenant must match session.
  */
+/**
+ * Bulk ingest should mirror Postman: when ZORD_BULK_INGEST_API_KEY is configured and
+ * belongs to the signed-in session tenant, forward that API key instead of the session JWT.
+ */
+export async function resolveBulkIngestForwardAuthorization(
+  request: NextRequest,
+  envFallbackKey: string | undefined,
+): Promise<ProxyForwardAuthResolution> {
+  const { tenantId: sessionTenant, refreshedPayload } = await getSessionTenantIdFromRequest(request)
+  const envBearer = normalizeAuthorizationHeader(envFallbackKey ?? '')
+  const sessionTid = sessionTenant?.trim() ?? ''
+
+  if (envBearer && sessionTid) {
+    const envTid = await getTenantIdForBearerAuthorizationHeader(envBearer)
+    if (envTid && envTid === sessionTid) {
+      return { ok: true, authorization: envBearer, refreshedPayload }
+    }
+  }
+
+  return resolveProxyForwardAuthorization(request, envFallbackKey)
+}
+
 export async function resolveProxyForwardAuthorization(
   request: NextRequest,
   envFallbackKey: string | undefined,

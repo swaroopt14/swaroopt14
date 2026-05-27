@@ -10,14 +10,8 @@ import {
 import { useJournalBatchSelection } from '../context/JournalBatchSelectionContext'
 import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
 import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
+import { fmtInrFull } from '../../command-center/commandCenterFormat'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
-
-function formatInrRupees(rupees: number): string {
-  if (!Number.isFinite(rupees)) return '—'
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(
-    rupees,
-  )
-}
 
 function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
@@ -82,7 +76,7 @@ export function IntentJournalKpiStrip() {
       />
       <KpiCard
         label={copy.intendedValue}
-        value={formatInrRupees(intendedValue)}
+        value={fmtInrFull(intendedValue, { decimals: 0 })}
         sub="Sum of payment instruction amounts"
       />
       <KpiCard

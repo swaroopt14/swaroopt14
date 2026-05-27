@@ -1,12 +1,27 @@
-/** Compact INR from rupee amounts (zord-intelligence field names still use *_minor suffix). */
+/** Full INR with Indian digit grouping — never L/Cr/K abbreviations. */
+export type FmtInrFullOptions = {
+  /** 0 = whole rupees (KPI heroes); 2 = paise preserved (table rows). */
+  decimals?: 0 | 2
+}
+
+export function fmtInrFull(
+  amount: number | null | undefined,
+  options: FmtInrFullOptions = {},
+): string {
+  const { decimals = 0 } = options
+  if (amount === null || amount === undefined || !Number.isFinite(amount)) return '—'
+  if (amount === 0) return decimals === 2 ? '₹0.00' : '₹0'
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(amount)
+}
+
+/** @deprecated Use fmtInrFull — kept as alias to prevent L/Cr regressions. */
 export function fmtInrCompact(minor: number | null): string {
-  if (minor === null || !Number.isFinite(minor)) return '—'
-  if (minor === 0) return '₹0'
-  const rupees = minor
-  if (rupees >= 10_000_000) return `₹${(rupees / 10_000_000).toFixed(2)} Cr`
-  if (rupees >= 100_000) return `₹${(rupees / 100_000).toFixed(2)} L`
-  if (rupees >= 1000) return `₹${(rupees / 1000).toFixed(1)} K`
-  return `₹${rupees.toFixed(0)}`
+  return fmtInrFull(minor, { decimals: 0 })
 }
 
 export function parseMinorField(value: string | number | undefined | null): number {

@@ -46,7 +46,7 @@ export function WorkspaceSurface({
 
   return (
     <div className="-mx-1 sm:-mx-2 lg:-mx-3">
-      <div className="mt-2 space-y-4" data-testid="workspace-surface">
+      <div className="mt-2 space-y-4 rounded-2xl bg-[#e8eef5] p-4" data-testid="workspace-surface">
         <div className="grid items-stretch gap-4 xl:grid-cols-[1.78fr_1.46fr]">
           <WorkspaceOperationsGrid viewModel={viewModel} loading={loading} />
           <WorkspaceIntelligencePanel

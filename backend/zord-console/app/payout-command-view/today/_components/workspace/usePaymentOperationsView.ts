@@ -5,7 +5,7 @@ import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntel
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { commandPeriodToDateRange } from '../command-center/commandCenterPeriod'
-import { fmtInrCompact, parseMinorField } from '../command-center/commandCenterFormat'
+import { fmtInrFull, parseMinorField } from '../command-center/commandCenterFormat'
 import { derivePaymentCommandDataState } from '../command-center/paymentCommandDataState'
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import type { DataSourceBadgeStatus } from '../command-center/usePaymentCommandDataSources'
@@ -131,6 +131,7 @@ export function usePaymentOperationsView(batchId?: string): {
     const proofRate = defensibilityOk ? defensibility.evidence_pack_rate : null
     const governance = defensibilityOk ? defensibility.governance_coverage_pct : null
     const replay = defensibilityOk ? defensibility.replayability_pct : null
+    const disputeReady = defensibilityOk ? defensibility.dispute_ready_pct : null
 
     const valueObservedMinor =
       intendedMinor > 0 ? intendedMinor : settledMinor > 0 ? settledMinor : null
@@ -217,10 +218,10 @@ export function usePaymentOperationsView(batchId?: string): {
       summary: {
         inScope: hasLiveData ? formatCount(inScopeCount) : '—',
         inScopeSub: patternsOk ? `${patterns.success_count} confirmed` : 'Upload data to populate',
-        valueObserved: valueObservedMinor != null ? fmtInrCompact(valueObservedMinor) : '—',
+        valueObserved: valueObservedMinor != null ? fmtInrFull(valueObservedMinor) : '—',
         valueObservedSub:
           intendedMinor > 0 ? 'From payment instructions' : settledMinor > 0 ? 'From settlement' : '—',
-        needingReview: hasLiveData ? fmtInrCompact(reviewMinor) : '—',
+        needingReview: hasLiveData ? fmtInrFull(reviewMinor) : '—',
         needingReviewSub:
           reviewMinor <= 0 && hasLiveData
             ? PAYMENT_OPERATIONS.reviewZeroHint
@@ -243,22 +244,25 @@ export function usePaymentOperationsView(batchId?: string): {
       sourceRows,
       clarityRows: leakageOk
         ? [
-            { label: 'Intended value', value: fmtInrCompact(intendedMinor) },
-            { label: 'Settled value observed', value: fmtInrCompact(settledMinor) },
-            { label: 'Unmatched value', value: fmtInrCompact(unmatched) },
-            { label: 'Short-settled value', value: fmtInrCompact(under) },
-            { label: 'Reversal exposure', value: fmtInrCompact(reversal) },
+            { label: 'Intended value', value: fmtInrFull(intendedMinor, { decimals: 0 }) },
+            { label: 'Settled value observed', value: fmtInrFull(settledMinor, { decimals: 0 }) },
+            { label: 'Unmatched value', value: fmtInrFull(unmatched, { decimals: 0 }) },
+            { label: 'Short-settled value', value: fmtInrFull(under, { decimals: 0 }) },
+            { label: 'Unlinked settlement', value: fmtInrFull(orphan, { decimals: 0 }) },
+            { label: 'Reversal exposure', value: fmtInrFull(reversal, { decimals: 0 }) },
           ]
         : [],
-      clarityHero: fmtInrCompact(reviewMinor),
+      clarityHero: fmtInrFull(reviewMinor, { decimals: 0 }),
       clarityState,
       healthBrief: {
         cleanCount: patternsOk ? formatCount(patterns.success_count) : '—',
         needsReview: ambiguityOk ? formatCount(ambiguity.ambiguous_intent_count) : '—',
         proofReady:
-          proofRate != null && proofRate >= 0.8
-            ? formatCount(Math.round((patternsOk ? patterns.success_count : 0) * proofRate))
-            : '—',
+          disputeReady != null && patternsOk
+            ? formatCount(Math.round(patterns.success_count * disputeReady))
+            : disputeReady != null
+              ? formatPct(disputeReady)
+              : '—',
         metrics: [
           {
             label: 'Reference completeness',

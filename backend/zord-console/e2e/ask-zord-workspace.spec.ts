@@ -66,7 +66,19 @@ function installAuthIntelligenceAndPromptMocks(page: Page) {
         computed_at: new Date().toISOString(),
       }
 
-      if (path.includes('/patterns')) {
+      if (path.includes('/rca')) {
+        body = {
+          ...body,
+          parser_weakness_rate: 0.667,
+          weak_parse_count: 2,
+          mapping_weakness_rate: 0.333,
+          weak_mapping_count: 1,
+          source_system_defect_rate: 0.5,
+          source_system_defects: { HDFC_BANK: 0.5, ICICI_BANK: 0.5 },
+          rca_concentration: 0.3,
+          total_settlements: 3,
+        }
+      } else if (path.includes('/patterns')) {
         body = {
           ...body,
           success_count: 1100,
@@ -119,12 +131,12 @@ function installAuthIntelligenceAndPromptMocks(page: Page) {
         body = {
           ...body,
           evidence_pack_rate: 0.84,
-          governance_coverage_pct: 88,
-          replayability_pct: 90,
+          governance_coverage_pct: 0.88,
+          replayability_pct: 0.9,
           defensibility_score: 88,
           defensibility_tier: 'GOOD',
-          audit_ready_pct: 80,
-          dispute_ready_pct: 75,
+          audit_ready_pct: 0.8,
+          dispute_ready_pct: 0.75,
         }
       }
 

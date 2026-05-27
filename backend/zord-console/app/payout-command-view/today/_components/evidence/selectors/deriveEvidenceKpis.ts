@@ -4,17 +4,19 @@ import { EXPECTED_PROOF_ITEMS } from '../types/evidenceViewModels'
 import type {
   DefensibilityKpiResolved,
   LeakageKpiResolved,
+  BatchHealth,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
+import { fmtInrFull } from '../../command-center/commandCenterFormat'
 import { isExportReadyStatus, mapProofStatusFromPack } from '../mappers/mapProofStatus'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 
+type PackRowInput = { summary: EvidencePackSummaryRow; itemCount?: number }
+
 function formatMinorInrLabel(minor: string | number | undefined | null): string {
-  const s = apiTrimmedString(minor)
-  if (!s) return '—'
-  const n = Number(s.replace(/\D/g, '') || '0')
+  if (minor == null || minor === '') return '—'
+  const n = typeof minor === 'number' ? minor : Number(minor)
   if (!Number.isFinite(n)) return '—'
-  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
+  return fmtInrFull(n, { decimals: 0 })
 }
 
 type PackRowInput = { summary: EvidencePackSummaryRow; itemCount?: number }
@@ -23,8 +25,10 @@ export function deriveEvidenceKpis(input: {
   defensibility: DefensibilityKpiResolved | null
   leakage: LeakageKpiResolved | null
   packRows: PackRowInput[]
+  batchHealth?: BatchHealth | null
+  batchId?: string
 }): EvidenceKpiCard[] {
-  const { defensibility, leakage, packRows } = input
+  const { defensibility, leakage, packRows, batchHealth, batchId } = input
   const packCount = packRows.length
 
   let readyCount = 0
@@ -49,9 +53,14 @@ export function deriveEvidenceKpis(input: {
   const govPct = defensibility ? `${(defensibility.governance_coverage_pct * 100).toFixed(0)}%` : '—'
   const replayPct = defensibility ? `${(defensibility.replayability_pct * 100).toFixed(0)}%` : '—'
 
+  const disputePct = defensibility ? `${(defensibility.dispute_ready_pct * 100).toFixed(0)}%` : '—'
   let readinessSub = defensibility
-    ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct}`
+    ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct} · Dispute-ready: ${disputePct}`
     : '—'
+
+  if (defensibility?.weak_evidence_count != null && defensibility.weak_evidence_count > 0) {
+    readinessSub += ` · ${defensibility.weak_evidence_count} weak evidence items`
+  }
 
   let readinessExplanation: string | undefined
   if (
@@ -62,13 +71,15 @@ export function deriveEvidenceKpis(input: {
     readinessExplanation = evidenceCopy.scoreLowExplanation
   }
 
-  const exposureValue = leakage
-    ? formatMinorInrLabel(leakage.unmatched_amount_minor)
-    : '—'
-
+  let exposureValue = '—'
   let exposureSub = evidenceCopy.valueReviewHelper
   if (leakage) {
+    exposureValue = formatMinorInrLabel(leakage.unmatched_amount_minor)
     exposureSub = `Unmatched value · tier ${leakage.risk_tier}`
+  } else if (batchHealth && batchId) {
+    const variance = batchHealth.total_variance_minor
+    exposureValue = formatMinorInrLabel(variance)
+    exposureSub = `Batch variance · ${batchHealth.finality_status ?? 'N/A'}`
   }
 
   const packsSub =
@@ -76,7 +87,6 @@ export function deriveEvidenceKpis(input: {
       ? `${packCount} packs loaded for this batch`
       : 'Select a batch with evidence packs'
 
-  const disputeValue = readyCount > 0 ? String(readyCount) : packCount > 0 ? '0' : '—'
   const disputeSub =
     packCount > 0
       ? `${readyCount} ready to export · ${incompleteCount} incomplete · ${reviewCount} need review`
@@ -101,7 +111,9 @@ export function deriveEvidenceKpis(input: {
       id: 'governance',
       label: evidenceCopy.kpi.governanceChecks,
       value: govPct,
-      sub: defensibility ? 'Governance checks completed for batch' : '—',
+      sub: defensibility
+        ? `Settlement coverage ${((defensibility.settlement_evidence_coverage ?? 0) * 100).toFixed(0)}% · Attachment ${((defensibility.attachment_evidence_coverage ?? 0) * 100).toFixed(0)}%`
+        : '—',
     },
     {
       id: 'exposure',
@@ -121,8 +133,18 @@ export function deriveEvidenceKpis(input: {
         readyCount > 0 || incompleteCount > 0
           ? evidenceCopy.kpi.disputePacksReady
           : evidenceCopy.kpi.exportReadiness,
-      value: disputeValue,
-      sub: disputeSub,
+      value:
+        readyCount > 0 || defensibility
+          ? defensibility
+            ? disputePct
+            : String(readyCount)
+          : packCount > 0
+            ? '0'
+            : '—',
+      sub:
+        defensibility && packCount > 0
+          ? `${readyCount} export-ready · ${disputePct} dispute-ready per defensibility KPI`
+          : disputeSub,
     },
   ]
 }

@@ -1,6 +1,7 @@
 import { fetchProdJsonGet } from './fetchProdJsonGet'
 import { apiTrimmedString } from './coerceApiField'
 import type {
+  AmbiguityHeatmapResponse,
   AmbiguityKpiResponse,
   BatchDetailResponse,
   BatchesListResponse,
@@ -8,6 +9,7 @@ import type {
   FinalityStatus,
   LeakageKpiResponse,
   PatternsKpiResponse,
+  RcaKpiResponse,
   RecommendationsKpiResponse,
 } from './intelligenceTypes'
 
@@ -52,6 +54,11 @@ export async function getAmbiguityKpis(dates?: IntelligenceDateQuery, batchId?: 
   )
 }
 
+/** Per-batch matching execution heatmap — BFF injects session tenant. */
+export async function getAmbiguityHeatmap(): Promise<AmbiguityHeatmapResponse | null> {
+  return fetchProdJsonGet<AmbiguityHeatmapResponse>(`${INTEL_BASE}/ambiguity/heatmap`)
+}
+
 export async function getDefensibilityKpis(
   dates?: IntelligenceDateQuery,
 ): Promise<DefensibilityKpiResponse | null> {
@@ -74,6 +81,12 @@ export async function getRecommendationsKpis(
 ): Promise<RecommendationsKpiResponse | null> {
   return fetchProdJsonGet<RecommendationsKpiResponse>(
     intelQueryPath(`${INTEL_BASE}/recommendations`, dateQueryExtra(dates)),
+  )
+}
+
+export async function getRcaKpis(dates?: IntelligenceDateQuery): Promise<RcaKpiResponse | null> {
+  return fetchProdJsonGet<RcaKpiResponse>(
+    intelQueryPath(`${INTEL_BASE}/rca`, dateQueryExtra(dates)),
   )
 }
 

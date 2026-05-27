@@ -15,6 +15,7 @@ import type {
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
+import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { EvidencePageTabs } from './components/EvidencePageTabs'
 import { EvidenceHeroBanner } from './components/EvidenceHeroBanner'
@@ -30,25 +31,9 @@ import { mapPackTableRow } from './mappers/mapPackTableRow'
 import { deriveEvidenceKpis } from './selectors/deriveEvidenceKpis'
 import { deriveProofBreakdown } from './selectors/deriveProofBreakdown'
 import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
-import type { EvidencePageTab, PackTableRowVm } from './types/evidenceViewModels'
-import { evidenceCopy } from './copy/evidenceCopy'
-import { MerkleGraphSurface } from '../surfaces/MerkleGraphSurface'
+import type { EvidencePageTab } from './types/evidenceViewModels'
 
 const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
-
-function resolveGraphPackId(tableRows: PackTableRowVm[], intentId: string): string {
-  if (intentId && intentId !== INTENT_FILTER_BATCH_ONLY) {
-    const match = tableRows.find((r) => r.intentId === intentId)
-    if (match) return match.packId
-  }
-  if (intentId === INTENT_FILTER_BATCH_ONLY) {
-    const batchRow = tableRows.find((r) => r.scope === 'batch')
-    return batchRow?.packId ?? ''
-  }
-  const batchRow = tableRows.find((r) => r.scope === 'batch')
-  if (batchRow) return batchRow.packId
-  return tableRows[0]?.packId ?? ''
-}
 
 /**
  * APIs (5 on workspace load):
@@ -72,6 +57,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const [kpisLoading, setKpisLoading] = useState(false)
 
   const { tenantReady } = useSessionTenant()
+  const { batchHealth } = useIntelligenceBatchHealth(tenantReady, batchId || undefined)
 
   useEffect(() => {
     const fromUrl = apiTrimmedString(initialBatchId)
@@ -177,11 +163,6 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     return out
   }, [tableRows])
 
-  const graphPackId = useMemo(
-    () => resolveGraphPackId(tableRows, intentId),
-    [tableRows, intentId],
-  )
-
   const scopedTableRows = useMemo(() => {
     if (!intentId) return tableRows
     if (intentId === INTENT_FILTER_BATCH_ONLY) {
@@ -203,8 +184,8 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   }, [scopedTableRows, search])
 
   const kpiCards = useMemo(
-    () => deriveEvidenceKpis({ defensibility, leakage, packRows }),
-    [defensibility, leakage, packRows],
+    () => deriveEvidenceKpis({ defensibility, leakage, packRows, batchHealth, batchId }),
+    [defensibility, leakage, packRows, batchHealth, batchId],
   )
 
   const breakdownRows = useMemo(
@@ -267,35 +248,6 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
             />
             <EvidencePackTrendChart trend={analytics.trend} preview={analytics.usingMock} />
           </div>
-
-          {batchId ? (
-            <section data-testid="evidence-batch-graph" className="space-y-3">
-              <div>
-                <h2 className="text-[18px] font-semibold tracking-tight text-slate-900">
-                  {evidenceCopy.graph.title}
-                </h2>
-                <p className="mt-1 max-w-2xl text-[14px] text-slate-500">{evidenceCopy.graph.subtitle}</p>
-              </div>
-              {packsLoading ? (
-                <p className="rounded-2xl border border-slate-200 bg-white px-5 py-8 text-center text-[14px] font-medium text-slate-500">
-                  Loading proof lineage for batch {batchId}…
-                </p>
-              ) : graphPackId ? (
-                <MerkleGraphSurface
-                  embedMode
-                  hideScopePickers
-                  controlledBatchId={batchId}
-                  controlledPackId={graphPackId}
-                  initialPackId={graphPackId}
-                  intentOptionsSource="table"
-                />
-              ) : (
-                <p className="rounded-2xl border border-amber-200/80 bg-amber-50/80 px-5 py-6 text-[14px] font-medium text-amber-900">
-                  {packListError ?? 'Select a batch with evidence packs to view the lineage graph.'}
-                </p>
-              )}
-            </section>
-          ) : null}
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="space-y-5 min-w-0">

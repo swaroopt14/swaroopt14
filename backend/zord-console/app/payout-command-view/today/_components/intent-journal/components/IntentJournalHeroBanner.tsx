@@ -8,20 +8,8 @@ import {
 import { useJournalBatchSelection } from '../context/JournalBatchSelectionContext'
 import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
+import { fmtInrFull } from '../../command-center/commandCenterFormat'
 import { IntentJournalExportMenu } from './IntentJournalExportMenu'
-
-function formatInrRupees(rupees: number): string {
-  if (!Number.isFinite(rupees)) return '—'
-  const r = Math.abs(rupees)
-  if (r >= 10_000_000) return `₹${(r / 10_000_000).toFixed(2)} Cr`
-  if (r >= 100_000) return `₹${(r / 100_000).toFixed(2)} L`
-  if (r >= 1000) return `₹${(r / 1000).toFixed(1)} K`
-  return new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 2,
-  }).format(r)
-}
 
 type IntentJournalHeroBannerProps = {
   onExportIntents: () => void
@@ -37,7 +25,7 @@ export function IntentJournalHeroBanner({
   const { selectedBatchId, journalEnabled } = useJournalBatchSelection()
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, journalEnabled)
 
-  const valueLabel = formatInrRupees(metrics?.intendedValue ?? batch?.totalValue ?? 0)
+  const valueLabel = fmtInrFull(metrics?.intendedValue ?? batch?.totalValue ?? 0, { decimals: 0 })
   const instructionCount = metrics?.instructionCount ?? batch?.transactions ?? 0
 
   return (

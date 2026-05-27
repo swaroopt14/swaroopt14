@@ -12,6 +12,7 @@ package services
 
 import (
 	"encoding/json"
+	"log"
 	"math"
 	"strings"
 	"time"
@@ -114,19 +115,29 @@ func parseRuleProfile(profile *models.AttachmentRuleProfile) AttachmentPolicyCon
 	}
 
 	if len(profile.CarrierPriorityJSON) > 0 {
-		_ = json.Unmarshal(profile.CarrierPriorityJSON, &cfg.CarrierPriority)
+		if err := json.Unmarshal(profile.CarrierPriorityJSON, &cfg.CarrierPriority); err != nil {
+			log.Printf("attachment.scoring.parse_ruleset_warn profile=%s field=carrier_priority err=%v — using defaults", profile.ProfileID, err)
+		}
 	}
 	if len(profile.TimeWindowPolicyJSON) > 0 {
-		_ = json.Unmarshal(profile.TimeWindowPolicyJSON, &cfg.TimeWindow)
+		if err := json.Unmarshal(profile.TimeWindowPolicyJSON, &cfg.TimeWindow); err != nil {
+			log.Printf("attachment.scoring.parse_ruleset_warn profile=%s field=time_window err=%v — using defaults", profile.ProfileID, err)
+		}
 	}
 	if len(profile.AmountTolerancePolicyJSON) > 0 {
-		_ = json.Unmarshal(profile.AmountTolerancePolicyJSON, &cfg.AmountTolerance)
+		if err := json.Unmarshal(profile.AmountTolerancePolicyJSON, &cfg.AmountTolerance); err != nil {
+			log.Printf("attachment.scoring.parse_ruleset_warn profile=%s field=amount_tolerance err=%v — using defaults", profile.ProfileID, err)
+		}
 	}
 	if len(profile.BatchBoundaryPolicyJSON) > 0 {
-		_ = json.Unmarshal(profile.BatchBoundaryPolicyJSON, &cfg.BatchBoundary)
+		if err := json.Unmarshal(profile.BatchBoundaryPolicyJSON, &cfg.BatchBoundary); err != nil {
+			log.Printf("attachment.scoring.parse_ruleset_warn profile=%s field=batch_boundary err=%v — using defaults", profile.ProfileID, err)
+		}
 	}
 	if len(profile.ManualReviewThresholdsJSON) > 0 {
-		_ = json.Unmarshal(profile.ManualReviewThresholdsJSON, &cfg.ManualReviewThresholds)
+		if err := json.Unmarshal(profile.ManualReviewThresholdsJSON, &cfg.ManualReviewThresholds); err != nil {
+			log.Printf("attachment.scoring.parse_ruleset_warn profile=%s field=manual_review_thresholds err=%v — using defaults", profile.ProfileID, err)
+		}
 	}
 
 	return cfg
@@ -139,9 +150,9 @@ type ScoreBreakdown struct {
 	ExactCarrierScore          float64 `json:"exact_carrier_score"`
 	BusinessReferenceScore     float64 `json:"business_reference_score"`
 	ProviderBankReferenceScore float64 `json:"provider_bank_reference_score"`
-	PartyAmountScore            float64 `json:"party_amount_score"`
-	BatchContextScore           float64 `json:"batch_context_score"`
-	TimingScore                 float64 `json:"timing_score"`
+	PartyAmountScore           float64 `json:"party_amount_score"`
+	BatchContextScore          float64 `json:"batch_context_score"`
+	TimingScore                float64 `json:"timing_score"`
 	SourceSystemScore          float64 `json:"source_system_score"`
 	QualityModifiers           float64 `json:"quality_modifiers"`
 	ConflictPenalties          float64 `json:"conflict_penalties"`
@@ -217,24 +228,31 @@ func ScoreCandidate(
 		cs.ExactRefMatch = true
 	}
 
+	// ── NOTE: Provider Reference and Bank Reference matching are currently disabled.
+	// CanonicalIntent does not store ProviderReference or BankReference (these are
+	// generated post-dispatch). The previous logic erroneously compared intent.ProviderHint
+	// (which is the source system name, e.g. "cashfree") against obs.ProviderReference
+	// (e.g. "UTR-12345"), which triggered an incorrect -70 Conflict Penalty and forced
+	// valid candidates into the INVALID bucket (resulting in MATCH_UNRESOLVED).
+
 	// provider reference match: +85
-	if intent.ProviderHint != nil && obs.ProviderReference != nil && *intent.ProviderHint != "" {
-		if strings.EqualFold(*intent.ProviderHint, *obs.ProviderReference) {
-			bd.ProviderBankReferenceScore += 85
-			cs.ProviderRefMatch = true
-		} else if *obs.ProviderReference != "" {
-			bd.ConflictPenalties -= 70
-			cs.HasHardConflict = true
-			cs.HasAnyConflict = true
-		}
-	}
+	// if intent.ProviderHint != nil && obs.ProviderReference != nil && *intent.ProviderHint != "" {
+	// 	if strings.EqualFold(*intent.ProviderHint, *obs.ProviderReference) {
+	// 		bd.ProviderBankReferenceScore += 85
+	// 		cs.ProviderRefMatch = true
+	// 	} else if *obs.ProviderReference != "" {
+	// 		bd.ConflictPenalties -= 70
+	// 		cs.HasHardConflict = true
+	// 		cs.HasAnyConflict = true
+	// 	}
+	// }
 
 	// bank reference match: +85
-	if intent.ProviderHint != nil && obs.BankReference != nil && *intent.ProviderHint != "" &&
-		strings.EqualFold(*intent.ProviderHint, *obs.BankReference) {
-		bd.ProviderBankReferenceScore += 85
-		cs.BankRefMatch = true
-	}
+	// if intent.ProviderHint != nil && obs.BankReference != nil && *intent.ProviderHint != "" &&
+	// 	strings.EqualFold(*intent.ProviderHint, *obs.BankReference) {
+	// 	bd.ProviderBankReferenceScore += 85
+	// 	cs.BankRefMatch = true
+	// }
 
 	// beneficiary_fingerprint match: +35
 	if intent.BeneficiaryFingerprint != nil && obs.BeneficiaryFingerprint != nil &&
@@ -419,6 +437,12 @@ func SelectDecisionType(
 		case models.ConfidenceHigh:
 			return models.DecisionMatchHighConfidence, "DOMINANT_HIGH_CONFIDENCE"
 		default:
+			if top.ConfidenceBucket == models.ConfidenceInvalid {
+				return models.DecisionMatchUnresolved, "ALL_CANDIDATES_INVALID"
+			}
+			if top.ConfidenceBucket == models.ConfidenceLow && top.HasAnyConflict {
+				return models.DecisionMatchUnresolved, "ALL_CANDIDATES_LOW_AND_CONFLICTED"
+			}
 			return models.DecisionMatchAmbiguous, "WEAK_DOMINANT_CANDIDATE"
 		}
 	}
@@ -663,21 +687,22 @@ type VarianceInputs struct {
 
 // ComputeVariance calculates the formal difference between intent and observation.
 // Returned severity and reason codes feed Service 7 intelligence.
-func ComputeVariance(in VarianceInputs) (amountVariance decimal.Decimal, severity string, flags map[string]bool, reasons []string) {
+func ComputeVariance(in VarianceInputs) (amountVariance decimal.Decimal, feeVariance *decimal.Decimal, deductionVariance *decimal.Decimal, severity string, flags map[string]bool, reasons []string) {
 	flags = make(map[string]bool)
 	reasons = []string{}
 
+	feeVariance = in.Observation.FeeAmount
+	deductionVariance = in.Observation.DeductionAmount
+
 	// ── Amount variance ───────────────────────────────────────────────────
-	obsAmount := in.Observation.Amount
-	amountVariance = in.Intent.Amount.Sub(obsAmount)
 	if in.Observation.SettledAmount != nil {
-		settledVariance := in.Intent.Amount.Sub(*in.Observation.SettledAmount)
-		// Use the closer amount signal to avoid false variance when
-		// providers emit both gross amount and settled/net amount.
-		if settledVariance.Abs().LessThan(amountVariance.Abs()) {
-			amountVariance = settledVariance
-		}
+		// Use SettledAmount if present to correctly compute reconciliation variance (like expected PSP fees).
+		amountVariance = in.Intent.Amount.Sub(*in.Observation.SettledAmount)
+	} else {
+		// Fallback to Gross Amount.
+		amountVariance = in.Intent.Amount.Sub(in.Observation.Amount)
 	}
+
 	if !amountVariance.IsZero() {
 		reasons = append(reasons, "AMOUNT_MISMATCH")
 	}
@@ -738,8 +763,8 @@ func ComputeVariance(in VarianceInputs) (amountVariance decimal.Decimal, severit
 }
 
 func classifyVarianceSeverity(variance decimal.Decimal, intendedAmount decimal.Decimal, flags map[string]bool) string {
-	if flags["status_variance"] && variance.Equal(intendedAmount) {
-		// Settlement status is failed and full amount is missing — critical.
+	// Any failed, reversed, or returned settlement is always CRITICAL regardless of the amount variance
+	if flags["status_variance"] {
 		return models.VarianceSeverityCritical
 	}
 	if flags["evidence_gap"] {

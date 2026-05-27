@@ -21,9 +21,14 @@ func RunPreGuards(
 	in *models.IncomingIntent,
 	intent models.ParsedIncomingIntent,
 ) *models.DLQEntry {
+	batchID := ""
+	if in.BatchID != nil {
+		batchID = *in.BatchID
+	}
 
 	// -------- Corridor guard --------
 	if intent.Amount.Currency != "INR" {
+
 		return &models.DLQEntry{
 			TenantID:    in.TenantID.String(),
 			EnvelopeID:  in.EnvelopeID.String(),
@@ -32,6 +37,7 @@ func RunPreGuards(
 			DLQStatus:   models.ClassifyDLQ("TENANT_CORRIDOR_NOT_ALLOWED"),
 			ErrorDetail: "only INR corridor allowed",
 			Replayable:  false,
+			BatchID:     batchID,
 			CreatedAt:   time.Now().UTC(),
 		}
 	}
@@ -54,6 +60,7 @@ func RunPreGuards(
 					DLQStatus:   models.ClassifyDLQ("DEADLINE_EXPIRED"),
 					ErrorDetail: "intent deadline expired",
 					Replayable:  false,
+					BatchID:     batchID,
 					CreatedAt:   time.Now().UTC(),
 				}
 
@@ -78,6 +85,7 @@ func RunPreGuards(
 				DLQStatus:   models.ClassifyDLQ("PAYMENT_WINDOW_CLOSED"),
 				ErrorDetail: "NEFT cutoff window passed",
 				Replayable:  true,
+				BatchID:     batchID,
 				CreatedAt:   time.Now().UTC(),
 			}
 		}

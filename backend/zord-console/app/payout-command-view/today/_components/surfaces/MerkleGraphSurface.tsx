@@ -227,14 +227,26 @@ export type MerkleGraphSurfaceProps = {
   initialPackId?: string
   /** Demo / fallback graph when no session tenant (local UI only). */
   pack?: EvidencePackGraph
-  /** Embedded in pack detail Graph tab — hides page chrome. */
+  /** Embedded in pack detail Graph tab or Evidence dock — hides page chrome. */
   embedMode?: boolean
+  /** Parent-owned batch id (Evidence dock batch picker). */
+  controlledBatchId?: string
+  /** Parent-owned pack id — updates when Evidence intent filter changes. */
+  controlledPackId?: string
+  /** `table`: only packs already loaded; `journal`: full intent roster from intent-engine. */
+  intentOptionsSource?: 'table' | 'journal'
+  /** Hide batch / intent·pack pickers when parent controls scope. */
+  hideScopePickers?: boolean
 }
 
 export function MerkleGraphSurface({
   initialPackId,
   pack: initialPack = SAMPLE_PACK,
   embedMode = false,
+  controlledBatchId,
+  controlledPackId,
+  intentOptionsSource = 'journal',
+  hideScopePickers = false,
 }: MerkleGraphSurfaceProps = {}) {
   const searchParams = useSearchParams()
   const urlBatchId = searchParams.get('batch_id')?.trim() ?? ''
@@ -245,10 +257,15 @@ export function MerkleGraphSurface({
   // batch-level fetches must never clobber this value — the intent pack we landed
   // on may not appear in `liveBatchPacks` until the per-intent fan-out completes,
   // or may be beyond MAX_INTENT_PACK_QUERIES entirely.
-  const pinnedPackId = useMemo(() => apiTrimmedString(initialPackId), [initialPackId])
+  const pinnedPackId = useMemo(
+    () => apiTrimmedString(controlledPackId) || apiTrimmedString(initialPackId),
+    [controlledPackId, initialPackId],
+  )
 
   const [activePackId, setActivePackId] = useState(() => pinnedPackId || initialPack.packId)
-  const [activeBatchId, setActiveBatchId] = useState(() => apiTrimmedString(initialPack.batchId))
+  const [activeBatchId, setActiveBatchId] = useState(
+    () => apiTrimmedString(controlledBatchId) || apiTrimmedString(initialPack.batchId),
+  )
   const [intelBatches, setIntelBatches] = useState<IntelligenceBatchRow[]>([])
   const [packSummaries, setPackSummaries] = useState<EvidencePackSummaryRow[]>([])
   const [liveGraphs, setLiveGraphs] = useState<Record<string, EvidencePackGraph>>({})
@@ -264,9 +281,19 @@ export function MerkleGraphSurface({
   const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
 
   useEffect(() => {
+    const bid = apiTrimmedString(controlledBatchId)
+    if (bid) {
+      setActiveBatchId(bid)
+      return
+    }
     if (!useLive || !urlBatchId) return
     setActiveBatchId(urlBatchId)
-  }, [useLive, urlBatchId])
+  }, [useLive, urlBatchId, controlledBatchId])
+
+  useEffect(() => {
+    const pid = apiTrimmedString(controlledPackId)
+    if (pid) setActivePackId(pid)
+  }, [controlledPackId])
 
   useEffect(() => {
     if (!useLive) return
@@ -306,11 +333,9 @@ export function MerkleGraphSurface({
     }
   }, [useLive, activeBatchId])
 
-  // Pull the full intent roster for the active batch from intent-engine. The
-  // dropdown lists every intent, even ones whose evidence pack hasn't been
-  // pre-fetched yet — those load lazily on selection.
+  // Pull the full intent roster for the active batch from intent-engine (journal mode only).
   useEffect(() => {
-    if (!useLive || !activeBatchId) {
+    if (intentOptionsSource === 'table' || !useLive || !activeBatchId) {
       setBatchIntents([])
       return
     }
@@ -322,7 +347,7 @@ export function MerkleGraphSurface({
     return () => {
       cancelled = true
     }
-  }, [useLive, activeBatchId])
+  }, [useLive, activeBatchId, intentOptionsSource])
 
   useEffect(() => {
     if (!useLive || packSummaries.length === 0) return
@@ -444,19 +469,21 @@ export function MerkleGraphSurface({
       }
     }
 
-    for (const it of batchIntents) {
-      const iid = apiTrimmedString(it.intent_id)
-      if (!iid || seenIntents.has(iid)) continue
-      seenIntents.add(iid)
-      const ref = apiTrimmedString(it.client_payout_ref)
-      const known = intentIdToPackId.get(iid)
-      if (known && seenPacks.has(known)) continue
-      if (known) seenPacks.add(known)
-      opts.push({
-        value: known ?? `intent:${iid}`,
-        label: labelForIntent(iid, ref, known),
-        intentId: iid,
-      })
+    if (intentOptionsSource === 'journal') {
+      for (const it of batchIntents) {
+        const iid = apiTrimmedString(it.intent_id)
+        if (!iid || seenIntents.has(iid)) continue
+        seenIntents.add(iid)
+        const ref = apiTrimmedString(it.client_payout_ref)
+        const known = intentIdToPackId.get(iid)
+        if (known && seenPacks.has(known)) continue
+        if (known) seenPacks.add(known)
+        opts.push({
+          value: known ?? `intent:${iid}`,
+          label: labelForIntent(iid, ref, known),
+          intentId: iid,
+        })
+      }
     }
 
     // Catch-all: surface any loaded graph not yet in the list (e.g. URL pinned
@@ -475,7 +502,7 @@ export function MerkleGraphSurface({
     }
 
     return opts
-  }, [packSummaries, batchIntents, intentIdToPackId, liveGraphs])
+  }, [packSummaries, batchIntents, intentIdToPackId, liveGraphs, intentOptionsSource])
 
   const packSelectValue = useMemo(() => {
     if (packOptions.some((o) => o.value === activePackId)) return activePackId
@@ -714,6 +741,7 @@ export function MerkleGraphSurface({
       {showGraph ? (
       <>
       <section className={`flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[16px] border border-[#E5E5E5] bg-white px-5 py-3 ${embedMode ? 'text-[14px]' : ''}`}>
+        {!hideScopePickers ? (
         <div>
             <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Batch</p>
             <select
@@ -722,6 +750,7 @@ export function MerkleGraphSurface({
                 setActiveBatchId(e.target.value)
                 setSelected(null)
               }}
+              disabled={Boolean(apiTrimmedString(controlledBatchId))}
               className="mt-0.5 cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[17px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa]"
             >
               {useLive
@@ -740,6 +769,13 @@ export function MerkleGraphSurface({
                   ))}
             </select>
           </div>
+        ) : apiTrimmedString(controlledBatchId) ? (
+          <div>
+            <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Batch</p>
+            <p className="mt-0.5 font-mono text-[17px] font-semibold text-[#111111]">{activeBatchId || '—'}</p>
+          </div>
+        ) : null}
+          {!hideScopePickers ? (
           <div>
             <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Intent · pack</p>
             {useLive ? (
@@ -794,6 +830,7 @@ export function MerkleGraphSurface({
                 : 'Graph below is for this intent; metrics in the bar stay batch-aggregated.'}
             </p>
           </div>
+          ) : null}
           <ContextField label="Intents" value={String(batchMetaResolved?.totalIntents ?? batchPacks.length)} />
           <ContextField label="Transactions" value={String(batchMetaResolved?.totalTransactions ?? 0)} />
           <ContextField

@@ -111,6 +111,7 @@ func (r *IntentQueryRepo) ListIntents(
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
+		source_row_num,
 		aggregate_confidence_score, -- NEW
 		required_fields_status,
 		tokenization_status,
@@ -166,6 +167,7 @@ func (r *IntentQueryRepo) ListIntents(
 			&intent.NIRSnapshotRef,
 			&intent.GovernanceSnapshotRef,
 			&intent.GovernanceHash,
+			&intent.SourceRowNum,
 			&intent.AggregateConfidenceScore, // NEW
 			&intent.RequiredFieldsStatus,
 			&intent.TokenizationStatus,
@@ -217,6 +219,7 @@ func (r *IntentQueryRepo) GetIntentByID(
 		COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
+		source_row_num,
 		aggregate_confidence_score,
 		required_fields_status,
 		tokenization_status,
@@ -259,6 +262,7 @@ func (r *IntentQueryRepo) GetIntentByID(
 		&intent.NIRSnapshotRef,
 		&intent.GovernanceSnapshotRef,
 		&intent.GovernanceHash,
+		&intent.SourceRowNum,
 		&intent.AggregateConfidenceScore, // NEW
 		&intent.RequiredFieldsStatus,
 		&intent.TokenizationStatus,
@@ -418,6 +422,7 @@ func (r *IntentQueryRepo) ListPaymentIntentsByBatch(
 			COALESCE(nir_snapshot_ref, '') as nir_snapshot_ref,
 			COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 			COALESCE(governance_hash, '') as governance_hash,
+			source_row_num,
 			aggregate_confidence_score,
 			required_fields_status,
 			tokenization_status,
@@ -470,6 +475,7 @@ func (r *IntentQueryRepo) ListPaymentIntentsByBatch(
 			&intent.NIRSnapshotRef,
 			&intent.GovernanceSnapshotRef,
 			&intent.GovernanceHash,
+			&intent.SourceRowNum,
 			&intent.AggregateConfidenceScore,
 			&intent.RequiredFieldsStatus,
 			&intent.TokenizationStatus,
@@ -523,7 +529,8 @@ func (r *IntentQueryRepo) ListDLQItemsByBatch(
 			d.replayable,
 			d.client_batch_ref,
 			d.created_at,
-			COALESCE(d.batch_id, '')
+			COALESCE(d.batch_id, ''),
+			d.source_row_num
 		FROM dlq_items d
 		LEFT JOIN normalized_ingest_records n
 			ON n.tenant_id = d.tenant_id
@@ -557,6 +564,7 @@ func (r *IntentQueryRepo) ListDLQItemsByBatch(
 			&e.ClientBatchRef,
 			&e.CreatedAt,
 			&e.BatchID,
+			&e.SourceRowNum,
 		); err != nil {
 			return nil, 0, fmt.Errorf("failed to scan dlq detail row: %w", err)
 		}

@@ -848,7 +848,7 @@ func (s *IntentService) ApplyPolicy(nir *models.NormalizedIngestRecord, req mode
 	} else if strings.HasPrefix(strings.TrimSpace(req.Amount.Value), "-") {
 		// Explicit check for negative amounts to ensure routing to DLQ
 		gov.SemanticValid = false
-		gov.SemanticErrors = append(gov.SemanticErrors, "NEGATIVE_AMOUNT_NOT_ALLOWED")
+		gov.PolicyFlags = append(gov.PolicyFlags, "NEGATIVE_AMOUNT_NOT_ALLOWED")
 	}
 
 	// ----------------------------------------
@@ -900,9 +900,14 @@ func (s *IntentService) ProcessIncomingIntent(
 	var rawAuditPayload []byte
 	var auditProfileID string
 	var auditProfileVersion string
+	var sourceRowNum *int
 	var err error
 
 	defer func() {
+		if retDlq != nil && retDlq.SourceRowNum == nil && sourceRowNum != nil {
+			retDlq.SourceRowNum = sourceRowNum
+		}
+
 		if in.BatchID == nil || *in.BatchID == "" {
 			return
 		}
@@ -933,24 +938,16 @@ func (s *IntentService) ProcessIncomingIntent(
 			profileIDHint = auditProfileVersion
 		}
 
-		// Helper to extract row index
-		extractRowIndex := func(payload []byte) int {
-			var m map[string]interface{}
-			if err := json.Unmarshal(payload, &m); err == nil {
-				if ref, ok := m["source_row_ref"].(string); ok {
-					var idx int
-					if _, err := fmt.Sscanf(ref, "row:%d", &idx); err == nil {
-						return idx
-					}
-				}
-			}
-			return 0
-		}
 		auditPayload := rawAuditPayload
 		if len(auditPayload) == 0 {
 			auditPayload = decryptedPayload
 		}
-		rowIndex := extractRowIndex(auditPayload)
+		rowIndex := 0
+		if sourceRowNum != nil {
+			rowIndex = *sourceRowNum
+		} else if extracted := extractSourceRowNumFromPayload(auditPayload); extracted != nil {
+			rowIndex = *extracted
+		}
 
 		fileName := ""
 		fileHash := ""
@@ -1057,6 +1054,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 
 	rawAuditPayload = append([]byte(nil), decryptedPayload...)
+	sourceRowNum = extractSourceRowNumFromPayload(rawAuditPayload)
 	auditProfileID = autoGenericProfileID(rawAuditPayload)
 	auditProfileVersion = "v1"
 
@@ -1545,6 +1543,7 @@ func (s *IntentService) ProcessIncomingIntent(
 		BeneficiaryFingerprint:     bFingerprint,
 		DuplicateReasonCode:        dupReason,
 		BatchID:                    in.BatchID,
+		SourceRowNum:               sourceRowNum,
 		ValidationAnomalies:        anomalies,
 	}
 
@@ -1636,6 +1635,7 @@ func (s *IntentService) ProcessIncomingIntent(
 
 		UpdatedAt:           func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 		BatchID:             in.BatchID,
+		SourceRowNum:        sourceRowNum,
 		ValidationAnomalies: anomalies,
 	}
 
@@ -1783,6 +1783,7 @@ func (s *IntentService) ProcessTokenizeResult(
 
 	tokenMap := event.Tokens
 	canonicalInput := event.Canonical
+	sourceRowNum := sourceRowNumFromRef(canonicalInput.SourceRowRef)
 
 	// -------- JSON fields --------
 
@@ -1978,6 +1979,7 @@ func (s *IntentService) ProcessTokenizeResult(
 		BeneficiaryFingerprint:     bFingerprint,
 		DuplicateReasonCode:        dupReason,
 		BatchID:                    event.BatchID,
+		SourceRowNum:               sourceRowNum,
 		ValidationAnomalies:        anomalies,
 	}
 
@@ -2061,6 +2063,7 @@ func (s *IntentService) ProcessTokenizeResult(
 
 		UpdatedAt:           func(t time.Time) *time.Time { return &t }(time.Now().UTC()),
 		BatchID:             event.BatchID,
+		SourceRowNum:        sourceRowNum,
 		ValidationAnomalies: anomalies,
 	}
 
@@ -2287,6 +2290,32 @@ func canonicalPathToFieldName(path string) string {
 	default:
 		return path
 	}
+}
+
+func extractSourceRowNumFromPayload(payload []byte) *int {
+	if len(payload) == 0 {
+		return nil
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(payload, &m); err != nil {
+		return nil
+	}
+
+	ref, ok := m["source_row_ref"].(string)
+	if !ok {
+		return nil
+	}
+	return sourceRowNumFromRef(ref)
+}
+
+func sourceRowNumFromRef(ref string) *int {
+	ref = strings.TrimSpace(ref)
+	var idx int
+	if _, err := fmt.Sscanf(ref, "row:%d", &idx); err != nil || idx <= 0 {
+		return nil
+	}
+	return &idx
 }
 
 func autoGenericProfileID(rawJSON []byte) string {

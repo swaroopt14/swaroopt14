@@ -87,9 +87,10 @@ func (r *PaymentIntentRepo) Save(
     proof_readiness_score, matchability_score, intent_quality_score,
     mapping_confidence_score,
     schema_completeness_score,
-    governance_reason_codes_json,
+	governance_reason_codes_json,
     duplicate_reason_code, client_batch_ref,
 	batchid,
+	source_row_num,
     aggregate_confidence_score, -- NEW
     reference_quality_score,
     duplicate_risk_score,
@@ -121,75 +122,76 @@ VALUES (
     $40,$41,$42,
     $43,
     $44, $45,
-    $46, $47, $48, $49, -- UPDATED
-    $50, $51, $52, $53, $54, $55, $56,
-    $57, $58, $59, $60, $61
+    $46, $47, $48, $49, $50, -- UPDATED
+    $51, $52, $53, $54, $55, $56, $57,
+    $58, $59, $60, $61, $62
 ) `
 
 	_, err = tx.ExecContext(
 		ctx,
 		query,
-		intent.IntentID,                  // $1
-		intent.EnvelopeID,                // $2
-		intent.TenantID,                  // $3
-		intent.ContractID,                // $4
-		intent.TraceID,                   // $5
-		intent.IdempotencyKey,            // $6
-		intent.SalientHash,               // $7
-		intent.PayloadHash,               // $8
-		intent.IntentType,                // $9
-		intent.CanonicalVersion,          // $10
-		intent.SchemaVersion,             // $11
-		intent.Amount,                    // $12
-		intent.Currency,                  // $13
-		intent.IntendedExecutionAt,       // $14
-		intent.Constraints,               // $15
-		intent.BeneficiaryType,           // $16
-		intent.PIITokens,                 // $17
-		intent.Beneficiary,               // $18
-		intent.Status,                    // $19
-		intent.ConfidenceScore,           // $20
-		intent.CanonicalSnapshotRef,      // $21
-		intent.NIRSnapshotRef,            // $22
-		intent.GovernanceSnapshotRef,     // $23
-		intent.GovernanceHash,            // $24  ← matches column: governance_hash
-		intent.CanonicalHash,             // $25  ← matches column: canonical_hash
-		intent.CreatedAt,                 // $26  ← matches column: created_at
-		intent.ClientPayoutRef,           // $27  ← matches column: client_payout_ref
-		intent.ProviderHint,              // $28
-		intent.RequestFingerprint,        // $29
-		intent.RoutingHintsJSON,          // $30
-		intent.GovernanceState,           // $31
-		intent.BusinessState,             // $32
-		intent.DuplicateRiskFlag,         // $33
-		intent.MappingProfileID,          // $34
-		intent.MappingProfileVersion,     // $35
-		intent.SourceSystem,              // $36
-		intent.UpdatedAt,                 // $37
-		intent.BusinessIdempotencyKey,    // $38
-		intent.BeneficiaryFingerprint,    // $39
-		intent.ProofReadinessScore,       // $40
-		intent.MatchabilityScore,         // $41
-		intent.IntentQualityScore,        // $42
-		intent.MappingConfidenceScore,    // $43
-		intent.SchemaCompletenessScore,   // $44
-		intent.GovernanceReasonCodesJSON, // $45
-		intent.DuplicateReasonCode,       // $46
-		intent.ClientBatchRef,            // $47
-		intent.BatchID,                   // $48
-		intent.AggregateConfidenceScore,  // $49 -- NEW
-		intent.ReferenceQualityScore,   // $50
-		intent.DuplicateRiskScore,      // $51
-		intent.ScoreVersion,            // $52
-		intent.ScoreValidityStatus,     // $53
-		intent.ScoreBreakdownJSON,      // $54
-		intent.ScoreReasonCodesJSON,    // $55
-		intent.ScoredAt,                // $56
-		intent.RequiredFieldsStatus,    // $57
-		intent.TokenizationStatus,      // $58
-		intent.GovernanceDecision,      // $59
-		intent.PaymentInstructionReceived, // $60
-		intent.CanonicalIntentCreated,     // $61
+		intent.IntentID,                   // $1
+		intent.EnvelopeID,                 // $2
+		intent.TenantID,                   // $3
+		intent.ContractID,                 // $4
+		intent.TraceID,                    // $5
+		intent.IdempotencyKey,             // $6
+		intent.SalientHash,                // $7
+		intent.PayloadHash,                // $8
+		intent.IntentType,                 // $9
+		intent.CanonicalVersion,           // $10
+		intent.SchemaVersion,              // $11
+		intent.Amount,                     // $12
+		intent.Currency,                   // $13
+		intent.IntendedExecutionAt,        // $14
+		intent.Constraints,                // $15
+		intent.BeneficiaryType,            // $16
+		intent.PIITokens,                  // $17
+		intent.Beneficiary,                // $18
+		intent.Status,                     // $19
+		intent.ConfidenceScore,            // $20
+		intent.CanonicalSnapshotRef,       // $21
+		intent.NIRSnapshotRef,             // $22
+		intent.GovernanceSnapshotRef,      // $23
+		intent.GovernanceHash,             // $24  ← matches column: governance_hash
+		intent.CanonicalHash,              // $25  ← matches column: canonical_hash
+		intent.CreatedAt,                  // $26  ← matches column: created_at
+		intent.ClientPayoutRef,            // $27  ← matches column: client_payout_ref
+		intent.ProviderHint,               // $28
+		intent.RequestFingerprint,         // $29
+		intent.RoutingHintsJSON,           // $30
+		intent.GovernanceState,            // $31
+		intent.BusinessState,              // $32
+		intent.DuplicateRiskFlag,          // $33
+		intent.MappingProfileID,           // $34
+		intent.MappingProfileVersion,      // $35
+		intent.SourceSystem,               // $36
+		intent.UpdatedAt,                  // $37
+		intent.BusinessIdempotencyKey,     // $38
+		intent.BeneficiaryFingerprint,     // $39
+		intent.ProofReadinessScore,        // $40
+		intent.MatchabilityScore,          // $41
+		intent.IntentQualityScore,         // $42
+		intent.MappingConfidenceScore,     // $43
+		intent.SchemaCompletenessScore,    // $44
+		intent.GovernanceReasonCodesJSON,  // $45
+		intent.DuplicateReasonCode,        // $46
+		intent.ClientBatchRef,             // $47
+		intent.BatchID,                    // $48
+		intent.SourceRowNum,               // $49
+		intent.AggregateConfidenceScore,   // $50 -- NEW
+		intent.ReferenceQualityScore,      // $51
+		intent.DuplicateRiskScore,         // $52
+		intent.ScoreVersion,               // $53
+		intent.ScoreValidityStatus,        // $54
+		intent.ScoreBreakdownJSON,         // $55
+		intent.ScoreReasonCodesJSON,       // $56
+		intent.ScoredAt,                   // $57
+		intent.RequiredFieldsStatus,       // $58
+		intent.TokenizationStatus,         // $59
+		intent.GovernanceDecision,         // $60
+		intent.PaymentInstructionReceived, // $61
+		intent.CanonicalIntentCreated,     // $62
 	)
 
 	if err != nil {
@@ -272,63 +274,63 @@ INSERT INTO outbox (
 	_, err = tx.ExecContext(
 		ctx,
 		outboxQuery,
-		outbox.TraceID,                   // $1
-		outbox.EnvelopeID,                // $2
-		outbox.TenantID,                  // $3
-		outbox.ContractID,                // $4
-		outbox.AggregateType,             // $5
-		outbox.AggregateID,               // $6
-		outbox.EventType,                 // $7
-		outbox.SchemaVersion,             // $8
-		outbox.Amount,                    // $9
-		outbox.Currency,                  // $10
-		outbox.IdempotencyKey,            // $11
-		outbox.SalientHash,               // $12
-		outbox.IntentType,                // $13
-		outbox.CanonicalVersion,          // $14
-		outbox.IntendedExecutionAt,       // $15
-		outbox.Constraints,               // $16
-		outbox.BeneficiaryType,           // $17
-		outbox.PIITokens,                 // $18
-		outbox.Beneficiary,               // $19
-		outbox.IntentStatus,              // $20
-		outbox.ConfidenceScore,           // $21
-		outbox.CanonicalHash,             // $22
-		outbox.CanonicalSnapshotRef,      // $23
-		outbox.NIRSnapshotRef,            // $24
-		outbox.GovernanceSnapshotRef,     // $25
-		outbox.GovernanceHash,            // $26  ← matches column: governance_hash
-		outbox.ClientPayoutRef,           // $27  ← matches column: client_payout_ref
-		outbox.ProviderHint,              // $28
-		outbox.RequestFingerprint,        // $29
-		outbox.RoutingHintsJSON,          // $30
-		outbox.GovernanceState,           // $31
-		outbox.BusinessState,             // $32
-		outbox.DuplicateRiskFlag,         // $33
-		outbox.MappingProfileID,          // $34
-		outbox.MappingProfileVersion,     // $35
-		outbox.SourceSystem,              // $36
-		outbox.BusinessIdempotencyKey,    // $37
-		outbox.BeneficiaryFingerprint,    // $38
-		outbox.ProofReadinessScore,       // $39
-		outbox.MatchabilityScore,         // $40
-		outbox.IntentQualityScore,        // $41
-		outbox.MappingConfidenceScore,    // $42
-		outbox.SchemaCompletenessScore,   // $43
-		outbox.GovernanceReasonCodesJSON, // $44  ← matches column: governance_reason_codes_json (JSON)
-		outbox.DuplicateReasonCode,       // $45
-		outbox.ClientBatchRef,            // $46
-		outbox.Payload,                   // $47  ← matches column: payload (JSON)
-		outbox.PayloadHash,               // $48
-		outbox.Status,                    // $49
-		outbox.RetryCount,                // $50
-		outbox.NextRetryAt,               // $51
-		outbox.CreatedAt,                 // $52
-		outbox.BatchID,                   // $53  ← matches column: batchid
-		outbox.AggregateConfidenceScore,  // $54 -- NEW
-		outbox.RequiredFieldsStatus,      // $55
-		outbox.TokenizationStatus,        // $56
-		outbox.GovernanceDecision,        // $57
+		outbox.TraceID,                    // $1
+		outbox.EnvelopeID,                 // $2
+		outbox.TenantID,                   // $3
+		outbox.ContractID,                 // $4
+		outbox.AggregateType,              // $5
+		outbox.AggregateID,                // $6
+		outbox.EventType,                  // $7
+		outbox.SchemaVersion,              // $8
+		outbox.Amount,                     // $9
+		outbox.Currency,                   // $10
+		outbox.IdempotencyKey,             // $11
+		outbox.SalientHash,                // $12
+		outbox.IntentType,                 // $13
+		outbox.CanonicalVersion,           // $14
+		outbox.IntendedExecutionAt,        // $15
+		outbox.Constraints,                // $16
+		outbox.BeneficiaryType,            // $17
+		outbox.PIITokens,                  // $18
+		outbox.Beneficiary,                // $19
+		outbox.IntentStatus,               // $20
+		outbox.ConfidenceScore,            // $21
+		outbox.CanonicalHash,              // $22
+		outbox.CanonicalSnapshotRef,       // $23
+		outbox.NIRSnapshotRef,             // $24
+		outbox.GovernanceSnapshotRef,      // $25
+		outbox.GovernanceHash,             // $26  ← matches column: governance_hash
+		outbox.ClientPayoutRef,            // $27  ← matches column: client_payout_ref
+		outbox.ProviderHint,               // $28
+		outbox.RequestFingerprint,         // $29
+		outbox.RoutingHintsJSON,           // $30
+		outbox.GovernanceState,            // $31
+		outbox.BusinessState,              // $32
+		outbox.DuplicateRiskFlag,          // $33
+		outbox.MappingProfileID,           // $34
+		outbox.MappingProfileVersion,      // $35
+		outbox.SourceSystem,               // $36
+		outbox.BusinessIdempotencyKey,     // $37
+		outbox.BeneficiaryFingerprint,     // $38
+		outbox.ProofReadinessScore,        // $39
+		outbox.MatchabilityScore,          // $40
+		outbox.IntentQualityScore,         // $41
+		outbox.MappingConfidenceScore,     // $42
+		outbox.SchemaCompletenessScore,    // $43
+		outbox.GovernanceReasonCodesJSON,  // $44  ← matches column: governance_reason_codes_json (JSON)
+		outbox.DuplicateReasonCode,        // $45
+		outbox.ClientBatchRef,             // $46
+		outbox.Payload,                    // $47  ← matches column: payload (JSON)
+		outbox.PayloadHash,                // $48
+		outbox.Status,                     // $49
+		outbox.RetryCount,                 // $50
+		outbox.NextRetryAt,                // $51
+		outbox.CreatedAt,                  // $52
+		outbox.BatchID,                    // $53  ← matches column: batchid
+		outbox.AggregateConfidenceScore,   // $54 -- NEW
+		outbox.RequiredFieldsStatus,       // $55
+		outbox.TokenizationStatus,         // $56
+		outbox.GovernanceDecision,         // $57
 		outbox.PaymentInstructionReceived, // $58
 		outbox.CanonicalIntentCreated,     // $59
 	)
@@ -416,6 +418,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
 		batchid,
+		source_row_num,
 		aggregate_confidence_score, -- NEW
 		required_fields_status,
 		tokenization_status,
@@ -479,6 +482,7 @@ func (r *PaymentIntentRepo) FindByEnvelope(
 		&intent.GovernanceSnapshotRef,
 		&intent.GovernanceHash,
 		&intent.BatchID,
+		&intent.SourceRowNum,
 		&intent.AggregateConfidenceScore, // NEW
 		&intent.RequiredFieldsStatus,
 		&intent.TokenizationStatus,
@@ -622,6 +626,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		COALESCE(governance_snapshot_ref, '') as governance_snapshot_ref,
 		COALESCE(governance_hash, '') as governance_hash,
 		batchid,
+		source_row_num,
 		aggregate_confidence_score, -- NEW
 		required_fields_status,
 		tokenization_status,
@@ -685,6 +690,7 @@ func (r *PaymentIntentRepo) FindByBusinessIdempotencyKey(
 		&intent.GovernanceSnapshotRef,
 		&intent.GovernanceHash,
 		&intent.BatchID,
+		&intent.SourceRowNum,
 		&intent.AggregateConfidenceScore, // NEW
 		&intent.RequiredFieldsStatus,
 		&intent.TokenizationStatus,
@@ -833,17 +839,17 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
         WHERE batchid = $1 AND governance_state IN ('FLAGGED','REQUIRES_REVIEW')
     `, batchID).Scan(&reviewCount)
 
-    // Step 4: Full denominator — received = canonicalized + dlq
-    received := canonicalized + dlqCount
-    if received == 0 {
-        return 0, nil
-    }
+	// Step 4: Full denominator — received = canonicalized + dlq
+	received := canonicalized + dlqCount
+	if received == 0 {
+		return 0, nil
+	}
 
-    canonRate   := float64(canonicalized) / float64(received)
-    dlqRate     := float64(dlqCount)      / float64(received)
-    reviewRate  := float64(reviewCount)   / float64(received)
-    dupRiskRate := float64(dupRiskCount)  / float64(received)
-    lowMatchRate := float64(lowMatchCount) / float64(received)
+	canonRate := float64(canonicalized) / float64(received)
+	dlqRate := float64(dlqCount) / float64(received)
+	reviewRate := float64(reviewCount) / float64(received)
+	dupRiskRate := float64(dupRiskCount) / float64(received)
+	lowMatchRate := float64(lowMatchCount) / float64(received)
 
 	// Normalize avg scores to 0–1 for weighting (now stored as 0–1 in DB)
 	avgQ := safeFloat(avgQuality)
@@ -893,23 +899,23 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 
 	// Step 6: Update outbox payload with all batch quality fields
 	batchBreakdown := map[string]any{
-		"batch_quality_score":        batchScore,
-		"received_count":             received,
-		"canonicalized_count":        canonicalized,
-		"dlq_count":                  dlqCount,
-		"review_count":               reviewCount,
-		"canonicalization_rate":      canonRate,
-		"dlq_rate":                   dlqRate,
-		"duplicate_risk_count":       dupRiskCount,
-		"low_matchability_count":     lowMatchCount,
-		"low_proof_readiness_count":  lowProofCount,
-		"avg_intent_quality_score":   safeFloat(avgQuality),
-		"avg_matchability_score":     safeFloat(avgMatchability),
-		"avg_proof_readiness_score":  safeFloat(avgProof),
-		"avg_schema_completeness":    safeFloat(avgSchema),
-		"avg_mapping_confidence":     safeFloat(avgMapping),
+		"batch_quality_score":         batchScore,
+		"received_count":              received,
+		"canonicalized_count":         canonicalized,
+		"dlq_count":                   dlqCount,
+		"review_count":                reviewCount,
+		"canonicalization_rate":       canonRate,
+		"dlq_rate":                    dlqRate,
+		"duplicate_risk_count":        dupRiskCount,
+		"low_matchability_count":      lowMatchCount,
+		"low_proof_readiness_count":   lowProofCount,
+		"avg_intent_quality_score":    safeFloat(avgQuality),
+		"avg_matchability_score":      safeFloat(avgMatchability),
+		"avg_proof_readiness_score":   safeFloat(avgProof),
+		"avg_schema_completeness":     safeFloat(avgSchema),
+		"avg_mapping_confidence":      safeFloat(avgMapping),
 		"duplicate_risk_amount_minor": dupRiskAmount,
-		"score_version":              "service2_score_v2.0",
+		"score_version":               "service2_score_v2.0",
 	}
 	breakdownJSON, _ := json.Marshal(batchBreakdown)
 
@@ -979,9 +985,8 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 }
 
 func safeFloat(n sql.NullFloat64) float64 {
-    if n.Valid {
-        return n.Float64
-    }
-    return 0.0
+	if n.Valid {
+		return n.Float64
+	}
+	return 0.0
 }
-

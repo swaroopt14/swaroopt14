@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS payment_intents (
 
     updated_at TIMESTAMPTZ DEFAULT now(),
     batchid TEXT,
+    source_row_num INT,
     aggregate_confidence_score NUMERIC(5,2) -- NEW
 );
 
@@ -204,7 +205,8 @@ CREATE TABLE IF NOT EXISTS dlq_items (
     replayable BOOLEAN NOT NULL,
     client_batch_ref TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    batch_id TEXT
+    batch_id TEXT,
+    source_row_num INT
 );
 
 -- Create indexes for DLQ analysis

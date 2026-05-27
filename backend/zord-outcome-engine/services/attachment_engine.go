@@ -347,7 +347,7 @@ func (e *AttachmentEngine) runAttachment(
 					clientBatchRef = winnerIntent.ClientBatchRef
 				}
 				totalIntendedAmount = totalIntendedAmount.Add(winnerIntent.Amount)
-				amtVariance, severity, flags, reasons := ComputeVariance(VarianceInputs{
+				amtVariance, feeVar, dedVar, severity, flags, reasons := ComputeVariance(VarianceInputs{
 					Intent:      *winnerIntent,
 					Observation: obs,
 				})
@@ -364,6 +364,8 @@ func (e *AttachmentEngine) runAttachment(
 					IntentID:                *winnerIntentID,
 					SettlementObservationID: obs.SettlementObservationID,
 					AmountVariance:          amtVariance,
+					FeeVariance:             feeVar,
+					DeductionVariance:       dedVar,
 					CurrencyMatchFlag:       flags["currency_match"],
 					StatusVarianceFlag:      flags["status_variance"],
 					ValueDateMismatchFlag:   flags["value_date_mismatch"],
@@ -612,7 +614,7 @@ func findCandidateIntents(
 		    )
 		  )
 		ORDER BY intent_id
-		LIMIT 20`
+		LIMIT 200`
 
 	windowStart := obs.ObservationTimestamp.Add(-72 * time.Hour)
 	windowEnd := obs.ObservationTimestamp.Add(72 * time.Hour)
@@ -915,7 +917,11 @@ func computeBatchSummary(
 			}
 		}
 		if isAttached {
-			summary.TotalObservedAmount = summary.TotalObservedAmount.Add(obs.Amount)
+			if obs.SettledAmount != nil {
+				summary.TotalObservedAmount = summary.TotalObservedAmount.Add(*obs.SettledAmount)
+			} else {
+				summary.TotalObservedAmount = summary.TotalObservedAmount.Add(obs.Amount)
+			}
 		}
 	}
 

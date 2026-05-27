@@ -55,7 +55,7 @@ INSERT INTO evidence_packs(
 		pack.TenantID,
 		nullStr(pack.IntentID),
 		nullStr(pack.ContractID),
-		nullStr(pack.BatchID),
+		nullStr(pack.ClientBatchID),
 		pack.Mode,
 		"ACTIVE",
 		pack.MerkleRoot,
@@ -199,7 +199,7 @@ func (r *EvidenceRepository) GetPackByID(ctx context.Context, packID string) (*m
 		pack.ContractID = contractID.String
 	}
 	if batchID.Valid {
-		pack.BatchID = batchID.String
+		pack.ClientBatchID = batchID.String
 	}
 	if supersedesPackID.Valid {
 		pack.SupersedesPackID = supersedesPackID.String
@@ -305,7 +305,7 @@ func (r *EvidenceRepository) ListByIntentID(ctx context.Context, tenantID, inten
 			s.ContractID = cid.String
 		}
 		if bid.Valid {
-			s.BatchID = bid.String
+			s.ClientBatchID = bid.String
 		}
 		if spid.Valid {
 			s.SupersedesPackID = spid.String
@@ -386,7 +386,7 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 			s.ContractID = cid.String
 		}
 		if bid.Valid {
-			s.BatchID = bid.String
+			s.ClientBatchID = bid.String
 		}
 		if spid.Valid {
 			s.SupersedesPackID = spid.String
@@ -418,6 +418,17 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 		result = append(result, s)
 	}
 	return result, nil
+}
+
+// GetPackByBatchID fetches a pack by its batch_id.
+func (r *EvidenceRepository) GetPackByBatchID(ctx context.Context, tenantID, batchID string) (*models.EvidencePack, error) {
+	var packID string
+	err := r.db.QueryRowContext(ctx, "SELECT evidence_pack_id FROM evidence_packs WHERE tenant_id=$1 AND batch_id=$2 ORDER BY created_at DESC LIMIT 1", tenantID, batchID).Scan(&packID)
+	if err != nil {
+		return nil, err
+	}
+	pack, _, err := r.GetPackByID(ctx, packID)
+	return pack, err
 }
 
 // MarkPackSuperseded updates old pack's status to SUPERSEDED (spec §23 Phase 5).

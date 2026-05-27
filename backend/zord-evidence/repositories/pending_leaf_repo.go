@@ -97,7 +97,7 @@ DO UPDATE SET
 	amount_match = COALESCE(EXCLUDED.amount_match, pending_leaf_candidates.amount_match),
 	updated_at = NOW()
 `
-	} else if leaf.BatchID != nil {
+	} else if leaf.IntentID == nil && leaf.ClientBatchID != nil {
 		query = `
 INSERT INTO pending_leaf_candidates (
 	tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, item_ref, hash, schema_version, source_topic,
@@ -108,7 +108,7 @@ INSERT INTO pending_leaf_candidates (
 	value_date_check, amount_match,
 	created_at, updated_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
-ON CONFLICT (tenant_id, batch_id, leaf_type) WHERE batch_id IS NOT NULL
+ON CONFLICT (tenant_id, batch_id, leaf_type) WHERE batch_id IS NOT NULL AND intent_id IS NULL
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
 	hash = EXCLUDED.hash,
@@ -138,7 +138,7 @@ DO UPDATE SET
 		leaf.IntentID,
 		leaf.EnvelopeID,
 		leaf.ContractID,
-		leaf.BatchID,
+		leaf.ClientBatchID,
 		leaf.LeafType,
 		leaf.ItemRef,
 		leaf.Hash,
@@ -201,7 +201,7 @@ WHERE tenant_id = $1 AND intent_id = $2
 	for rows.Next() {
 		var l models.PendingLeafCandidate
 		if err := rows.Scan(
-			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.ContractID, &l.BatchID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic,
+			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.ContractID, &l.ClientBatchID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic,
 			&l.PaymentInstructionReceived, &l.CanonicalIntentCreated, &l.MappingProfileUsed,
 			&l.RequiredFieldsStatus, &l.TokenizationStatus, &l.GovernanceDecision,
 			&l.SettlementRecordReceived, &l.CanonicalSettlementCreated, &l.BankReference,
@@ -226,7 +226,7 @@ SELECT id, tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, 
        value_date_check, amount_match,
        created_at, updated_at
 FROM pending_leaf_candidates
-WHERE tenant_id = $1 AND batch_id = $2
+WHERE tenant_id = $1 AND batch_id = $2 AND intent_id IS NULL
 `
 	rows, err := r.db.QueryContext(ctx, query, tenantID, batchID)
 	if err != nil {
@@ -238,7 +238,7 @@ WHERE tenant_id = $1 AND batch_id = $2
 	for rows.Next() {
 		var l models.PendingLeafCandidate
 		if err := rows.Scan(
-			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.ContractID, &l.BatchID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic,
+			&l.ID, &l.TenantID, &l.IntentID, &l.EnvelopeID, &l.ContractID, &l.ClientBatchID, &l.LeafType, &l.ItemRef, &l.Hash, &l.SchemaVersion, &l.SourceTopic,
 			&l.PaymentInstructionReceived, &l.CanonicalIntentCreated, &l.MappingProfileUsed,
 			&l.RequiredFieldsStatus, &l.TokenizationStatus, &l.GovernanceDecision,
 			&l.SettlementRecordReceived, &l.CanonicalSettlementCreated, &l.BankReference,
@@ -260,7 +260,7 @@ func (r *PostgresPendingLeafRepo) DeleteForIntent(ctx context.Context, tenantID,
 }
 
 func (r *PostgresPendingLeafRepo) DeleteForBatch(ctx context.Context, tenantID, batchID string) error {
-	query := `DELETE FROM pending_leaf_candidates WHERE tenant_id = $1 AND batch_id = $2`
+	query := `DELETE FROM pending_leaf_candidates WHERE tenant_id = $1 AND batch_id = $2 AND intent_id IS NULL`
 	_, err := r.db.ExecContext(ctx, query, tenantID, batchID)
 	return err
 }

@@ -54,7 +54,7 @@ type PendingLeafCandidate struct {
 	IntentID      *string   `json:"intent_id" db:"intent_id"`     // null for edge events
 	EnvelopeID    *string   `json:"envelope_id" db:"envelope_id"` // used to correlate edge
 	ContractID    *string   `json:"contract_id" db:"contract_id"` // buffered contract_id
-	BatchID       *string   `json:"batch_id" db:"batch_id"`
+	ClientBatchID *string   `json:"batch_id" db:"batch_id"`
 	LeafType      string    `json:"leaf_type" db:"leaf_type"`
 	ItemRef       string    `json:"item_ref" db:"item_ref"`
 	Hash          string    `json:"hash" db:"hash"`
@@ -101,7 +101,7 @@ type RelayEvent struct {
 	GovernanceHash       string          `json:"governance_hash,omitempty"`
 	PayloadHash          string          `json:"payload_hash,omitempty"`
 	FileContentHash      string          `json:"file_content_hash,omitempty"`
-	BatchID              string          `json:"batchid,omitempty"`
+	ClientBatchID        string          `json:"batchid,omitempty"`
 	MappingProfileID     *string         `json:"mapping_profile_used,omitempty"`
 	RequiredFieldsStatus *bool            `json:"required_fields_status,omitempty"`
 	TokenizationStatus   *bool            `json:"tokenization_status,omitempty"`
@@ -145,7 +145,7 @@ type EvidencePack struct {
 	TenantID                          string            `json:"tenant_id"`
 	IntentID                          string            `json:"intent_id"`
 	ContractID                        string            `json:"contract_id"`
-	BatchID                           string            `json:"batch_id"`
+	ClientBatchID                     string            `json:"batch_id"`
 	Mode                              string            `json:"mode"`
 	PackStatus                        string            `json:"pack_status"`
 	Items                             []EvidenceItem    `json:"items"`
@@ -211,8 +211,8 @@ func (p *EvidencePack) ComputeCompletenessMetadata() {
 
 	p.LeafCount = len(p.Items)
 
-	if p.BatchID != "" {
-		p.RequiredLeafCount = 6
+	if p.ClientBatchID != "" {
+		p.RequiredLeafCount = 5
 		p.SettlementLeafPresentFlag = hasRawSettlementFile
 		p.AttachmentDecisionLeafPresentFlag = hasBatchAttachmentSummary && hasBatchVarianceSummary
 	} else {
@@ -235,7 +235,7 @@ func (p *EvidencePack) ComputeCompletenessMetadata() {
 type GenerateEvidenceRequest struct {
 	TenantID         string            `json:"tenant_id" binding:"required"`
 	IntentID         string            `json:"intent_id"` // required for intent mode
-	BatchID          string            `json:"batch_id"`  // required for batch mode
+	ClientBatchID    string            `json:"batch_id"`  // required for batch mode
 	EnvelopeID       string            `json:"envelope_id"`
 	TraceID          string            `json:"trace_id"`
 	ContractID       string            `json:"contract_id"`
@@ -297,7 +297,7 @@ type EvidenceViewResponse struct {
 	TenantID       string         `json:"tenant_id"`
 	IntentID       string         `json:"intent_id"`
 	ContractID     string         `json:"contract_id"`
-	BatchID        string         `json:"batch_id,omitempty"`
+	ClientBatchID  string         `json:"batch_id,omitempty"`
 	Mode           string         `json:"mode"`
 	MerkleRoot     string         `json:"merkle_root"`
 	RulesetVersion string         `json:"ruleset_version"`
@@ -316,7 +316,7 @@ type EvidencePackSummary struct {
 	TenantID                          string    `json:"tenant_id"`
 	IntentID                          string    `json:"intent_id"`
 	ContractID                        string    `json:"contract_id"`
-	BatchID                           string    `json:"batch_id,omitempty"`
+	ClientBatchID                     string    `json:"batch_id,omitempty"`
 	Mode                              string    `json:"mode"`
 	PackStatus                        string    `json:"pack_status"`
 	MerkleRoot                        string    `json:"merkle_root"`

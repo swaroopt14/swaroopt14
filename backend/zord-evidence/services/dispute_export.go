@@ -319,7 +319,7 @@ func buildBankPSPPack(pack *models.EvidencePack, req models.DisputeExportRequest
 		csvEscape(req.PaymentReference),
 		csvEscape(pack.IntentID),
 		csvEscape(pack.ContractID),
-		csvEscape(pack.BatchID),
+		csvEscape(pack.ClientBatchID),
 		csvEscape(maskedUTR),
 		csvEscape(clientRef),
 		csvEscape(pack.CreatedAt.UTC().Format("2006-01-02")),

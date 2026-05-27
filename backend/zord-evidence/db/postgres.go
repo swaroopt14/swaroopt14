@@ -66,13 +66,15 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			ON pending_leaf_candidates(tenant_id, intent_id, leaf_type)
 			WHERE intent_id IS NOT NULL;`,
 
+		`DROP INDEX IF EXISTS plc_envelope_type_idx;`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS plc_envelope_type_idx
 			ON pending_leaf_candidates(tenant_id, envelope_id, leaf_type)
-			WHERE intent_id IS NULL;`,
+			WHERE intent_id IS NULL AND batch_id IS NULL;`,
 
+		`DROP INDEX IF EXISTS plc_batch_type_idx;`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS plc_batch_type_idx
 			ON pending_leaf_candidates(tenant_id, batch_id, leaf_type)
-			WHERE batch_id IS NOT NULL;`,
+			WHERE batch_id IS NOT NULL AND intent_id IS NULL;`,
 
 		// §14.1 — main metadata table
 		`CREATE TABLE IF NOT EXISTS evidence_packs (
@@ -136,6 +138,10 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 
 		`CREATE INDEX IF NOT EXISTS evidence_packs_tenant_batch_idx
 			ON evidence_packs(tenant_id, batch_id)`,
+
+		`CREATE UNIQUE INDEX IF NOT EXISTS evidence_packs_batch_unique_idx
+			ON evidence_packs(tenant_id, batch_id)
+			WHERE intent_id IS NULL AND batch_id IS NOT NULL;`,
 
 		`CREATE INDEX IF NOT EXISTS evidence_packs_proof_status_idx
 			ON evidence_packs(proof_status)`,

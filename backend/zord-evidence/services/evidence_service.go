@@ -82,10 +82,19 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 	}
 
 	// 2. Upsert new leaves
+	var lastBatchID string
 	for i := range newLeaves {
 		if err := s.pendingLeafRepo.UpsertLeaf(ctx, &newLeaves[i]); err != nil {
 			return err
 		}
+		if newLeaves[i].ClientBatchID != nil && *newLeaves[i].ClientBatchID != "" {
+			lastBatchID = *newLeaves[i].ClientBatchID
+		}
+	}
+
+	// 2b. If we received leaves carrying a batchID, also trigger batch-level readiness check
+	if lastBatchID != "" {
+		_ = s.HandleBatchLeafUpdate(ctx, tenantID, lastBatchID, nil, false)
 	}
 
 	// 3. Check readiness if we have an intentID
@@ -162,8 +171,12 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 	var br, cr, ad *string
 	var mc *float64
 	var vdc, am *bool
+	var clientBatchID string
 
 	for _, l := range leaves {
+		if l.ClientBatchID != nil && *l.ClientBatchID != "" {
+			clientBatchID = *l.ClientBatchID
+		}
 		if l.PaymentInstructionReceived != nil {
 			pir = l.PaymentInstructionReceived
 			cic = l.CanonicalIntentCreated
@@ -188,6 +201,7 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 	req := models.GenerateEvidenceRequest{
 		TenantID:                   tenantID,
 		IntentID:                   intentID,
+		ClientBatchID:              clientBatchID,
 		EnvelopeID:                 envelopeID,
 		TraceID:                    traceID,
 		ContractID:                 contractID,
@@ -196,20 +210,20 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 		SchemaVersions:             map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
 		Items:                      items,
 		PaymentInstructionReceived: pir,
-		CanonicalIntentCreated:    cic,
-		MappingProfileUsed:        mpu,
-		RequiredFieldsStatus:      rfs,
-		TokenizationStatus:        ts,
-		GovernanceDecision:        gd,
+		CanonicalIntentCreated:     cic,
+		MappingProfileUsed:         mpu,
+		RequiredFieldsStatus:       rfs,
+		TokenizationStatus:         ts,
+		GovernanceDecision:         gd,
 
 		SettlementRecordReceived:   srr,
 		CanonicalSettlementCreated: csc,
 		BankReference:              br,
 		ClientReference:            cr,
-		AttachmentDecision:        ad,
-		MatchConfidence:           mc,
-		ValueDateCheck:            vdc,
-		AmountMatch:               am,
+		AttachmentDecision:         ad,
+		MatchConfidence:            mc,
+		ValueDateCheck:             vdc,
+		AmountMatch:                am,
 	}
 
 	_, err = s.GeneratePack(ctx, req)
@@ -231,8 +245,7 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 	}
 
 	if !isFinal {
-		log.Printf("evidence.service.handle_batch_update batch=%s is_final=false — buffering only", batchID)
-		return nil
+		log.Printf("evidence.service.handle_batch_update batch=%s buffering leaves", batchID)
 	}
 
 	// 2. Check readiness
@@ -266,6 +279,23 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 	if !allPresent {
 		log.Printf("evidence.service.batch_readiness_check batch=%s missing_leaves=%v present_count=%d", batchID, missing, len(items))
 		return nil // Not ready yet
+	}
+
+	// 3. Check if we already have a pack for this batch to prevent duplicate generation
+	existing, err := s.repo.GetPackByBatchID(ctx, tenantID, batchID)
+	if err == nil && existing != nil {
+		log.Printf("evidence.service.batch_readiness_check batch=%s pack already exists — skipping generation", batchID)
+		// Cleanup anyway as leaves are no longer needed
+		return s.pendingLeafRepo.DeleteForBatch(ctx, tenantID, batchID)
+	}
+
+	// We only generate if all leaves are present AND we have received the final completion signal.
+	if !isFinal {
+		// Check if we already have the summary (which indicates completion)
+		if _, ok := leafMap[models.LeafTypeBatchAttachmentSummary]; !ok {
+			log.Printf("evidence.service.batch_readiness_check batch=%s leaves ready but waiting for final signal", batchID)
+			return nil
+		}
 	}
 
 	log.Printf("evidence.service.batch_readiness_check batch=%s ALL_LEAVES_PRESENT — triggering generation", batchID)
@@ -303,27 +333,27 @@ func (s *EvidenceService) HandleBatchLeafUpdate(ctx context.Context, tenantID, b
 	// Generate the pack!
 	req := models.GenerateEvidenceRequest{
 		TenantID:                   tenantID,
-		BatchID:                    batchID,
+		ClientBatchID:              batchID,
 		TraceID:                    "00000000-0000-0000-0000-000000000000", // or fetch from context/leaf if available
 		Mode:                       "BATCH_ATTACH",
 		RulesetVersion:             "v1",
 		SchemaVersions:             map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
 		Items:                      items,
 		PaymentInstructionReceived: pir,
-		CanonicalIntentCreated:    cic,
-		MappingProfileUsed:        mpu,
-		RequiredFieldsStatus:      rfs,
-		TokenizationStatus:        ts,
-		GovernanceDecision:        gd,
+		CanonicalIntentCreated:     cic,
+		MappingProfileUsed:         mpu,
+		RequiredFieldsStatus:       rfs,
+		TokenizationStatus:         ts,
+		GovernanceDecision:         gd,
 
 		SettlementRecordReceived:   srr,
 		CanonicalSettlementCreated: csc,
 		BankReference:              br,
 		ClientReference:            cr,
-		AttachmentDecision:        ad,
-		MatchConfidence:           mc,
-		ValueDateCheck:            vdc,
-		AmountMatch:               am,
+		AttachmentDecision:         ad,
+		MatchConfidence:            mc,
+		ValueDateCheck:             vdc,
+		AmountMatch:                am,
 	}
 
 	_, err = s.GenerateBatchPack(ctx, req)
@@ -402,6 +432,7 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		TenantID:         req.TenantID,
 		IntentID:         req.IntentID,
 		ContractID:       req.ContractID,
+		ClientBatchID:    req.ClientBatchID,
 		Mode:             req.Mode,
 		PackStatus:       "ACTIVE",
 		Items:            items,
@@ -416,20 +447,20 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 			SignedAt: now,
 		}},
 		PaymentInstructionReceived: req.PaymentInstructionReceived,
-		CanonicalIntentCreated:    req.CanonicalIntentCreated,
-		MappingProfileUsed:        req.MappingProfileUsed,
-		RequiredFieldsStatus:      req.RequiredFieldsStatus,
-		TokenizationStatus:        req.TokenizationStatus,
-		GovernanceDecision:        req.GovernanceDecision,
+		CanonicalIntentCreated:     req.CanonicalIntentCreated,
+		MappingProfileUsed:         req.MappingProfileUsed,
+		RequiredFieldsStatus:       req.RequiredFieldsStatus,
+		TokenizationStatus:         req.TokenizationStatus,
+		GovernanceDecision:         req.GovernanceDecision,
 
 		SettlementRecordReceived:   req.SettlementRecordReceived,
 		CanonicalSettlementCreated: req.CanonicalSettlementCreated,
 		BankReference:              req.BankReference,
 		ClientReference:            req.ClientReference,
-		AttachmentDecision:        req.AttachmentDecision,
-		MatchConfidence:           req.MatchConfidence,
-		ValueDateCheck:            req.ValueDateCheck,
-		AmountMatch:               req.AmountMatch,
+		AttachmentDecision:         req.AttachmentDecision,
+		MatchConfidence:            req.MatchConfidence,
+		ValueDateCheck:             req.ValueDateCheck,
+		AmountMatch:                req.AmountMatch,
 
 		CreatedAt: now,
 	}
@@ -533,7 +564,7 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 		requiredLeafCount = 9
 		settlementLeafFlag = hasRawSettlementFile && hasRawSettlementLine && hasCanonicalSettlementObs
 		attachmentDecisionLeafFlag = hasAttachmentDecision && hasVarianceDecision
-	} else if req.BatchID != "" {
+	} else if req.ClientBatchID != "" {
 		requiredLeafCount = 6
 		settlementLeafFlag = hasRawSettlementFile
 		attachmentDecisionLeafFlag = hasBatchAttachmentSummary && hasBatchVarianceSummary
@@ -554,19 +585,19 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 	}
 
 	packEvent := kafka.PackEvent{
-		EventType:      eventType,
-		EvidencePackID: packID,
-		TenantID:       req.TenantID,
-		IntentID:       req.IntentID,
-		ContractID:     req.ContractID,
-		Mode:           req.Mode,
-		MerkleRoot:     merkleRoot,
-		RulesetVersion: req.RulesetVersion,
-		OccurredAt:     now,
-		PackCompletenessScore: packCompletenessScore,
-		LeafCount: leafCount,
-		RequiredLeafCount: requiredLeafCount,
-		SettlementLeafPresentFlag: settlementLeafFlag,
+		EventType:                         eventType,
+		EvidencePackID:                    packID,
+		TenantID:                          req.TenantID,
+		IntentID:                          req.IntentID,
+		ContractID:                        req.ContractID,
+		Mode:                              req.Mode,
+		MerkleRoot:                        merkleRoot,
+		RulesetVersion:                    req.RulesetVersion,
+		OccurredAt:                        now,
+		PackCompletenessScore:             packCompletenessScore,
+		LeafCount:                         leafCount,
+		RequiredLeafCount:                 requiredLeafCount,
+		SettlementLeafPresentFlag:         settlementLeafFlag,
 		AttachmentDecisionLeafPresentFlag: attachmentDecisionLeafFlag,
 	}
 	payloadBytes, _ := json.Marshal(packEvent)
@@ -599,7 +630,7 @@ func (s *EvidenceService) GeneratePack(ctx context.Context, req models.GenerateE
 
 // GenerateBatchPack generates an evidence pack bound to a batch.
 func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.GenerateEvidenceRequest) (*models.EvidencePack, error) {
-	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.BatchID) == "" {
+	if strings.TrimSpace(req.TenantID) == "" || strings.TrimSpace(req.ClientBatchID) == "" {
 		return nil, fmt.Errorf("tenant_id and batch_id are required")
 	}
 	if len(req.Items) == 0 {
@@ -639,14 +670,14 @@ func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.Gene
 	merkleRoot := utils.BuildMerkleRoot(leaves)
 
 	signPayload := strings.Join([]string{
-		packID, merkleRoot, req.BatchID, now.Format(time.RFC3339Nano), req.RulesetVersion,
+		packID, merkleRoot, req.ClientBatchID, now.Format(time.RFC3339Nano), req.RulesetVersion,
 	}, "|")
 	sig := s.signer.Sign(signPayload)
 
 	pack := &models.EvidencePack{
 		EvidencePackID: packID,
 		TenantID:       req.TenantID,
-		BatchID:        req.BatchID,
+		ClientBatchID:  req.ClientBatchID,
 		Mode:           req.Mode,
 		PackStatus:     "ACTIVE",
 		Items:          items,
@@ -673,13 +704,13 @@ func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.Gene
 		return nil, fmt.Errorf("encrypt evidence archive: %w", err)
 	}
 
-	objectKey := fmt.Sprintf("%s/%s/batch/%s/%s.json.enc", s.archivePrefix, req.TenantID, req.BatchID, packID)
+	objectKey := fmt.Sprintf("%s/%s/batch/%s/%s.json.enc", s.archivePrefix, req.TenantID, req.ClientBatchID, packID)
 	objectRef, err := s.s3.PutObject(ctx, objectKey, encryptedArchive)
 	if err != nil {
 		return nil, fmt.Errorf("store archive: %w", err)
 	}
 
-	log.Printf("evidence.service.generate_batch_pack saving metadata and outbox event pack=%s batch=%s", packID, req.BatchID)
+	log.Printf("evidence.service.generate_batch_pack saving metadata and outbox event pack=%s batch=%s", packID, req.ClientBatchID)
 
 	archiveHash := sha256Hex(encryptedArchive)
 	archiveRecord := &models.EvidenceArchive{
@@ -718,7 +749,7 @@ func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.Gene
 		RulesetVersion: req.RulesetVersion,
 		OccurredAt:     now,
 		Extra: map[string]any{
-			"batch_id": req.BatchID,
+			"batch_id": req.ClientBatchID,
 		},
 	}
 	payloadBytes, _ := json.Marshal(packEvent)
@@ -727,7 +758,7 @@ func (s *EvidenceService) GenerateBatchPack(ctx context.Context, req models.Gene
 		TraceID:       req.TraceID,
 		TenantID:      req.TenantID,
 		AggregateType: "evidence_pack",
-		AggregateID:   req.BatchID, // using batchID as the aggregate_id since it's a batch pack
+		AggregateID:   req.ClientBatchID, // using batchID as the aggregate_id since it's a batch pack
 		EventType:     "evidence.batch.pack.created",
 		Payload:       payloadBytes,
 		Status:        "PENDING",
@@ -765,12 +796,21 @@ func (s *EvidenceService) ListPacksByIntentID(ctx context.Context, tenantID, int
 }
 
 // ListPacksByBatchID returns all packs for a given batch.
-func (s *EvidenceService) ListPacksByBatchID(ctx context.Context, tenantID, batchID string) (*models.ListPacksResponse, error) {
-	packs, err := s.repo.ListByBatchID(ctx, tenantID, batchID)
+func (s *EvidenceService) ListPacksByBatchID(ctx context.Context, tenantID, clientBatchID string) (*models.ListPacksResponse, error) {
+	packs, err := s.repo.ListByBatchID(ctx, tenantID, clientBatchID)
 	if err != nil {
 		return nil, err
 	}
 	return &models.ListPacksResponse{Packs: packs, Total: len(packs)}, nil
+}
+
+func (s *EvidenceService) GetPackForBatch(ctx context.Context, tenantID, clientBatchID string) (*models.EvidencePack, error) {
+	pack, err := s.repo.GetPackByBatchID(ctx, tenantID, clientBatchID)
+	if err != nil {
+		return nil, err
+	}
+	pack.ComputeCompletenessMetadata()
+	return pack, nil
 }
 
 // GetInclusionProofs returns all Merkle inclusion proofs for a pack (§14.4).
@@ -930,6 +970,7 @@ func (s *EvidenceService) GetPackView(ctx context.Context, packID, viewType stri
 		TenantID:       pack.TenantID,
 		IntentID:       pack.IntentID,
 		ContractID:     pack.ContractID,
+		ClientBatchID:  pack.ClientBatchID,
 		Mode:           pack.Mode,
 		MerkleRoot:     pack.MerkleRoot,
 		RulesetVersion: pack.RulesetVersion,
@@ -966,9 +1007,9 @@ func deriveComponentsFromPack(pack *models.EvidencePack) models.ProofComponents 
 	var c models.ProofComponents
 	for _, item := range pack.Items {
 		switch item.Type {
-		case models.LeafTypeRawSettlementLine, models.LeafTypeCanonicalIntentHash:
+		case models.LeafTypeEnvelopeHash, models.LeafTypeCanonicalIntentHash:
 			c.PaymentInstructionAvailable = true
-		case models.LeafTypeRawSettlementFile, models.LeafTypeCanonicalSettlementObservation:
+		case models.LeafTypeRawSettlementFile, models.LeafTypeRawSettlementLine, models.LeafTypeCanonicalSettlementObservation:
 			c.SettlementRecordAvailable = true
 		case models.LeafTypeAttachmentDecision:
 			c.MatchDecisionAvailable = true
@@ -986,7 +1027,7 @@ func enrichPackSigsFromPack(pack *models.EvidencePack) models.CryptographicSigna
 	sigs := models.CryptographicSignatures{}
 	for _, item := range pack.Items {
 		switch item.Type {
-		case models.LeafTypeRawSettlementLine:
+		case models.LeafTypeEnvelopeHash:
 			sigs.RawIntentHash = item.Hash
 		case models.LeafTypeCanonicalIntentHash:
 			sigs.CanonicalIntentHash = item.Hash
@@ -998,8 +1039,6 @@ func enrichPackSigsFromPack(pack *models.EvidencePack) models.CryptographicSigna
 			sigs.AttachmentDecisionHash = item.Hash
 		case models.LeafTypeGovernanceDecision:
 			sigs.GovernanceDecisionHash = item.Hash
-		case models.LeafTypeEnvelopeHash:
-			sigs.EnvelopeHash = item.Hash
 		case models.LeafTypeFinalEvidenceView:
 			sigs.FinalEvidenceViewHash = item.Hash
 		}

@@ -52,7 +52,7 @@ type OutboxEvent struct {
 
 	// --- Status ---
 	Status  string  `json:"status"`
-	BatchID *string `json:"batchid,omitempty"`
+	ClientBatchID *string `json:"batchid,omitempty"`
 
 	FileContentHash *string `json:"file_content_hash,omitempty"`
 

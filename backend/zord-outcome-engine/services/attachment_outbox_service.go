@@ -227,6 +227,14 @@ func (s *AttachmentOutboxService) EmitForJob(
             amountMatch = v.AmountVariance.IsZero()
         }
 
+		// Fetch observation for metadata enrichment
+		obs, ok := obsMap[d.SettlementObservationID]
+		if !ok {
+			log.Printf("attachment.outbox.missing_obs decision=%s obs=%s", d.AttachmentDecisionID, d.SettlementObservationID)
+			continue
+		}
+		envelopeID := obs.SettlementEnvelopeID.String()
+
 		payload := map[string]interface{}{
 			"event_id":                  uuid.New().String(),
 			"attachment_decision_id":    d.AttachmentDecisionID,
@@ -254,13 +262,13 @@ func (s *AttachmentOutboxService) EmitForJob(
 			"candidate_set_hash":        d.CandidateSetHash,
 			"supporting_carriers":       d.SupportingCarriersJSON,
 			"settlement_record_received":   parsedCreatedAt.UTC().Format(time.RFC3339),
-            "canonical_settlement_created": obsCreatedAt.UTC().Format(time.RFC3339),
-            "bank_reference":               bankRef,
-            "client_reference":             clientRefCandidate,
-            "attachment_decision":          d.DecisionType,
-            "match_confidence":             d.ConfidenceScore,
-            "value_date_check":             valueDateCheck,
-            "amount_match":                 amountMatch,
+			"canonical_settlement_created": obsCreatedAt.UTC().Format(time.RFC3339),
+			"bank_reference":               bankRef,
+			"client_reference":             clientRefCandidate,
+			"attachment_decision":          d.DecisionType,
+			"match_confidence":             d.ConfidenceScore,
+			"value_date_check":             valueDateCheck,
+			"amount_match":                 amountMatch,
 		}
 		// Attach variance summary inline when available (Service 6 convenience).
 		if v, ok := varianceByDecision[d.AttachmentDecisionID]; ok {
@@ -274,7 +282,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		}
 
 		if err := s.insertEvent(ctx, d.TenantID, job.AttachmentJobID,
-			cID.String(), bID,
+			envelopeID, contractIDStr, bID,
 			"attachment_decision", d.AttachmentDecisionID,
 			"attachment.decision.created", payload); err != nil {
 			lastErr = err
@@ -293,7 +301,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 				"reason_code":               d.DecisionReasonCode,
 			}
 			if err := s.insertEvent(ctx, d.TenantID, d.AttachmentJobID,
-				"", "",
+				envelopeID, "", "",
 				"attachment_decision", d.AttachmentDecisionID,
 				"attachment.ambiguous.flagged", flagPayload); err != nil {
 				lastErr = err
@@ -309,7 +317,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 				"ambiguity_score":           d.AmbiguityScore,
 			}
 			if err := s.insertEvent(ctx, d.TenantID, d.AttachmentJobID,
-				"", "",
+				envelopeID, "", "",
 				"attachment_decision", d.AttachmentDecisionID,
 				"attachment.unresolved.flagged", flagPayload); err != nil {
 				lastErr = err
@@ -329,7 +337,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 				"review_urgency":            "HIGH",
 			}
 			if err := s.insertEvent(ctx, d.TenantID, d.AttachmentJobID,
-				"", "",
+				envelopeID, "", "",
 				"attachment_decision", d.AttachmentDecisionID,
 				"attachment.review.required", reviewPayload); err != nil {
 				lastErr = err
@@ -348,14 +356,19 @@ func (s *AttachmentOutboxService) EmitForJob(
 			expectedValueDate *time.Time
 			intendedAmount    decimal.Decimal
 			settledAmount     decimal.Decimal
+			envelopeID        string
 		)
 
 		if obs, ok := obsMap[v.SettlementObservationID]; ok {
 			corridorID = obs.CorridorID
 			batchID = obs.ClientBatchID
+			if batchID == "" && obs.BatchReference != nil {
+				batchID = *obs.BatchReference
+			}
 			currency = obs.CurrencyCode
 			actualValueDate = obs.ValueDate
 			settledAmount = obs.Amount
+			envelopeID = obs.SettlementEnvelopeID.String()
 		}
 
 		if info, ok := intentLookup[v.IntentID]; ok {
@@ -424,7 +437,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 			"evidence_gap_flags":    evidenceGapFlags,
 		}
 		if err := s.insertEvent(ctx, v.TenantID, job.AttachmentJobID,
-			"", "",
+			envelopeID, "", "",
 			"variance_record", v.VarianceRecordID,
 			"variance.record.created", vPayload); err != nil {
 			lastErr = err
@@ -531,7 +544,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"job_status":                   job.Status,
 	}
 	if err := s.insertEvent(ctx, job.TenantID, job.AttachmentJobID,
-		"", batchID,
+		"", "", batchID,
 		"attachment_job", job.AttachmentJobID,
 		"attachment.batch.updated", batchPayload); err != nil {
 		lastErr = err
@@ -547,17 +560,34 @@ func (s *AttachmentOutboxService) insertEvent(
 	ctx context.Context,
 	tenantID uuid.UUID,
 	jobID uuid.UUID,
+	envelopeID string,
 	contractID string,
 	batchID string,
-	family string,
-	entityID uuid.UUID,
+	aggregateType string,
+	aggregateID uuid.UUID,
 	eventType string,
-	payload interface{},
+	payload any,
 ) error {
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("attachment.outbox.marshal_failed type=%s err=%v", eventType, err)
 		return err
+	}
+
+	// Fix — don't use uuid.Nil for trace_id.
+	// If it's missing in context, generate one or leave NULL.
+	traceID := uuid.Nil
+	if tid, ok := ctx.Value("trace_id").(string); ok {
+		if u, err := uuid.Parse(tid); err == nil {
+			traceID = u
+		}
+	}
+
+	var envID *uuid.UUID
+	if envelopeID != "" {
+		if u, err := uuid.Parse(envelopeID); err == nil {
+			envID = &u
+		}
 	}
 
 	var srr, csc *time.Time
@@ -615,9 +645,9 @@ func (s *AttachmentOutboxService) insertEvent(
 			attachment_decision, match_confidence,
 			value_date_check, amount_match
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
-		uuid.New(), tenantID, uuid.Nil, jobID,
+		uuid.New(), tenantID, traceID, envID,
 		contractID, batchID,
-		family, entityID,
+		aggregateType, aggregateID,
 		eventType, payloadJSON,
 		"PENDING", 0, time.Now().UTC(),
 		srr, csc, br, cr, ad, mc, vdc, am,
@@ -662,6 +692,7 @@ type leafBundlePayload struct {
 	EventType               string          `json:"event_type"`
 	TenantID                string          `json:"tenant_id"`
 	IntentID                string          `json:"intent_id"`
+	EnvelopeID              string          `json:"envelope_id"`
 	SettlementObservationID string          `json:"settlement_observation_id"`
 	AttachmentJobID         string          `json:"attachment_job_id"`
 	DecisionType            string          `json:"decision_type"`
@@ -812,10 +843,16 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 		decType := d.DecisionType
 		conf := d.ConfidenceScore
 
+		batchID := obs.ClientBatchID
+		if batchID == "" && obs.BatchReference != nil {
+			batchID = *obs.BatchReference
+		}
+
 		bundle := leafBundlePayload{
 			EventType:               "outcome.leaf_bundle.created",
 			TenantID:                d.TenantID.String(),
 			IntentID:                d.IntentID.String(),
+			EnvelopeID:              obs.SettlementEnvelopeID.String(),
 			SettlementObservationID: d.SettlementObservationID.String(),
 			AttachmentJobID:         d.AttachmentJobID.String(),
 			DecisionType:            d.DecisionType,
@@ -832,7 +869,7 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 		}
 
 		if err := s.insertEvent(ctx, d.TenantID, d.AttachmentJobID,
-			"", "",
+			obs.SettlementEnvelopeID.String(), "", batchID,
 			"attachment_leaf_bundle", d.AttachmentDecisionID,
 			"outcome.leaf_bundle.created", bundle); err != nil {
 			lastErr = err

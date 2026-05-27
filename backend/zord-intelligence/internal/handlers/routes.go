@@ -184,7 +184,10 @@ func NewRouter(
 		//   provider   optional (accepted, ignored in Grade A)
 		r.Route("/dashboard", func(r chi.Router) {
 			r.Get("/leakage", dashLeakageH.GetLeakageKPIs)
-			r.Get("/ambiguity", dashAmbiguityH.GetAmbiguityKPIs)
+			r.Route("/ambiguity", func(r chi.Router) {
+				r.Get("/", dashAmbiguityH.GetAmbiguityKPIs)
+				r.Get("/heatmap", dashAmbiguityH.GetBatchMatchHeatmap)
+			})
 			r.Get("/defensibility", dashDefensibilityH.GetDefensibilityKPIs)
 			r.Get("/patterns", dashPatternH.GetPatternKPIs)
 			r.Get("/recommendations", dashRecommendationH.GetRecommendationKPIs)

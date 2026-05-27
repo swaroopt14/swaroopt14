@@ -292,7 +292,7 @@ func TestDashboard_Ambiguity_HappyPath(t *testing.T) {
 		"risk_tier":                 "MEDIUM"
 	}`))
 
-	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
+	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), nil, nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/ambiguity?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -324,7 +324,7 @@ func TestDashboard_Ambiguity_NoData(t *testing.T) {
 	pool := setupE2EDB(t)
 	tenantID := uniqueTenant("tnt_ambig_empty")
 
-	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
+	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), nil, nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet,
 		"/v1/intelligence/dashboard/ambiguity?tenant_id="+tenantID, nil)
 	rr := httptest.NewRecorder()
@@ -342,7 +342,7 @@ func TestDashboard_Ambiguity_NoData(t *testing.T) {
 func TestDashboard_Ambiguity_MissingTenantID(t *testing.T) {
 	pool := setupE2EDB(t)
 
-	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), "GRADE_A")
+	h := handlers.NewDashboardAmbiguityHandler(persistence.NewIntelligenceSnapshotRepo(pool), nil, nil, "GRADE_A")
 	req := httptest.NewRequest(http.MethodGet, "/v1/intelligence/dashboard/ambiguity", nil)
 	rr := httptest.NewRecorder()
 	h.GetAmbiguityKPIs(rr, req)

@@ -34,6 +34,8 @@ type Client struct {
 	pending      map[string]chan MLResult
 	mu           sync.Mutex
 	done         chan struct{}
+	// asyncSem caps concurrent background ML goroutines to prevent unbounded growth under burst.
+	asyncSem chan struct{}
 }
 
 // New creates a Client.  groupIDPrefix is used to derive a unique consumer group
@@ -68,6 +70,7 @@ func New(brokers, requestTopic, resultTopic, groupIDPrefix string) *Client {
 		reader:       reader,
 		pending:      make(map[string]chan MLResult),
 		done:         make(chan struct{}),
+		asyncSem:     make(chan struct{}, 100),
 	}
 }
 

@@ -49,11 +49,18 @@ type IntelligenceSnapshot struct {
 // IntelligenceSnapshotRepo provides Create and Read operations for intelligence_snapshots.
 type IntelligenceSnapshotRepo struct {
 	pool *pgxpool.Pool
+	bw   *BatchWriter // optional; nil = direct pool.Exec (default)
 }
 
 // NewIntelligenceSnapshotRepo creates an IntelligenceSnapshotRepo.
 func NewIntelligenceSnapshotRepo(pool *pgxpool.Pool) *IntelligenceSnapshotRepo {
 	return &IntelligenceSnapshotRepo{pool: pool}
+}
+
+// SetBatchWriter enables write-batching for Create calls.
+// Call this from main.go after starting the BatchWriter.
+func (r *IntelligenceSnapshotRepo) SetBatchWriter(bw *BatchWriter) {
+	r.bw = bw
 }
 
 // Create inserts a new intelligence snapshot.
@@ -68,26 +75,28 @@ func (r *IntelligenceSnapshotRepo) Create(
 	ctx context.Context,
 	snap IntelligenceSnapshot,
 ) error {
-	sql := `
+	const insertSQL = `
 		INSERT INTO intelligence_snapshots
 			(snapshot_id, tenant_id, snapshot_type, scope_type, scope_ref,
 			 window_start, window_end, projection_refs_json, snapshot_json,
 			 model_version, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 	`
-	if _, err := r.pool.Exec(ctx, sql,
-		snap.SnapshotID,
-		snap.TenantID,
-		snap.SnapshotType,
-		snap.ScopeType,
-		snap.ScopeRef, // nullable
-		snap.WindowStart,
-		snap.WindowEnd,
-		snap.ProjectionRefsJSON,
-		snap.SnapshotJSON,
-		snap.ModelVersion, // nullable
-		snap.CreatedAt,
-	); err != nil {
+	args := []any{
+		snap.SnapshotID, snap.TenantID, snap.SnapshotType,
+		snap.ScopeType, snap.ScopeRef,
+		snap.WindowStart, snap.WindowEnd,
+		snap.ProjectionRefsJSON, snap.SnapshotJSON,
+		snap.ModelVersion, snap.CreatedAt,
+	}
+
+	var err error
+	if r.bw != nil {
+		err = r.bw.Exec(ctx, insertSQL, args...)
+	} else {
+		_, err = r.pool.Exec(ctx, insertSQL, args...)
+	}
+	if err != nil {
 		return fmt.Errorf("intelligence_snapshot_repo.Create snap_id=%s type=%s: %w",
 			snap.SnapshotID, snap.SnapshotType, err)
 	}

@@ -163,58 +163,64 @@ func (s *LeakageIntelligenceService) ComputeAndSave(
 		return fmt.Errorf("leakage_svc.ComputeAndSave GetLeakageSummary tenant=%s: %w", tenantID, err)
 	}
 	if leakage == nil {
-		// No leakage data yet — tenant hasn't received any attachment decisions.
-		// This is normal on a brand-new tenant. Do not write an empty snapshot.
 		return nil
 	}
 
 	// Step 2: build the deterministic snapshot from projection data
 	snap := s.buildSnapshot(leakage)
 
-	// Step 3: ML — Z-score anomaly detection
-	// Read the last 30 days of leakage_percentage from the feature store.
-	// Compute how many standard deviations today's rate is from the historical mean.
-	// This tells us "is today's leakage unusually high FOR THIS TENANT?"
-	s.attachZScoreAnomaly(ctx, tenantID, leakage.LeakagePercentage, &snap)
-
-	// Step 4: build projection refs (audit trail of which row fed this snapshot)
-	projRefs := []string{"leakage.total"}
-	projRefsJSON, _ := json.Marshal(projRefs)
-
-	// Step 5: marshal snapshot body
-	snapJSON, err := json.Marshal(snap)
-	if err != nil {
-		return fmt.Errorf("leakage_svc.ComputeAndSave marshal snap tenant=%s: %w", tenantID, err)
+	// Step 3: read Z-score history synchronously (fast DB call, not ML)
+	history, histErr := s.mlRepo.GetRecentFloatField(ctx, tenantID, "LEAKAGE", "leakage_percentage", 30)
+	if histErr != nil {
+		log.Printf("leakage_svc: GetRecentFloatField failed tenant=%s: %v", tenantID, histErr)
+		history = nil
 	}
 
-	// Step 6: persist to intelligence_snapshots
-	snapID := "snap_" + uuid.New().String()
-	modelVer := "zscore_v1"
-	if err := s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
-		SnapshotID:         snapID,
-		TenantID:           tenantID,
-		SnapshotType:       "LEAKAGE",
-		ScopeType:          "TENANT",
-		ScopeRef:           nil, // TENANT scope has no scope_ref
-		WindowStart:        windowStart,
-		WindowEnd:          windowEnd,
-		ProjectionRefsJSON: projRefsJSON,
-		SnapshotJSON:       snapJSON,
-		ModelVersion:       &modelVer,
-		CreatedAt:          time.Now().UTC(),
-	}); err != nil {
-		return fmt.Errorf("leakage_svc.ComputeAndSave Create snapshot tenant=%s: %w", tenantID, err)
-	}
+	// Step 4: fire async Z-score — consumer goroutine returns immediately.
+	// Snapshot write, ML features, and ML prediction all complete inside the callback.
+	s.mlClient.InvokeZScoreAsync(ctx, mlclient.ZScoreRequest{
+		TenantID:     tenantID,
+		CurrentValue: leakage.LeakagePercentage,
+		History:      history,
+	}, func(result mlclient.ZScoreResult, zsErr error) {
+		if zsErr != nil {
+			log.Printf("leakage_svc: InvokeZScoreAsync failed tenant=%s: %v", tenantID, zsErr)
+		}
+		snap.AnomalyScore = result.Score
+		snap.AnomalyLevel = result.Level
+		snap.AnomalyZScore = result.ZScore
 
-	// Step 7: persist ML features for future leakage forecasting.
-	// label_json is nil — the outcome (actual resolved leakage) comes later.
-	if err := s.persistMLFeatures(ctx, tenantID, snapID, leakage, windowStart, windowEnd); err != nil {
-		log.Printf("leakage_svc: persistMLFeatures failed tenant=%s snap=%s: %v",
-			tenantID, snapID, err)
-	}
-
-	// Step 8: persist the Z-score prediction to ml_predictions for audit trail.
-	s.persistMLPrediction(ctx, tenantID, snapID, snap)
+		projRefs := []string{"leakage.total"}
+		projRefsJSON, _ := json.Marshal(projRefs)
+		snapJSON, marshalErr := json.Marshal(snap)
+		if marshalErr != nil {
+			log.Printf("leakage_svc: marshal snap async tenant=%s: %v", tenantID, marshalErr)
+			return
+		}
+		snapID := "snap_" + uuid.New().String()
+		modelVer := "zscore_v1"
+		if createErr := s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
+			SnapshotID:         snapID,
+			TenantID:           tenantID,
+			SnapshotType:       "LEAKAGE",
+			ScopeType:          "TENANT",
+			ScopeRef:           nil,
+			WindowStart:        windowStart,
+			WindowEnd:          windowEnd,
+			ProjectionRefsJSON: projRefsJSON,
+			SnapshotJSON:       snapJSON,
+			ModelVersion:       &modelVer,
+			CreatedAt:          time.Now().UTC(),
+		}); createErr != nil {
+			log.Printf("leakage_svc: Create snapshot async tenant=%s: %v", tenantID, createErr)
+			return
+		}
+		if featErr := s.persistMLFeatures(ctx, tenantID, snapID, leakage, windowStart, windowEnd); featErr != nil {
+			log.Printf("leakage_svc: persistMLFeatures async failed tenant=%s snap=%s: %v",
+				tenantID, snapID, featErr)
+		}
+		s.persistMLPrediction(ctx, tenantID, snapID, snap)
+	})
 
 	return nil
 }
@@ -351,41 +357,6 @@ func (s *LeakageIntelligenceService) recommendedAction(lv *models.LeakageValue) 
 	default:
 		return ""
 	}
-}
-
-// attachZScoreAnomaly reads historical leakage rates and runs Z-score detection.
-// It mutates snap in-place, adding AnomalyScore, AnomalyLevel, AnomalyZScore.
-//
-// HOW Z-SCORE WORKS HERE:
-//   We read the last 30 daily leakage_percentage values from ml_feature_store.
-//   We compute mean and stddev of that history.
-//   z = (today - mean) / stddev
-//   If z > 2 → something unusual is happening for this tenant.
-func (s *LeakageIntelligenceService) attachZScoreAnomaly(
-	ctx context.Context,
-	tenantID string,
-	currentLeakagePct float64,
-	snap *LeakageSnapshot,
-) {
-	history, err := s.mlRepo.GetRecentFloatField(ctx, tenantID, "LEAKAGE", "leakage_percentage", 30)
-	if err != nil {
-		log.Printf("leakage_svc: GetRecentFloatField failed tenant=%s: %v", tenantID, err)
-		snap.AnomalyLevel = "INSUFFICIENT_DATA"
-		return
-	}
-
-	result, err := s.mlClient.InvokeZScore(ctx, mlclient.ZScoreRequest{
-		TenantID:     tenantID,
-		CurrentValue: currentLeakagePct,
-		History:      history,
-	})
-	if err != nil {
-		log.Printf("leakage_svc: InvokeZScore failed tenant=%s: %v", tenantID, err)
-		// result is already the safe fallback (0.0, INSUFFICIENT_DATA)
-	}
-	snap.AnomalyScore = result.Score
-	snap.AnomalyLevel = result.Level
-	snap.AnomalyZScore = result.ZScore
 }
 
 // persistMLPrediction writes the Z-score result to ml_predictions for audit trail.

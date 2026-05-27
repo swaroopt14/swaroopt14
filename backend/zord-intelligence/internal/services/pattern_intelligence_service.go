@@ -127,14 +127,67 @@ func (s *PatternIntelligenceService) ComputeAndSave(
 
 	inputs := s.buildFeatureInputs(ctx, tenantID, batchHealth)
 	snap := s.buildSnapshot(batchID, batchHealth, inputs)
-	s.attachIsolationForestAnomaly(ctx, tenantID, inputs, &snap)
 
+	// Read IF history synchronously (fast DB call, not ML).
+	history, histErr := s.mlRepo.GetRecentBatchFeatures(ctx, tenantID, 200)
+	if histErr != nil {
+		log.Printf("pattern_svc: GetRecentBatchFeatures failed tenant=%s: %v", tenantID, histErr)
+		history = nil
+	}
+
+	const minBatches = 10
+	if len(history) < minBatches {
+		snap.BatchAnomalyScore = 0.5
+		snap.AnomalyLevel = "INSUFFICIENT_DATA"
+		snap.AnomalyType = "not_enough_history"
+		// Write synchronously — no ML call needed
+		return s.finalizePatternSnapshot(ctx, tenantID, batchID, snap, inputs, batchHealth, windowStart, windowEnd)
+	}
+
+	// Fire async IF call — consumer goroutine returns immediately.
+	// All snapshot writes happen inside the callback.
+	s.mlClient.InvokeIsolationForestAsync(ctx, mlclient.IFRequest{
+		TenantID:        tenantID,
+		AmbiguityRate:   inputs.AmbiguityRate,
+		VarianceRate:    inputs.VarianceRate,
+		SettlementRatio: inputs.SettlementRatio,
+		UnresolvedRatio: inputs.UnresolvedRatio,
+		MissingRefRate:  inputs.MissingRefRate,
+		History:         history,
+	}, func(ifResult mlclient.IFResult, ifErr error) {
+		if ifErr != nil {
+			log.Printf("pattern_svc: InvokeIsolationForestAsync failed tenant=%s: %v", tenantID, ifErr)
+		}
+		riskHint := patternClamp01((inputs.AmbiguityRate + inputs.VarianceRate + math.Max(inputs.UnresolvedRatio, inputs.MissingRefRate) + (1.0 - inputs.SettlementRatio)) / 4.0)
+		snap.BatchAnomalyScore = patternClamp01((ifResult.Score + riskHint) / 2.0)
+		snap.AnomalyLevel = levelFromScore(snap.BatchAnomalyScore)
+		snap.AnomalyType = ifResult.AnomalyType
+
+		if finalErr := s.finalizePatternSnapshot(ctx, tenantID, batchID, snap, inputs, batchHealth, windowStart, windowEnd); finalErr != nil {
+			log.Printf("pattern_svc: finalizePatternSnapshot async failed tenant=%s batch=%s: %v",
+				tenantID, batchID, finalErr)
+		}
+	})
+
+	return nil
+}
+
+// finalizePatternSnapshot writes the PATTERN snapshot and all related records.
+// Called from both the synchronous (insufficient history) and async (IF result) paths.
+func (s *PatternIntelligenceService) finalizePatternSnapshot(
+	ctx context.Context,
+	tenantID, batchID string,
+	snap PatternSnapshot,
+	inputs patternFeatureInputs,
+	bh *models.BatchHealthValue,
+	windowStart, windowEnd time.Time,
+) error {
 	projKey := fmt.Sprintf("batch.health.%s", batchID)
 	projRefs := []string{projKey}
 	projRefsJSON, _ := json.Marshal(projRefs)
 	snapJSON, err := json.Marshal(snap)
 	if err != nil {
-		return fmt.Errorf("pattern_svc.ComputeAndSave marshal batch=%s: %w", batchID, err)
+		return fmt.Errorf("pattern_svc.finalizePatternSnapshot marshal batch=%s: %w", batchID, err)
 	}
 
 	scopeRef := batchID
@@ -153,7 +206,7 @@ func (s *PatternIntelligenceService) ComputeAndSave(
 		ModelVersion:       &modelVer,
 		CreatedAt:          time.Now().UTC(),
 	}); err != nil {
-		return fmt.Errorf("pattern_svc.ComputeAndSave Create snapshot batch=%s: %w", batchID, err)
+		return fmt.Errorf("pattern_svc.finalizePatternSnapshot Create snapshot batch=%s: %w", batchID, err)
 	}
 
 	if err := s.projRepo.UpsertPatternTenantSummary(
@@ -162,17 +215,16 @@ func (s *PatternIntelligenceService) ComputeAndSave(
 		log.Printf("pattern_svc: UpsertPatternTenantSummary failed tenant=%s batch=%s: %v", tenantID, batchID, err)
 	}
 
-	// ── P2/P3/P6: Tenant-level pattern KPI snapshot ────────────────────────
 	if err := s.computeAndSaveTenantPatternKPIs(ctx, tenantID, batchID, windowStart, windowEnd); err != nil {
 		log.Printf("pattern_svc: computeAndSaveTenantPatternKPIs failed tenant=%s batch=%s: %v",
 			tenantID, batchID, err)
 	}
 
-	if err := s.persistMLFeatures(ctx, tenantID, batchID, snapID, batchHealth, inputs, windowStart, windowEnd); err != nil {
+	if err := s.persistMLFeatures(ctx, tenantID, batchID, snapID, bh, inputs, windowStart, windowEnd); err != nil {
 		_ = err
 	}
 
-	s.persistMLPrediction(ctx, tenantID, batchID, snapID, batchHealth, inputs, snap)
+	s.persistMLPrediction(ctx, tenantID, batchID, snapID, bh, inputs, snap)
 	return nil
 }
 
@@ -294,48 +346,6 @@ func (s *PatternIntelligenceService) recommendedAction(snap *PatternSnapshot) st
 		return "OPEN_OPS_INCIDENT: financial variance detected - reconciliation review required"
 	}
 	return ""
-}
-
-func (s *PatternIntelligenceService) attachIsolationForestAnomaly(
-	ctx context.Context,
-	tenantID string,
-	inputs patternFeatureInputs,
-	snap *PatternSnapshot,
-) {
-	history, err := s.mlRepo.GetRecentBatchFeatures(ctx, tenantID, 200)
-	if err != nil {
-		log.Printf("pattern_svc: GetRecentBatchFeatures failed tenant=%s: %v", tenantID, err)
-		snap.AnomalyLevel = "INSUFFICIENT_DATA"
-		snap.AnomalyType = "error"
-		return
-	}
-
-	const minBatches = 10
-	if len(history) < minBatches {
-		snap.BatchAnomalyScore = 0.5
-		snap.AnomalyLevel = "INSUFFICIENT_DATA"
-		snap.AnomalyType = "not_enough_history"
-		return
-	}
-
-	ifResult, err := s.mlClient.InvokeIsolationForest(ctx, mlclient.IFRequest{
-		TenantID:        tenantID,
-		AmbiguityRate:   inputs.AmbiguityRate,
-		VarianceRate:    inputs.VarianceRate,
-		SettlementRatio: inputs.SettlementRatio,
-		UnresolvedRatio: inputs.UnresolvedRatio,
-		MissingRefRate:  inputs.MissingRefRate,
-		History:         history,
-	})
-	if err != nil {
-		log.Printf("pattern_svc: InvokeIsolationForest failed tenant=%s: %v", tenantID, err)
-		// ifResult is already the safe fallback (0.5, INSUFFICIENT_DATA)
-	}
-
-	riskHint := patternClamp01((inputs.AmbiguityRate + inputs.VarianceRate + math.Max(inputs.UnresolvedRatio, inputs.MissingRefRate) + (1.0 - inputs.SettlementRatio)) / 4.0)
-	snap.BatchAnomalyScore = patternClamp01((ifResult.Score + riskHint) / 2.0)
-	snap.AnomalyLevel = levelFromScore(snap.BatchAnomalyScore)
-	snap.AnomalyType = ifResult.AnomalyType
 }
 
 func (s *PatternIntelligenceService) persistMLPrediction(

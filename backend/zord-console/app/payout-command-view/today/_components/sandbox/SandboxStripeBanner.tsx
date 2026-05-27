@@ -24,7 +24,7 @@ export function SandboxStripeBanner({ onVerify }: { onVerify: () => void }) {
       </span>
 
       <p className="min-w-0 flex-1 text-left text-[13px] font-bold leading-snug text-white sm:text-center sm:text-[14px] sm:leading-normal">
-        Sandbox mode — testing only, no real disbursements
+        Sandbox mode — testing only. No real payments will be sent.
       </p>
 
       <button

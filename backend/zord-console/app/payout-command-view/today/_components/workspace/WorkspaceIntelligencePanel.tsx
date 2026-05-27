@@ -7,7 +7,7 @@ import type { WorkspaceState } from '../hooks/useWorkspaceState'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { Glyph } from '../shared'
-import { ConnectionPill, MessageBubble, ZordAvatar } from './WorkspaceChatMessages'
+import { ConnectionPill, MarkdownMessage, MessageBubble, ZordAvatar } from './WorkspaceChatMessages'
 import { PAYMENT_OPERATIONS } from './paymentOperationsCopy'
 import type { PaymentOpsWorkArea } from './paymentOperationsCopy'
 import {
@@ -164,7 +164,9 @@ export function WorkspaceIntelligencePanel({
 
           <div className="mt-5" data-testid="workspace-latest-answer">
             <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#8a8a86]">Latest answer</div>
-            <p className={`mt-3 text-[14px] leading-relaxed ${WORKSPACE_TEXT_PRIMARY}`}>{answerBody}</p>
+            <div className={`mt-3 text-[14px] leading-relaxed ${WORKSPACE_TEXT_PRIMARY}`}>
+              <MarkdownMessage body={answerBody} />
+            </div>
           </div>
 
           {suggestions.length > 0 ? (

@@ -1,7 +1,45 @@
 'use client'
 
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { WorkspaceConversationMessage, WorkspaceLoadingPhase } from '@/services/payout-command/types'
 import { Glyph } from '../shared'
+
+export function MarkdownMessage({ body }: { body: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ node, ...props }) => <p className="mt-2" {...props} />,
+        ul: ({ node, ...props }) => <ul className="mt-2 list-disc pl-5" {...props} />,
+        ol: ({ node, ...props }) => <ol className="mt-2 list-decimal pl-5" {...props} />,
+        li: ({ node, ...props }) => <li className="mt-1" {...props} />,
+        strong: ({ node, ...props }) => <strong className="font-semibold" {...props} />,
+        em: ({ node, ...props }) => <em className="italic" {...props} />,
+        table: ({ node, ...props }) => (
+          <table className="mt-4 min-w-full divide-y divide-slate-200 border border-slate-200 text-sm" {...props} />
+        ),
+        th: ({ node, ...props }) => (
+          <th className="border border-slate-200 bg-slate-50 px-2 py-1 text-left font-semibold" {...props} />
+        ),
+        td: ({ node, ...props }) => (
+          <td className="border border-slate-200 px-2 py-1" {...props} />
+        ),
+        pre: ({ node, ...props }) => (
+          <pre className="mt-3 overflow-x-auto rounded-lg bg-slate-950 p-3 text-[13px] text-slate-100" {...props} />
+        ),
+        code: ({ node, inline, className, ...props }) =>
+          inline ? (
+            <code className="rounded bg-slate-100 px-1 py-0.5 text-[13px] text-slate-900" {...props} />
+          ) : (
+            <code className="block rounded bg-slate-950 p-2 text-[13px] text-slate-100" {...props} />
+          ),
+      }}
+    >
+      {body}
+    </ReactMarkdown>
+  )
+}
 
 const PHASE_SPINNER_LABEL: Record<WorkspaceLoadingPhase, string> = {
   understanding: 'Thinking',
@@ -104,14 +142,14 @@ export function MessageBubble({ message }: { message: WorkspaceConversationMessa
           <p className="text-[14px] font-semibold text-slate-900">Zord</p>
           {!isLoading ? <span className="text-[12px] text-slate-400">{message.timestamp}</span> : null}
         </div>
-        <p
-          className={`mt-1 whitespace-pre-wrap text-[15px] leading-relaxed ${
+        <div
+          className={`mt-1 text-[15px] leading-relaxed ${
             isError ? 'text-red-800' : isLoading ? 'text-slate-500' : 'text-slate-700'
           }`}
         >
-          {isLoading ? null : message.body}
+          {isLoading ? null : <MarkdownMessage body={message.body} />}
           {isLoading ? <AssistantLoadingIndicator phase={message.loadingPhase} /> : null}
-        </p>
+        </div>
         {!isLoading && message.citations && message.citations.length > 0 ? (
           <div className="mt-4 space-y-2">
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Sources</p>

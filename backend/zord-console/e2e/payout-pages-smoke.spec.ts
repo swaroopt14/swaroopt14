@@ -315,6 +315,15 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
       expect(pageErrors, `errors on ${path}`).toEqual([])
     })
   }
+
+  test('batch command center shows Payment Batch Review heading', async ({ page }) => {
+    await page.goto('/payout-command-view/batch-command-center')
+    await expect(page.getByTestId('batch-review-page')).toBeVisible({ timeout: 25_000 })
+    await expect(page.getByRole('heading', { name: 'Payment Batch Review', level: 1 })).toBeVisible({
+      timeout: 25_000,
+    })
+    await expectNoRuntimeOverlay(page)
+  })
 })
 
 test.describe('evidence batch → intent → pack wiring', () => {

@@ -3,20 +3,25 @@ import { NextResponse } from 'next/server'
 // Always proxy at request time (no caching), since this depends on runtime env + backend state.
 export const dynamic = 'force-dynamic'
 
-function upstreamBaseUrl() {
-  // In docker-compose, set PROMPT_LAYER_URL=http://zord-prompt-layer:8086
-  // For local dev without docker, you can set PROMPT_LAYER_URL=http://localhost:8086
-  return process.env.PROMPT_LAYER_URL || 'http://zord-prompt-layer:8086'
-}
-
 function normalizePromptLayerBase(base: string) {
   return base.replace(/\/+$/, '').replace(/\/query$/, '')
 }
 
 function upstreamCandidates() {
-  if (process.env.PROMPT_LAYER_URL) return [process.env.PROMPT_LAYER_URL]
-  // Prefer localhost for local frontend-only dev, then docker service host.
-  return ['http://localhost:8086', upstreamBaseUrl()]
+  // In Docker, the service DNS name is the most reliable target.
+  // Keep host and localhost fallbacks for local/frontend-only development.
+  return Array.from(
+    new Set(
+      [
+        process.env.PROMPT_LAYER_URL,
+        'http://zord-prompt-layer:8086',
+        'http://host.docker.internal:8086',
+        'http://localhost:8086',
+      ]
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  )
 }
 
 export async function POST(req: Request) {
@@ -37,22 +42,22 @@ export async function POST(req: Request) {
     lastUrl = url
     try {
       const auth = req.headers.get('authorization') || ''
-const tenant = req.headers.get('x-tenant-id') || ''
-const userId = req.headers.get('x-user-id') || ''
-const sessionId = req.headers.get('x-session-id') || ''
+      const tenant = req.headers.get('x-tenant-id') || ''
+      const userId = req.headers.get('x-user-id') || ''
+      const sessionId = req.headers.get('x-session-id') || ''
 
-res = await fetch(url, {
-  method: 'POST',
-  headers: {
-    'content-type': 'application/json',
-    ...(auth ? { authorization: auth } : {}),
-    ...(tenant ? { 'x-tenant-id': tenant } : {}),
-    ...(userId ? { 'x-user-id': userId } : {}),
-    ...(sessionId ? { 'x-session-id': sessionId } : {}),
-  },
-  body: JSON.stringify(body),
-  cache: 'no-store',
-})
+      res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(auth ? { authorization: auth } : {}),
+          ...(tenant ? { 'x-tenant-id': tenant } : {}),
+          ...(userId ? { 'x-user-id': userId } : {}),
+          ...(sessionId ? { 'x-session-id': sessionId } : {}),
+        },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      })
 
       if (res.ok || res.status < 500) {
         break

@@ -383,12 +383,19 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 		}
 	}
 
-	// Start the single consumer goroutine.
-	// "go" keyword = run this function concurrently in a new goroutine.
-	// The goroutine runs until ctx is cancelled (service shutdown).
-	go consume(ctx, brokers, cfg.KafkaGroupID, topicHandlers)
+	// Start one goroutine per topic for parallel processing.
+	// Per-tenant ordering is preserved within each topic: tenantID is the message key,
+	// so same-tenant events always land on the same partition and are processed sequentially.
+	// Different topics (e.g. attachment.decision vs batch.summary) process concurrently —
+	// this is the main throughput multiplier at 1500-2000 events/sec.
+	topicCount := 0
+	for topic, fn := range topicHandlers {
+		t, f := topic, fn // capture loop variables before goroutine launch
+		go consumeSingleTopic(ctx, brokers, cfg.KafkaGroupID, t, f)
+		topicCount++
+	}
 
-	log.Printf("kafka: consumers started (%d topics wired)", len(topicHandlers))
+	log.Printf("kafka: %d parallel consumer goroutines started", topicCount)
 }
 
 // wireHandler — safely add a topic→handler mapping
@@ -421,115 +428,53 @@ func wireHandler(
 	handlers[topic] = fn
 }
 
-// consume — the main read loop
+// consumeSingleTopic reads one Kafka topic in a dedicated goroutine.
+// One goroutine per topic allows different topic types to process in parallel.
+// Per-tenant ordering within each topic is preserved: tenantID is the message key,
+// so all events for the same tenant land on the same partition and are processed
+// sequentially by this goroutine — no cross-tenant race conditions.
 //
-// This function runs forever (until ctx is cancelled) reading messages
-// from ALL subscribed topics in one kafka-go GroupConsumer.
-//
-// KEY CONCEPTS:
-//
-// CommitInterval: 0
-//
-//	Manual commit mode. We commit ONLY after successfully processing a message.
-//	If handler returns an error, we do NOT commit — Kafka redelivers the message.
-//	This gives us "at least once" delivery: every message is processed at least once.
-//	With idempotency keys in action_contracts and processed_events table,
-//	processing the same event twice is safe (second run is a no-op).
-//
-// ctx.Err() check:
-//
-//	When main.go calls cancel(), ctx.Err() returns non-nil.
-//	FetchMessage will return an error when the context is cancelled.
-//	We use ctx.Err() to distinguish "shutdown" from "real error".
-//
-// =============================================================================
-func consume(
+// CommitInterval: 0 (manual commit) — offset is committed only after a successful
+// handler call. A persistent handler error commits to advance past a poison message.
+func consumeSingleTopic(
 	ctx context.Context,
 	brokers []string,
-	groupID string,
-	topicHandlers map[string]func(kafka.Message) error,
+	groupID, topic string,
+	handle func(kafka.Message) error,
 ) {
-	// Build the list of topics to subscribe to.
-	// We iterate the map keys — one key per wired topic.
-	topics := make([]string, 0, len(topicHandlers))
-	for topic := range topicHandlers {
-		if topic == "" {
-			continue
-		}
-		topics = append(topics, topic)
-	}
-	if len(topics) == 0 {
-		log.Printf("kafka: no topics configured for group=%s", groupID)
-		return
-	}
-
-	// kafka.NewReader creates a consumer that subscribes to multiple topics
-	// as part of a consumer group (groupID).
-	// Kafka distributes partitions across all members of the same group.
-	// This means you can run multiple ZPI instances and Kafka load-balances.
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        groupID,
-		GroupTopics:    topics, // subscribe to all wired topics
-		CommitInterval: 0,      // manual commit — commit only on success
-		MaxWait:        3e9,    // 3 seconds: max time to wait for a new message
+		Topic:          topic, // single topic per goroutine
+		CommitInterval: 0,     // manual commit — commit only on success
+		MaxWait:        3e9,   // 3 seconds: max time to wait for a new message
 	})
-
 	defer func() {
 		if err := reader.Close(); err != nil {
-			log.Printf("kafka: error closing reader for group %s: %v", groupID, err)
+			log.Printf("kafka: error closing reader topic=%s group=%s: %v", topic, groupID, err)
 		}
 	}()
 
-	log.Printf("kafka: group consumer started for %d topics group=%s", len(topics), groupID)
+	log.Printf("kafka: consumer started topic=%s group=%s", topic, groupID)
 
 	for {
-		// FetchMessage blocks until a message arrives OR ctx is cancelled.
 		msg, err := reader.FetchMessage(ctx)
 		if err != nil {
-			// Check if we are shutting down (ctx cancelled by main.go).
-			// This is NOT an error — it is normal shutdown.
 			if ctx.Err() != nil {
-				log.Printf("kafka: consumer shutting down for group=%s", groupID)
+				log.Printf("kafka: consumer shutting down topic=%s", topic)
 				return
 			}
-			// Real error (network issue, Kafka broker restart, etc.)
-			// Log and continue — the next FetchMessage will retry.
-			log.Printf("kafka: fetch error on group=%s: %v", groupID, err)
+			log.Printf("kafka: fetch error topic=%s: %v", topic, err)
 			continue
 		}
 
-		// Look up the handler for this topic.
-		handle, ok := topicHandlers[msg.Topic]
-		if !ok {
-			// No handler registered for this topic.
-			// This should not happen because we only subscribe to topics we handle.
-			// Log and commit (skip the message) to avoid an infinite redelivery loop.
-			log.Printf("kafka: no handler for topic=%s partition=%d offset=%d",
-				msg.Topic, msg.Partition, msg.Offset)
-			if err := reader.CommitMessages(ctx, msg); err != nil {
-				log.Printf("kafka: commit error topic=%s offset=%d: %v",
-					msg.Topic, msg.Offset, err)
-			}
-			continue
-		}
-
-		// Call the handler.
-		// If handler returns an error: log it, do NOT commit.
-		// Kafka will redeliver this message on the next FetchMessage.
-		// The idempotency system in processed_events prevents double-counting.
 		if err := handle(msg); err != nil {
 			log.Printf("kafka: handler error topic=%s partition=%d offset=%d: %v",
 				msg.Topic, msg.Partition, msg.Offset, err)
-			// Do NOT continue here — fall through to CommitMessages.
-			// WHY? A persistent handler error (e.g. bad JSON from upstream)
-			// would cause an infinite redelivery loop if we skip the commit.
-			// We log the error and commit to move past the poison message.
-			// Phase 4 handlers will add dead-letter-queue routing for truly bad messages.
+			// Commit even on handler error to avoid an infinite redelivery loop
+			// for poison messages (e.g. bad JSON from upstream).
 		}
 
-		// Commit the offset — tell Kafka "we processed this message successfully."
-		// If ZPI restarts now, Kafka will NOT redeliver this message.
 		if err := reader.CommitMessages(ctx, msg); err != nil {
 			log.Printf("kafka: commit error topic=%s offset=%d: %v",
 				msg.Topic, msg.Offset, err)

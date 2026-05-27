@@ -48,11 +48,17 @@ type BatchContract struct {
 // BatchContractRepo provides Upsert and Read operations for batch_contracts.
 type BatchContractRepo struct {
 	pool *pgxpool.Pool
+	bw   *BatchWriter // optional; nil = direct pool.Exec (default)
 }
 
 // NewBatchContractRepo creates a BatchContractRepo.
 func NewBatchContractRepo(pool *pgxpool.Pool) *BatchContractRepo {
 	return &BatchContractRepo{pool: pool}
+}
+
+// SetBatchWriter enables write-batching for Upsert calls.
+func (r *BatchContractRepo) SetBatchWriter(bw *BatchWriter) {
+	r.bw = bw
 }
 
 // Upsert performs a full-replacement upsert of a batch contract row.
@@ -101,22 +107,22 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 		-- update clause. It is computed by the Defensibility service (Phase 4)
 		-- and must not be overwritten by incoming batch summary events.
 	`
-	if _, err := r.pool.Exec(ctx, sql,
-		bc.BatchID,
-		bc.TenantID,
-		bc.SourceReference, // nullable
-		bc.TotalCount,
-		bc.SuccessCount,
-		bc.FailedCount,
-		bc.PendingCount,
-		bc.ReversedCount,
-		bc.PartialReconCount,
+	args := []any{
+		bc.BatchID, bc.TenantID, bc.SourceReference,
+		bc.TotalCount, bc.SuccessCount, bc.FailedCount, bc.PendingCount,
+		bc.ReversedCount, bc.PartialReconCount,
 		bc.TotalIntendedAmountMinor.String(),
 		bc.TotalConfirmedAmountMinor.String(),
 		bc.TotalVarianceMinor.String(),
-		bc.BatchFinalityStatus,
-		bc.AmbiguityScore, // nullable
-	); err != nil {
+		bc.BatchFinalityStatus, bc.AmbiguityScore,
+	}
+	var err error
+	if r.bw != nil {
+		err = r.bw.Exec(ctx, sql, args...)
+	} else {
+		_, err = r.pool.Exec(ctx, sql, args...)
+	}
+	if err != nil {
 		return fmt.Errorf("batch_contract_repo.Upsert batch_id=%s tenant=%s: %w",
 			bc.BatchID, bc.TenantID, err)
 	}
@@ -214,6 +220,55 @@ func (r *BatchContractRepo) ListByTenant(
 		bc, err := scanBatchContractFromRows(rows)
 		if err != nil {
 			return nil, fmt.Errorf("batch_contract_repo.ListByTenant scan: %w", err)
+		}
+		result = append(result, *bc)
+	}
+	return result, nil
+}
+
+// ListTopByAmount returns the top N batches for a tenant sorted by
+// total_intended_amount_minor DESC directly in the DB.
+//
+// This is the heatmap query path. The DB-level sort + limit means we never
+// fetch more rows than we display, regardless of how many batches the tenant has.
+// The query is covered by idx_batch_tenant_amount (tenant_id, total_intended_amount_minor DESC).
+//
+// limit is clamped to [1, 20] — the heatmap never shows more than 20 rows.
+func (r *BatchContractRepo) ListTopByAmount(
+	ctx context.Context,
+	tenantID string,
+	limit int,
+) ([]BatchContract, error) {
+	if limit < 1 {
+		limit = 10
+	}
+	if limit > 20 {
+		limit = 20
+	}
+
+	sql := `
+		SELECT batch_id, tenant_id, source_reference,
+		       total_count, success_count, failed_count, pending_count,
+		       reversed_count, partial_recon_count,
+		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
+		       batch_finality_status, ambiguity_score, defensibility_tier,
+		       last_updated_at, created_at
+		FROM   batch_contracts
+		WHERE  tenant_id = $1
+		ORDER  BY batch_contracts.total_intended_amount_minor DESC NULLS LAST
+		LIMIT  $2
+	`
+	rows, err := r.pool.Query(ctx, sql, tenantID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.ListTopByAmount tenant=%s: %w", tenantID, err)
+	}
+	defer rows.Close()
+
+	var result []BatchContract
+	for rows.Next() {
+		bc, err := scanBatchContractFromRows(rows)
+		if err != nil {
+			return nil, fmt.Errorf("batch_contract_repo.ListTopByAmount scan: %w", err)
 		}
 		result = append(result, *bc)
 	}

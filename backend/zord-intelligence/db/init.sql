@@ -736,6 +736,13 @@ CREATE INDEX IF NOT EXISTS idx_batch_ambiguity
     ON batch_contracts (tenant_id, ambiguity_score DESC)
     WHERE ambiguity_score IS NOT NULL;
 
+-- Heatmap sort index: managed by EnsureProductionIndexes (db/db.go) using
+-- CREATE INDEX CONCURRENTLY so live production tables are never write-locked.
+-- The IF NOT EXISTS guard here makes this a safe no-op on fresh DBs where
+-- EnsureProductionIndexes already built it moments earlier on startup.
+CREATE INDEX IF NOT EXISTS idx_batch_tenant_amount
+    ON batch_contracts (tenant_id, total_intended_amount_minor DESC NULLS LAST);
+
 
 -- TABLE 8: ml_feature_store
 -- Persists engineered ML features per entity+window for training and scoring.

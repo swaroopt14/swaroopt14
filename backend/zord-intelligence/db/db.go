@@ -45,10 +45,12 @@ func Connect(cfg *config.Config) *pgxpool.Pool {
 		log.Fatalf("db: failed to parse database connection string: %v", err)
 	}
 
-	// ── Phase 7 Fix: Pool Limits ──────────────────────────────
-	// Explicit caps prevent queue exhaustion
-	pgxCfg.MaxConns = 50
-	pgxCfg.MinConns = 5
+	// ── Performance: Pool limits tuned for 1500-2000 events/sec ──────────
+	// MaxConns=150 supports up to 20 parallel consumer goroutines × ~5 concurrent
+	// DB calls each, plus outbox workers and HTTP handlers.
+	// MinConns=20 keeps warm connections ready so burst events never wait for handshake.
+	pgxCfg.MaxConns = 150
+	pgxCfg.MinConns = 20
 	pgxCfg.MaxConnLifetime = 1 * time.Hour
 	pgxCfg.HealthCheckPeriod = 1 * time.Minute
 
@@ -91,6 +93,50 @@ var expectedColumnTypes = map[string]map[string]string{
 		"total_confirmed_amount_minor": "numeric",
 		"total_variance_minor":         "numeric",
 	},
+}
+
+// productionIndexes lists every index that must be created CONCURRENTLY on
+// live production databases. CONCURRENTLY never holds a write lock, so it is
+// safe to run against a hot table with millions of rows.
+//
+// Each entry is executed as a separate pool.Exec so there is no implicit
+// transaction — CREATE INDEX CONCURRENTLY is forbidden inside a transaction block.
+//
+// On a fresh (empty) DB the build is instantaneous.
+// On a live DB it may take seconds to minutes; the service starts normally while
+// it runs — Postgres allows reads and writes throughout.
+var productionIndexes = []struct{ name, sql string }{
+	{
+		"idx_batch_tenant_amount",
+		`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_batch_tenant_amount
+		 ON batch_contracts (tenant_id, total_intended_amount_minor DESC NULLS LAST)`,
+	},
+	{
+		"idx_snapshots_latest",
+		`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_snapshots_latest
+		 ON intelligence_snapshots (tenant_id, snapshot_type, created_at DESC)`,
+	},
+}
+
+// EnsureProductionIndexes builds every index in productionIndexes using
+// CREATE INDEX CONCURRENTLY IF NOT EXISTS.
+//
+// Call this from main.go immediately after EnsureSchema.
+// It is non-fatal: a failure is logged and the service continues (the index
+// may already be in-flight from a previous startup attempt).
+func EnsureProductionIndexes(ctx context.Context, pool *pgxpool.Pool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	for _, idx := range productionIndexes {
+		if _, err := pool.Exec(ctx, idx.sql); err != nil {
+			// Non-fatal: log and continue. Common cause: concurrent build already
+			// in progress from a parallel pod startup (safe to ignore).
+			log.Printf("db: EnsureProductionIndexes: %s skipped: %v", idx.name, err)
+		} else {
+			log.Printf("db: production index ensured (concurrent): %s", idx.name)
+		}
+	}
 }
 
 // ValidateSchema checks that critical columns in the live DB match the types the

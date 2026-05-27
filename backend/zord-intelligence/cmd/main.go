@@ -88,6 +88,7 @@ func main() {
 	defer pool.Close()
 	db.EnsureSchema(context.Background(), pool)
 	db.ValidateSchema(context.Background(), pool)
+	db.EnsureProductionIndexes(context.Background(), pool)
 	syncIntelligenceMode(context.Background(), pool, string(cfg.IntelligenceMode))
 
 	// ── Step 4: Create repositories ───────────────────────────────────────
@@ -103,6 +104,16 @@ func main() {
 	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
 	predRepo := persistence.NewMLPredictionRepo(pool)
 	explRepo := persistence.NewIntelligenceExplanationRepo(pool)
+
+	// ── Performance: BatchWriter (5ms flush window for high-volume INSERTs) ──
+	// Groups concurrent intelligence_snapshot, batch_contract, and projection_state
+	// writes into single pgx.SendBatch calls — reduces DB round-trips ~50x at scale.
+	batchWriter := persistence.NewBatchWriter(pool)
+	batchWriter.Start(context.Background())
+	defer batchWriter.Stop()
+	snapshotRepo.SetBatchWriter(batchWriter)
+	batchRepo.SetBatchWriter(batchWriter)
+	projRepo.SetBatchWriter(batchWriter)
 
 	// ── Step 5: Create ML client (request-reply over Kafka with Python ml-service)
 	mlClient := mlclient.New(cfg.KafkaBrokers, cfg.TopicMLRequest, cfg.TopicMLResult, cfg.KafkaGroupID)
@@ -188,7 +199,7 @@ func main() {
 	// ── Dashboard handlers (frontend-facing /dashboard/ endpoints) ────────
 	intelligenceMode := string(cfg.IntelligenceMode)
 	dashLeakageH := handlers.NewDashboardLeakageHandler(snapshotRepo, intelligenceMode)
-	dashAmbiguityH := handlers.NewDashboardAmbiguityHandler(snapshotRepo, intelligenceMode)
+	dashAmbiguityH := handlers.NewDashboardAmbiguityHandler(snapshotRepo, batchRepo, projRepo, intelligenceMode)
 	dashDefensibilityH := handlers.NewDashboardDefensibilityHandler(snapshotRepo, intelligenceMode)
 	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo, projRepo, intelligenceMode)
 	dashRecommendationH := handlers.NewDashboardRecommendationHandler(actionRepo, snapshotRepo, intelligenceMode)

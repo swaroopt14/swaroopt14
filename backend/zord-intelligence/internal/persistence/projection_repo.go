@@ -17,11 +17,18 @@ import (
 // ProjectionRepo handles all DB operations for projection_state.
 type ProjectionRepo struct {
 	pool *pgxpool.Pool
+	bw   *BatchWriter // optional; nil = direct pool.Exec (default)
 }
 
 // NewProjectionRepo creates a ProjectionRepo.
 func NewProjectionRepo(pool *pgxpool.Pool) *ProjectionRepo {
 	return &ProjectionRepo{pool: pool}
+}
+
+// SetBatchWriter enables write-batching for Upsert/UpsertWithValue calls.
+// AtomicUpdate* methods always use direct pool.Exec (they need read-modify-write atomicity).
+func (r *ProjectionRepo) SetBatchWriter(bw *BatchWriter) {
+	r.bw = bw
 }
 
 // ATOMIC COUNTER OPERATIONS  (the core race-condition fix)
@@ -530,6 +537,53 @@ func (r *ProjectionRepo) ListKeysByPrefix(
 	return result, nil
 }
 
+// ListByKeys returns the latest projection row for each key in the given list.
+//
+// This is the heatmap health-projection query path. By passing an exact set of
+// projection_key values (e.g. ["batch.health.B1", "batch.health.B2"]) we avoid
+// the full-prefix scan that ListKeysByPrefix does, and the query is covered by
+// the existing idx_proj_tenant_key index (tenant_id, projection_key, window_end DESC).
+//
+// Returns an empty slice (not an error) when keys is empty.
+func (r *ProjectionRepo) ListByKeys(
+	ctx context.Context,
+	tenantID string,
+	keys []string,
+) ([]models.ProjectionState, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	sql := `
+		SELECT DISTINCT ON (projection_key)
+		       id, tenant_id, projection_key, window_start, window_end,
+		       value_json, computed_at, projection_version
+		FROM   projection_state
+		WHERE  tenant_id      = $1
+		  AND  projection_key = ANY($2)
+		ORDER  BY projection_key, window_end DESC, projection_version DESC
+	`
+	rows, err := r.pool.Query(ctx, sql, tenantID, keys)
+	if err != nil {
+		return nil, fmt.Errorf("projection_repo.ListByKeys tenant=%s: %w", tenantID, err)
+	}
+	defer rows.Close()
+
+	var result []models.ProjectionState
+	for rows.Next() {
+		var p models.ProjectionState
+		if err := rows.Scan(
+			&p.ID, &p.TenantID, &p.ProjectionKey,
+			&p.WindowStart, &p.WindowEnd, &p.ValueJSON,
+			&p.ComputedAt, &p.ProjectionVersion,
+		); err != nil {
+			return nil, fmt.Errorf("projection_repo.ListByKeys scan: %w", err)
+		}
+		result = append(result, p)
+	}
+	return result, nil
+}
+
 // ComputePercentilesFromHistogram reads the latency histogram for a corridor
 // and estimates p50 and p95 in seconds. Used by the KPI handler.
 func (r *ProjectionRepo) ComputePercentilesFromHistogram(
@@ -560,7 +614,7 @@ func (r *ProjectionRepo) ComputePercentilesFromHistogram(
 
 // Upsert writes a full projection value. Kept for callers that need full control.
 func (r *ProjectionRepo) Upsert(ctx context.Context, p models.ProjectionState) error {
-	sql := `
+	const upsertSQL = `
 		INSERT INTO projection_state
 			(tenant_id, projection_key, window_start, window_end,
 			 value_json, computed_at, projection_version)
@@ -571,10 +625,14 @@ func (r *ProjectionRepo) Upsert(ctx context.Context, p models.ProjectionState) e
 			window_end  = EXCLUDED.window_end,
 			computed_at = EXCLUDED.computed_at
 	`
-	if _, err := r.pool.Exec(ctx, sql,
-		p.TenantID, p.ProjectionKey, p.WindowStart, p.WindowEnd,
-		p.ValueJSON, p.ComputedAt, p.ProjectionVersion,
-	); err != nil {
+	args := []any{p.TenantID, p.ProjectionKey, p.WindowStart, p.WindowEnd, p.ValueJSON, p.ComputedAt, p.ProjectionVersion}
+	var err error
+	if r.bw != nil {
+		err = r.bw.Exec(ctx, upsertSQL, args...)
+	} else {
+		_, err = r.pool.Exec(ctx, upsertSQL, args...)
+	}
+	if err != nil {
 		return fmt.Errorf("projection_repo.Upsert key=%s: %w", p.ProjectionKey, err)
 	}
 	return nil

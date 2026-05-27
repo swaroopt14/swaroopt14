@@ -20,6 +20,7 @@ data:
             namespaces:
               names:
                 - zord
+                - api-gateway
         relabel_configs:
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep

@@ -1,0 +1,21 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: api-gateway
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: arealis-zord
+
+resources:
+  - namespace.yaml
+  - kong/jwt-secret.yaml
+  - kong/configmap.yaml
+  - kong/deployment.yaml
+  - kong/service.yaml
+  - kong/ingress.yaml
+  - kong/networkpolicy.yaml
+  - kong/pdb.yaml
+  - kong/hpa.yaml
+  - konga/deployment.yaml
+  - konga/service.yaml

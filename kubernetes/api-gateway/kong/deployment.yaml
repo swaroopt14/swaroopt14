@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong
+  namespace: api-gateway
+  labels:
+    app: kong
+spec:
+  replicas: 2
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: kong
+  template:
+    metadata:
+      labels:
+        app: kong
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8100"
+        prometheus.io/path: "/metrics"
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: kong
+              topologyKey: kubernetes.io/hostname
+      initContainers:
+        # Render kong.yaml with JWT public key injected from Secret
+        - name: render-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              if [ -f /kong/jwt/jwt.pub ]; then
+                JWT_KEY=$(cat /kong/jwt/jwt.pub)
+                sed "s|\${KONG_JWT_PUBLIC_KEY}|${JWT_KEY}|g" /kong/template/kong.yaml > /kong/rendered/kong.yaml
+              else
+                cp /kong/template/kong.yaml /kong/rendered/kong.yaml
+              fi
+          volumeMounts:
+            - name: kong-config-template
+              mountPath: /kong/template
+              readOnly: true
+            - name: jwt-public-key
+              mountPath: /kong/jwt
+              readOnly: true
+            - name: kong-rendered-config
+              mountPath: /kong/rendered
+      containers:
+        - name: kong
+          image: kong:3.7
+          env:
+            - name: KONG_DATABASE
+              value: "off"
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /kong/declarative/kong.yaml
+            - name: KONG_PROXY_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_ADMIN_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_PROXY_ERROR_LOG
+              value: /dev/stderr
+            - name: KONG_ADMIN_ERROR_LOG
+              value: /dev/stderr
+            - name: KONG_ADMIN_LISTEN
+              value: 0.0.0.0:8001, 0.0.0.0:8444 ssl
+            - name: KONG_PROXY_LISTEN
+              value: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+            - name: KONG_STATUS_LISTEN
+              value: 0.0.0.0:8100
+            - name: KONG_LOG_LEVEL
+              value: notice
+            - name: KONG_NGINX_WORKER_PROCESSES
+              value: "2"
+          ports:
+            - name: proxy
+              containerPort: 8000
+            - name: proxy-ssl
+              containerPort: 8443
+            - name: admin
+              containerPort: 8001
+            - name: admin-ssl
+              containerPort: 8444
+            - name: metrics
+              containerPort: 8100
+          volumeMounts:
+            - name: kong-rendered-config
+              mountPath: /kong/declarative
+              readOnly: true
+            - name: jwt-public-key
+              mountPath: /kong/jwt
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 8001
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 8001
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: kong-config-template
+          configMap:
+            name: kong-declarative-config
+        - name: jwt-public-key
+          secret:
+            secretName: kong-jwt-public-key
+            optional: true
+        - name: kong-rendered-config
+          emptyDir: {}

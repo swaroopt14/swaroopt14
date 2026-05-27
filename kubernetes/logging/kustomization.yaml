@@ -10,3 +10,4 @@ resources:
   - fluentd/rbac.yaml
   - fluentd/configmap.yaml
   - fluentd/daemonset.yaml
+  - fluentd/service.yaml

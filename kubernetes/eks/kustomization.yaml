@@ -58,4 +58,5 @@ resources:
   - services/zord-console/deployment.yaml
   - services/zord-console/pdb.yaml
   - services/zord-console/hpa.yaml
-  - ingress/public-alb.yaml
+  # ALB Ingress moved to kubernetes/api-gateway/kong/ingress.yaml (Phase 5)
+  # - ingress/public-alb.yaml

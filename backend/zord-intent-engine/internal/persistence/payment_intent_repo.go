@@ -766,19 +766,21 @@ func (r *PaymentIntentRepo) CheckIdempotencyRegistry(
 // 487 DLQ rows produced a healthy 0.77 batch score.
 //
 // Formula (doc section 7):
-//   batch_quality_score =
-//     0.20 * canonicalization_success_rate
-//   + 0.20 * avg_intent_quality_score (normalized 0–100)
-//   + 0.20 * avg_matchability_score
-//   + 0.15 * avg_proof_readiness_score
-//   + 0.10 * (1 - duplicate_risk_rate)
-//   + 0.10 * (1 - low_matchability_rate)
-//   + 0.05 * (1 - review_rate)
+//
+//	batch_quality_score =
+//	  0.20 * canonicalization_success_rate
+//	+ 0.20 * avg_intent_quality_score (normalized 0–100)
+//	+ 0.20 * avg_matchability_score
+//	+ 0.15 * avg_proof_readiness_score
+//	+ 0.10 * (1 - duplicate_risk_rate)
+//	+ 0.10 * (1 - low_matchability_rate)
+//	+ 0.05 * (1 - review_rate)
 //
 // DLQ cap rules:
-//   dlq_rate > 0.05  → cap at 75
-//   dlq_rate > 0.10  → cap at 60
-//   dlq_rate > 0.20  → cap at 40
+//
+//	dlq_rate > 0.05  → cap at 75
+//	dlq_rate > 0.10  → cap at 60
+//	dlq_rate > 0.20  → cap at 40
 func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, batchID string) (float64, error) {
 	if batchID == "" {
 		return 0, nil
@@ -803,7 +805,7 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
             AVG(mapping_confidence_score),
             SUM(CASE WHEN matchability_score < 40 THEN 1 ELSE 0 END),
             SUM(CASE WHEN proof_readiness_score < 40 THEN 1 ELSE 0 END),
-            SUM(CASE WHEN duplicate_risk_score >= 31 THEN 1 ELSE 0 END),
+            SUM(CASE WHEN duplicate_risk_flag = true THEN 1 ELSE 0 END),
             COALESCE(SUM(CASE WHEN duplicate_risk_score >= 31 THEN (amount * 100)::BIGINT ELSE 0 END), 0),
             MAX(tenant_id::TEXT),
             MAX(source_system)

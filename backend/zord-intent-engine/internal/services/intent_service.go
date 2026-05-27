@@ -1339,7 +1339,8 @@ func (s *IntentService) ProcessIncomingIntent(
 		in.EnvelopeID.String(),
 		parsed,
 		batchRef,
-		in.TraceID.String(), // ← NEW
+		in.TraceID.String(),
+		batchIDStr, // ← NEW
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1468,7 +1469,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	if registryDuplicate != nil {
 		dupRisk = true
 		dupReason = registryDuplicate.DuplicateReasonCode
-		if dupReason == "" {
+		if dupReason == "" || dupReason == "NONE" {
 			dupReason = "SAME_BENEFICIARY_AMOUNT_TIME"
 		}
 	} else {

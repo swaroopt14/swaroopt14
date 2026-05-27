@@ -44,8 +44,8 @@ func (r *DLQPostgresRepo) Save(
 			dlq_id, tenant_id, envelope_id,
 			stage, reason_code, error_detail,
 			replayable, client_batch_ref, created_at, batch_id,
-			dlq_status, intent_context, trace_id
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			source_row_num, dlq_status, intent_context, trace_id
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 	`,
 		entry.DLQID,
 		entry.TenantID,
@@ -57,6 +57,7 @@ func (r *DLQPostgresRepo) Save(
 		entry.ClientBatchRef,
 		entry.CreatedAt,
 		entry.BatchID,
+		entry.SourceRowNum,
 		entry.DLQStatus,
 		entry.IntentContext,
 		entry.TraceID,
@@ -77,7 +78,7 @@ func (r *DLQPostgresRepo) List(
 		SELECT dlq_id, tenant_id, envelope_id,
 		       stage, reason_code, error_detail,
 		       replayable, client_batch_ref, created_at,
-		       dlq_status, intent_context, trace_id
+		       source_row_num, dlq_status, intent_context, trace_id
 		FROM dlq_items
 		WHERE tenant_id = $1
 	`
@@ -117,6 +118,7 @@ func (r *DLQPostgresRepo) List(
 			&e.Replayable,
 			&e.ClientBatchRef,
 			&e.CreatedAt,
+			&e.SourceRowNum,
 			&e.DLQStatus,
 			&e.IntentContext,
 			&e.TraceID,
@@ -163,6 +165,7 @@ func (r *DLQPostgresRepo) ListAll(
 			replayable,
 			client_batch_ref,
 			created_at,
+			source_row_num,
 			dlq_status,
 			intent_context,
 			trace_id
@@ -188,6 +191,7 @@ func (r *DLQPostgresRepo) ListAll(
 			&e.Replayable,
 			&e.ClientBatchRef,
 			&e.CreatedAt,
+			&e.SourceRowNum,
 			&e.DLQStatus,
 			&e.IntentContext,
 			&e.TraceID,
@@ -219,6 +223,7 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 			replayable,
 			client_batch_ref,
 			created_at,
+			source_row_num,
 			dlq_status,
 			intent_context,
 			trace_id
@@ -238,6 +243,7 @@ func (r *DLQPostgresRepo) GetByTenantAndID(
 		&e.Replayable,
 		&e.ClientBatchRef,
 		&e.CreatedAt,
+		&e.SourceRowNum,
 		&e.DLQStatus,
 		&e.IntentContext,
 		&e.TraceID,
@@ -273,6 +279,7 @@ func (r *DLQPostgresRepo) GetByID(
 			replayable,
 			client_batch_ref,
 			created_at,
+			source_row_num,
 			dlq_status,
 			intent_context,
 			trace_id
@@ -288,6 +295,7 @@ func (r *DLQPostgresRepo) GetByID(
 		&e.Replayable,
 		&e.ClientBatchRef,
 		&e.CreatedAt,
+		&e.SourceRowNum,
 		&e.DLQStatus,
 		&e.IntentContext,
 		&e.TraceID,

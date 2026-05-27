@@ -70,6 +70,7 @@ func CreateTables() error {
 
     updated_at TIMESTAMPTZ DEFAULT now(),
     batchid TEXT,
+    source_row_num INT,
     aggregate_confidence_score NUMERIC(5,2),      -- existing
 
     -- 🆕 Scoring v2 fields
@@ -256,6 +257,7 @@ func CreateTables() error {
 		client_batch_ref TEXT,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 		batch_id   TEXT,
+		source_row_num INT,
 		dlq_status TEXT NOT NULL DEFAULT 'DLQ_TERMINAL',
 		intent_context JSONB,
 		trace_id TEXT

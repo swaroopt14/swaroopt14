@@ -297,6 +297,7 @@ func ScoreCandidate(
 	// batch family match: +15
 	if intent.ClientBatchRef != nil && obs.ClientBatchID != "" && strings.EqualFold(*intent.ClientBatchRef, obs.ClientBatchID) {
 		bd.BatchContextScore += 15
+		cs.BatchMatch = true
 	}
 
 	// source system/corridor match: +10

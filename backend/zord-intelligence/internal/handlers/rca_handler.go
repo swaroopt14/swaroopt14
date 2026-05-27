@@ -61,9 +61,10 @@ func (h *RCAHandler) GetRCAClusters(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse snapshot_json (RCAClusterResult), filter internal clusters, apply limit.
-	var result mlclient.RCAClusterResult
-	if err := json.Unmarshal(snap.Data, &result); err != nil {
+	// Parse the RCA snapshot, supporting both the wrapped TENANT shape and the
+	// flat BATCH shape before filtering internal clusters.
+	result, err := mlclient.UnmarshalRCAClusterResult(snap.Data)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to parse RCA cluster snapshot")
 		return
 	}

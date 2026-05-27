@@ -124,6 +124,35 @@ func (e *AttachmentEngine) runAttachment(
 	observations []models.CanonicalSettlementObservation,
 ) (*models.AttachmentJob, error) {
 
+	// ── Distributed lock: prevent concurrent jobs for the same scope ──────
+	// Two simultaneous requests for the same (tenant, scope_ref) would both
+	// call findCandidateIntents, score the same intents, and both persist a
+	// winning decision — double-attaching the same intent to two observations.
+	//
+	// PostgreSQL advisory locks are session-scoped and require no extra
+	// infrastructure. We derive a stable int64 key from the tenant UUID and
+	// scope_ref string so the same logical job always maps to the same lock slot.
+	//
+	// pg_try_advisory_lock returns false immediately if another session holds
+	// the lock; we return a clear error rather than queuing silently.
+	lockKey := advisoryLockKey(tenantID, scopeRef)
+	var acquired bool
+	if err := db.DB.QueryRowContext(ctx,
+		`SELECT pg_try_advisory_lock($1)`, lockKey,
+	).Scan(&acquired); err != nil {
+		return nil, fmt.Errorf("attachment.engine: advisory lock query: %w", err)
+	}
+	if !acquired {
+		return nil, fmt.Errorf("attachment.engine: concurrent job already running for tenant=%s scope_ref=%s — try again shortly", tenantID, scopeRef)
+	}
+	// Always release on return. pg_advisory_unlock is a no-op if the lock was
+	// already released or was never held.
+	defer func() {
+		if _, unlockErr := db.DB.ExecContext(ctx, `SELECT pg_advisory_unlock($1)`, lockKey); unlockErr != nil {
+			log.Printf("attachment.engine.advisory_unlock_warn tenant=%s scope_ref=%s err=%v", tenantID, scopeRef, unlockErr)
+		}
+	}()
+
 	// ── Step 2: Load matching ruleset ─────────────────────────────────────
 	profile, err := loadRuleProfile(ctx, tenantID)
 	if err != nil {
@@ -379,12 +408,12 @@ func (e *AttachmentEngine) runAttachment(
 					VarianceReasonCodesJSON: reasonsJSON,
 					// Whitelist fields default to false/nil — a separate whitelist
 					// policy service populates these in a subsequent pass.
-					IsWhitelisted:        false,
-					WhitelistPolicyID:    nil,
+					IsWhitelisted:          false,
+					WhitelistPolicyID:      nil,
 					WhitelistPolicyVersion: nil,
-					WhitelistReasonCode:  nil,
-					WhitelistExplanation: nil,
-					CreatedAt:               time.Now().UTC(),
+					WhitelistReasonCode:    nil,
+					WhitelistExplanation:   nil,
+					CreatedAt:              time.Now().UTC(),
 				}
 				allVariances = append(allVariances, vr)
 			}
@@ -433,18 +462,17 @@ func (e *AttachmentEngine) runAttachment(
 	}
 
 	// ── Step 7: Persist all outputs transactionally ───────────────────────
+	// Batch summary is computed here and passed into the transaction so it is
+	// written atomically with candidates, decisions, variances, and the job
+	// status update. No separate call after commit.
+	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, observations, allDecisions, allVariances, totalIntendedAmount)
 	if err := persistAttachmentOutputs(
 		ctx, job,
 		allCandidates, allDecisions, allVariances, allUnresolvedIntents,
+		batchSummary,
 		counters.exact, counters.high, counters.ambiguous, counters.unresolved, counters.conflicted,
 	); err != nil {
 		return nil, fmt.Errorf("attachment.engine: persist outputs: %w", err)
-	}
-
-	// Compute and persist batch attachment summary.
-	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, observations, allDecisions, allVariances, totalIntendedAmount)
-	if err := insertBatchSummary(ctx, batchSummary); err != nil {
-		log.Printf("attachment.engine.batch_summary_failed job=%s err=%v", job.AttachmentJobID, err)
 	}
 
 	// Build observation map keyed by settlement_observation_id.
@@ -465,13 +493,12 @@ func (e *AttachmentEngine) runAttachment(
 		parsedByRowRef = map[string]*models.SettlementParsedRow{}
 	}
 
-
 	// ── Step 8a: Emit downstream events (internal ops topics) ────────────
-    outboxSvc := &AttachmentOutboxService{}
-    if err := outboxSvc.EmitForJob(ctx, job, allDecisions, allVariances, obsMap, parsedByRowRef); err != nil {
-        log.Printf("attachment.engine.outbox_failed job=%s err=%v", job.AttachmentJobID, err)
-    }
-	
+	outboxSvc := &AttachmentOutboxService{}
+	if err := outboxSvc.EmitForJob(ctx, job, allDecisions, allVariances, obsMap, parsedByRowRef); err != nil {
+		log.Printf("attachment.engine.outbox_failed job=%s err=%v", job.AttachmentJobID, err)
+	}
+
 	if err := outboxSvc.EmitLeafBundlesForJob(ctx, job, allDecisions, allVariances, obsMap, parsedByRowRef); err != nil {
 		log.Printf("attachment.engine.leaf_bundle_failed job=%s err=%v", job.AttachmentJobID, err)
 	}
@@ -593,7 +620,7 @@ func findCandidateIntents(
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state,
-		--	beneficiary_fingerprint, zord_signature_carrier,
+			beneficiary_fingerprint, zord_signature_carrier,
 			created_at
 		FROM canonical_intents ci
 		WHERE tenant_id = $1
@@ -652,7 +679,7 @@ func findCandidateIntents(
 			&intent.IntendedExecutionAt, &intent.PayoutType, &intent.ProviderHint, &intent.Corridor,
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
 			&intent.CanonicalHash, &intent.GovernanceState,
-			// &intent.BeneficiaryFingerprint, &intent.ZordSignatureCarrier,
+			&intent.BeneficiaryFingerprint, &intent.ZordSignatureCarrier,
 			&intent.CreatedAt,
 		)
 		if err != nil {
@@ -680,7 +707,7 @@ func loadMasterIntentsByBatchRef(
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state,
-		--	beneficiary_fingerprint, zord_signature_carrier,
+			beneficiary_fingerprint, zord_signature_carrier,
 			created_at
 		FROM canonical_intents
 		WHERE tenant_id = $1 AND LOWER(client_batch_ref) = LOWER($2)
@@ -704,7 +731,7 @@ func loadMasterIntentsByBatchRef(
 			&intent.IntendedExecutionAt, &intent.PayoutType, &intent.ProviderHint, &intent.Corridor,
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
 			&intent.CanonicalHash, &intent.GovernanceState,
-			// &intent.BeneficiaryFingerprint, &intent.ZordSignatureCarrier,
+			&intent.BeneficiaryFingerprint, &intent.ZordSignatureCarrier,
 			&intent.CreatedAt,
 		); err != nil {
 			log.Printf("loadMasterIntentsByBatchRef: scan: %v", err)
@@ -794,15 +821,15 @@ func buildSupportingCarriers(obs models.CanonicalSettlementObservation) map[stri
 	if obs.BankReference != nil {
 		carriers["bank_reference"] = *obs.BankReference
 	}
-	// if obs.BatchReference != nil {
-	// 	carriers["batch_reference"] = *obs.BatchReference
-	// }
-	// if obs.BeneficiaryFingerprint != nil {
-	// 	carriers["beneficiary_fingerprint"] = *obs.BeneficiaryFingerprint
-	// }
-	// if obs.ZordSignatureCarrier != nil {
-	// 	carriers["zord_signature_carrier"] = *obs.ZordSignatureCarrier
-	// }
+	if obs.BatchReference != nil {
+		carriers["batch_reference"] = *obs.BatchReference
+	}
+	if obs.BeneficiaryFingerprint != nil {
+		carriers["beneficiary_fingerprint"] = *obs.BeneficiaryFingerprint
+	}
+	if obs.ZordSignatureCarrier != nil {
+		carriers["zord_signature_carrier"] = *obs.ZordSignatureCarrier
+	}
 	return carriers
 }
 
@@ -917,11 +944,7 @@ func computeBatchSummary(
 			}
 		}
 		if isAttached {
-			if obs.SettledAmount != nil {
-				summary.TotalObservedAmount = summary.TotalObservedAmount.Add(*obs.SettledAmount)
-			} else {
-				summary.TotalObservedAmount = summary.TotalObservedAmount.Add(obs.Amount)
-			}
+			summary.TotalObservedAmount = summary.TotalObservedAmount.Add(obs.Amount)
 		}
 	}
 
@@ -957,6 +980,23 @@ func computeBatchSummary(
 // PERSISTENCE LAYER
 // ─────────────────────────────────────────────────────────────────────────────
 
+// advisoryLockKey derives a stable int64 advisory lock key from the combination
+// of tenant UUID and scope_ref string. We XOR the high and low halves of a
+// SHA-256 hash so collisions are astronomically unlikely across tenants.
+func advisoryLockKey(tenantID uuid.UUID, scopeRef string) int64 {
+	h := sha256.Sum256([]byte(tenantID.String() + "|" + scopeRef))
+	// Fold the 32-byte hash into a signed int64 via XOR of four 8-byte words.
+	var key uint64
+	for i := 0; i < 32; i += 8 {
+		var word uint64
+		for j := 0; j < 8; j++ {
+			word = (word << 8) | uint64(h[i+j])
+		}
+		key ^= word
+	}
+	return int64(key)
+}
+
 func insertAttachmentJob(ctx context.Context, job *models.AttachmentJob) error {
 	_, err := db.DB.ExecContext(ctx, `
 		INSERT INTO attachment_jobs (
@@ -981,6 +1021,7 @@ func persistAttachmentOutputs(
 	decisions []models.AttachmentDecision,
 	variances []models.VarianceRecord,
 	unresolvedIntents []models.UnresolvedIntentRecord,
+	batchSummary models.BatchAttachmentSummary,
 	exact, high, ambiguous, unresolved, conflicted int,
 ) error {
 	tx, err := db.DB.BeginTx(ctx, nil)
@@ -1112,6 +1153,33 @@ func persistAttachmentOutputs(
 		}
 	}
 
+	// Persist batch summary atomically with all other outputs.
+	// This was previously a separate db.DB.ExecContext call after tx.Commit(),
+	// meaning a crash between commit and summary insert left the job COMPLETED
+	// with no batch summary — permanently lost. Moving it inside the transaction
+	// guarantees both succeed or both roll back together.
+	if _, err = tx.ExecContext(ctx, `
+		INSERT INTO batch_attachment_summaries (
+			batch_attachment_summary_id, tenant_id, batch_id, source_reference,
+			attachment_job_id,
+			total_intent_count, exact_match_count, high_confidence_count,
+			ambiguous_count, unresolved_count, conflicted_count,
+			total_intended_amount, total_observed_amount, total_variance,
+			batch_attachment_status, aggregate_score, ambiguity_score, created_at, updated_at
+		) VALUES (
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+		) ON CONFLICT DO NOTHING`,
+		batchSummary.BatchAttachmentSummaryID, batchSummary.TenantID, batchSummary.BatchID, batchSummary.SourceReference,
+		batchSummary.AttachmentJobID,
+		batchSummary.TotalIntentCount, batchSummary.ExactMatchCount, batchSummary.HighConfidenceCount,
+		batchSummary.AmbiguousCount, batchSummary.UnresolvedCount, batchSummary.ConflictedCount,
+		batchSummary.TotalIntendedAmount, batchSummary.TotalObservedAmount, batchSummary.TotalVariance,
+		batchSummary.BatchAttachmentStatus, batchSummary.AggregateScore, batchSummary.AmbiguityScore,
+		batchSummary.CreatedAt, batchSummary.UpdatedAt,
+	); err != nil {
+		return fmt.Errorf("persistAttachmentOutputs: insert batch summary: %w", err)
+	}
+
 	// Update job counters and mark complete.
 	completedAt := time.Now().UTC()
 	if _, err = tx.ExecContext(ctx, `
@@ -1144,28 +1212,6 @@ func persistAttachmentOutputs(
 	job.ConflictedCount = conflicted
 	job.CompletedAt = &completedAt
 	return nil
-}
-
-func insertBatchSummary(ctx context.Context, s models.BatchAttachmentSummary) error {
-	_, err := db.DB.ExecContext(ctx, `
-		INSERT INTO batch_attachment_summaries (
-			batch_attachment_summary_id, tenant_id, batch_id, source_reference,
-			attachment_job_id,
-			total_intent_count, exact_match_count, high_confidence_count,
-			ambiguous_count, unresolved_count, conflicted_count,
-			total_intended_amount, total_observed_amount, total_variance,
-			batch_attachment_status, aggregate_score, ambiguity_score, created_at, updated_at
-		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
-		) ON CONFLICT DO NOTHING`,
-		s.BatchAttachmentSummaryID, s.TenantID, s.BatchID, s.SourceReference,
-		s.AttachmentJobID,
-		s.TotalIntentCount, s.ExactMatchCount, s.HighConfidenceCount,
-		s.AmbiguousCount, s.UnresolvedCount, s.ConflictedCount,
-		s.TotalIntendedAmount, s.TotalObservedAmount, s.TotalVariance,
-		s.BatchAttachmentStatus, s.AggregateScore, s.AmbiguityScore, s.CreatedAt, s.UpdatedAt,
-	)
-	return err
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1253,9 +1299,9 @@ func loadObservationByID(ctx context.Context, tenantID uuid.UUID, obsID uuid.UUI
 			mapping_profile_id, mapping_profile_version,
 			parse_confidence, mapping_confidence,
 			carrier_richness_score, attachment_readiness_score,
-			canonical_hash, client_batch_id, corridor_id,
-		--	beneficiary_fingerprint, zord_signature_carrier,
-			created_at, updated_at
+			canonical_hash, client_batch_id, COALESCE(corridor_id, ''),
+		beneficiary_fingerprint, zord_signature_carrier,
+		created_at, updated_at
 		FROM canonical_settlement_observations
 		WHERE tenant_id = $1 AND settlement_observation_id = $2`,
 		tenantID, obsID,

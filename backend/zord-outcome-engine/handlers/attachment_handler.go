@@ -13,6 +13,7 @@ package handlers
 // ─────────────────────────────────────────────────────────────────────────────
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"time"
@@ -26,13 +27,25 @@ import (
 
 // RunAttachmentHandler triggers a Service 5C attachment job.
 //
+// The job is started asynchronously. The handler returns 202 Accepted with the
+// job_id immediately. Callers poll:
+//
+//	GET /v1/attachment/batch/:batch_ref?tenant_id=uuid
+//
+// to retrieve results once the job_status transitions to COMPLETED.
+//
+// This avoids HTTP timeouts on large batches. The previous synchronous design
+// blocked the handler goroutine for the entire engine run and would be killed
+// by the server's 20s WriteTimeout for any non-trivial batch.
+//
 // Body (JSON):
 //
 //	{
-//	  "tenant_id":                "uuid",
-//	  "job_scope_type":           "SETTLEMENT_BATCH" | "SINGLE_OBSERVATION",
-//	  "settlement_batch_ref":     "batch-ref-string",        // for SETTLEMENT_BATCH
-//	  "settlement_observation_id": "uuid"                    // for SINGLE_OBSERVATION
+//	  "tenant_id":                 "uuid",
+//	  "job_scope_type":            "SETTLEMENT_BATCH" | "SINGLE_OBSERVATION" | "INGEST_RUN",
+//	  "settlement_batch_ref":      "batch-ref-string",   // for SETTLEMENT_BATCH
+//	  "settlement_observation_id": "uuid",               // for SINGLE_OBSERVATION
+//	  "ingest_run_id":             "uuid-string"         // for INGEST_RUN
 //	}
 func (h *Handler) RunAttachmentHandler(c *gin.Context) {
 	var req models.AttachmentRequest
@@ -48,7 +61,12 @@ func (h *Handler) RunAttachmentHandler(c *gin.Context) {
 	}
 
 	engine := &services.AttachmentEngine{}
-	var job *models.AttachmentJob
+
+	// Validate scope-specific fields and determine which engine method to call
+	// before spawning the goroutine — validation errors must return 400, not 202.
+	type runFunc func() (*models.AttachmentJob, error)
+	var fn runFunc
+	var scopeRef string
 
 	switch req.JobScopeType {
 	case models.JobScopeSettlementBatch:
@@ -56,7 +74,11 @@ func (h *Handler) RunAttachmentHandler(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "settlement_batch_ref is required for SETTLEMENT_BATCH scope"})
 			return
 		}
-		job, err = engine.RunForBatch(c.Request.Context(), tenantID, *req.SettlementBatchRef)
+		ref := *req.SettlementBatchRef
+		scopeRef = ref
+		fn = func() (*models.AttachmentJob, error) {
+			return engine.RunForBatch(context.Background(), tenantID, ref)
+		}
 
 	case models.JobScopeSingleObservation:
 		if req.SettlementObservationID == nil || *req.SettlementObservationID == "" {
@@ -68,28 +90,75 @@ func (h *Handler) RunAttachmentHandler(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid settlement_observation_id"})
 			return
 		}
-		job, err = engine.RunForSingleObservation(c.Request.Context(), tenantID, obsID)
+		scopeRef = obsID.String()
+		fn = func() (*models.AttachmentJob, error) {
+			return engine.RunForSingleObservation(context.Background(), tenantID, obsID)
+		}
+
+	case models.JobScopeIngestRun:
+		if req.IngestRunID == nil || *req.IngestRunID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "ingest_run_id is required for INGEST_RUN scope"})
+			return
+		}
+		runID := *req.IngestRunID
+		scopeRef = runID
+		fn = func() (*models.AttachmentJob, error) {
+			return engine.RunForJob(context.Background(), tenantID, runID)
+		}
 
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "job_scope_type must be SETTLEMENT_BATCH or SINGLE_OBSERVATION"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job_scope_type must be SETTLEMENT_BATCH, SINGLE_OBSERVATION, or INGEST_RUN"})
 		return
 	}
 
-	if err != nil {
-		log.Printf("attachment.handler.run_failed tenant=%s err=%v", tenantID, err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "attachment job failed: " + err.Error()})
+	// Pre-register the job row as RUNNING so the caller can see it immediately
+	// via GET /v1/attachment/batch/:ref, even before the goroutine starts.
+	jobID := uuid.New()
+	now := time.Now().UTC()
+	if _, dbErr := db.DB.ExecContext(c.Request.Context(), `
+		INSERT INTO attachment_jobs (
+			attachment_job_id, tenant_id, job_scope_type, scope_ref,
+			matching_ruleset_version, status,
+			candidate_count_total, exact_match_count, high_confidence_count,
+			ambiguous_count, unresolved_count, conflicted_count,
+			started_at, created_at
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		jobID, tenantID, req.JobScopeType, scopeRef,
+		services.RulesetVersion, "RUNNING",
+		0, 0, 0, 0, 0, 0,
+		now, now,
+	); dbErr != nil {
+		log.Printf("attachment.handler.pre_register_failed tenant=%s err=%v", tenantID, dbErr)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register job: " + dbErr.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, models.AttachmentResponse{
-		AttachmentJobID:     job.AttachmentJobID.String(),
-		Status:              job.Status,
-		ExactMatchCount:     job.ExactMatchCount,
-		HighConfidenceCount: job.HighConfidenceCount,
-		AmbiguousCount:      job.AmbiguousCount,
-		UnresolvedCount:     job.UnresolvedCount,
-		ConflictedCount:     job.ConflictedCount,
-		Message:             "Attachment job completed",
+	// Launch the engine asynchronously. Any error is written back to the
+	// attachment_jobs row so the polling endpoint can surface it.
+	go func() {
+		job, runErr := fn()
+		if runErr != nil {
+			log.Printf("attachment.handler.async_run_failed tenant=%s job=%s err=%v", tenantID, jobID, runErr)
+			if _, updErr := db.DB.ExecContext(context.Background(), `
+				UPDATE attachment_jobs SET status = 'FAILED', completed_at = $1
+				WHERE attachment_job_id = $2`,
+				time.Now().UTC(), jobID,
+			); updErr != nil {
+				log.Printf("attachment.handler.status_update_failed job=%s err=%v", jobID, updErr)
+			}
+			return
+		}
+		// The engine writes its own COMPLETED status via persistAttachmentOutputs.
+		// Log success for observability.
+		log.Printf("attachment.handler.async_run_done tenant=%s job=%s exact=%d ambiguous=%d unresolved=%d conflicted=%d",
+			tenantID, job.AttachmentJobID,
+			job.ExactMatchCount, job.AmbiguousCount, job.UnresolvedCount, job.ConflictedCount)
+	}()
+
+	c.JSON(http.StatusAccepted, models.AttachmentResponse{
+		AttachmentJobID: jobID.String(),
+		Status:          "RUNNING",
+		Message:         "Attachment job started. Poll GET /v1/attachment/batch/" + scopeRef + "?tenant_id=" + tenantID.String() + " for results.",
 	})
 }
 
@@ -250,26 +319,26 @@ func (h *Handler) RegisterIntentHandler(c *gin.Context) {
 			amount, currency_code,
 			intended_execution_at, payout_type, provider_hint, corridor,
 			proof_readiness_score, matchability_score,
-			canonical_hash, governance_state, 
-		--	beneficiary_fingerprint, zord_signature_carrier,
+			canonical_hash, governance_state,
+			beneficiary_fingerprint, zord_signature_carrier,
 			created_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18
 		) ON CONFLICT (intent_id) DO UPDATE SET
-			client_payout_ref       = EXCLUDED.client_payout_ref,
-			client_batch_ref        = EXCLUDED.client_batch_ref,
-			amount                  = EXCLUDED.amount,
-			currency_code           = EXCLUDED.currency_code,
-			governance_state        = EXCLUDED.governance_state`,
-		/*	beneficiary_fingerprint = EXCLUDED.beneficiary_fingerprint,
-			zord_signature_carrier  = EXCLUDED.zord_signature_carrier */
+			client_payout_ref        = EXCLUDED.client_payout_ref,
+			client_batch_ref         = EXCLUDED.client_batch_ref,
+			amount                   = EXCLUDED.amount,
+			currency_code            = EXCLUDED.currency_code,
+			governance_state         = EXCLUDED.governance_state,
+			beneficiary_fingerprint  = EXCLUDED.beneficiary_fingerprint,
+			zord_signature_carrier   = EXCLUDED.zord_signature_carrier`,
 		intent.IntentID, intent.TenantID,
 		intent.ClientPayoutRef, intent.ClientBatchRef, intent.BusinessIdempotencyKey,
 		intent.Amount, intent.CurrencyCode,
 		intent.IntendedExecutionAt, intent.PayoutType, intent.ProviderHint, intent.Corridor,
 		intent.ProofReadinessScore, intent.MatchabilityScore,
 		intent.CanonicalHash, intent.GovernanceState,
-		// intent.BeneficiaryFingerprint, intent.ZordSignatureCarrier,
+		intent.BeneficiaryFingerprint, intent.ZordSignatureCarrier,
 		intent.CreatedAt,
 	)
 	if err != nil {

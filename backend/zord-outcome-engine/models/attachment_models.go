@@ -73,6 +73,7 @@ const (
 const (
 	JobScopeSettlementBatch   = "SETTLEMENT_BATCH"
 	JobScopeSingleObservation = "SINGLE_OBSERVATION"
+	JobScopeIngestRun         = "INGEST_RUN"
 	JobScopeReplay            = "REPLAY"
 	JobScopeBackfill          = "BACKFILL"
 )
@@ -352,7 +353,8 @@ type AttachmentRequest struct {
 	TenantID                string  `json:"tenant_id" binding:"required"`
 	SettlementBatchRef      *string `json:"settlement_batch_ref,omitempty"`
 	SettlementObservationID *string `json:"settlement_observation_id,omitempty"`
-	JobScopeType            string  `json:"job_scope_type"` // SETTLEMENT_BATCH | SINGLE_OBSERVATION
+	IngestRunID             *string `json:"ingest_run_id,omitempty"`
+	JobScopeType            string  `json:"job_scope_type"` // SETTLEMENT_BATCH | SINGLE_OBSERVATION | INGEST_RUN
 }
 
 // AttachmentResponse is returned after a job completes (sync) or is queued (async).

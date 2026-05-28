@@ -1,51 +1,70 @@
 'use client'
 
-import {
-  JOURNAL_HERO_BLACK_CARD,
-  JOURNAL_INSIGHT_DARK_LABEL,
-  JOURNAL_INSIGHT_DARK_MUTED,
-} from '../../command-center/homeCommandCenterTokens'
-import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
+import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntelligenceKpiHero'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
 import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
+import { deriveNetSettledDisplay } from '../selectors/deriveNetSettledDisplay'
+import { deriveSettlementDataHealth } from '../selectors/deriveSettlementDataHealth'
 
 type SettlementJournalHeroBannerProps = {
   onExport: () => void
   exportDisabled?: boolean
+  filteredCount: number
+  filtersActive: boolean
 }
 
-export function SettlementJournalHeroBanner({ onExport, exportDisabled }: SettlementJournalHeroBannerProps) {
+export function SettlementJournalHeroBanner({
+  onExport,
+  exportDisabled,
+  filteredCount,
+  filtersActive,
+}: SettlementJournalHeroBannerProps) {
   const { selectedClientBatchId } = useSettlementBatchSelection()
-  const { totalAmount, loading, rows } = useSettlementBatchSummary()
+  const { totalAmount, totalSettled, loading, rows, outcome } = useSettlementBatchSummary()
 
-  const grossLabel = formatJournalMoney(totalAmount)
+  const copy = settlementJournalCopy.kpi
+  const netSettled = deriveNetSettledDisplay(totalAmount, totalSettled, outcome.settled, rows.length)
   const countLine = rows.length.toLocaleString('en-IN')
+  const health = deriveSettlementDataHealth(rows)
+  const explicitMatches = rows.filter((r) => r.matchedIntentId && r.matchedIntentId !== '—').length
+  const matchedDisplay =
+    explicitMatches > 0 ? explicitMatches.toLocaleString('en-IN') : health.matchedCount.toLocaleString('en-IN')
+  const matchedSub =
+    explicitMatches > 0
+      ? copy.matchedFromIntentId
+      : rows.length > 0 && health.matchedCount === 0
+        ? copy.matchedAwaitingPipeline
+        : 'Heuristic match status until upstream match IDs ship'
+  const obsSub = filtersActive
+    ? `${filteredCount.toLocaleString('en-IN')} filtered · ${rows.length.toLocaleString('en-IN')} total`
+    : `${rows.length.toLocaleString('en-IN')} settlement records`
+
+  const buckets = [
+    { label: copy.linkedBatch, value: selectedClientBatchId || '—', sub: `Outcome · ${outcome.label}` },
+    { label: copy.recordsReceived, value: filteredCount.toLocaleString('en-IN'), sub: obsSub },
+    {
+      label: copy.recordsMarkedSettled,
+      value: outcome.settled.toLocaleString('en-IN'),
+      sub:
+        outcome.failed > 0
+          ? `${outcome.failed.toLocaleString('en-IN')} failed · ${rows.length.toLocaleString('en-IN')} total rows`
+          : `${outcome.settledPct ?? 0}% of rows marked settled in source`,
+    },
+    { label: copy.netSettled, value: netSettled.value, sub: netSettled.sub },
+    { label: copy.matchedToIntents, value: matchedDisplay, sub: matchedSub },
+  ] as const
 
   return (
-    <section className={`mb-4 ${JOURNAL_HERO_BLACK_CARD}`}>
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_72%_18%,rgba(255,255,255,0.08)_0%,transparent_58%)]"
-        aria-hidden
-      />
-      <div className="relative flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className={JOURNAL_INSIGHT_DARK_MUTED}>{settlementJournalCopy.hero.label}</p>
-          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/45">
-            {settlementJournalCopy.hero.subtitle}
-          </p>
-          {loading && !rows.length ? (
-            <p className={`mt-3 text-[15px] ${JOURNAL_INSIGHT_DARK_LABEL}`}>Loading settlement records…</p>
-          ) : (
-            <>
-              <p className="mt-2 text-[2.25rem] font-extrabold tabular-nums tracking-[-0.03em] text-white">{grossLabel}</p>
-              <p className="mt-1 font-mono text-[13px] text-white/55">
-                {selectedClientBatchId || settlementJournalCopy.sidebar.selectBatch} · {countLine}{' '}
-                {settlementJournalCopy.sidebar.records}
-              </p>
-            </>
-          )}
-        </div>
+    <JournalIntelligenceKpiHero
+      className="mb-4"
+      eyebrow={settlementJournalCopy.hero.label}
+      value={loading && !rows.length ? '—' : netSettled.value}
+      deltaPill={outcome.label}
+      subcopy={`${selectedClientBatchId || settlementJournalCopy.sidebar.selectBatch} · ${countLine} ${settlementJournalCopy.sidebar.records}`}
+      buckets={buckets}
+      testId="settlement-kpi-hero"
+      footer={
         <button
           type="button"
           onClick={onExport}
@@ -57,7 +76,7 @@ export function SettlementJournalHeroBanner({ onExport, exportDisabled }: Settle
           </svg>
           {settlementJournalCopy.export.menuLabel}
         </button>
-      </div>
-    </section>
+      }
+    />
   )
 }

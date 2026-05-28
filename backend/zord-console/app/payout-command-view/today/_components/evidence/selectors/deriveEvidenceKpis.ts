@@ -48,7 +48,7 @@ export function deriveEvidenceKpis(input: {
     }
   }
 
-  const defScore = defensibility ? `${defensibility.defensibility_score.toFixed(0)}%` : '—'
+  const defScore = defensibility ? `${defensibility.defensibility_score.toFixed(1)} / 65` : '—'
   const evidencePct = defensibility ? `${(defensibility.evidence_pack_rate * 100).toFixed(0)}%` : '—'
   const govPct = defensibility ? `${(defensibility.governance_coverage_pct * 100).toFixed(0)}%` : '—'
   const replayPct = defensibility ? `${(defensibility.replayability_pct * 100).toFixed(0)}%` : '—'

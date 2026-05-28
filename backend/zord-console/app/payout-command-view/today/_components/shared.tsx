@@ -55,6 +55,18 @@ export function Glyph({ name, className = '' }: { name: GlyphName; className?: s
           <path d="M6.5 12h3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </svg>
       )
+    case 'support':
+      return (
+        <svg className={base} viewBox="0 0 20 20" fill="none" aria-hidden>
+          <path
+            d="M4 9.5a6 6 0 0 1 12 0v3.2c0 .9-.7 1.6-1.6 1.6h-.8l-1.4 2.2a.8.8 0 0 1-1.4-.6l1-1.6H6.4A1.6 1.6 0 0 1 4.8 12.7V9.5Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+          <path d="M8 16.2h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      )
     case 'eye':
       return <svg className={base} viewBox="0 0 20 20" fill="none"><path d="M2 10s3-5 8-5 8 5 8 5-3 5-8 5-8-5-8-5Z" stroke="currentColor" strokeWidth="1.6" /><circle cx="10" cy="10" r="2.4" fill="currentColor" /></svg>
     case 'zap':

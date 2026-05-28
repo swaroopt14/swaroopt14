@@ -108,7 +108,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
   }, [loadBatches])
 
   return (
-    <div className="min-h-screen space-y-4 bg-[#e8eef5] p-4 text-slate-900 sm:p-6">
+    <div className="min-h-screen space-y-4 bg-[#f4f4f1] p-4 text-slate-900 sm:p-6">
 
       {/* ── Page header ─────────────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-center justify-between gap-3">

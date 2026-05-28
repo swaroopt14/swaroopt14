@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Fragment } from 'react'
+import { Fragment, useState } from 'react'
 import { EntityLogo } from '../../entity-logo'
 import { BankingInformationTokensBlock } from '../IntentDrawerSections'
 import { formatJournalMoney } from '../formatJournalMoney'
@@ -47,6 +47,7 @@ type AmountRangeFilter = (typeof AMOUNT_RANGE_OPTIONS)[number]
 type FailureRow = {
   batchId: string
   requestId: string
+  sourceRowNum?: number | null
   reference: string
   amount: number
   method: 'Bank Transfer' | 'LSM' | 'NACH'
@@ -218,6 +219,38 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
     selectedBatch, selectedBatchId, journalUsesBackendFeed, liveDetailLoading,
     clearTableFilters, failures, batches,
   } = vm as IntentJournalActivityViewModel & Record<string, never>
+  const [manualReviewLoadingId, setManualReviewLoadingId] = useState<string | null>(null)
+  const [manualReviewMessage, setManualReviewMessage] = useState<string | null>(null)
+
+  const handleManualReviewCheck = async (row: FailureRow) => {
+    if (!row.requestId) return
+    setManualReviewLoadingId(row.requestId)
+    setManualReviewMessage(null)
+    try {
+      const res = await fetch('/api/prod/dlq/manual-review', { credentials: 'include' })
+      const payload = (await res.json()) as {
+        items?: Array<{ dlq_id?: string; batch_id?: string; source_row_num?: number }>
+        error?: string
+      }
+      if (!res.ok) {
+        setManualReviewMessage(payload.error || 'Unable to load manual-review queue.')
+        return
+      }
+      const items = payload.items ?? []
+      const found = items.find((it) => String(it.dlq_id || '').trim() === row.requestId)
+      if (found) {
+        setManualReviewMessage(
+          `DLQ ${row.requestId} is in manual-review queue (batch ${found.batch_id || row.batchId}, row ${found.source_row_num ?? row.sourceRowNum ?? '—'}).`,
+        )
+      } else {
+        setManualReviewMessage(`DLQ ${row.requestId} is not currently in manual-review queue.`)
+      }
+    } catch {
+      setManualReviewMessage('Manual-review API check failed.')
+    } finally {
+      setManualReviewLoadingId(null)
+    }
+  }
 
   return (
     <>
@@ -426,8 +459,8 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                               <td className="truncate px-3 py-2.5 text-[13px] text-[#334155]" title={row.intendedExecutionAt}>
                                 {row.intendedExecutionAt}
                               </td>
-                              <td className="truncate px-3 py-2.5 text-[13px] font-medium text-[#334155]" title={row.method}>
-                                {row.method}
+                              <td className="truncate px-3 py-2.5 text-[13px] font-medium text-[#334155]" title={row.rail ?? row.method}>
+                                {row.rail ?? row.method}
                               </td>
                               <td className="px-3 py-2.5 tabular-nums font-semibold text-[#0f172a]">{row.confidenceLabel}</td>
                             </tr>
@@ -445,8 +478,13 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                                         {
                                           requestId: row.requestId,
                                           batchId: row.batchId,
+                                          clientBatchRef: row.clientBatchRef,
+                                          clientPayoutRef: row.reference,
+                                          sourceRowNum: row.sourceRowNum ?? null,
                                           amount: row.amount,
                                           method: row.method,
+                                          rail: row.rail,
+                                          beneficiaryName: row.beneficiaryName ?? null,
                                           paymentPartner: row.paymentPartner,
                                           bank: row.bank,
                                           uiStatus: row.status,
@@ -462,9 +500,9 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                                             </p>
                                           </div>
                                           <BankingInformationTokensBlock detail={detail} />
-                                          {row.batchId ? (
+                                          {(row.clientBatchRef || row.batchId) ? (
                                             <Link
-                                              href={`/payout-command-view/today?dock=settlement&client_batch_id=${encodeURIComponent(row.batchId)}`}
+                                              href={`/payout-command-view/today?dock=settlement&client_batch_id=${encodeURIComponent(row.clientBatchRef || row.batchId)}`}
                                               className="inline-flex text-[13px] font-semibold text-sky-800 underline decoration-sky-300 underline-offset-4"
                                             >
                                               Open settlement journal for this batch →
@@ -583,27 +621,36 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                     </button>
                   </div>
                 </div>
-                {failureReviewId ? (
+                    {failureReviewId || manualReviewMessage ? (
                   <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[14px] text-amber-950">
-                    <p className="font-semibold">Review — DLQ row</p>
-                    <p className="mt-1 text-[13px] leading-relaxed">
-                      {failures.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
-                    </p>
-                    <button
-                      type="button"
-                      className="mt-2 text-[12px] font-semibold underline"
-                      onClick={() => setFailureReviewId(null)}
-                    >
-                      Close
-                    </button>
-                  </div>
-                ) : null}
+                        <p className="font-semibold">Review — DLQ row</p>
+                        {failureReviewId ? (
+                          <p className="mt-1 text-[13px] leading-relaxed">
+                            {failures.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
+                          </p>
+                        ) : null}
+                        {manualReviewMessage ? (
+                          <p className="mt-1 text-[13px] leading-relaxed">{manualReviewMessage}</p>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="mt-2 text-[12px] font-semibold underline"
+                          onClick={() => {
+                            setFailureReviewId(null)
+                            setManualReviewMessage(null)
+                          }}
+                        >
+                          Close
+                        </button>
+                      </div>
+                    ) : null}
                 <div className="overflow-x-auto">
                   <table className={`w-full border-collapse text-[14px] ${HOME_TITLE_BLACK}`}>
                     <thead className="bg-[#f8fafc]">
                       <tr>
-                        {[
+                          {[
                           { key: 'batch', label: 'Batch', icon: 'reference' as const },
+                            { key: 'rownum', label: 'Row #', icon: 'reference' as const },
                           { key: 'amount', label: 'Amount', icon: 'amount' as const },
                           { key: 'method', label: 'Method', icon: 'payment' as const },
                           { key: 'connector', label: 'Connector', icon: 'payment' as const },
@@ -623,7 +670,7 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                     <tbody>
                       {failurePageRows.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="px-4 py-12 text-center text-[14px] text-[#64748b]">
+                          <td colSpan={8} className="px-4 py-12 text-center text-[14px] text-[#64748b]">
                             No failures match your filters for this batch.
                           </td>
                         </tr>
@@ -634,6 +681,9 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                           className={`border-t border-[#f3f4f6] hover:bg-[#f9fafb] ${failureReviewId === row.requestId ? 'bg-amber-50/60' : ''} ${rowIndex % 2 === 1 && failureReviewId !== row.requestId ? 'bg-slate-50/40' : ''}`}
                         >
                           <td className="px-3 py-2.5 text-[15px] text-[#475569]">{row.batchId}</td>
+                          <td className="px-3 py-2.5 text-[15px] text-[#475569] tabular-nums">
+                            {row.sourceRowNum ?? '—'}
+                          </td>
                           <td className="px-3 py-2.5 tabular-nums">
                             {row.amount > 0
                               ? formatJournalMoney(row.amount, journalUsesBackendFeed ? 'INR' : 'USD')
@@ -660,6 +710,14 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                                 className="inline-flex h-8 items-center rounded-lg border border-[#0A0A0A] bg-[#0A0A0A] px-3 text-[12px] font-medium text-white transition hover:bg-[#1a1a1a]"
                               >
                                 Review
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleManualReviewCheck(row)}
+                                disabled={manualReviewLoadingId === row.requestId}
+                                className="inline-flex h-8 items-center rounded-lg border border-[#2563eb] bg-[#eff6ff] px-3 text-[12px] font-medium text-[#1d4ed8] transition hover:bg-[#dbeafe] disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {manualReviewLoadingId === row.requestId ? 'Checking…' : 'Manual review'}
                               </button>
                             </div>
                           </td>

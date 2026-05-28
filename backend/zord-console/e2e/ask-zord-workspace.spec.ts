@@ -133,8 +133,8 @@ function installAuthIntelligenceAndPromptMocks(page: Page) {
           evidence_pack_rate: 0.84,
           governance_coverage_pct: 0.88,
           replayability_pct: 0.9,
-          defensibility_score: 88,
-          defensibility_tier: 'GOOD',
+          defensibility_score: 58,
+          defensibility_tier: 'STRONG',
           audit_ready_pct: 0.8,
           dispute_ready_pct: 0.75,
         }

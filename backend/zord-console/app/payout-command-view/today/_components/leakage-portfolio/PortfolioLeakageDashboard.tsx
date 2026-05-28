@@ -66,7 +66,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
   const showLiveHint = Boolean(batchScopedData) || hasData
 
   return (
-    <div className="space-y-6 rounded-2xl bg-[#e8eef5] p-4 sm:p-6 min-h-screen">
+    <div className="min-h-screen space-y-6 rounded-2xl bg-[#f4f4f1] p-4 sm:p-6">
       <PortfolioHeader
         onRefresh={() => void refresh()}
         refreshing={loading}
@@ -110,7 +110,6 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
 
           <ReviewWatchlist
             tenantReady={tenantReady}
-            data={displayData}
             batches={batches}
             selectedBatchId={selectedBatchId}
             onSelectBatch={setSelectedBatchId}

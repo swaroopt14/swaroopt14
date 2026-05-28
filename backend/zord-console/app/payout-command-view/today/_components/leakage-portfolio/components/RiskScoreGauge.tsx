@@ -28,8 +28,8 @@ export function RiskScoreGauge({ data, defensibility }: RiskScoreGaugeProps) {
         >
           <defs>
             <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#22c55e" />
-              <stop offset="100%" stopColor="#16a34a" />
+              <stop offset="0%" stopColor="#94a3b8" />
+              <stop offset="100%" stopColor="#0f172a" />
             </linearGradient>
           </defs>
           <path

@@ -40,6 +40,7 @@ export const BACKEND_SERVICES = {
       INTENTS: '/v1/intents',
       INTENT_BY_ID: (id: string) => `/v1/intents/${id}`,
       DLQ: '/v1/dlq',
+      DLQ_MANUAL_REVIEW: '/v1/dlq/manual-review',
       DLQ_BY_ID: (id: string) => `/v1/dlq/${id}`,
     },
   },

@@ -83,6 +83,8 @@ export type ApiDlqRow = {
   envelope_id?: string
   /** Same ingest batch key as intents / intelligence `batch_id` when present. */
   client_batch_ref?: string
+  batch_id?: string
+  source_row_num?: number
   tenant_id?: string
   stage?: string
   reason_code?: string

@@ -47,6 +47,9 @@ export type PaymentIntentRecord = {
   intended_execution_at?: string
   beneficiary_type?: string
   client_payout_ref?: string
+  client_batch_ref?: string
+  batchid?: string
+  source_row_num?: number
   governance_state?: string
   business_state?: string
   duplicate_risk_flag?: boolean

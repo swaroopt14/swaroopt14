@@ -12,6 +12,16 @@ export interface BackendIntent {
   currency: string
   /** Optional ingest / intelligence batch correlation when engine exposes it. */
   batch_id?: string
+  intended_execution_at?: string
+  /** Original source row index when available. */
+  source_row_num?: number
+  /** Client-provided refs from canonical intent. */
+  client_payout_ref?: string
+  client_batch_ref?: string
+  /** Optional provider / rail hints emitted by ingest + routing. */
+  provider_hint?: string
+  intent_quality_score?: number
+  aggregate_confidence_score?: number
   deadline_at?: string
   constraints?: Record<string, unknown>
   beneficiary_type?: string

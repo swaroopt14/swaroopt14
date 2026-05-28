@@ -239,7 +239,11 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
             batchOptions={batchOptions}
           />
 
-          <EvidenceKpiStrip cards={kpiCards} loading={dataLoading} />
+          <EvidenceKpiStrip
+            cards={kpiCards}
+            loading={dataLoading}
+            defensibilityTier={defensibility?.defensibility_tier}
+          />
 
           <ProofBreakdownSection rows={breakdownRows} />
 

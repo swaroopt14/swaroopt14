@@ -2,7 +2,6 @@ import type { IntentEngineBatchSidebarItem, PaymentIntentRecord } from './getPro
 import type { ApiDlqRow } from './prodApiTypes'
 import type { IntelligenceBatchRow } from './intelligenceTypes'
 import { apiTrimmedString } from './coerceApiField'
-import { tenantZordIdSuffix } from './tenantDisplay'
 
 export type JournalBatchType = 'Disbursement' | 'Settlement'
 export type JournalIntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
@@ -29,13 +28,14 @@ export type JournalBatchRecord = {
 
 export type JournalIntentRow = {
   batchId: string
-  /** Short tenant suffix for Zord ID column. */
+  /** Intent-scoped display id for Zord ID column. */
   zordId: string
   /** Intent id (or synthetic id) for drawer selection. */
   requestId: string
   reference: string
   amount: number
   method: 'Bank Transfer' | 'LSM' | 'NACH'
+  rail?: string
   status: JournalIntentStatus
   match: JournalIntentMatch
   lastUpdated: string
@@ -46,6 +46,9 @@ export type JournalIntentRow = {
   currency?: string
   tenantId: string
   intendedExecutionAt: string
+  clientBatchRef?: string
+  sourceRowNum?: number | null
+  beneficiaryName?: string | null
   provider: string
   confidenceScore: number | null
   confidenceLabel: string
@@ -92,9 +95,17 @@ function buildIntentInfoSummary(intent: PaymentIntentRecord): string {
   return parts.length > 0 ? parts.join(' · ') : '—'
 }
 
+function buildZordId(requestId: string, batchId: string): string {
+  const source = apiTrimmedString(requestId) || batchId
+  const normalized = source.replace(/[^a-zA-Z0-9]/g, '')
+  if (!normalized) return 'ZRD-UNKNOWN'
+  return `ZRD-${normalized.slice(-8).toUpperCase()}`
+}
+
 export type JournalFailureRow = {
   batchId: string
   requestId: string
+  sourceRowNum?: number | null
   reference: string
   amount: number
   method: 'Bank Transfer' | 'LSM' | 'NACH'
@@ -225,11 +236,15 @@ export function mapPaymentIntentToIntentRow(
 
   return {
     batchId,
-    zordId: tenantZordIdSuffix(sessionTenantId || apiTrimmedString(intent.tenant_id)),
+    zordId: buildZordId(intent.intent_id, batchId),
     requestId: intent.intent_id,
-    reference: apiTrimmedString(intent.client_payout_ref) || '—',
+    reference:
+      apiTrimmedString(intent.client_payout_ref) ||
+      (intent.source_row_num != null ? `SRC-${intent.source_row_num}` : apiTrimmedString(intent.envelope_id)) ||
+      intent.intent_id,
     amount: safe,
     method,
+    rail: instrument || '—',
     status,
     match,
     lastUpdated: created.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
@@ -238,8 +253,11 @@ export function mapPaymentIntentToIntentRow(
     paymentMethodDetail,
     engineStatus: [stRaw, gov, biz].filter(Boolean).join(' · ') || undefined,
     currency: apiTrimmedString(intent.currency ?? 'INR') || 'INR',
-    tenantId: apiTrimmedString(intent.tenant_id) || '—',
+    tenantId: apiTrimmedString(intent.tenant_id) || apiTrimmedString(sessionTenantId) || '—',
     intendedExecutionAt: formatJournalExecutionAt(intent.intended_execution_at),
+    clientBatchRef: apiTrimmedString(intent.client_batch_ref) || apiTrimmedString(intent.batchid) || batchId,
+    sourceRowNum: intent.source_row_num ?? null,
+    beneficiaryName: apiTrimmedString((intent.beneficiary as { name_token?: unknown } | undefined)?.name_token),
     provider: resolveProvider(intent),
     confidenceScore,
     confidenceLabel: formatConfidenceLabel(confidenceScore ?? undefined),
@@ -249,7 +267,7 @@ export function mapPaymentIntentToIntentRow(
 }
 
 export function mapDlqToFailureRow(row: ApiDlqRow): JournalFailureRow {
-  const batchFromIngest = apiTrimmedString(row.client_batch_ref)
+  const batchFromIngest = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
   const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
   const stageRaw = (row.stage ?? '').toLowerCase()
   let failureStage: JournalFailureRow['failureStage'] = 'Processing'
@@ -263,6 +281,7 @@ export function mapDlqToFailureRow(row: ApiDlqRow): JournalFailureRow {
   return {
     batchId,
     requestId: row.dlq_id,
+    sourceRowNum: typeof row.source_row_num === 'number' ? row.source_row_num : null,
     reference: row.envelope_id ?? row.dlq_id,
     amount: 0,
     method: 'Bank Transfer',

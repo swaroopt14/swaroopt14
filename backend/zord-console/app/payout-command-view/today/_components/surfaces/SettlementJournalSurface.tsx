@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SettlementBatchSelectionProvider } from '../settlement-journal/context/SettlementBatchSelectionContext'
 import { SettlementJournalBatchSidebar } from '../settlement-journal/components/SettlementJournalBatchSidebar'
 import { SettlementJournalHeroBanner } from '../settlement-journal/components/SettlementJournalHeroBanner'
-import { SettlementJournalKpiStrip } from '../settlement-journal/components/SettlementJournalKpiStrip'
 import { SettlementJournalDataHealthPanel } from '../settlement-journal/components/SettlementJournalDataHealthPanel'
 import {
   SettlementJournalActivityPanel,
@@ -392,8 +391,9 @@ function SettlementJournalSurfaceContent({
                     )
                   }}
                   exportDisabled={filteredRows.length === 0}
+                  filteredCount={filteredRows.length}
+                  filtersActive={filtersActive}
                 />
-                <SettlementJournalKpiStrip filteredCount={filteredRows.length} filtersActive={filtersActive} />
                 <SettlementJournalDataHealthPanel />
 
                 <SettlementJournalActivityPanel vm={activityVm} />

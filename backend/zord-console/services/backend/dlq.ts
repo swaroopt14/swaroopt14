@@ -6,6 +6,8 @@ export interface BackendDLQItem {
   tenant_id: string
   envelope_id: string
   client_batch_ref?: string
+  batch_id?: string
+  source_row_num?: number
   stage: string
   reason_code: string
   error_detail?: string
@@ -17,17 +19,13 @@ export interface DLQListParams {
   tenant_id?: string
 }
 
-/**
- * Fetch DLQ items from zord-intent-engine
- * Endpoint: GET http://localhost:8083/v1/dlq
- */
-export async function fetchDLQItems(params: DLQListParams = {}): Promise<BackendDLQItem[]> {
+async function fetchDLQListFromEndpoint(endpoint: string, params: DLQListParams = {}): Promise<BackendDLQItem[]> {
   const { tenant_id } = params
 
   const queryParams = new URLSearchParams()
   if (tenant_id) queryParams.set('tenant_id', tenant_id)
 
-  const url = buildUrl('INTENT_ENGINE', BACKEND_SERVICES.INTENT_ENGINE.ENDPOINTS.DLQ)
+  const url = buildUrl('INTENT_ENGINE', endpoint)
   const fullUrl = queryParams.toString() ? `${url}?${queryParams.toString()}` : url
 
   const controller = new AbortController()
@@ -52,8 +50,12 @@ export async function fetchDLQItems(params: DLQListParams = {}): Promise<Backend
     } catch {
       return []
     }
-    // Empty DLQ: intent-engine historically returned JSON `null` (Go nil slice). Always return an array.
+
     if (Array.isArray(data)) return data as BackendDLQItem[]
+    if (data && typeof data === 'object') {
+      const items = (data as { items?: unknown }).items
+      if (Array.isArray(items)) return items as BackendDLQItem[]
+    }
     return []
   } catch (error) {
     clearTimeout(timeoutId)
@@ -62,6 +64,22 @@ export async function fetchDLQItems(params: DLQListParams = {}): Promise<Backend
     }
     return []
   }
+}
+
+/**
+ * Fetch DLQ items from zord-intent-engine
+ * Endpoint: GET http://localhost:8083/v1/dlq
+ */
+export async function fetchDLQItems(params: DLQListParams = {}): Promise<BackendDLQItem[]> {
+  return fetchDLQListFromEndpoint(BACKEND_SERVICES.INTENT_ENGINE.ENDPOINTS.DLQ, params)
+}
+
+/**
+ * Fetch DLQ manual-review rows from zord-intent-engine
+ * Endpoint: GET http://localhost:8083/v1/dlq/manual-review
+ */
+export async function fetchDLQManualReviewItems(params: DLQListParams = {}): Promise<BackendDLQItem[]> {
+  return fetchDLQListFromEndpoint(BACKEND_SERVICES.INTENT_ENGINE.ENDPOINTS.DLQ_MANUAL_REVIEW, params)
 }
 
 /**

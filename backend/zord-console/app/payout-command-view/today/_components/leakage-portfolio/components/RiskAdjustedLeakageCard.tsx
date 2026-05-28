@@ -38,7 +38,7 @@ const GRANULARITY_PILLS: { id: LeakageExposureGranularity; label: string }[] = [
 ]
 
 const CURRENT_COLOR = '#4a6fe6'
-const PREDICTED_COLOR = '#22c55e'
+const PREDICTED_COLOR = '#334155'
 
 function tierBadgeClass(tier: string): string {
   const upper = tier.toUpperCase()

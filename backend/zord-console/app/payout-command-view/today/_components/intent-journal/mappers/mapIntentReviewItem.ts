@@ -11,9 +11,14 @@ function mapStage(stage: string | undefined): JournalFailureRow['failureStage'] 
 }
 
 /** Map dlq-items list item → Review Items table row. */
-export function mapDlqListItemToReviewRow(row: IntentJournalDlqItem): JournalFailureRow {
-  const batchFromIngest = apiTrimmedString(row.client_batch_ref)
-  const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
+export function mapDlqListItemToReviewRow(
+  row: IntentJournalDlqItem,
+  selectedBatchId?: string,
+): JournalFailureRow {
+  const batchFromIngest =
+    apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
+  const batchId =
+    batchFromIngest || apiTrimmedString(selectedBatchId) || (row.envelope_id ? String(row.envelope_id) : '—')
   const lastUpdated = row.created_at
     ? new Date(row.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
     : '—'

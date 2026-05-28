@@ -357,6 +357,31 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     })
   }
 
+  test('navy KPI heroes render all expected bucket counts', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=grid')
+    await expect(page.getByTestId('intent-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="intent-kpi-hero-bucket-"]')).toHaveCount(5)
+
+    await page.goto('/payout-command-view/today?dock=settlement')
+    await expect(page.getByTestId('settlement-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="settlement-kpi-hero-bucket-"]')).toHaveCount(5)
+
+    await page.goto('/payout-command-view/today?dock=ambiguity')
+    await expect(page.getByTestId('ambiguity-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="ambiguity-kpi-hero-bucket-"]')).toHaveCount(4)
+
+    await page.goto('/payout-command-view/today?dock=proof')
+    await expect(page.getByTestId('evidence-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(6)
+  })
+
+  test('leakage keeps blue hero + 2x2 KPI layout', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=leakage')
+    await expect(page.getByTestId('leakage-kpi-strip')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('leakage-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="leakage-kpi-secondary-"]')).toHaveCount(4)
+  })
+
   test('leakage shows Preview on comparison chart', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=leakage')
     await expect(page.getByText('Preview', { exact: true }).first()).toBeVisible({ timeout: 20_000 })
@@ -393,6 +418,8 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.getByRole('heading', { name: 'Payment Batch Review', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
+    await expect(page.getByText('File processing status')).toHaveCount(0)
+    await expect(page.getByText('Batch Progress')).toHaveCount(0)
     await expectNoRuntimeOverlay(page)
   })
 })

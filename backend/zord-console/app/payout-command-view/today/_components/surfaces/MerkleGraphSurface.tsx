@@ -281,7 +281,7 @@ export function MerkleGraphSurface({
 
   const { defensibility } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId })
   const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
-  const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
+  const defensibilityScore = defensibilityResolved?.defensibility_score ?? 55
 
   useEffect(() => {
     const bid = apiTrimmedString(controlledBatchId)

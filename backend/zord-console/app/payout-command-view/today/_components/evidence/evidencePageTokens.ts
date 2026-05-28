@@ -1,7 +1,7 @@
 /** Shared Evidence page visual tokens (aligned with Leakage / Ambiguity command center). */
+import { INTELLIGENCE_BLUE_GRADIENT } from '../command-center/homeCommandCenterTokens'
 
-export const EVIDENCE_BLUE_GRADIENT =
-  'linear-gradient(140deg,#4a6fe6 0%,#103a9e 28%,#00239c 52%,#5c7ec9 100%)'
+export const EVIDENCE_BLUE_GRADIENT = INTELLIGENCE_BLUE_GRADIENT
 
 export const EVIDENCE_BLUE_GLOW =
   'radial-gradient(circle, rgba(255,255,255,0.28) 0%, transparent 70%)'

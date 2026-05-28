@@ -40,7 +40,8 @@ export function AllocationPerformanceCard({ data }: { data: PortfolioLeakageView
                   style={{
                     height: `${Math.max(heightPct, bar.minor > 0 ? 12 : 4)}%`,
                     minHeight: bar.minor > 0 ? '12px' : '4px',
-                    backgroundColor: bar.id === 'unmatched' ? '#16a34a' : bar.id === 'short' ? '#22c55e' : '#cbd5e1',
+                    backgroundColor:
+                      bar.id === 'unmatched' ? '#1e3a8a' : bar.id === 'short' ? '#334155' : '#cbd5e1',
                     opacity: bar.minor > 0 ? 1 : 0.4,
                   }}
                   title={formatMinorInr(bar.minor)}

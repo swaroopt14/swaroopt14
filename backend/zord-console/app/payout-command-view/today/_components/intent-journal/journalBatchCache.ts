@@ -16,6 +16,8 @@ import {
   mapIntelligenceRowToBatchRecord,
   type JournalBatchRecord,
 } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
+import { getProdDlqPage } from '@/services/payout-command/prod-api/getProdDlqPage'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { mapBatchIdItemToBatchRecord } from './mappers/mapIntentBatchSidebar'
 
 const listInflight = new Map<string, Promise<JournalBatchRecord[]>>()
@@ -33,19 +35,77 @@ export async function fetchJournalSidebarBatches(tenantId: string): Promise<Jour
 
   const promise = (async () => {
     const fetchRes = await getIntentJournalBatchIdsForSession()
+
+    const merged = new Map<string, JournalBatchRecord>()
+
     if (fetchRes.ok && fetchRes.data) {
-      let batchRows = (fetchRes.data.items ?? []).map(mapBatchIdItemToBatchRecord)
-      if (batchRows.length === 0 && tenantId.trim()) {
-        try {
-          const batchesRes = await getIntelligenceBatches({ limit: 100 })
-          batchRows = (batchesRes?.batches ?? []).map(mapIntelligenceRowToBatchRecord)
-        } catch {
-          /* optional fallback */
-        }
+      for (const row of (fetchRes.data.items ?? []).map(mapBatchIdItemToBatchRecord)) {
+        const bid = apiTrimmedString(row.batchId)
+        if (!bid) continue
+        merged.set(bid, row)
       }
-      return batchRows
     }
-    return []
+
+    if (tenantId.trim()) {
+      try {
+        const batchesRes = await getIntelligenceBatches({ limit: 100 })
+        for (const row of (batchesRes?.batches ?? []).map(mapIntelligenceRowToBatchRecord)) {
+          const bid = apiTrimmedString(row.batchId)
+          if (!bid) continue
+          const existing = merged.get(bid)
+          if (!existing) {
+            merged.set(bid, row)
+            continue
+          }
+          merged.set(bid, {
+            ...existing,
+            source: existing.source || row.source,
+            intelligenceCounts: row.intelligenceCounts ?? existing.intelligenceCounts,
+          })
+        }
+      } catch {
+        /* optional enrichment */
+      }
+
+      try {
+        const dlqPage = await getProdDlqPage('page=1&page_size=500')
+        const counts = new Map<string, number>()
+        for (const row of dlqPage?.items ?? []) {
+          const bid = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
+          if (!bid) continue
+          counts.set(bid, (counts.get(bid) ?? 0) + 1)
+        }
+
+        for (const [bid, count] of counts.entries()) {
+          const existing = merged.get(bid)
+          if (!existing) {
+            merged.set(bid, {
+              batchId: bid,
+              type: 'Disbursement',
+              apiType: '—',
+              source: 'DLQ',
+              totalValue: 0,
+              transactions: count,
+              confirmedCount: 0,
+              highConfidenceCount: 0,
+              mismatchCount: 0,
+              unresolvedCount: count,
+              engineSidebar: true,
+            })
+            continue
+          }
+          merged.set(bid, {
+            ...existing,
+            transactions: Math.max(existing.transactions, count),
+            unresolvedCount: Math.max(existing.unresolvedCount, count),
+          })
+        }
+      } catch {
+        /* optional enrichment */
+      }
+    }
+
+    return Array.from(merged.values())
   })().finally(() => {
     listInflight.delete(key)
   })
@@ -90,6 +150,40 @@ export async function fetchJournalDlqItems(batchId: string): Promise<IntentJourn
 
   const promise = (async () => {
     const res = await getIntentJournalDlqItemsForSession(bid)
+    if (res.ok && res.data && (res.data.items?.length ?? 0) > 0) return res.data
+
+    try {
+      const dlqPage = await getProdDlqPage('page=1&page_size=500')
+      const filteredItems = (dlqPage?.items ?? []).filter((row) => {
+        const rowBatchId = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
+        return rowBatchId === bid
+      })
+
+      if (filteredItems.length > 0) {
+        return {
+          items: filteredItems.map((row) => ({
+            dlq_id: row.dlq_id,
+            envelope_id: row.envelope_id,
+            client_batch_ref: row.client_batch_ref,
+            batch_id: row.batch_id,
+            source_row_num: row.source_row_num,
+            stage: row.stage,
+            reason_code: row.reason_code,
+            error_detail: row.error_detail,
+            replayable: row.replayable,
+            created_at: row.created_at,
+          })),
+          pagination: {
+            page: 1,
+            page_size: filteredItems.length,
+            total: filteredItems.length,
+          },
+        }
+      }
+    } catch {
+      /* optional fallback */
+    }
+
     return res.ok && res.data ? res.data : null
   })().finally(() => {
     dlqInflight.delete(bid)

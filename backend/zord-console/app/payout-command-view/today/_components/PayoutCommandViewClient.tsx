@@ -28,6 +28,7 @@ import {
   LiveSyncSurface,
   ProofSurface,
   SandboxConnectorsSurface,
+  SupportSurface,
   WorkspaceSurface,
 } from './surfaces'
 import { ActivateLiveWizard } from './sandbox/ActivateLiveWizard'
@@ -184,6 +185,13 @@ export default function PayoutCommandViewClient({
       )
     if (activeDock === 'billing') {
       return <BillingSurface onActivateClick={() => setActivateWizardOpen(true)} />
+    }
+    if (activeDock === 'support') {
+      return (
+        <div className={manropeHome.className}>
+          <SupportSurface />
+        </div>
+      )
     }
     return <ProofSurface />
   }, [

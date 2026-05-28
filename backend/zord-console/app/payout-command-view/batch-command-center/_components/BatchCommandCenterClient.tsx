@@ -13,20 +13,13 @@ import {
 } from './BatchIntakePanel'
 import { HydrationSafeLocaleTime } from '../../today/_components/command-center/RecommendedBlackCard'
 import {
-  derivePaymentProofTimeline,
-  paymentProofProgressPct,
-  progressFromSummary,
   type BatchSummary,
 } from '@/services/payout-command/batch-model'
 import { useBatchOperationsFeed } from '@/services/payout-command/batch-operations/useBatchOperationsFeed'
-import { BatchPortalSection } from './portal/BatchPortalSection'
-import { BatchPortalProgressList } from './portal/BatchPortalProgressList'
-import { deriveBatchPortalProgress } from './portal/deriveBatchPortalProgress'
 import { BATCH_REVIEW_COPY } from '../copy/batchCommandCenterCopy'
 import { BatchWorkspaceBar } from './BatchWorkspaceBar'
 import { BatchAdvancedDetails } from './BatchAdvancedDetails'
 import { BatchIngestSuccessDialog } from './BatchIngestSuccessDialog'
-import { BatchProgressPanel } from './BatchProgressPanel'
 import { PaymentStatusBreakdown } from './PaymentStatusBreakdown'
 import { ReviewItemsTable } from './ReviewItemsTable'
 import { mapPaymentStatusBreakdown } from '../mappers/mapBatchReviewKpis'
@@ -166,41 +159,6 @@ export default function BatchCommandCenterClient() {
   }, [feed.intentRows, feed.failureRows])
 
   const statCardsSummary = feed.intelligenceSummary ?? engineSummary
-  const progress = useMemo(() => progressFromSummary(statCardsSummary), [statCardsSummary])
-
-  const pipelineIntake = useMemo(
-    () => ({
-      intakeStep: intakeSnapshot.intakeStep,
-      intentFileName: intakeSnapshot.intentFileName,
-      intentIngestOk: intakeSnapshot.intentIngestOk,
-      settlementFileName: intakeSnapshot.settlementFileName,
-      settlementIngestOk: intakeSnapshot.settlementIngestOk,
-      uploadedFileName: intakeSnapshot.uploadedFileName,
-      uploadState: intakeSnapshot.uploadState,
-    }),
-    [intakeSnapshot],
-  )
-
-  const proofTimeline = useMemo(
-    () => derivePaymentProofTimeline(statCardsSummary, pipelineIntake),
-    [pipelineIntake, statCardsSummary],
-  )
-
-  const proofProgressPct = useMemo(() => paymentProofProgressPct(proofTimeline), [proofTimeline])
-
-  const portalProgressItems = useMemo(
-    () =>
-      deriveBatchPortalProgress({
-        snapshot: intakeSnapshot,
-        summary: statCardsSummary,
-        processedPct: progress.processedPct,
-        timeline: proofTimeline,
-        activeBatchId,
-        includeUploadCards: false,
-      }),
-    [activeBatchId, intakeSnapshot, progress.processedPct, proofTimeline, statCardsSummary],
-  )
-
   const intentJournalHref = useMemo(() => {
     const base = isSandboxRoute ? '/sandbox?dock=grid' : '/payout-command-view/today?dock=grid'
     if (!activeBatchId) return base
@@ -254,7 +212,7 @@ export default function BatchCommandCenterClient() {
       className="payout-command-console text-[13px] font-normal leading-relaxed text-[#1A1A1A] antialiased"
       data-testid="batch-review-page"
     >
-      <div className="mx-auto max-w-[960px] space-y-5">
+      <div className="w-full space-y-5 p-4 sm:p-5 lg:p-6">
         <header>
           <h1 className="text-[22px] font-bold tracking-tight text-[#0f172a]">{BATCH_REVIEW_COPY.pageTitle}</h1>
           <p className="mt-1 text-[14px] text-[#64748b]">{BATCH_REVIEW_COPY.pageSubtitle}</p>
@@ -372,16 +330,6 @@ export default function BatchCommandCenterClient() {
           onSettlementIngestSuccess={onSettlementIngestSuccess}
           onSnapshotChange={setIntakeSnapshot}
         />
-
-        <BatchPortalSection title={BATCH_REVIEW_COPY.fileProcessing.title}>
-          {portalProgressItems.length === 0 ? (
-            <p className="text-[13px] text-[#64748b]">{BATCH_REVIEW_COPY.fileProcessing.empty}</p>
-          ) : (
-            <BatchPortalProgressList items={portalProgressItems} />
-          )}
-        </BatchPortalSection>
-
-        <BatchProgressPanel steps={proofTimeline} progressPct={proofProgressPct} busy={feed.detailLoading} />
 
         <PaymentStatusBreakdown slices={pieSlices} hasBatch={Boolean(activeBatchId) || statCardsSummary.totalRows > 0} />
 

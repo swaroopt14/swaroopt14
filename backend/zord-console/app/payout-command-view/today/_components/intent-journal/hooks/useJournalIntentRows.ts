@@ -13,6 +13,7 @@ export function useJournalIntentRows(
   pollMs = LIVE_JOURNAL_POLL_MS,
 ) {
   const [rows, setRows] = useState<JournalIntentRow[]>([])
+  const [pagination, setPagination] = useState<{ page?: number; page_size?: number; total?: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -20,6 +21,7 @@ export function useJournalIntentRows(
     const bid = batchId.trim()
     if (!bid || !enabled) {
       setRows([])
+      setPagination(null)
       return
     }
     setLoading(true)
@@ -29,6 +31,7 @@ export function useJournalIntentRows(
       if (!res) {
         setError('Could not load payment intents for this batch.')
         setRows([])
+        setPagination(null)
         return
       }
       setRows(
@@ -36,9 +39,11 @@ export function useJournalIntentRows(
           mapPaymentIntentListItemToRow(item, bid, index, sessionTenantId),
         ),
       )
+      setPagination(res.pagination ?? null)
     } catch {
       setError('Could not load payment intents.')
       setRows([])
+      setPagination(null)
     } finally {
       setLoading(false)
     }
@@ -47,6 +52,7 @@ export function useJournalIntentRows(
   useEffect(() => {
     if (!enabled) {
       setRows([])
+      setPagination(null)
       return
     }
     void load()
@@ -54,5 +60,5 @@ export function useJournalIntentRows(
     return () => window.clearInterval(id)
   }, [enabled, load, pollMs])
 
-  return { rows, loading, error, refetch: load }
+  return { rows, pagination, loading, error, refetch: load }
 }

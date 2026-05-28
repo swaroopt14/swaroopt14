@@ -179,6 +179,8 @@ export type DisputeReason = (typeof evidenceCopy.dispute.reasons)[number]
 
 export function mapProofTierLabel(tier: string | undefined): string {
   const t = (tier || '').toUpperCase()
+  if (t === 'STRONG') return 'Certified'
+  if (t === 'FRAGILE') return 'Needs Review'
   if (t === 'EXCELLENT' || t === 'SEALED') return 'Certified'
   if (t === 'GOOD') return 'Proof Ready'
   if (t === 'FAIR') return 'Partial'

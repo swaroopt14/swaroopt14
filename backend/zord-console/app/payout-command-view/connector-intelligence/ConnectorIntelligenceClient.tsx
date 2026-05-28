@@ -77,7 +77,7 @@ export default function ConnectorIntelligenceClient() {
   const heroDelta = patternsData
     ? `${patternsData.anomaly_level} anomaly · ${patternsData.risk_tier} risk`
     : defData
-      ? `Tier ${defData.defensibility_tier} · ${defData.defensibility_score.toFixed(1)}% defensibility`
+      ? `Tier ${defData.defensibility_tier} · ${defData.defensibility_score.toFixed(1)} / 65 defensibility`
       : tenantReady
         ? 'Ingest a batch in Batch Command Center to populate intelligence KPIs for this tenant.'
         : 'Sign in to load tenant-scoped connector metrics.'
@@ -122,7 +122,7 @@ export default function ConnectorIntelligenceClient() {
           buckets={[
             {
               label: 'Defensibility score',
-              value: defScore !== null ? `${defScore.toFixed(1)}%` : '—',
+              value: defScore !== null ? `${defScore.toFixed(1)} / 65` : '—',
               sub: defData?.defensibility_tier ? `Tier ${defData.defensibility_tier}` : 'Tenant-wide intelligence',
             },
             {
@@ -151,7 +151,7 @@ export default function ConnectorIntelligenceClient() {
           <div className="relative mt-4 grid gap-3 sm:grid-cols-3">
             <KpiTile
               label="Defensibility score"
-              value={defScore !== null ? `${defScore.toFixed(1)}%` : '—'}
+              value={defScore !== null ? `${defScore.toFixed(1)} / 65` : '—'}
               sub={defData?.defensibility_tier ? `Tier ${defData.defensibility_tier}` : 'KPI 11–13'}
             />
             <KpiTile

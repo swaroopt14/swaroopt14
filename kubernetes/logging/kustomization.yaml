@@ -5,9 +5,11 @@ resources:
   - namespace.yaml
   - elasticsearch/service.yaml
   - elasticsearch/statefulset.yaml
+  - kibana/secret.yaml
   - kibana/deployment.yaml
   - kibana/service.yaml
   - fluentd/rbac.yaml
   - fluentd/configmap.yaml
   - fluentd/daemonset.yaml
   - fluentd/service.yaml
+  - ingress.yaml

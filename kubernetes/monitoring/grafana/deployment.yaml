@@ -20,11 +20,17 @@ spec:
             - containerPort: 3000
           env:
             - name: GF_SECURITY_ADMIN_USER
-              value: admin
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: ADMIN_USER
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: zord-grafana-2026
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-credentials
+                  key: ADMIN_PASSWORD
             - name: GF_SERVER_ROOT_URL
-              value: http://localhost:3000
+              value: https://grafana.zordnet.com
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
@@ -42,4 +48,17 @@ spec:
           configMap:
             name: grafana-datasources
         - name: data
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: grafana-data
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi

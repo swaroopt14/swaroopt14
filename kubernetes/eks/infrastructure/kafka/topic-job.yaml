@@ -10,6 +10,13 @@ spec:
       containers:
         - name: kafka-topics
           image: confluentinc/cp-kafka:7.6.0
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
           command:
             - /bin/bash
             - -ec

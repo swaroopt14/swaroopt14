@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong-admin-ui
+  namespace: api-gateway
+  labels:
+    app.kubernetes.io/name: kong-admin-ui
+    app.kubernetes.io/component: admin-ui
+    app.kubernetes.io/part-of: arealis-zord
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kong-admin-ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kong-admin-ui
+    spec:
+      containers:
+        - name: kong-admin-ui
+          # pgbi/kong-dashboard — free, open-source Kong admin UI
+          image: pgbi/kong-dashboard:v3.6.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - start
+            - --kong-url=http://kong-gateway.api-gateway.svc.cluster.local:8001
+            - --basic-auth=$(ADMIN_USERNAME)=$(ADMIN_PASSWORD)
+          env:
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: kong-admin-ui-credentials
+                  key: ADMIN_USERNAME
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kong-admin-ui-credentials
+                  key: ADMIN_PASSWORD
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

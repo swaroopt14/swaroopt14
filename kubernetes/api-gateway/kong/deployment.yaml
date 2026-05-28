@@ -1,10 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kong
+  name: kong-gateway
   namespace: api-gateway
   labels:
-    app: kong
+    app.kubernetes.io/name: kong-gateway
+    app.kubernetes.io/component: api-gateway
+    app.kubernetes.io/part-of: arealis-zord
 spec:
   replicas: 2
   minReadySeconds: 10
@@ -15,11 +17,11 @@ spec:
       maxSurge: 1
   selector:
     matchLabels:
-      app: kong
+      app.kubernetes.io/name: kong-gateway
   template:
     metadata:
       labels:
-        app: kong
+        app.kubernetes.io/name: kong-gateway
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "8100"
@@ -30,101 +32,94 @@ spec:
           requiredDuringSchedulingIgnoredDuringExecution:
             - labelSelector:
                 matchLabels:
-                  app: kong
+                  app.kubernetes.io/name: kong-gateway
               topologyKey: kubernetes.io/hostname
-      initContainers:
-        # Render kong.yaml with JWT public key injected from Secret
-        - name: render-config
-          image: busybox:1.36
-          command:
-            - sh
-            - -c
-            - |
-              if [ -f /kong/jwt/jwt.pub ]; then
-                JWT_KEY=$(cat /kong/jwt/jwt.pub)
-                sed "s|\${KONG_JWT_PUBLIC_KEY}|${JWT_KEY}|g" /kong/template/kong.yaml > /kong/rendered/kong.yaml
-              else
-                cp /kong/template/kong.yaml /kong/rendered/kong.yaml
-              fi
-          volumeMounts:
-            - name: kong-config-template
-              mountPath: /kong/template
-              readOnly: true
-            - name: jwt-public-key
-              mountPath: /kong/jwt
-              readOnly: true
-            - name: kong-rendered-config
-              mountPath: /kong/rendered
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: kong-gateway
       containers:
         - name: kong
-          image: kong:3.7
-          env:
-            - name: KONG_DATABASE
-              value: "off"
-            - name: KONG_DECLARATIVE_CONFIG
-              value: /kong/declarative/kong.yaml
-            - name: KONG_PROXY_ACCESS_LOG
-              value: /dev/stdout
-            - name: KONG_ADMIN_ACCESS_LOG
-              value: /dev/stdout
-            - name: KONG_PROXY_ERROR_LOG
-              value: /dev/stderr
-            - name: KONG_ADMIN_ERROR_LOG
-              value: /dev/stderr
-            - name: KONG_ADMIN_LISTEN
-              value: 0.0.0.0:8001, 0.0.0.0:8444 ssl
-            - name: KONG_PROXY_LISTEN
-              value: 0.0.0.0:8000, 0.0.0.0:8443 ssl
-            - name: KONG_STATUS_LISTEN
-              value: 0.0.0.0:8100
-            - name: KONG_LOG_LEVEL
-              value: notice
-            - name: KONG_NGINX_WORKER_PROCESSES
-              value: "2"
+          image: kong:3.9
+          imagePullPolicy: IfNotPresent
           ports:
             - name: proxy
               containerPort: 8000
+              protocol: TCP
             - name: proxy-ssl
               containerPort: 8443
+              protocol: TCP
             - name: admin
               containerPort: 8001
-            - name: admin-ssl
-              containerPort: 8444
+              protocol: TCP
             - name: metrics
               containerPort: 8100
+              protocol: TCP
+          env:
+            # DB-less mode — config from declarative YAML
+            - name: KONG_DATABASE
+              value: "off"
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /etc/kong/kong.yaml
+            # Proxy settings
+            - name: KONG_PROXY_LISTEN
+              value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"
+            - name: KONG_ADMIN_LISTEN
+              value: "0.0.0.0:8001"
+            # Logging
+            - name: KONG_PROXY_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_PROXY_ERROR_LOG
+              value: /dev/stderr
+            - name: KONG_ADMIN_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_ADMIN_ERROR_LOG
+              value: /dev/stderr
+            # Performance
+            - name: KONG_NGINX_WORKER_PROCESSES
+              value: "2"
+            - name: KONG_UPSTREAM_KEEPALIVE_POOL_SIZE
+              value: "60"
+            - name: KONG_UPSTREAM_KEEPALIVE_MAX_REQUESTS
+              value: "100"
+            - name: KONG_UPSTREAM_KEEPALIVE_IDLE_TIMEOUT
+              value: "60"
+            # Status endpoint for health checks
+            - name: KONG_STATUS_LISTEN
+              value: "0.0.0.0:8100"
+            # Plugins to load
+            - name: KONG_PLUGINS
+              value: "bundled"
           volumeMounts:
-            - name: kong-rendered-config
-              mountPath: /kong/declarative
-              readOnly: true
-            - name: jwt-public-key
-              mountPath: /kong/jwt
+            - name: kong-config
+              mountPath: /etc/kong
               readOnly: true
           readinessProbe:
             httpGet:
               path: /status
-              port: 8001
+              port: 8100
             initialDelaySeconds: 10
             periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /status
-              port: 8001
+              port: 8100
             initialDelaySeconds: 30
             periodSeconds: 20
+            timeoutSeconds: 5
           resources:
             requests:
-              cpu: 500m
+              cpu: 250m
               memory: 512Mi
             limits:
-              cpu: "1"
+              cpu: 1000m
               memory: 1Gi
       volumes:
-        - name: kong-config-template
+        - name: kong-config
           configMap:
             name: kong-declarative-config
-        - name: jwt-public-key
-          secret:
-            secretName: kong-jwt-public-key
-            optional: true
-        - name: kong-rendered-config
-          emptyDir: {}
+      terminationGracePeriodSeconds: 30

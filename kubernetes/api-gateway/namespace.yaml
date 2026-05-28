@@ -4,3 +4,4 @@ metadata:
   name: api-gateway
   labels:
     app.kubernetes.io/part-of: arealis-zord
+    app.kubernetes.io/component: api-gateway

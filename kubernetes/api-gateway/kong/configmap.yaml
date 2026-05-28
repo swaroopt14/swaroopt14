@@ -8,465 +8,337 @@ data:
     _format_version: "3.0"
     _transform: true
 
-    # ── Upstreams (with health checks for circuit breaker behavior) ──────
-    upstreams:
-      - name: zord-edge-upstream
-        algorithm: round-robin
-        targets:
-          - target: zord-edge.zord.svc.cluster.local:8080
-            weight: 100
-        healthchecks:
-          active:
-            type: http
-            http_path: /health
-            healthy:
-              interval: 10
-              successes: 2
-              http_statuses: [200, 201]
-            unhealthy:
-              interval: 5
-              http_failures: 3
-              tcp_failures: 3
-              timeouts: 3
-              http_statuses: [500, 502, 503, 504]
-          passive:
-            type: http
-            healthy:
-              successes: 5
-              http_statuses: [200, 201, 202, 204, 301, 302]
-            unhealthy:
-              http_failures: 5
-              tcp_failures: 3
-              timeouts: 3
-              http_statuses: [500, 502, 503, 504]
+    # ═══════════════════════════════════════════════════════════════════════════
+    # SERVICES — Each maps to a Kubernetes service in the zord namespace
+    # ═══════════════════════════════════════════════════════════════════════════
 
-      - name: zord-intent-engine-upstream
-        algorithm: round-robin
-        targets:
-          - target: zord-intent-engine.zord.svc.cluster.local:8083
-            weight: 100
-        healthchecks:
-          active:
-            type: http
-            http_path: /health
-            healthy:
-              interval: 10
-              successes: 2
-              http_statuses: [200]
-            unhealthy:
-              interval: 5
-              http_failures: 3
-              http_statuses: [500, 502, 503, 504]
-
-      - name: zord-relay-upstream
-        algorithm: round-robin
-        targets:
-          - target: zord-relay.zord.svc.cluster.local:8082
-            weight: 100
-        healthchecks:
-          active:
-            type: http
-            http_path: /health
-            healthy:
-              interval: 10
-              successes: 2
-              http_statuses: [200]
-            unhealthy:
-              interval: 5
-              http_failures: 3
-              http_statuses: [500, 502, 503, 504]
-
-      # ── Canary upstream example ────────────────────────────────────────
-      # Sends 90% to stable, 10% to canary. Add a canary deployment with
-      # different image tag and matching labels to make this real.
-      - name: zord-intelligence-canary-upstream
-        algorithm: round-robin
-        targets:
-          - target: zord-intelligence.zord.svc.cluster.local:8089
-            weight: 90
-          # Uncomment when canary deployment exists:
-          # - target: zord-intelligence-canary.zord.svc.cluster.local:8089
-          #   weight: 10
-        healthchecks:
-          active:
-            type: http
-            http_path: /healthz
-            healthy:
-              interval: 10
-              successes: 2
-              http_statuses: [200]
-            unhealthy:
-              interval: 5
-              http_failures: 3
-              http_statuses: [500, 502, 503, 504]
-
-    # ── Services (upstream backends) ─────────────────────────────────────
     services:
+
+      # ── zord-console (Frontend) ──────────────────────────────────────────────
       - name: zord-console
         url: http://zord-console.zord.svc.cluster.local:3000
         connect_timeout: 10000
-        read_timeout: 60000
         write_timeout: 60000
+        read_timeout: 60000
+        retries: 3
+        routes:
+          - name: console-root
+            paths:
+              - /
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
 
-      # Edge uses upstream block (gets active health checks + circuit breaker)
+      # ── zord-edge (API Gateway / Ingestion) ──────────────────────────────────
       - name: zord-edge
-        host: zord-edge-upstream
-        port: 80
-        protocol: http
+        url: http://zord-edge.zord.svc.cluster.local:8080
         connect_timeout: 10000
-        read_timeout: 60000
         write_timeout: 60000
+        read_timeout: 60000
         retries: 3
+        routes:
+          - name: edge-admin
+            paths:
+              - /v1/admin
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: edge-bulk-ingest
+            paths:
+              - /v1/bulk-ingest
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: edge-ingest
+            paths:
+              - /v1/ingest
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: edge-webhooks
+            paths:
+              - /v1/webhooks
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: edge-tenants
+            paths:
+              - /v1/tenants
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: edge-connectors
+            paths:
+              - /v1/connectors
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: edge-auth
+            paths:
+              - /v1/auth
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: edge-health
+            paths:
+              - /edge/health
+            strip_path: true
+            preserve_host: true
+            protocols:
+              - http
+              - https
 
+      # ── zord-intent-engine (Validation & Canonicalization) ───────────────────
       - name: zord-intent-engine
-        host: zord-intent-engine-upstream
-        port: 80
-        protocol: http
+        url: http://zord-intent-engine.zord.svc.cluster.local:8083
         connect_timeout: 10000
-        read_timeout: 60000
         write_timeout: 60000
+        read_timeout: 60000
         retries: 3
+        routes:
+          - name: intent-api
+            paths:
+              - /v1/intents
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: intent-dlq
+            paths:
+              - /v1/dlq
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: intent-etl
+            paths:
+              - /v1/etl
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: intent-health
+            paths:
+              - /intent/health
+            strip_path: true
+            preserve_host: true
+            protocols:
+              - http
+              - https
 
+      # ── zord-relay (Event Relay & Dispatch) ──────────────────────────────────
       - name: zord-relay
-        host: zord-relay-upstream
-        port: 80
-        protocol: http
+        url: http://zord-relay.zord.svc.cluster.local:8082
         connect_timeout: 10000
-        read_timeout: 60000
-        write_timeout: 60000
-        retries: 3
+        write_timeout: 30000
+        read_timeout: 30000
+        retries: 2
+        routes:
+          - name: relay-dispatch
+            paths:
+              - /v1/dispatch
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: relay-health
+            paths:
+              - /relay/health
+            strip_path: true
+            preserve_host: true
+            protocols:
+              - http
+              - https
 
-      - name: zord-token-enclave
-        url: http://zord-token-enclave.zord.svc.cluster.local:8087
-        connect_timeout: 10000
-        read_timeout: 60000
-        write_timeout: 60000
-
+      # ── zord-outcome-engine (Settlement & Reconciliation) ───────────────────
       - name: zord-outcome-engine
         url: http://zord-outcome-engine.zord.svc.cluster.local:8081
         connect_timeout: 10000
-        read_timeout: 60000
-        write_timeout: 60000
+        write_timeout: 120000
+        read_timeout: 120000
+        retries: 3
+        routes:
+          - name: outcome-settlement
+            paths:
+              - /v1/settlement
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: outcome-reconciliation
+            paths:
+              - /v1/reconciliation
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: outcome-health
+            paths:
+              - /outcome/health
+            strip_path: true
+            preserve_host: true
+            protocols:
+              - http
+              - https
 
+      # ── zord-evidence (Evidence Packs & Merkle Proofs) ──────────────────────
       - name: zord-evidence
         url: http://zord-evidence.zord.svc.cluster.local:8088
         connect_timeout: 10000
-        read_timeout: 60000
         write_timeout: 60000
-
-      # Intelligence uses canary upstream (90/10 split)
-      - name: zord-intelligence
-        host: zord-intelligence-canary-upstream
-        port: 80
-        protocol: http
-        connect_timeout: 10000
         read_timeout: 60000
-        write_timeout: 60000
         retries: 3
+        routes:
+          - name: evidence-packs
+            paths:
+              - /v1/evidence
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: evidence-verify
+            paths:
+              - /v1/verify
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: evidence-health
+            paths:
+              - /evidence/health
+            strip_path: true
+            preserve_host: true
+            protocols:
+              - http
+              - https
 
+      # ── zord-intelligence (Policies, Projections, RCA) ─────────────────────
+      - name: zord-intelligence
+        url: http://zord-intelligence.zord.svc.cluster.local:8089
+        connect_timeout: 10000
+        write_timeout: 60000
+        read_timeout: 60000
+        retries: 3
+        routes:
+          - name: intelligence-projections
+            paths:
+              - /v1/projections
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: intelligence-policies
+            paths:
+              - /v1/policies
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: intelligence-rca
+            paths:
+              - /v1/rca
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: intelligence-health
+            paths:
+              - /intelligence/health
+            strip_path: true
+            preserve_host: true
+            protocols:
+              - http
+              - https
+
+      # ── zord-prompt-layer (AI Copilot / LLM Queries) ───────────────────────
       - name: zord-prompt-layer
         url: http://zord-prompt-layer.zord.svc.cluster.local:8086
         connect_timeout: 10000
-        read_timeout: 60000
-        write_timeout: 60000
+        write_timeout: 120000
+        read_timeout: 120000
+        retries: 2
+        routes:
+          - name: prompt-query
+            paths:
+              - /v1/query
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: prompt-chat
+            paths:
+              - /v1/chat
+            strip_path: false
+            preserve_host: true
+            protocols:
+              - http
+              - https
+          - name: prompt-health
+            paths:
+              - /prompt/health
+            strip_path: true
+            preserve_host: true
+            protocols:
+              - http
+              - https
 
-    # ── Routes (URL → service mapping) ────────────────────────────────────
-    routes:
-      # Public ingestion route — JWT auth + rate limit
-      - name: edge-ingest
-        service: zord-edge
-        paths:
-          - /api/edge/v1/bulk-ingest
-          - /api/edge/v1/ingest
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-              fault_tolerant: true
-              hide_client_headers: false
-          # Stamp a header so backend knows the request came through Kong
-          - name: request-transformer
-            config:
-              add:
-                headers:
-                  - "X-Forwarded-By:kong-gateway"
-                  - "X-Gateway-Version:3.7"
+      # ── zord-token-enclave (Internal Only — limited exposure) ──────────────
+      - name: zord-token-enclave
+        url: http://zord-token-enclave.zord.svc.cluster.local:8087
+        connect_timeout: 5000
+        write_timeout: 15000
+        read_timeout: 15000
+        retries: 2
+        routes:
+          - name: token-enclave-health
+            paths:
+              - /token/health
+            strip_path: true
+            preserve_host: true
+            protocols:
+              - http
+              - https
 
-      # Admin route — JWT + IP whitelist + admin key
-      - name: edge-admin
-        service: zord-edge
-        paths:
-          - /api/edge/v1/admin
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: ip-restriction
-            config:
-              allow:
-                - 10.0.0.0/8
-                - 172.16.0.0/12
-                - 192.168.0.0/16
-                # Add your office public IP here, e.g.:
-                # - 203.0.113.10/32
-              status: 403
-              message: "Admin endpoints are restricted to whitelisted IPs"
-          - name: rate-limiting
-            config:
-              minute: 30
-              policy: local
+    # ═══════════════════════════════════════════════════════════════════════════
+    # PLUGINS — Global plugins applied to all routes
+    # ═══════════════════════════════════════════════════════════════════════════
 
-      # General edge API
-      - name: edge-api
-        service: zord-edge
-        paths:
-          - /api/edge
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-
-      # Intent engine API
-      - name: intent-api
-        service: zord-intent-engine
-        paths:
-          - /api/intent
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-          # Cache GET responses for /api/intent/v1/intents lists for 60s
-          - name: proxy-cache
-            config:
-              response_code:
-                - 200
-              request_method:
-                - GET
-                - HEAD
-              content_type:
-                - "application/json"
-              cache_ttl: 60
-              strategy: memory
-              memory:
-                dictionary_name: kong_db_cache
-
-      # Relay API
-      - name: relay-api
-        service: zord-relay
-        paths:
-          - /api/relay
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-
-      # Token enclave API
-      - name: token-api
-        service: zord-token-enclave
-        paths:
-          - /api/token
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-
-      # Outcome engine API
-      - name: outcome-api
-        service: zord-outcome-engine
-        paths:
-          - /api/outcome
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-
-      # Evidence API — cache pack reads (heavy disk I/O)
-      - name: evidence-api
-        service: zord-evidence
-        paths:
-          - /api/evidence
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-          - name: proxy-cache
-            config:
-              response_code:
-                - 200
-              request_method:
-                - GET
-                - HEAD
-              content_type:
-                - "application/json"
-              cache_ttl: 120
-              strategy: memory
-              memory:
-                dictionary_name: kong_db_cache
-
-      # Intelligence API — heavy ML/projections, cache aggressively
-      - name: intelligence-api
-        service: zord-intelligence
-        paths:
-          - /api/intelligence
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-          - name: proxy-cache
-            config:
-              response_code:
-                - 200
-              request_method:
-                - GET
-                - HEAD
-              content_type:
-                - "application/json"
-              cache_ttl: 60
-              strategy: memory
-              memory:
-                dictionary_name: kong_db_cache
-
-      # Prompt layer API
-      - name: prompt-api
-        service: zord-prompt-layer
-        paths:
-          - /api/prompt
-        strip_path: true
-        preserve_host: false
-        plugins:
-          - name: jwt
-            config:
-              uri_param_names:
-                - jwt
-              cookie_names: []
-              claims_to_verify:
-                - exp
-              key_claim_name: iss
-              run_on_preflight: true
-          - name: rate-limiting
-            config:
-              minute: 100
-              policy: local
-
-      # Catch-all route to frontend (must be LAST)
-      - name: console-frontend
-        service: zord-console
-        paths:
-          - /
-        strip_path: false
-        preserve_host: true
-
-    # ── Global plugins (apply to ALL routes) ──────────────────────────────
     plugins:
-      # CORS — allow frontend to call APIs
+
+      # ── CORS (Cross-Origin Resource Sharing) ────────────────────────────────
       - name: cors
         config:
           origins:
             - "https://zordnet.com"
+            - "https://www.zordnet.com"
             - "http://localhost:3000"
           methods:
             - GET
@@ -475,109 +347,146 @@ data:
             - PATCH
             - DELETE
             - OPTIONS
+            - HEAD
           headers:
             - Accept
-            - Accept-Version
-            - Content-Length
-            - Content-MD5
-            - Content-Type
-            - Date
             - Authorization
-            - X-Auth-Token
+            - Content-Type
             - X-Zord-ADMIN-KEY
             - X-Zord-Source-Type
             - X-Zord-Source-Class
             - X-Zord-Tenant-Type
-            - X-Zord-Tenant-Id
+            - X-Tenant-Id
             - Batch-Id
-            - X-Request-ID
-            - traceparent
-            - tracestate
           exposed_headers:
-            - X-Auth-Token
-            - X-Request-ID
-            - X-RateLimit-Limit-Minute
-            - X-RateLimit-Remaining-Minute
-            - X-Cache-Status
+            - X-Request-Id
+            - X-Kong-Upstream-Latency
+            - X-Kong-Proxy-Latency
           credentials: true
           max_age: 3600
           preflight_continue: false
 
-      # Correlation ID — auto-generate request IDs for tracing
-      - name: correlation-id
+      # ── Rate Limiting (Global — per IP) ─────────────────────────────────────
+      - name: rate-limiting
         config:
-          header_name: X-Request-ID
-          generator: uuid
-          echo_downstream: true
+          minute: 300
+          hour: 10000
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
+          error_code: 429
+          error_message: "Rate limit exceeded. Please slow down."
 
-      # Request size limiting — block huge payloads
-      - name: request-size-limiting
-        config:
-          allowed_payload_size: 10
-          size_unit: megabytes
-          require_content_length: false
-
-      # Prometheus — expose Kong metrics on /metrics for monitoring stack
+      # ── Prometheus Metrics ──────────────────────────────────────────────────
       - name: prometheus
         config:
-          per_consumer: false
           status_code_metrics: true
           latency_metrics: true
           bandwidth_metrics: true
           upstream_health_metrics: true
+          per_consumer: false
 
-      # HTTP log — ship access logs to Fluentd → Elasticsearch (EFK stack)
-      - name: http-log
+      # ── Request ID (Correlation) ────────────────────────────────────────────
+      - name: correlation-id
         config:
-          http_endpoint: http://fluentd-http.logging.svc.cluster.local:9880/kong.access
-          method: POST
-          timeout: 10000
-          keepalive: 60000
-          flush_timeout: 2
-          retry_count: 3
-          queue_size: 100
-          content_type: application/json
+          header_name: X-Request-Id
+          generator: uuid#counter
+          echo_downstream: true
 
-      # OpenTelemetry — propagate W3C trace context to backend services
-      - name: opentelemetry
+      # ── Request Size Limiting ───────────────────────────────────────────────
+      - name: request-size-limiting
         config:
-          endpoint: http://otel-collector.tracing.svc.cluster.local:4318/v1/traces
-          headers:
-            X-Source: kong-gateway
-          resource_attributes:
-            service.name: kong-gateway
-            deployment.environment: production
-          batch_span_count: 100
-          batch_flush_delay: 3
+          allowed_payload_size: 50
+          size_unit: megabytes
+          require_content_length: false
 
-      # Response transformer — strip internal headers before sending to clients
+      # ── Response Transformer (Security Headers) ─────────────────────────────
       - name: response-transformer
         config:
-          remove:
-            headers:
-              - "X-Powered-By"
-              - "Server"
           add:
             headers:
-              - "X-Frame-Options:DENY"
-              - "X-Content-Type-Options:nosniff"
-              - "Strict-Transport-Security:max-age=31536000; includeSubDomains"
-              - "Referrer-Policy:strict-origin-when-cross-origin"
+              - "X-Content-Type-Options: nosniff"
+              - "X-Frame-Options: DENY"
+              - "X-XSS-Protection: 1; mode=block"
+              - "Strict-Transport-Security: max-age=31536000; includeSubDomains"
+              - "Referrer-Policy: strict-origin-when-cross-origin"
+          remove:
+            headers:
+              - Server
+              - X-Powered-By
 
-    # ── Consumers (API clients with credentials) ──────────────────────────
-    consumers:
-      - username: zord-frontend
-        jwt_secrets:
-          - key: zord-frontend-iss
-            algorithm: RS256
-            rsa_public_key: "${KONG_JWT_PUBLIC_KEY}"
-      - username: zord-mobile
-        jwt_secrets:
-          - key: zord-mobile-iss
-            algorithm: RS256
-            rsa_public_key: "${KONG_JWT_PUBLIC_KEY}"
-      - username: zord-service-account
-        jwt_secrets:
-          - key: zord-service-iss
-            algorithm: RS256
-            rsa_public_key: "${KONG_JWT_PUBLIC_KEY}"
+      # ── IP Restriction (Admin routes only) ──────────────────────────────────
+      # Applied specifically to admin route below
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # ROUTE-SPECIFIC PLUGINS
+    # ═══════════════════════════════════════════════════════════════════════════
+
+      # ── Rate Limiting: Bulk Ingest (stricter) ───────────────────────────────
+      - name: rate-limiting
+        route: edge-bulk-ingest
+        config:
+          minute: 30
+          hour: 500
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
+          error_code: 429
+          error_message: "Bulk ingest rate limit exceeded."
+
+      # ── Rate Limiting: Settlement Upload (stricter) ─────────────────────────
+      - name: rate-limiting
+        route: outcome-settlement
+        config:
+          minute: 20
+          hour: 200
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
+          error_code: 429
+          error_message: "Settlement upload rate limit exceeded."
+
+      # ── Rate Limiting: AI Query (prevent abuse) ─────────────────────────────
+      - name: rate-limiting
+        route: prompt-query
+        config:
+          minute: 60
+          hour: 1000
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
+          error_code: 429
+          error_message: "AI query rate limit exceeded."
+
+      # ── Rate Limiting: AI Chat (prevent abuse) ──────────────────────────────
+      - name: rate-limiting
+        route: prompt-chat
+        config:
+          minute: 60
+          hour: 1000
+          policy: local
+          fault_tolerant: true
+          hide_client_headers: false
+          error_code: 429
+          error_message: "AI chat rate limit exceeded."
+
+      # ── Request Logging: Admin routes ───────────────────────────────────────
+      - name: file-log
+        route: edge-admin
+        config:
+          path: /dev/stdout
+          reopen: false
+
+      # ── Request Logging: Bulk Ingest ────────────────────────────────────────
+      - name: file-log
+        route: edge-bulk-ingest
+        config:
+          path: /dev/stdout
+          reopen: false
+
+      # ── Request Logging: Settlement ─────────────────────────────────────────
+      - name: file-log
+        route: outcome-settlement
+        config:
+          path: /dev/stdout
+          reopen: false

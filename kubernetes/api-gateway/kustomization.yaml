@@ -1,21 +1,33 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: api-gateway
+# ─────────────────────────────────────────────────────────────────────────────
+# Kong API Gateway — Kustomize Entrypoint
+# ─────────────────────────────────────────────────────────────────────────────
+# Deploy: kubectl apply -k kubernetes/api-gateway
+# Verify: kubectl get pods -n api-gateway
+# ─────────────────────────────────────────────────────────────────────────────
 
 labels:
   - pairs:
       app.kubernetes.io/part-of: arealis-zord
+      app.kubernetes.io/component: api-gateway
 
 resources:
+  # Namespace
   - namespace.yaml
-  - kong/jwt-secret.yaml
-  - kong/configmap.yaml
+
+  # Kong Gateway
   - kong/deployment.yaml
   - kong/service.yaml
-  - kong/ingress.yaml
-  - kong/networkpolicy.yaml
-  - kong/pdb.yaml
+  - kong/configmap.yaml
   - kong/hpa.yaml
-  - konga/deployment.yaml
-  - konga/service.yaml
+  - kong/pdb.yaml
+
+  # Kong Admin UI (Dashboard)
+  - kong-admin-ui/deployment.yaml
+  - kong-admin-ui/service.yaml
+  - kong-admin-ui/secret.yaml
+
+  # ALB Ingress (Internet → Kong)
+  - ingress/alb-ingress.yaml

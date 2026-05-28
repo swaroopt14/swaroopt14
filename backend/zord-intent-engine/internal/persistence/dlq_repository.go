@@ -17,8 +17,8 @@ type DLQRepository interface {
 	ListByTenant(ctx context.Context, tenantID string) ([]models.DLQEntry, error)
 	GetByTenantAndID(ctx context.Context, tenantID, dlqID string) (*models.DLQEntry, error)
 	GetByID(ctx context.Context, dlqID string) (*models.DLQEntry, error)
-	ListManualReview(ctx context.Context) ([]models.DLQEntry, error)
-	CountTerminal(ctx context.Context) (int, error)
+	ListManualReview(ctx context.Context, tenantID string) ([]models.DLQEntry, error)
+	CountTerminal(ctx context.Context, tenantID string) (int, error)
 }
 
 // Concrete Postgres implementation
@@ -207,27 +207,18 @@ func (r *DLQPostgresRepo) ListAll(
 }
 func (r *DLQPostgresRepo) ListManualReview(
 	ctx context.Context,
+	tenantID string,
 ) ([]models.DLQEntry, error) {
-
 	rows, err := r.db.QueryContext(ctx, `
 		SELECT
-			dlq_id,
-			tenant_id,
-			envelope_id,
-			stage,
-			reason_code,
-			error_detail,
-			replayable,
-			client_batch_ref,
-			created_at,
-			source_row_num,
-			dlq_status,
-			intent_context,
-			trace_id
+			dlq_id, tenant_id, envelope_id, stage, reason_code, error_detail,
+			replayable, client_batch_ref, created_at, source_row_num,
+			dlq_status, intent_context, trace_id
 		FROM dlq_items
-		WHERE dlq_status = 'NEEDS_MANUAL_REVIEW'
+		WHERE tenant_id = $1
+		  AND dlq_status = 'NEEDS_MANUAL_REVIEW'
 		ORDER BY created_at DESC
-	`)
+	`, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -261,14 +252,15 @@ func (r *DLQPostgresRepo) ListManualReview(
 }
 func (r *DLQPostgresRepo) CountTerminal(
 	ctx context.Context,
+	tenantID string,
 ) (int, error) {
-
 	var count int
 	err := r.db.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM dlq_items
-		WHERE dlq_status = 'DLQ_TERMINAL'
-	`).Scan(&count)
+		WHERE tenant_id = $1
+		  AND dlq_status = 'DLQ_TERMINAL'
+	`, tenantID).Scan(&count)
 	if err != nil {
 		return 0, err
 	}

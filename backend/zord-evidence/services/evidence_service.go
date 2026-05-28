@@ -159,8 +159,8 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 	// originating batch_id so the persisted pack can be queried by batch.
 	var batchID string
 	for _, l := range leaves {
-		if l.BatchID != nil && *l.BatchID != "" {
-			batchID = *l.BatchID
+		if l.ClientBatchID != nil && *l.ClientBatchID != "" {
+			batchID = *l.ClientBatchID
 			break
 		}
 	}
@@ -181,12 +181,8 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 	var br, cr, ad *string
 	var mc *float64
 	var vdc, am *bool
-	var clientBatchID string
 
 	for _, l := range leaves {
-		if l.ClientBatchID != nil && *l.ClientBatchID != "" {
-			clientBatchID = *l.ClientBatchID
-		}
 		if l.PaymentInstructionReceived != nil {
 			pir = l.PaymentInstructionReceived
 			cic = l.CanonicalIntentCreated
@@ -211,11 +207,10 @@ func (s *EvidenceService) HandleLeafUpdate(ctx context.Context, tenantID, envelo
 	req := models.GenerateEvidenceRequest{
 		TenantID:                   tenantID,
 		IntentID:                   intentID,
-		ClientBatchID:              clientBatchID,
+		ClientBatchID:              batchID,
 		EnvelopeID:                 envelopeID,
 		TraceID:                    traceID,
 		ContractID:                 contractID,
-		BatchID:                    batchID,
 		Mode:                       "INTELLIGENCE_ATTACH",
 		RulesetVersion:             "v1",
 		SchemaVersions:             map[string]string{"intent_schema": "v1", "outcome_schema": "v1", "contract_schema": "v1", "attachment_schema": "v1"},
@@ -871,7 +866,7 @@ func (s *EvidenceService) ReplayPack(ctx context.Context, req models.ReplayReque
 		ContractID:     req.ContractID,
 		// Preserve the original pack's batch lineage on the replay so the new
 		// pack remains queryable via GET /v1/evidence/packs?batch_id=.
-		BatchID:        oldPack.BatchID,
+		ClientBatchID:  oldPack.ClientBatchID,
 		Mode:           req.Mode,
 		RulesetVersion: req.RulesetVersion,
 		SchemaVersions: req.SchemaVersions,

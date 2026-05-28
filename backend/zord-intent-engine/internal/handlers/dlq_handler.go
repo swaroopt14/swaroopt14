@@ -40,7 +40,6 @@ func (h *DLQHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
 }
@@ -81,4 +80,38 @@ func (h *DLQHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(entry)
+}
+
+// GET /v1/dlq/manual-review
+func (h *DLQHandler) GetManualReviewDLQ(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	items, err := h.repo.ListManualReview(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if items == nil {
+		items = []models.DLQEntry{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
+// GET /v1/dlq/terminal/count
+func (h *DLQHandler) GetTerminalDLQCount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	count, err := h.repo.CountTerminal(ctx)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{
+		"count": count,
+	})
 }

@@ -119,6 +119,8 @@ func main() {
 	})
 
 	mux.HandleFunc("/v1/dlq", dlqHandler.List)
+	mux.HandleFunc("/v1/dlq/manual-review", dlqHandler.GetManualReviewDLQ)
+	mux.HandleFunc("/v1/dlq/terminal/count", dlqHandler.GetTerminalDLQCount)
 	mux.HandleFunc("/v1/dlq/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/dlq" || r.URL.Path == "/v1/dlq/" {
 			dlqHandler.List(w, r)

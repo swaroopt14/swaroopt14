@@ -340,8 +340,8 @@ func TestGradeA_DefensibilityService_DeterministicScore(t *testing.T) {
 	readLatestSnapshot(t, pool, tenantID, "DEFENSIBILITY", &snap)
 
 	// Score bounds
-	if snap.DefensibilityScore < 0 || snap.DefensibilityScore > 100 {
-		t.Errorf("DefensibilityScore = %.2f, want in [0,100]", snap.DefensibilityScore)
+	if snap.DefensibilityScore < 0 || snap.DefensibilityScore > 65 {
+		t.Errorf("DefensibilityScore = %.2f, want in [0,65]", snap.DefensibilityScore)
 	}
 	// With 90% pack, 85% governance, 80% approved, this should be GOOD or STRONG
 	switch snap.DefensibilityTier {
@@ -575,7 +575,7 @@ func TestGradeA_RecommendationService_PriorityScoreAndSort(t *testing.T) {
 		GovernanceRejectedCount: 5,
 		ReplayabilityPct:        0.50,
 		DefensibilityScore:      55.0,
-		DefensibilityTier:       "WEAK",
+		DefensibilityTier:       "GOOD",
 		ComputedAt:              now,
 	})
 	snapRepo.Create(ctx, persistence.IntelligenceSnapshot{

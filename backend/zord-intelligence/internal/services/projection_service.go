@@ -1376,6 +1376,12 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		log.Printf("HandleBatchSummaryUpdated: patternSvc failed batch=%s: %v", e.BatchID, err)
 	}
 
+	// Step 2b: Compute DEFENSIBILITY snapshot and stamp batch_contracts.defensibility_tier.
+	// batchRepo.Upsert above guarantees the row exists, so SetDefensibilityTier UPDATE succeeds.
+	if err := s.defensibilitySvc.ComputeAndSave(ctx, e.TenantID, e.BatchID, window.start, window.end); err != nil {
+		log.Printf("HandleBatchSummaryUpdated: defensibilitySvc failed batch=%s: %v", e.BatchID, err)
+	}
+
 	if leakage, err := s.projRepo.GetLeakageSummary(ctx, e.TenantID); err != nil {
 		log.Printf("HandleBatchSummaryUpdated: leakage denominator check failed batch=%s: %v", e.BatchID, err)
 	} else if leakage != nil && leakage.TotalIntendedAmountMinor.IsPositive() {

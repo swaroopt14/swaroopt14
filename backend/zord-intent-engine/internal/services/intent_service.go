@@ -1027,30 +1027,67 @@ func (s *IntentService) ProcessIncomingIntent(
 	}
 
 	if len(in.EncryptedPayload) == 0 {
-		return nil, &models.DLQEntry{ReasonCode: "EMPTY_PAYLOAD", DLQStatus: models.ClassifyDLQ("EMPTY_PAYLOAD"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			ReasonCode:  "EMPTY_PAYLOAD",
+			ErrorDetail: "payload content is empty",
+			DLQStatus:   models.ClassifyDLQ("EMPTY_PAYLOAD"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 
 	if in.TraceID == uuid.Nil {
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_TRACE_ID", DLQStatus: models.ClassifyDLQ("MISSING_TRACE_ID"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			ReasonCode:  "MISSING_TRACE_ID",
+			ErrorDetail: "trace_id is required but missing",
+			DLQStatus:   models.ClassifyDLQ("MISSING_TRACE_ID"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 
 	if in.EnvelopeID == uuid.Nil {
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_ENVELOPE_ID", DLQStatus: models.ClassifyDLQ("MISSING_ENVELOPE_ID"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			ReasonCode:  "MISSING_ENVELOPE_ID",
+			ErrorDetail: "envelope_id is required but missing",
+			DLQStatus:   models.ClassifyDLQ("MISSING_ENVELOPE_ID"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 
 	if in.TenantID == uuid.Nil {
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_TENANT_ID", DLQStatus: models.ClassifyDLQ("MISSING_TENANT_ID"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			ReasonCode:  "MISSING_TENANT_ID",
+			ErrorDetail: "tenant_id is required but missing",
+			DLQStatus:   models.ClassifyDLQ("MISSING_TENANT_ID"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 
 	if in.ObjectRef == "" {
-		return nil, &models.DLQEntry{ReasonCode: "MISSING_OBJECT_REF", DLQStatus: models.ClassifyDLQ("MISSING_OBJECT_REF"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			ReasonCode:  "MISSING_OBJECT_REF",
+			ErrorDetail: "object_ref is required but missing",
+			DLQStatus:   models.ClassifyDLQ("MISSING_OBJECT_REF"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 
 	// -------- STEP 5: Parse raw payload into domain model --------
 	decryptedPayload, err = vault.DecryptPayload(in.EncryptedPayload)
 	if err != nil {
 		log.Printf("⚠️ Payload decryption failed for EnvelopeID=%s: %v", in.EnvelopeID, err)
-		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "PAYLOAD_DECRYPTION_FAILED", DLQStatus: models.ClassifyDLQ("PAYLOAD_DECRYPTION_FAILED"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			Stage:       "SECURITY_DLQ",
+			ReasonCode:  "PAYLOAD_DECRYPTION_FAILED",
+			ErrorDetail: "payload decryption failed: " + err.Error(),
+			DLQStatus:   models.ClassifyDLQ("PAYLOAD_DECRYPTION_FAILED"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 
 	rawAuditPayload = append([]byte(nil), decryptedPayload...)
@@ -1063,16 +1100,37 @@ func (s *IntentService) ProcessIncomingIntent(
 	hexRawHash := hex.EncodeToString(rawHash[:])
 	if in.PayloadHash == "" {
 		log.Printf("⚠️ Missing raw payload hash for EnvelopeID=%s", in.EnvelopeID)
-		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "MISSING_RAW_PAYLOAD_HASH", DLQStatus: models.ClassifyDLQ("MISSING_RAW_PAYLOAD_HASH"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			Stage:       "SECURITY_DLQ",
+			ReasonCode:  "MISSING_RAW_PAYLOAD_HASH",
+			ErrorDetail: "payload_hash is required but missing",
+			DLQStatus:   models.ClassifyDLQ("MISSING_RAW_PAYLOAD_HASH"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 
 	if len(in.PayloadHash) != 64 {
 		log.Printf("⚠️ Invalid raw payload hash length for EnvelopeID=%s (expected 64, got %d)", in.EnvelopeID, len(in.PayloadHash))
-		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "INVALID_RAW_PAYLOAD_HASH_LENGTH", DLQStatus: models.ClassifyDLQ("INVALID_RAW_PAYLOAD_HASH_LENGTH"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			Stage:       "SECURITY_DLQ",
+			ReasonCode:  "INVALID_RAW_PAYLOAD_HASH_LENGTH",
+			ErrorDetail: "invalid payload_hash length (expected 64 chars)",
+			DLQStatus:   models.ClassifyDLQ("INVALID_RAW_PAYLOAD_HASH_LENGTH"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 	if in.PayloadHash != "" && hexRawHash != in.PayloadHash {
 		log.Printf("⚠️ Raw payload hash mismatch for EnvelopeID=%s", in.EnvelopeID)
-		return nil, &models.DLQEntry{Stage: "SECURITY_DLQ", ReasonCode: "RAW_PAYLOAD_INTEGRITY_FAILED", DLQStatus: models.ClassifyDLQ("RAW_PAYLOAD_INTEGRITY_FAILED"), BatchID: batchIDStr, TraceID: in.TraceID.String()}, nil
+		return nil, &models.DLQEntry{
+			Stage:       "SECURITY_DLQ",
+			ReasonCode:  "RAW_PAYLOAD_INTEGRITY_FAILED",
+			ErrorDetail: "payload integrity validation failed: hash mismatch",
+			DLQStatus:   models.ClassifyDLQ("RAW_PAYLOAD_INTEGRITY_FAILED"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
+		}, nil
 	}
 
 	in.SourceSystem = strings.ToUpper(strings.TrimSpace(in.SourceSystem))
@@ -1145,10 +1203,11 @@ func (s *IntentService) ProcessIncomingIntent(
 	var parsed models.ParsedIncomingIntent
 	if err := json.Unmarshal(decryptedPayload, &parsed); err != nil {
 		return nil, &models.DLQEntry{
-			ReasonCode: "INVALID_JSON_PAYLOAD",
-			DLQStatus:  models.ClassifyDLQ("INVALID_JSON_PAYLOAD"),
-			BatchID:    batchIDStr,
-			TraceID:    in.TraceID.String(),
+			ReasonCode:  "INVALID_JSON_PAYLOAD",
+			ErrorDetail: "malformed JSON payload: " + err.Error(),
+			DLQStatus:   models.ClassifyDLQ("INVALID_JSON_PAYLOAD"),
+			BatchID:     batchIDStr,
+			TraceID:     in.TraceID.String(),
 		}, nil
 	}
 	parsed.SchemaVersion = "v1"
@@ -1293,15 +1352,43 @@ func (s *IntentService) ProcessIncomingIntent(
 	if !governance.SemanticValid {
 		log.Printf("⚠️ Semantic Policy Violation for EnvelopeID=%s: %v", in.EnvelopeID, governance.SemanticErrors)
 		policyDLQStatus := models.ClassifyDLQ("SEMANTIC_INVALID")
-		return nil, &models.DLQEntry{
+
+		// Build a comprehensive error detail from all governance failure collections
+		var errorParts []string
+		if len(governance.SemanticErrors) > 0 {
+			errorParts = append(errorParts, "semantic errors: "+strings.Join(governance.SemanticErrors, ", "))
+		}
+		if len(governance.MissingFields) > 0 {
+			errorParts = append(errorParts, "missing required fields: "+strings.Join(governance.MissingFields, ", "))
+		}
+		if len(governance.PolicyFlags) > 0 {
+			errorParts = append(errorParts, "policy flags: "+strings.Join(governance.PolicyFlags, ", "))
+		}
+		errorDetail := strings.Join(errorParts, "; ")
+		if errorDetail == "" {
+			errorDetail = "semantic policy validation failed"
+		}
+
+		dlqEntry := models.DLQEntry{
+			TenantID:      in.TenantID.String(),
+			EnvelopeID:    in.EnvelopeID.String(),
 			Stage:         "POLICY_DLQ",
 			ReasonCode:    "SEMANTIC_INVALID",
-			ErrorDetail:   strings.Join(governance.SemanticErrors, ", "),
+			ErrorDetail:   errorDetail,
 			DLQStatus:     policyDLQStatus,
 			BatchID:       batchIDStr,
+			ClientBatchRef: batchIDStr,
 			IntentContext: models.BuildIntentContext(policyDLQStatus, parsed),
 			TraceID:       in.TraceID.String(),
-		}, nil
+			CreatedAt:     time.Now().UTC(),
+		}
+		// Save to the repository so the database row is created
+		savedDLQ, err := s.validator.DLQRepo().Save(ctx, dlqEntry)
+		if err != nil {
+			log.Printf("Failed to save POLICY_DLQ entry: %v", err)
+			return nil, &dlqEntry, nil
+		}
+		return nil, &savedDLQ, nil
 	}
 
 	// FIX: Generate IntentID early to include in GovernanceHash (NEW)

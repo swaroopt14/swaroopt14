@@ -40,7 +40,6 @@ func (h *DLQHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(items)
 }
@@ -81,4 +80,50 @@ func (h *DLQHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(entry)
+}
+
+// GET /v1/dlq/manual-review
+func (h *DLQHandler) GetManualReviewDLQ(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	if tenantID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "X-Tenant-ID header is required"})
+		return
+	}
+	items, err := h.repo.ListManualReview(ctx, tenantID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if items == nil {
+		items = []models.DLQEntry{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
+// GET /v1/dlq/terminal/count
+func (h *DLQHandler) GetTerminalDLQCount(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	if tenantID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "X-Tenant-ID header is required"})
+		return
+	}
+	count, err := h.repo.CountTerminal(ctx, tenantID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{
+		"count": count,
+	})
 }

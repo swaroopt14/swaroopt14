@@ -1,6 +1,6 @@
 # Zord EKS Deployment Guide — Step by Step
 
-This guide deploys the entire Arealis Zord platform (9 microservices + Postgres + Kafka) to AWS EKS.
+This guide deploys the entire Arealis Zord platform (9 microservices + Kong API Gateway + Postgres + Kafka + Observability) to AWS EKS.
 
 ---
 
@@ -14,6 +14,41 @@ Before starting, you need:
 - Access to AWS account `522189039032`
 - Access to the infrastructure repo: `Zord-Infrastructure-aws`
 - Access to this app repo: `Arealis-Zord-intent`
+- ACM certificate for `*.zordnet.com` (wildcard) — covers all subdomains
+
+---
+
+## Platform Architecture
+
+```
+Internet
+  │
+  ├── zordnet.com / api.zordnet.com / kong-admin.zordnet.com
+  │     → ALB (Kong) → Kong API Gateway (api-gateway namespace)
+  │                         ├── / → zord-console:3000
+  │                         ├── /v1/admin, /v1/bulk-ingest, /v1/ingest → zord-edge:8080
+  │                         ├── /v1/intents, /v1/dlq, /v1/etl → zord-intent-engine:8083
+  │                         ├── /v1/dispatch → zord-relay:8082
+  │                         ├── /v1/settlement, /v1/reconciliation → zord-outcome-engine:8081
+  │                         ├── /v1/evidence, /v1/verify → zord-evidence:8088
+  │                         ├── /v1/projections, /v1/policies, /v1/rca → zord-intelligence:8089
+  │                         └── /v1/query, /v1/chat → zord-prompt-layer:8086
+  │
+  └── grafana.zordnet.com / kibana.zordnet.com / jaeger.zordnet.com
+        → ALB (Observability) → Grafana / Kibana / Jaeger
+```
+
+## DNS Records (All Subdomains)
+
+| Domain | ALB | Purpose |
+|--------|-----|---------|
+| `zordnet.com` | Kong ALB | Frontend UI |
+| `www.zordnet.com` | Kong ALB | Frontend UI (www) |
+| `api.zordnet.com` | Kong ALB | API testing (Postman) |
+| `kong-admin.zordnet.com` | Kong ALB | Kong Admin Dashboard |
+| `grafana.zordnet.com` | Observability ALB | Metrics dashboards |
+| `kibana.zordnet.com` | Observability ALB | Log search |
+| `jaeger.zordnet.com` | Observability ALB | Trace viewer |
 
 ---
 
@@ -435,17 +470,20 @@ Replace the ARN with your real role ARN from Step E.
 
 ### 6.2 ALB Certificate and Domain
 
-File: `kubernetes/eks/ingress/public-alb.yaml`
+File: `kubernetes/api-gateway/ingress/alb-ingress.yaml`
 
 ```yaml
 alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-1:522189039032:certificate/6dc91f57-59fd-4e76-b6ae-8cc53ffc6564
 ```
 
-Replace with your actual ACM certificate ARN.
+Replace with your actual ACM certificate ARN. Must be a wildcard cert (`*.zordnet.com`) to cover all subdomains.
 
 ```yaml
 rules:
   - host: zordnet.com
+  - host: www.zordnet.com
+  - host: api.zordnet.com
+  - host: kong-admin.zordnet.com
 ```
 
 Replace with your actual domain.
@@ -465,10 +503,19 @@ Must match the region where your AWS Secrets Manager secrets are stored.
 ## Step 7: Dry Run (Validate Manifests)
 
 ```bash
+# Validate application services
 kubectl kustomize kubernetes/eks
+
+# Validate Kong API Gateway
+kubectl kustomize kubernetes/api-gateway
+
+# Validate observability (optional)
+kubectl kustomize kubernetes/monitoring
+kubectl kustomize kubernetes/logging
+kubectl kustomize kubernetes/tracing
 ```
 
-If this prints all resources without errors, you're ready to deploy.
+If all print resources without errors, you're ready to deploy.
 
 ---
 
@@ -518,7 +565,37 @@ See [kubernetes/api-gateway/README.md](./api-gateway/README.md) for full Kong do
 
 ---
 
-## Step 9: Watch Pods Come Up
+## Step 8.6: Deploy Observability Stack (Optional)
+
+Deploy after all services are running. Each stack is independent:
+
+```bash
+# Metrics (Grafana + Prometheus)
+kubectl apply -k kubernetes/monitoring
+
+# Logs (Kibana + Elasticsearch + Fluentd)
+kubectl apply -k kubernetes/logging
+
+# Traces (Jaeger + OpenTelemetry)
+kubectl apply -k kubernetes/tracing
+
+# Verify
+kubectl get pods -n monitoring
+kubectl get pods -n logging
+kubectl get pods -n tracing
+
+# Check observability ALB is created
+kubectl get ingress -n monitoring
+```
+
+Access after DNS is configured:
+- `https://grafana.zordnet.com` (admin / see `monitoring/grafana/secret.yaml`)
+- `https://kibana.zordnet.com` (elastic / see `logging/kibana/secret.yaml`)
+- `https://jaeger.zordnet.com` (admin / see `tracing/jaeger/secret.yaml`)
+
+See [kubernetes/observability-README.md](./observability-README.md) for full documentation.
+
+---## Step 9: Watch Pods Come Up
 
 ```bash
 kubectl get pods -n zord -w
@@ -786,8 +863,22 @@ kubectl delete pods -n zord -l app.kubernetes.io/name=<service-name>
 ## Future Improvements
 
 For higher production reliability:
-- Replace in-cluster Postgres with **AWS RDS Multi-AZ**
-- Replace in-cluster Kafka with **AWS MSK** (3+ brokers)
+- Replace in-cluster Postgres with **AWS RDS Multi-AZ** (see `kubernetes/future-upgrades/README.md`)
+- Replace in-cluster Kafka with **AWS MSK** (3+ brokers) (see `kubernetes/future-upgrades/README.md`)
 - Add **NetworkPolicy** for service isolation
 - Add **Pod Security Standards** (runAsNonRoot)
-- Set up **Prometheus + Grafana** monitoring (see `backend/observability/`)
+- Add **Cloudflare Access or AWS Cognito** for observability UI SSO (replace basic auth)
+- Enable **relay tracing** after deploying tracing stack
+- Add **Kong JWT plugin** to move auth validation to gateway level
+
+## Related Documentation
+
+| Document | Path |
+|----------|------|
+| Kong API Gateway Guide | `kubernetes/api-gateway/README.md` |
+| Observability Stack Guide | `kubernetes/observability-README.md` |
+| API Testing (Postman) | `docs/KONG-API-TESTING.md` |
+| End-to-End Testing | `kubernetes/eks_deployment_end-to-end_testing/Readme.md` |
+| Future Upgrades (RDS + MSK) | `kubernetes/future-upgrades/README.md` |
+| EKS Environment Variables | `docs/EKS-ENVIRONMENT-VARIABLES.md` |
+| Jenkins CI/CD | `jenkins/README.md` |

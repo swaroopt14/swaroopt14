@@ -111,7 +111,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 ### Step 4: Update AWS Secrets Manager
 
-Update `zord/app-secrets` in AWS Secrets Manager with the new RDS endpoint:
+Update `production/zord/app-secrets` in AWS Secrets Manager with the new RDS endpoint:
 
 | Key | Old Value | New Value |
 |-----|-----------|-----------|
@@ -348,7 +348,7 @@ kubectl logs -n zord deploy/zord-intent-engine --tail=20
 | File | What to Change |
 |------|---------------|
 | `kubernetes/eks/shared/aws-config.yaml` | Change `DB_HOST` to RDS endpoint, `DB_SSLMODE` to `require` |
-| AWS Secrets Manager (`zord/app-secrets`) | Update all `*_DB_URL` and `*_READ_DSN` values with RDS endpoint |
+| AWS Secrets Manager (`production/zord/app-secrets`) | Update all `*_DB_URL` and `*_READ_DSN` values with RDS endpoint |
 | `kubernetes/eks/kustomization.yaml` | Remove postgres resources (3 lines) |
 
 ### For MSK Migration (3 files)

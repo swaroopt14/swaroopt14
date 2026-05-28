@@ -125,8 +125,8 @@ Go to `Zord-Infrastructure-aws` repo → Actions → `Secret Manager Terraform` 
 - Click "Run workflow"
 
 Wait for it to complete. This creates:
-- `zord/app-secrets` in AWS Secrets Manager
-- `zord/edge-signing-key` in AWS Secrets Manager
+- `production/zord/app-secrets` in AWS Secrets Manager
+- `production/zord/edge-signing-key` in AWS Secrets Manager
 
 ---
 

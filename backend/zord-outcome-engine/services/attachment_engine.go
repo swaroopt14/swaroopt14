@@ -257,12 +257,41 @@ func (e *AttachmentEngine) runAttachment(
 			return scored[i].Total > scored[j].Total
 		})
 
+		// Step 5: Select decision type.
+		// IMPORTANT: SelectDecisionType must be called BEFORE buildCandidateRows.
+		// It calls ClassifyConfidenceContext which sets ConfidenceBucket on the top
+		// candidate. If we call buildCandidateRows first, every row is persisted with
+		// an empty ConfidenceBucket string.
+		decisionType, reasonCode := SelectDecisionType(scored, profile)
+
+		// Back-fill ConfidenceBucket for ALL candidates in the ranked set.
+		// SelectDecisionType only classifies the top (index 0) candidate.
+		// Runner-up candidates need their own bucket so the DB row is meaningful.
+		// We use margin = 0 for every non-top candidate (they lost the contest).
+		if len(scored) > 0 {
+			policy := parseRuleProfile(profile)
+			// Top candidate: margin vs runner-up (already set by SelectDecisionType,
+			// but we re-derive here to guarantee consistency for all paths).
+			topMargin := 0.0
+			if len(scored) > 1 {
+				topMargin = scored[0].Total - scored[1].Total
+			}
+			scored[0].ConfidenceBucket = ClassifyConfidenceContext(scored[0], scored, policy.ManualReviewThresholds)
+			_ = topMargin // used implicitly inside ClassifyConfidenceContext via ranked slice
+			// Runner-ups: evaluate independently with margin = 0 so they get their
+			// own honest bucket rather than inheriting the winner's context.
+			for i := 1; i < len(scored); i++ {
+				singleRanked := []CandidateScore{scored[i]}
+				scored[i].ConfidenceBucket = ClassifyConfidenceContext(scored[i], singleRanked, policy.ManualReviewThresholds)
+			}
+		}
+
 		// Build candidate rows for persistence (full set, not just winner).
+		// Called AFTER confidence buckets are classified so every row is complete.
 		candidates := buildCandidateRows(tenantID, job.AttachmentJobID, obs.SettlementObservationID, scored, intents)
 		allCandidates = append(allCandidates, candidates...)
 
-		// Step 5: Select decision type.
-		decisionType, reasonCode := SelectDecisionType(scored, profile)
+
 		// Updated signatures: pass obs and policy so scores reflect candidate
 		// set size, source strength, carrier richness, and parse/mapping quality.
 		ambiguityScore := ComputeAmbiguityScore(scored, decisionType, obs, policy)

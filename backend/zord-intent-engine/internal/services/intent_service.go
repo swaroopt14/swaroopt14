@@ -1151,6 +1151,7 @@ func (s *IntentService) ProcessIncomingIntent(
 			TraceID:    in.TraceID.String(),
 		}, nil
 	}
+	parsed.SchemaVersion = "v1"
 
 	// FIX: Idempotency Key Fallback
 	if in.IdempotencyKey == "" {
@@ -1232,7 +1233,14 @@ func (s *IntentService) ProcessIncomingIntent(
 	if normResult != nil && normResult.WasNormalized {
 		unmappedBytes, _ := json.Marshal(normResult.UnmappedFields)
 		nir.UnmappedJSON = unmappedBytes
-		nir.MappingUncertainFlag = len(normResult.Warnings) > 0
+		hasFuzzyMatch := false
+		for _, prov := range normResult.FieldProvenance {
+			if prov.MatchMethod == "fuzzy" {
+				hasFuzzyMatch = true
+				break
+			}
+		}
+		nir.MappingUncertainFlag = hasFuzzyMatch
 
 		// Stamp provenance into each NIRField's TransformApplied
 		for _, prov := range normResult.FieldProvenance {
@@ -1693,6 +1701,10 @@ func (s *IntentService) ProcessIncomingIntent(
 		log.Printf("⚠️ Repo.Save failed for EnvelopeID=%s: %v", in.EnvelopeID, err)
 		return nil, nil, err
 	}
+
+	// If Save detected a concurrent duplicate (ON CONFLICT DO NOTHING triggered),
+	// use the updated saved intent which has DuplicateRiskFlag=true set by the repo.
+	canonical = saved
 
 	// -------- STEP 11: WORM SNAPSHOT (S3) --------
 

@@ -341,14 +341,14 @@ INSERT INTO outbox (
 
 	if registry != nil {
 		registryQuery := `
-		INSERT INTO business_idempotency_registry (
-			tenant_id, business_idempotency_key, intent_id,
-			beneficiary_fingerprint, amount_minor, currency_code,
-			time_bucket, duplicate_reason_code, created_at
-		) VALUES (
-			$1, $2, $3, $4, $5, $6, $7, $8, $9
-		)`
-		_, err = tx.ExecContext(ctx, registryQuery,
+    INSERT INTO business_idempotency_registry (
+        tenant_id, business_idempotency_key, intent_id,
+        beneficiary_fingerprint, amount_minor, currency_code,
+        time_bucket, duplicate_reason_code, created_at
+    ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9
+    ) ON CONFLICT (tenant_id, business_idempotency_key) DO NOTHING`
+		result, err := tx.ExecContext(ctx, registryQuery,
 			registry.TenantID, registry.BusinessIdempotencyKey, registry.IntentID,
 			registry.BeneficiaryFingerprint, registry.AmountMinor, registry.CurrencyCode,
 			registry.TimeBucket, registry.DuplicateReasonCode, registry.CreatedAt,
@@ -356,6 +356,31 @@ INSERT INTO outbox (
 		if err != nil {
 			log.Printf("Repo.Save: INSERT business_idempotency_registry failed: %v", err)
 			return intent, err
+		}
+		// Check if the INSERT was suppressed by ON CONFLICT (rows affected = 0 means a concurrent
+		// intent already owns this key — signal the service layer to mark this intent as duplicate)
+		rowsAffected, _ := result.RowsAffected()
+		if rowsAffected == 0 {
+			intent.DuplicateRiskFlag = true
+			if intent.DuplicateReasonCode == "" || intent.DuplicateReasonCode == "NONE" {
+				intent.DuplicateReasonCode = "SAME_BENEFICIARY_AMOUNT_TIME"
+			}
+			intent.GovernanceState = "FLAGGED"
+			// Update the already-inserted payment_intents row to reflect duplicate flag
+			_, err = tx.ExecContext(ctx, `
+            UPDATE payment_intents
+            SET duplicate_risk_flag = true,
+                duplicate_reason_code = $1,
+                governance_state = 'FLAGGED',
+                updated_at = now()
+            WHERE intent_id = $2`,
+				intent.DuplicateReasonCode,
+				intent.IntentID,
+			)
+			if err != nil {
+				log.Printf("Repo.Save: UPDATE duplicate flag failed: %v", err)
+				return intent, err
+			}
 		}
 	}
 

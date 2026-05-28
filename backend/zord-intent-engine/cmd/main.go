@@ -174,6 +174,9 @@ func main() {
 				if dlq.ClientBatchRef == "" && event.BatchID != nil {
 					dlq.ClientBatchRef = *event.BatchID
 				}
+				if dlq.BatchID == "" && event.BatchID != nil {
+					dlq.BatchID = *event.BatchID
+				}
 				_, err := dlqRepo.Save(ctx, *dlq)
 				if err != nil {
 					log.Printf("Failed to save DLQ entry: %v", err)

@@ -127,70 +127,65 @@ func (s *AmbiguityIntelligenceService) ComputeAndSave(
 		return fmt.Errorf("ambiguity_svc.ComputeAndSave GetAmbiguitySummary tenant=%s: %w", tenantID, err)
 	}
 	if amb == nil || amb.TotalDecisions == 0 {
-		return nil // no data yet
+		return nil
 	}
 
 	// Step 2: build deterministic snapshot
 	snap := s.buildSnapshot(amb)
 
-	// Step 3: ML — Logistic Regression risk prediction via Python ml-service.
-	// We use 0 for totalIntendedMinor (not available at tenant scope); feature[3] stays 0.
-	lrResult, lrErr := s.mlClient.InvokeLogisticRegression(ctx, mlclient.LRRequest{
+	// Step 3: fire async LR prediction — consumer goroutine returns immediately.
+	// Snapshot write, ML features, and ML prediction all complete inside the callback.
+	s.mlClient.InvokeLogisticRegressionAsync(ctx, mlclient.LRRequest{
 		TenantID:               tenantID,
 		AmbiguityRate:          amb.AmbiguityRate,
 		ProviderRefMissingRate: amb.ProviderRefMissingRate,
 		AvgConfidence:          amb.AvgAttachmentConfidence,
 		ValueAtRiskMinor:       amb.ValueAtRiskMinor.InexactFloat64(),
 		TotalIntendedMinor:     0,
+	}, func(lrResult mlclient.LRResult, lrErr error) {
+		if lrErr != nil {
+			log.Printf("ambiguity_svc: InvokeLogisticRegressionAsync failed tenant=%s: %v", tenantID, lrErr)
+		}
+		snap.RiskPredictionScore = lrResult.Probability
+		snap.RiskPredictionLevel = lrResult.Level
+
+		projRefs := []string{"ambiguity.summary"}
+		projRefsJSON, _ := json.Marshal(projRefs)
+		snapJSON, marshalErr := json.Marshal(snap)
+		if marshalErr != nil {
+			log.Printf("ambiguity_svc: marshal snap async tenant=%s: %v", tenantID, marshalErr)
+			return
+		}
+		snapID := "snap_" + uuid.New().String()
+		modelVer := "logistic_regression_v1"
+		if createErr := s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
+			SnapshotID:         snapID,
+			TenantID:           tenantID,
+			SnapshotType:       "AMBIGUITY",
+			ScopeType:          "TENANT",
+			ScopeRef:           nil,
+			WindowStart:        windowStart,
+			WindowEnd:          windowEnd,
+			ProjectionRefsJSON: projRefsJSON,
+			SnapshotJSON:       snapJSON,
+			ModelVersion:       &modelVer,
+			CreatedAt:          time.Now().UTC(),
+		}); createErr != nil {
+			log.Printf("ambiguity_svc: Create snapshot async tenant=%s: %v", tenantID, createErr)
+			return
+		}
+		if featErr := s.persistMLFeatures(ctx, tenantID, snapID, amb, windowStart, windowEnd); featErr != nil {
+			log.Printf("ambiguity_svc: persistMLFeatures async failed tenant=%s: %v", tenantID, featErr)
+		}
+		features := mlclient.BuildLRFeatures(
+			amb.AmbiguityRate,
+			amb.ProviderRefMissingRate,
+			amb.AvgAttachmentConfidence,
+			amb.ValueAtRiskMinor.InexactFloat64(),
+			0,
+		)
+		s.persistMLPrediction(ctx, tenantID, snapID, features, lrResult.Probability, lrResult.Level)
 	})
-	if lrErr != nil {
-		log.Printf("ambiguity_svc: InvokeLogisticRegression failed tenant=%s: %v", tenantID, lrErr)
-		// lrResult is already the safe fallback (0.5, MEDIUM)
-	}
-	snap.RiskPredictionScore = lrResult.Probability
-	snap.RiskPredictionLevel = lrResult.Level
-
-	// Step 4: marshal and persist
-	projRefs := []string{"ambiguity.summary"}
-	projRefsJSON, _ := json.Marshal(projRefs)
-	snapJSON, err := json.Marshal(snap)
-	if err != nil {
-		return fmt.Errorf("ambiguity_svc.ComputeAndSave marshal tenant=%s: %w", tenantID, err)
-	}
-
-	snapID := "snap_" + uuid.New().String()
-	modelVer := "logistic_regression_v1"
-	if err := s.snapshotRepo.Create(ctx, persistence.IntelligenceSnapshot{
-		SnapshotID:         snapID,
-		TenantID:           tenantID,
-		SnapshotType:       "AMBIGUITY",
-		ScopeType:          "TENANT",
-		ScopeRef:           nil,
-		WindowStart:        windowStart,
-		WindowEnd:          windowEnd,
-		ProjectionRefsJSON: projRefsJSON,
-		SnapshotJSON:       snapJSON,
-		ModelVersion:       &modelVer,
-		CreatedAt:          time.Now().UTC(),
-	}); err != nil {
-		return fmt.Errorf("ambiguity_svc.ComputeAndSave Create snapshot tenant=%s: %w", tenantID, err)
-	}
-
-	// Step 5: persist ML features
-	if err := s.persistMLFeatures(ctx, tenantID, snapID, amb, windowStart, windowEnd); err != nil {
-		log.Printf("ambiguity_svc: persistMLFeatures failed tenant=%s: %v", tenantID, err)
-	}
-
-	// Step 6: persist the LR prediction to ml_predictions for audit trail.
-	// Build the feature vector for explainability (same computation as Python).
-	features := mlclient.BuildLRFeatures(
-		amb.AmbiguityRate,
-		amb.ProviderRefMissingRate,
-		amb.AvgAttachmentConfidence,
-		amb.ValueAtRiskMinor.InexactFloat64(),
-		0,
-	)
-	s.persistMLPrediction(ctx, tenantID, snapID, features, lrResult.Probability, lrResult.Level)
 
 	return nil
 }

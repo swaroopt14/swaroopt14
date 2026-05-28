@@ -58,8 +58,10 @@ export const JOURNAL_INSIGHT_DARK_LEGEND = 'text-[13px] font-medium text-white/8
 export const COMMAND_CENTER_INSIGHT_GREEN_TEXT =
   'text-[13px] font-medium leading-relaxed text-white'
 
-/** Outer wash behind the white console card (Home + Batch + Sandbox). */
-export const PAYOUT_PAGE_BG_CLASS = 'bg-[#f5f5f5]'
+/** Outer wash behind console surfaces (Home, Leakage, Ambiguity, Evidence, etc.). */
+export const PAYOUT_PAGE_BG_CLASS = 'bg-[#e8eef5]'
+/** Carousel / command cool blue — same token used on Leakage & Ambiguity pages. */
+export const COMMAND_COOL_PAGE_BG = 'bg-[#e8eef5]'
 /** Whitish minimal warm beige — Home command band + Batch body. */
 export const PAYOUT_WARM_SURFACE_BG_CLASS = 'bg-[#f4f4f1]'
 /** White elevated console card (nav + surfaces). */

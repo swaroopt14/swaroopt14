@@ -80,9 +80,11 @@ export const BACKEND_SERVICES = {
     ENDPOINTS: {
       LEAKAGE: '/v1/intelligence/dashboard/leakage',
       AMBIGUITY: '/v1/intelligence/dashboard/ambiguity',
+      AMBIGUITY_HEATMAP: '/v1/intelligence/dashboard/ambiguity/heatmap',
       DEFENSIBILITY: '/v1/intelligence/dashboard/defensibility',
       PATTERNS: '/v1/intelligence/dashboard/patterns',
       RECOMMENDATIONS: '/v1/intelligence/dashboard/recommendations',
+      RCA: '/v1/intelligence/dashboard/rca',
       BATCHES: '/v1/intelligence/batches',
       BATCH_BY_ID: (id: string) => `/v1/intelligence/batches/${id}`,
     },

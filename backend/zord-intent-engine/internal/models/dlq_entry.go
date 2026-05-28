@@ -23,6 +23,7 @@ type DLQEntry struct {
 	Replayable     bool   `json:"replayable"`
 	ClientBatchRef string `json:"client_batch_ref"`
 	BatchID        string `json:"batch_id,omitempty"`
+	SourceRowNum   *int   `json:"source_row_num,omitempty"`
 
 	// NEW — populated only when DLQStatus = NEEDS_MANUAL_REVIEW
 	IntentContext json.RawMessage `json:"intent_context,omitempty"` // beneficiary_name, amount, idempotency_key

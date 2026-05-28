@@ -59,7 +59,7 @@ type CanonicalIntent struct {
 
 	// 🆕 Traceability Fields
 	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty" db:"payment_instruction_received"`
-	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty" db:"canonical_intent_created"`
+	CanonicalIntentCreated     *time.Time `json:"canonical_intent_created,omitempty" db:"canonical_intent_created"`
 
 	// Service 2 mandatory fields
 	BusinessIdempotencyKey    string          `json:"business_idempotency_key,omitempty" db:"business_idempotency_key"`
@@ -77,6 +77,7 @@ type CanonicalIntent struct {
 
 	UpdatedAt                *time.Time `json:"updated_at,omitempty"`
 	BatchID                  *string    `json:"batchid,omitempty" db:"batchid"`
+	SourceRowNum             *int       `json:"source_row_num,omitempty" db:"source_row_num"`
 	AggregateConfidenceScore *float64   `json:"aggregate_confidence_score,omitempty" db:"aggregate_confidence_score"` // NEW
 
 	// 🆕 Status Fields
@@ -85,13 +86,13 @@ type CanonicalIntent struct {
 	GovernanceDecision   *string `json:"governance_decision,omitempty" db:"governance_decision"`
 
 	// ── Scoring v2 fields ──────────────────────────────────────────────────────
-	ReferenceQualityScore  float64         `json:"reference_quality_score,omitempty"  db:"reference_quality_score"`
-	DuplicateRiskScore     float64         `json:"duplicate_risk_score,omitempty"      db:"duplicate_risk_score"`
-	ScoreVersion           string          `json:"score_version,omitempty"             db:"score_version"`
-	ScoreValidityStatus    string          `json:"score_validity_status,omitempty"     db:"score_validity_status"`
-	ScoreBreakdownJSON     json.RawMessage `json:"score_breakdown_json,omitempty"      db:"score_breakdown_json"`
-	ScoreReasonCodesJSON   json.RawMessage `json:"score_reason_codes_json,omitempty"   db:"score_reason_codes_json"`
-	ScoredAt               *time.Time      `json:"scored_at,omitempty"                 db:"scored_at"`
+	ReferenceQualityScore float64         `json:"reference_quality_score,omitempty"  db:"reference_quality_score"`
+	DuplicateRiskScore    float64         `json:"duplicate_risk_score,omitempty"      db:"duplicate_risk_score"`
+	ScoreVersion          string          `json:"score_version,omitempty"             db:"score_version"`
+	ScoreValidityStatus   string          `json:"score_validity_status,omitempty"     db:"score_validity_status"`
+	ScoreBreakdownJSON    json.RawMessage `json:"score_breakdown_json,omitempty"      db:"score_breakdown_json"`
+	ScoreReasonCodesJSON  json.RawMessage `json:"score_reason_codes_json,omitempty"   db:"score_reason_codes_json"`
+	ScoredAt              *time.Time      `json:"scored_at,omitempty"                 db:"scored_at"`
 }
 type BatchSidebarItem struct {
 	BatchID             string   `json:"batchId"`

@@ -1,6 +1,7 @@
 import type { IntentJournalPaymentIntentItem } from '@/services/payout-command/prod-api/intentJournalTypes'
 import type { JournalIntentRow, JournalIntentStatus } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
+import { tenantZordIdSuffix } from '@/services/payout-command/prod-api/tenantDisplay'
 
 export const READINESS_REVIEW_THRESHOLD = 0.7
 
@@ -54,6 +55,7 @@ export function mapPaymentIntentListItemToRow(
   item: IntentJournalPaymentIntentItem,
   batchId: string,
   index: number,
+  sessionTenantId: string,
 ): JournalIntentRow {
   const amount = parseAmount(item.amount)
   const qualityScore =
@@ -63,13 +65,14 @@ export function mapPaymentIntentListItemToRow(
   const status = resolveLifecycleStatus(qualityScore ?? undefined)
   const provider = resolveProviderHint(item.provider_hint)
   const requestId = syntheticRequestId(batchId, index, item)
+  const zordId = tenantZordIdSuffix(sessionTenantId || apiTrimmedString(item.tenant_id))
+  const paymentRef = apiTrimmedString(item.client_payout_ref)
 
   return {
     batchId,
+    zordId,
     requestId,
-    reference:
-      apiTrimmedString(item.client_payout_ref) ||
-      (item.envelope_id ? `env_${String(item.envelope_id).slice(-8)}` : requestId.slice(-12)),
+    reference: paymentRef || '—',
     amount,
     method: 'Bank Transfer',
     status,

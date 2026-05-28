@@ -32,6 +32,7 @@ package worker
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/zord/zord-intelligence/config"
@@ -120,9 +121,24 @@ func (w *OutboxWorker) runOnce(ctx context.Context) {
 	}
 
 	logger.Info(fmt.Sprintf("outbox_worker: processing %d entries", len(entries)))
+
+	// Bounded goroutine pool: at most 10 concurrent Kafka publishes.
+	// Parallel delivery removes the sequential Kafka-RTT bottleneck (~20ms × 50 entries = 1s saved per tick).
+	// WaitGroup ensures all deliveries complete before the next tick starts.
+	const deliveryPoolSize = 10
+	sem := make(chan struct{}, deliveryPoolSize)
+	var wg sync.WaitGroup
 	for _, entry := range entries {
-		w.deliver(ctx, entry)
+		e := entry // capture loop variable before goroutine launch
+		sem <- struct{}{}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			w.deliver(ctx, e)
+		}()
 	}
+	wg.Wait()
 }
 
 // deliver sends one outbox entry to the correct Kafka topic.

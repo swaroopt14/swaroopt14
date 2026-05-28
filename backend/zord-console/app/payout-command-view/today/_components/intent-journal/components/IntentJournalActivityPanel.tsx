@@ -406,8 +406,8 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                               }}
                               className={`cursor-pointer border-t border-[#f3f4f6] ${selectedIntentId === row.requestId ? 'bg-[#f8fafc]' : rowIndex % 2 === 1 ? 'bg-slate-50/40 hover:bg-[#f9fafb]' : 'hover:bg-[#f9fafb]'}`}
                             >
-                              <td className="truncate px-3 py-2.5 font-mono text-[12px] text-[#334155]" title={row.requestId}>
-                                {row.requestId}
+                              <td className="truncate px-3 py-2.5 font-mono text-[12px] text-[#334155]" title={row.zordId ?? row.requestId}>
+                                {row.zordId ?? row.requestId}
                               </td>
                               <td className="truncate px-3 py-2.5 text-[13px] text-[#334155]" title={row.reference}>
                                 {row.reference}

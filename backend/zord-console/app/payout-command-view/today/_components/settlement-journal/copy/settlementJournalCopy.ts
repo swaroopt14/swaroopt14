@@ -11,6 +11,9 @@ export const settlementJournalCopy = {
     recordsMarkedSettled: 'Records Marked Settled',
     netSettled: 'Net Settled Value',
     matchedToIntents: 'Matched to Payment Intents',
+    matchedFromIntentId: 'From matched_intent_id on observations',
+    matchedAwaitingPipeline:
+      'Matching pipeline has not linked settlement rows to intents yet',
   },
   sidebar: {
     batchLabel: 'Batch',
@@ -40,6 +43,9 @@ export const settlementJournalCopy = {
     withBankRef: 'Records with bank reference',
     withClientRef: 'Records with client reference',
     matchedToIntents: 'Records matched to intents',
+    matchedAwaitingPipeline:
+      'Matching pipeline has not linked settlement rows to intents yet',
+    matchedProvisional: 'Provisional match from attachment score',
     unmatchedValue: 'Unmatched / orphan value',
     avgMatchConfidence: 'Avg match confidence',
     missingRefRate: 'Missing reference rate',

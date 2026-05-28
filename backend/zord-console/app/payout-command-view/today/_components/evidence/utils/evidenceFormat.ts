@@ -1,5 +1,16 @@
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 
+/** Table date column — MMM DD, YYYY */
+export function formatEvidenceDate(iso: string): string {
+  try {
+    const d = new Date(iso)
+    if (Number.isNaN(d.getTime())) return '—'
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  } catch {
+    return '—'
+  }
+}
+
 export function formatIsoDate(iso: string): string {
   try {
     const d = new Date(iso)

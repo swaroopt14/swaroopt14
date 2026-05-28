@@ -30,15 +30,28 @@ import (
 	"github.com/zord/zord-intelligence/internal/persistence"
 )
 
-// DashboardAmbiguityHandler serves GET /v1/intelligence/dashboard/ambiguity.
+// DashboardAmbiguityHandler serves GET /v1/intelligence/dashboard/ambiguity
+// and GET /v1/intelligence/dashboard/ambiguity/heatmap.
 type DashboardAmbiguityHandler struct {
 	snapshotRepo     *persistence.IntelligenceSnapshotRepo
+	batchRepo        *persistence.BatchContractRepo
+	projRepo         *persistence.ProjectionRepo
 	intelligenceMode string
 }
 
 // NewDashboardAmbiguityHandler creates a DashboardAmbiguityHandler.
-func NewDashboardAmbiguityHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo, mode string) *DashboardAmbiguityHandler {
-	return &DashboardAmbiguityHandler{snapshotRepo: snapshotRepo, intelligenceMode: mode}
+func NewDashboardAmbiguityHandler(
+	snapshotRepo *persistence.IntelligenceSnapshotRepo,
+	batchRepo *persistence.BatchContractRepo,
+	projRepo *persistence.ProjectionRepo,
+	mode string,
+) *DashboardAmbiguityHandler {
+	return &DashboardAmbiguityHandler{
+		snapshotRepo:     snapshotRepo,
+		batchRepo:        batchRepo,
+		projRepo:         projRepo,
+		intelligenceMode: mode,
+	}
 }
 
 // ambiguityKPIFields contains the KPI fields from AmbiguitySnapshot JSON.

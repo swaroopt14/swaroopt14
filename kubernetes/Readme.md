@@ -476,6 +476,20 @@ If this prints all resources without errors, you're ready to deploy.
 
 ```bash
 kubectl apply -k kubernetes/eks
+
+# Wait 2 minutes for Kafka
+sleep 120
+
+# Restart services that crashed
+kubectl rollout restart deployment \
+  zord-relay \
+  zord-intent-engine \
+  zord-token-enclave \
+  zord-intelligence \
+  zord-outcome-engine \
+  -n zord
+
+
 ```
 
 ---

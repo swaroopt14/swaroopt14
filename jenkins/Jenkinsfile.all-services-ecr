@@ -254,6 +254,10 @@ Resolved git push ref: ${env.GIT_PUSH_REF}
             git config user.name "jenkins[bot]"
             git config user.email "jenkins@local"
 
+            # Derive target branch name from the push ref (e.g. refs/heads/main -> main)
+            target_branch="${GIT_PUSH_REF#refs/heads/}"
+            remote_url="https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/Arealis-network/Arealis-Zord-intent.git"
+
             for service in ${SERVICE_LIST}; do
               git add "kubernetes/eks/services/${service}/deployment.yaml"
             done
@@ -264,7 +268,25 @@ Resolved git push ref: ${env.GIT_PUSH_REF}
             fi
 
             git commit -m "ci(kubernetes): update service images to ${RESOLVED_IMAGE_TAG}"
-            git push "https://${GIT_USERNAME}:${GIT_TOKEN}@github.com/Arealis-network/Arealis-Zord-intent.git" "HEAD:${GIT_PUSH_REF}"
+
+            # Push with rebase-on-conflict retry. The Jenkins workspace is often
+            # checked out in detached HEAD on an older commit, so the remote
+            # branch may have advanced in the meantime (another build, a human
+            # commit, etc.). Fetch + rebase + push handles that fast-forward
+            # rejection cleanly.
+            attempts=0
+            max_attempts=5
+            until git push "${remote_url}" "HEAD:${GIT_PUSH_REF}"; do
+              attempts=$((attempts + 1))
+              if [ "${attempts}" -ge "${max_attempts}" ]; then
+                echo "Push to ${GIT_PUSH_REF} failed after ${attempts} attempts." >&2
+                exit 1
+              fi
+              echo "Push rejected, fetching latest ${target_branch} and rebasing (attempt ${attempts}/${max_attempts})..."
+              git fetch "${remote_url}" "${target_branch}"
+              # Rebase our manifest commit on top of the latest remote tip.
+              git rebase FETCH_HEAD
+            done
           '''
         }
       }

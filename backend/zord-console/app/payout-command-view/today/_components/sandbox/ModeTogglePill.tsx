@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { Glyph } from '../shared'
 
@@ -22,9 +22,14 @@ export function ModeTogglePill({
   compact?: boolean
 }) {
   const { mode, canSwitchToLive, liveActivationStatus } = useEnvironment()
+  const pathname = usePathname()
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
+
+  /** URL is source of truth for the pill label so SSR matches hydration (sandbox vs live routes). */
+  const routeMode: 'sandbox' | 'live' | null =
+    pathname?.startsWith('/sandbox') ? 'sandbox' : pathname?.startsWith('/payout-command-view') ? 'live' : null
 
   // Close on outside click + Escape.
   useEffect(() => {
@@ -43,7 +48,7 @@ export function ModeTogglePill({
     }
   }, [open])
 
-  const isSandbox = mode === 'sandbox'
+  const isSandbox = (routeMode ?? mode) === 'sandbox'
 
   return (
     <div ref={wrapRef} className="relative">

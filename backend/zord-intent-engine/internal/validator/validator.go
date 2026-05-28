@@ -2,6 +2,8 @@ package validator
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"zord-intent-engine/internal/models"
@@ -24,6 +26,7 @@ func (v *Validator) ValidateParsed(
 	intent models.ParsedIncomingIntent,
 	clientBatchRef string,
 	traceID string, // ← NEW
+	batchID string,
 ) (*models.ParsedIncomingIntent, *models.DLQEntry, error) {
 
 	// STEP 2 — STRUCTURAL validation
@@ -38,6 +41,7 @@ func (v *Validator) ValidateParsed(
 			clientBatchRef,
 			intent,
 			traceID,
+			batchID,
 		)
 		return nil, dlq, nil
 	}
@@ -54,6 +58,7 @@ func (v *Validator) ValidateParsed(
 			clientBatchRef,
 			intent,
 			traceID,
+			batchID,
 		)
 		if perr != nil {
 			return nil, nil, perr
@@ -73,7 +78,8 @@ func (v *Validator) persistDLQ(
 	replayable bool,
 	clientBatchRef string,
 	intent models.ParsedIncomingIntent, // ← NEW
-	traceID string,                      // ← NEW
+	traceID string, // ← NEW
+	batchID string,
 ) (*models.DLQEntry, error) {
 
 	ve, ok := err.(ValidationError)
@@ -96,6 +102,8 @@ func (v *Validator) persistDLQ(
 		DLQStatus:      status,
 		Replayable:     replayable,
 		ClientBatchRef: clientBatchRef,
+		BatchID:        batchID,
+		SourceRowNum:   validationSourceRowNumFromRef(intent.SourceRowRef),
 		IntentContext:  models.BuildIntentContext(status, intent),
 		TraceID:        traceID,
 
@@ -108,4 +116,13 @@ func (v *Validator) persistDLQ(
 	}
 
 	return &saved, nil
+}
+
+func validationSourceRowNumFromRef(ref string) *int {
+	ref = strings.TrimSpace(ref)
+	var idx int
+	if _, err := fmt.Sscanf(ref, "row:%d", &idx); err != nil || idx <= 0 {
+		return nil
+	}
+	return &idx
 }

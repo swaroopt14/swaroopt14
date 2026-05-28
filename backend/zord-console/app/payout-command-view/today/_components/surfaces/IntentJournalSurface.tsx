@@ -13,7 +13,6 @@ import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
 import { JournalBatchSelectionProvider } from '../intent-journal/context/JournalBatchSelectionContext'
 import { IntentJournalHeroBanner } from '../intent-journal/components/IntentJournalHeroBanner'
 import { IntentJournalKpiStrip } from '../intent-journal/components/IntentJournalKpiStrip'
-import { IntentJournalHealthCards } from '../intent-journal/components/IntentJournalHealthCards'
 import { IntentJournalBatchSidebar } from '../intent-journal/components/IntentJournalBatchSidebar'
 import {
   IntentJournalActivityPanel,
@@ -351,7 +350,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     setSelectedBatchId,
   })
 
-  const intentFeed = useJournalIntentRows(selectedBatchId, journalUsesBackendFeed && tenantReady)
+  const intentFeed = useJournalIntentRows(
+    selectedBatchId,
+    journalUsesBackendFeed && tenantReady,
+    liveTenantId,
+  )
   const failureFeed = useJournalFailureRows(selectedBatchId, journalUsesBackendFeed && tenantReady)
   const { detail: liveBatchDetail } = useJournalIntelligenceBatch(
     selectedBatchId,
@@ -692,15 +695,15 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const varianceMinor = healthTotals?.total_variance_minor
   const intendedRupees =
     intendedMinor && Number.isFinite(Number(intendedMinor))
-      ? Number(intendedMinor) / 100
+      ? Number(intendedMinor)
       : (selectedBatch?.totalValue ?? 0)
   const selectedConfirmedValue = confirmedMinor
-    ? Number(confirmedMinor) / 100
+    ? Number(confirmedMinor)
     : intendedRupees * (selectedConfirmed / pctBase)
   const varianceRupees =
-    varianceMinor && Number.isFinite(Number(varianceMinor)) ? Math.max(0, Number(varianceMinor) / 100) : null
+    varianceMinor && Number.isFinite(Number(varianceMinor)) ? Math.max(0, Number(varianceMinor)) : null
   const confirmedRupeesResolved =
-    confirmedMinor && Number.isFinite(Number(confirmedMinor)) ? Number(confirmedMinor) / 100 : selectedConfirmedValue
+    confirmedMinor && Number.isFinite(Number(confirmedMinor)) ? Number(confirmedMinor) : selectedConfirmedValue
   const selectedAttentionValue =
     varianceRupees ?? Math.max(0, intendedRupees > 0 ? intendedRupees - confirmedRupeesResolved : 0)
 
@@ -959,7 +962,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   }
                 />
                 <IntentJournalKpiStrip />
-                <IntentJournalHealthCards />
 
                 <IntentJournalActivityPanel vm={activityVm} />
               </>

@@ -37,6 +37,7 @@ import (
 // Satisfied by *mlclient.Client; accept an interface so tests can mock it.
 type MLClient interface {
 	InvokeRCAClustering(ctx context.Context, req mlclient.RCARequest) (mlclient.RCAClusterResult, error)
+	InvokeRCAClusteringAsync(ctx context.Context, req mlclient.RCARequest, cb func(mlclient.RCAClusterResult, error))
 }
 
 // RCAIntelligenceService handles HDBSCAN-based RCA clustering.
@@ -342,7 +343,8 @@ func (s *RCAIntelligenceService) ComputeAndSaveGradeA(
 		candidates = append(candidates, c)
 	}
 
-	// Step 4: invoke ML service
+	// Step 4: fire async clustering — consumer goroutine returns immediately.
+	// All snapshot writes happen inside the callback.
 	req := mlclient.RCARequest{
 		TenantID:               tenantID,
 		BatchID:                batchID,
@@ -350,46 +352,42 @@ func (s *RCAIntelligenceService) ComputeAndSaveGradeA(
 		FeatureContractVersion: "rca_v1",
 		FinalityLabel:          finalityLabel,
 	}
-	result, err := s.mlClient.InvokeRCAClustering(ctx, req)
-	if err != nil {
-		log.Printf("rca_svc.ComputeAndSaveGradeA InvokeRCAClustering batch=%s tenant=%s: %v",
-			batchID, tenantID, err)
-		return nil // fallback already applied in mlclient; never propagate
-	}
+	s.mlClient.InvokeRCAClusteringAsync(ctx, req, func(result mlclient.RCAClusterResult, clusterErr error) {
+		if clusterErr != nil {
+			log.Printf("rca_svc.ComputeAndSaveGradeA InvokeRCAClusteringAsync batch=%s tenant=%s: %v",
+				batchID, tenantID, clusterErr)
+			return
+		}
+		if result.TotalPoints == 0 {
+			return
+		}
 
-	if result.TotalPoints == 0 {
-		return nil
-	}
+		if err := s.saveSnapshot(ctx, tenantID, batchID, "BATCH", &batchID, windowStart, windowEnd, result); err != nil {
+			log.Printf("rca_svc.ComputeAndSaveGradeA save BATCH snapshot batch=%s: %v", batchID, err)
+		}
 
-	// Step 5: persist BATCH snapshot
-	if err := s.saveSnapshot(ctx, tenantID, batchID, "BATCH", &batchID, windowStart, windowEnd, result); err != nil {
-		log.Printf("rca_svc.ComputeAndSaveGradeA save BATCH snapshot batch=%s: %v", batchID, err)
-	}
+		rcaConcentration := computeHerfindahl(result.TopClusters, result.TotalPoints)
+		if err := s.projRepo.AtomicUpdateRCAConcentration(
+			ctx, tenantID, rcaConcentration, windowStart, windowEnd,
+		); err != nil {
+			log.Printf("rca_svc.ComputeAndSaveGradeA: AtomicUpdateRCAConcentration batch=%s: %v",
+				batchID, err)
+		}
 
-	// ── R8: RCA concentration (Herfindahl index over cluster sizes) ────────
-	rcaConcentration := computeHerfindahl(result.TopClusters, result.TotalPoints)
-	if err := s.projRepo.AtomicUpdateRCAConcentration(
-		ctx, tenantID, rcaConcentration, windowStart, windowEnd,
-	); err != nil {
-		log.Printf("rca_svc.ComputeAndSaveGradeA: AtomicUpdateRCAConcentration batch=%s: %v",
-			batchID, err)
-	}
+		rcaSummary, summaryErr := s.projRepo.GetRCASummary(ctx, tenantID)
+		if summaryErr != nil {
+			log.Printf("rca_svc.ComputeAndSaveGradeA: GetRCASummary tenant=%s: %v", tenantID, summaryErr)
+		}
 
-	// ── R4/R5/R6: Read accumulated quality metrics for TENANT snapshot ─────
-	rcaSummary, summaryErr := s.projRepo.GetRCASummary(ctx, tenantID)
-	if summaryErr != nil {
-		log.Printf("rca_svc.ComputeAndSaveGradeA: GetRCASummary tenant=%s: %v", tenantID, summaryErr)
-	}
+		if err := s.saveTenantSnapshot(
+			ctx, tenantID, batchID, windowStart, windowEnd, result, rcaConcentration, rcaSummary,
+		); err != nil {
+			log.Printf("rca_svc.ComputeAndSaveGradeA save TENANT snapshot batch=%s: %v", batchID, err)
+		}
 
-	// Step 5b: persist TENANT rollup snapshot (enriched with R4/R5/R6/R8)
-	if err := s.saveTenantSnapshot(
-		ctx, tenantID, batchID, windowStart, windowEnd, result, rcaConcentration, rcaSummary,
-	); err != nil {
-		log.Printf("rca_svc.ComputeAndSaveGradeA save TENANT snapshot batch=%s: %v", batchID, err)
-	}
-
-	log.Printf("rca_svc.ComputeAndSaveGradeA: ok batch=%s candidates=%d clusters=%d noise=%d concentration=%.3f tenant=%s",
-		batchID, result.TotalPoints, result.ClusterCount, result.NoisePoints, rcaConcentration, tenantID)
+		log.Printf("rca_svc.ComputeAndSaveGradeA: ok batch=%s candidates=%d clusters=%d noise=%d concentration=%.3f tenant=%s",
+			batchID, result.TotalPoints, result.ClusterCount, result.NoisePoints, rcaConcentration, tenantID)
+	})
 	return nil
 }
 

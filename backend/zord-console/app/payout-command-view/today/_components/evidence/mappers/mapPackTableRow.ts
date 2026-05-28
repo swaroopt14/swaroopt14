@@ -1,5 +1,5 @@
 import { humanizePackMode } from '../copy/evidenceCopy'
-import type { PackTableRowVm } from '../types/evidenceViewModels'
+import type { PackScope, PackTableRowVm } from '../types/evidenceViewModels'
 import { EXPECTED_PROOF_ITEMS } from '../types/evidenceViewModels'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
@@ -10,9 +10,25 @@ export function computePackProofScore(itemCount: number | undefined, total = EXP
   return Math.min(100, Math.round((itemCount / total) * 100))
 }
 
+function packPaymentRef(s: EvidencePackSummaryRow): string {
+  return (
+    apiTrimmedString(s.client_reference) ||
+    apiTrimmedString(s.client_payout_ref) ||
+    '—'
+  )
+}
+
 function summaryLabel(s: EvidencePackSummaryRow): string {
-  const parts = [humanizePackMode(s.mode), s.contract_id, s.intent_id].filter(Boolean)
+  const parts = [humanizePackMode(s.mode), s.contract_id].filter(Boolean)
   return parts.length ? parts.join(' · ') : 'Evidence pack'
+}
+
+/** Classify whether the pack belongs to the batch as a whole or to a single intent. */
+export function packScopeFromMode(mode: string | undefined, intentId: string | undefined): PackScope {
+  const m = (mode ?? '').toUpperCase()
+  if (m.includes('BATCH')) return 'batch'
+  if (m.includes('INTELLIGENCE') || apiTrimmedString(intentId)) return 'intent'
+  return 'other'
 }
 
 export function mapPackTableRow(
@@ -21,23 +37,45 @@ export function mapPackTableRow(
   batchScoreEstimate?: number | null,
 ): PackTableRowVm {
   const status = mapProofStatusFromPack(summary, itemCount)
+  const leafTotal = summary.required_leaf_count ?? EXPECTED_PROOF_ITEMS
+  const leafSeen = summary.leaf_count ?? itemCount ?? summary.artifact_count ?? null
+  const completenessFromApi =
+    typeof summary.pack_completeness_score === 'number'
+      ? Math.round(summary.pack_completeness_score * 100)
+      : null
   const perPackScore =
     summary.proof_score != null
       ? Math.round(Number(summary.proof_score))
-      : computePackProofScore(itemCount ?? summary.artifact_count)
+      : completenessFromApi ?? computePackProofScore(leafSeen ?? undefined, leafTotal)
 
   return {
     packId: summary.evidence_pack_id,
+    paymentRef: packPaymentRef(summary),
     intentId: apiTrimmedString(summary.intent_id) || '—',
     proofRoot: summary.merkle_root || '—',
     proofScore: perPackScore ?? batchScoreEstimate ?? null,
     proofScoreIsEstimate: perPackScore == null && batchScoreEstimate != null,
-    itemCount: itemCount ?? summary.artifact_count ?? null,
-    totalItems: EXPECTED_PROOF_ITEMS,
+    itemCount: leafSeen,
+    totalItems: leafTotal,
     proofStatus: status.label,
     proofStatusKey: status.key,
     generatedAt: summary.created_at,
     modeLabel: humanizePackMode(summary.mode),
     summaryLine: summaryLabel(summary),
+    scope: packScopeFromMode(summary.mode, summary.intent_id),
+    contractId: apiTrimmedString(summary.contract_id) || '—',
+    governanceDecision: apiTrimmedString(summary.governance_decision) || '—',
+    attachmentDecision: apiTrimmedString(summary.attachment_decision) || '—',
+    matchConfidence:
+      typeof summary.match_confidence === 'number' ? summary.match_confidence : null,
+    bankReference: apiTrimmedString(summary.bank_reference) || '—',
+    amountMatch: typeof summary.amount_match === 'boolean' ? summary.amount_match : null,
+    valueDateCheck:
+      typeof summary.value_date_check === 'boolean' ? summary.value_date_check : null,
+    settlementPresent:
+      typeof summary.settlement_leaf_present_flag === 'boolean'
+        ? summary.settlement_leaf_present_flag
+        : null,
+    packCompleteness: completenessFromApi ?? perPackScore ?? null,
   }
 }

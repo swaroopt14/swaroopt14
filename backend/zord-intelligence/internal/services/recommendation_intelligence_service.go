@@ -359,15 +359,8 @@ func (s *RecommendationIntelligenceService) cardsFromLeakage(
 func (s *RecommendationIntelligenceService) cardFromRCA(
 	snap *persistence.IntelligenceSnapshot,
 ) *RecommendationCard {
-	var result mlclient.RCAClusterResult
-
-	// Try enriched TENANT format first (new: cluster_result key)
-	var enriched struct {
-		ClusterResult mlclient.RCAClusterResult `json:"cluster_result"`
-	}
-	if err := json.Unmarshal(snap.SnapshotJSON, &enriched); err == nil && len(enriched.ClusterResult.TopClusters) > 0 {
-		result = enriched.ClusterResult
-	} else if err := json.Unmarshal(snap.SnapshotJSON, &result); err != nil {
+	result, err := mlclient.UnmarshalRCAClusterResult(snap.SnapshotJSON)
+	if err != nil {
 		return nil
 	}
 

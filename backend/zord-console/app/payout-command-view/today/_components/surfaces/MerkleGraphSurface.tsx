@@ -12,7 +12,10 @@ import {
   pickEvidenceBatchId,
 } from '@/services/payout-command/prod-api/evidenceBatchScope'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
+import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
+import { getIntentJournalPaymentIntentsForSession } from '@/services/payout-command/prod-api/intentJournalApi'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
+import type { IntentJournalPaymentIntentItem } from '@/services/payout-command/prod-api/intentJournalTypes'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
@@ -224,35 +227,73 @@ export type MerkleGraphSurfaceProps = {
   initialPackId?: string
   /** Demo / fallback graph when no session tenant (local UI only). */
   pack?: EvidencePackGraph
-  /** Embedded in pack detail Graph tab — hides page chrome. */
+  /** Embedded in pack detail Graph tab or Evidence dock — hides page chrome. */
   embedMode?: boolean
+  /** Parent-owned batch id (Evidence dock batch picker). */
+  controlledBatchId?: string
+  /** Parent-owned pack id — updates when Evidence intent filter changes. */
+  controlledPackId?: string
+  /** `table`: only packs already loaded; `journal`: full intent roster from intent-engine. */
+  intentOptionsSource?: 'table' | 'journal'
+  /** Hide batch / intent·pack pickers when parent controls scope. */
+  hideScopePickers?: boolean
 }
 
 export function MerkleGraphSurface({
   initialPackId,
   pack: initialPack = SAMPLE_PACK,
   embedMode = false,
+  controlledBatchId,
+  controlledPackId,
+  intentOptionsSource = 'journal',
+  hideScopePickers = false,
 }: MerkleGraphSurfaceProps = {}) {
   const searchParams = useSearchParams()
   const urlBatchId = searchParams.get('batch_id')?.trim() ?? ''
   const { tenantId, tenantReady } = useSessionTenant()
   const useLive = tenantReady
 
-  const [activePackId, setActivePackId] = useState(() => apiTrimmedString(initialPackId) || initialPack.packId)
-  const [activeBatchId, setActiveBatchId] = useState(() => apiTrimmedString(initialPack.batchId))
+  // Pack id pinned by a deep-link (Evidence Packs table → ?tab=graph). When set,
+  // batch-level fetches must never clobber this value — the intent pack we landed
+  // on may not appear in `liveBatchPacks` until the per-intent fan-out completes,
+  // or may be beyond MAX_INTENT_PACK_QUERIES entirely.
+  const pinnedPackId = useMemo(
+    () => apiTrimmedString(controlledPackId) || apiTrimmedString(initialPackId),
+    [controlledPackId, initialPackId],
+  )
+
+  const [activePackId, setActivePackId] = useState(() => pinnedPackId || initialPack.packId)
+  const [activeBatchId, setActiveBatchId] = useState(
+    () => apiTrimmedString(controlledBatchId) || apiTrimmedString(initialPack.batchId),
+  )
   const [intelBatches, setIntelBatches] = useState<IntelligenceBatchRow[]>([])
   const [packSummaries, setPackSummaries] = useState<EvidencePackSummaryRow[]>([])
   const [liveGraphs, setLiveGraphs] = useState<Record<string, EvidencePackGraph>>({})
   const [liveListError, setLiveListError] = useState<string | null>(null)
+  // Every payment intent in the active batch — drives the Intent · pack picker.
+  // Sourced from intent-engine so we don't depend on the per-intent evidence
+  // fan-out (which is capped) and the dropdown always lists the whole batch.
+  const [batchIntents, setBatchIntents] = useState<IntentJournalPaymentIntentItem[]>([])
+  const [resolvingIntentId, setResolvingIntentId] = useState<string | null>(null)
 
   const { defensibility } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId })
   const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
   const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
 
   useEffect(() => {
+    const bid = apiTrimmedString(controlledBatchId)
+    if (bid) {
+      setActiveBatchId(bid)
+      return
+    }
     if (!useLive || !urlBatchId) return
     setActiveBatchId(urlBatchId)
-  }, [useLive, urlBatchId])
+  }, [useLive, urlBatchId, controlledBatchId])
+
+  useEffect(() => {
+    const pid = apiTrimmedString(controlledPackId)
+    if (pid) setActivePackId(pid)
+  }, [controlledPackId])
 
   useEffect(() => {
     if (!useLive) return
@@ -278,24 +319,40 @@ export function MerkleGraphSurface({
     }
     let cancelled = false
     setLiveListError(null)
-    void listEvidencePacks({ batchId: activeBatchId }).then((list) => {
+    void listEvidencePacksForBatch(activeBatchId).then((packs) => {
       if (cancelled) return
-      if (!list) {
+      if (!packs.length) {
         setLiveListError('Evidence list unavailable. Confirm zord-evidence is up and list filters match your deployment.')
         setPackSummaries([])
         return
       }
-      setPackSummaries(list.packs ?? [])
+      setPackSummaries(packs)
     })
     return () => {
       cancelled = true
     }
   }, [useLive, activeBatchId])
 
+  // Pull the full intent roster for the active batch from intent-engine (journal mode only).
+  useEffect(() => {
+    if (intentOptionsSource === 'table' || !useLive || !activeBatchId) {
+      setBatchIntents([])
+      return
+    }
+    let cancelled = false
+    void getIntentJournalPaymentIntentsForSession(activeBatchId).then((res) => {
+      if (cancelled) return
+      setBatchIntents(res.data?.items ?? [])
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [useLive, activeBatchId, intentOptionsSource])
+
   useEffect(() => {
     if (!useLive || packSummaries.length === 0) return
     let cancelled = false
-    const ids = packSummaries.map((s) => apiTrimmedString(s.evidence_pack_id)).filter(Boolean).slice(0, 24)
+    const ids = packSummaries.map((s) => apiTrimmedString(s.evidence_pack_id)).filter(Boolean).slice(0, 256)
     void Promise.all(
       ids.map(async (id) => {
         const full = await getEvidencePackFull(id)
@@ -342,12 +399,159 @@ export function MerkleGraphSurface({
 
   const liveBatchPacks = useMemo(() => {
     const graphs: EvidencePackGraph[] = []
+    const seen = new Set<string>()
+    // Always surface the URL-pinned pack first when its graph is loaded — even
+    // if it isn't in the current batch's pack summaries — so the Intent picker
+    // can reach it and `livePack` resolves it cleanly.
+    if (pinnedPackId) {
+      const g = liveGraphs[pinnedPackId]
+      if (g) {
+        graphs.push(g)
+        seen.add(pinnedPackId)
+      }
+    }
     for (const s of packSummaries) {
-      const g = liveGraphs[apiTrimmedString(s.evidence_pack_id)]
-      if (g) graphs.push(g)
+      const id = apiTrimmedString(s.evidence_pack_id)
+      if (!id || seen.has(id)) continue
+      const g = liveGraphs[id]
+      if (g) {
+        graphs.push(g)
+        seen.add(id)
+      }
     }
     return graphs
+  }, [packSummaries, liveGraphs, pinnedPackId])
+
+  // intent_id → pack_id index built from everything we already know.
+  const intentIdToPackId = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const s of packSummaries) {
+      const iid = apiTrimmedString(s.intent_id)
+      const pid = apiTrimmedString(s.evidence_pack_id)
+      if (iid && pid && !m.has(iid)) m.set(iid, pid)
+    }
+    for (const g of Object.values(liveGraphs)) {
+      const iid = apiTrimmedString(g.intentId)
+      if (iid && iid !== '—' && !m.has(iid)) m.set(iid, g.packId)
+    }
+    return m
   }, [packSummaries, liveGraphs])
+
+  // Dropdown options. Every intent in the batch shows up; entries whose pack
+  // hasn't been fetched yet use an `intent:<id>` value and resolve on click.
+  type PackOption = { value: string; label: string; intentId?: string }
+  const packOptions = useMemo((): PackOption[] => {
+    const opts: PackOption[] = []
+    const seenPacks = new Set<string>()
+    const seenIntents = new Set<string>()
+    const labelForIntent = (
+      iid: string,
+      ref: string,
+      pid: string | undefined,
+    ): string => {
+      const head = ref || (iid.length > 14 ? `${iid.slice(0, 14)}…` : iid)
+      if (!pid) return `${head} · (load)`
+      return `${head} · ${pid.length > 22 ? `${pid.slice(0, 22)}…` : pid}`
+    }
+
+    for (const s of packSummaries) {
+      const pid = apiTrimmedString(s.evidence_pack_id)
+      const iid = apiTrimmedString(s.intent_id)
+      if (!pid || seenPacks.has(pid)) continue
+      seenPacks.add(pid)
+      const ref = apiTrimmedString(s.client_payout_ref) || apiTrimmedString(s.client_reference)
+      if (iid) {
+        seenIntents.add(iid)
+        opts.push({ value: pid, label: labelForIntent(iid, ref, pid), intentId: iid })
+      } else {
+        const head = pid.length > 22 ? `${pid.slice(0, 22)}…` : pid
+        opts.push({ value: pid, label: `Batch pack · ${head}` })
+      }
+    }
+
+    if (intentOptionsSource === 'journal') {
+      for (const it of batchIntents) {
+        const iid = apiTrimmedString(it.intent_id)
+        if (!iid || seenIntents.has(iid)) continue
+        seenIntents.add(iid)
+        const ref = apiTrimmedString(it.client_payout_ref)
+        const known = intentIdToPackId.get(iid)
+        if (known && seenPacks.has(known)) continue
+        if (known) seenPacks.add(known)
+        opts.push({
+          value: known ?? `intent:${iid}`,
+          label: labelForIntent(iid, ref, known),
+          intentId: iid,
+        })
+      }
+    }
+
+    // Catch-all: surface any loaded graph not yet in the list (e.g. URL pinned
+    // pack when its batch hasn't projected into intent-engine yet).
+    for (const g of Object.values(liveGraphs)) {
+      if (seenPacks.has(g.packId)) continue
+      seenPacks.add(g.packId)
+      const iid = apiTrimmedString(g.intentId)
+      const ref = iid && iid !== '—' ? iid : ''
+      if (iid && iid !== '—') {
+        opts.push({ value: g.packId, label: labelForIntent(iid, ref, g.packId), intentId: iid })
+      } else {
+        const head = g.packId.length > 22 ? `${g.packId.slice(0, 22)}…` : g.packId
+        opts.push({ value: g.packId, label: `Batch pack · ${head}` })
+      }
+    }
+
+    return opts
+  }, [packSummaries, batchIntents, intentIdToPackId, liveGraphs, intentOptionsSource])
+
+  const packSelectValue = useMemo(() => {
+    if (packOptions.some((o) => o.value === activePackId)) return activePackId
+    if (resolvingIntentId) {
+      const found = packOptions.find((o) => o.intentId === resolvingIntentId && o.value.startsWith('intent:'))
+      if (found) return found.value
+    }
+    return ''
+  }, [packOptions, activePackId, resolvingIntentId])
+
+  const handlePackPickerChange = useCallback(
+    async (value: string) => {
+      if (!value) return
+      if (!value.startsWith('intent:')) {
+        setActivePackId(value)
+        return
+      }
+      const iid = value.slice('intent:'.length)
+      setResolvingIntentId(iid)
+      try {
+        const known = intentIdToPackId.get(iid)
+        if (known) {
+          setActivePackId(known)
+          return
+        }
+        const res = await listEvidencePacks({ intentId: iid })
+        const summary = res?.packs?.[0]
+        const pid = apiTrimmedString(summary?.evidence_pack_id)
+        if (!pid || !summary) {
+          setLiveListError(`No evidence pack for intent ${iid}.`)
+          return
+        }
+        setPackSummaries((prev) =>
+          prev.some((s) => apiTrimmedString(s.evidence_pack_id) === pid) ? prev : [...prev, summary],
+        )
+        const full = await getEvidencePackFull(pid)
+        if (!full) return
+        const g = buildEvidencePackGraphFromApi(full, {
+          batchId: activeBatchId || 'batch',
+          defensibilityScore,
+        })
+        setLiveGraphs((prev) => ({ ...prev, [pid]: g }))
+        setActivePackId(pid)
+      } finally {
+        setResolvingIntentId((cur) => (cur === iid ? null : cur))
+      }
+    },
+    [activeBatchId, defensibilityScore, intentIdToPackId],
+  )
 
   const livePack =
     liveGraphs[activePackId] ??
@@ -363,10 +567,15 @@ export function MerkleGraphSurface({
   useEffect(() => {
     if (!useLive) return
     if (batchPacks.length === 0) return
+    // Honor URL deep-link: never auto-reset away from the pinned pack while the
+    // batch list / per-intent fan-out is still racing the direct pack fetch.
+    // Without this guard, the batch pack (loaded first by the cheap list query)
+    // would overwrite the per-intent pack the user actually clicked into.
+    if (pinnedPackId && activePackId === pinnedPackId) return
     if (!batchPacks.some((p) => p.packId === activePackId)) {
       setActivePackId(batchPacks[0].packId)
     }
-  }, [useLive, batchPacks, activePackId])
+  }, [useLive, batchPacks, activePackId, pinnedPackId])
 
   useEffect(() => {
     if (useLive) return
@@ -532,6 +741,7 @@ export function MerkleGraphSurface({
       {showGraph ? (
       <>
       <section className={`flex flex-wrap items-center gap-x-6 gap-y-3 rounded-[16px] border border-[#E5E5E5] bg-white px-5 py-3 ${embedMode ? 'text-[14px]' : ''}`}>
+        {!hideScopePickers ? (
         <div>
             <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Batch</p>
             <select
@@ -540,6 +750,7 @@ export function MerkleGraphSurface({
                 setActiveBatchId(e.target.value)
                 setSelected(null)
               }}
+              disabled={Boolean(apiTrimmedString(controlledBatchId))}
               className="mt-0.5 cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[17px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa]"
             >
               {useLive
@@ -558,27 +769,68 @@ export function MerkleGraphSurface({
                   ))}
             </select>
           </div>
+        ) : apiTrimmedString(controlledBatchId) ? (
+          <div>
+            <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Batch</p>
+            <p className="mt-0.5 font-mono text-[17px] font-semibold text-[#111111]">{activeBatchId || '—'}</p>
+          </div>
+        ) : null}
+          {!hideScopePickers ? (
           <div>
             <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Intent · pack</p>
-            <select
-              value={activePackId}
-              onChange={(e) => {
-                setActivePackId(e.target.value)
-                setSelected(null)
-              }}
-              disabled={batchPacks.length === 0}
-              className="mt-0.5 min-w-[12rem] max-w-[20rem] cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[15px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {batchPacks.map((p) => (
-                <option key={p.packId} value={p.packId}>
-                  {p.intentId} · {p.packId}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 max-w-[18rem] text-[12px] leading-snug text-[#94a3b8]">
-              Graph below is for this intent; metrics in the bar stay batch-aggregated.
+            {useLive ? (
+              <select
+                value={packSelectValue}
+                onChange={(e) => {
+                  setSelected(null)
+                  void handlePackPickerChange(e.target.value)
+                }}
+                disabled={packOptions.length === 0}
+                className="mt-0.5 min-w-[12rem] max-w-[24rem] cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[15px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {packOptions.length === 0 ? (
+                  <option value="" disabled>
+                    No intents in this batch
+                  </option>
+                ) : (
+                  <>
+                    {!packOptions.some((o) => o.value === packSelectValue) ? (
+                      <option value="" disabled>
+                        Select intent…
+                      </option>
+                    ) : null}
+                    {packOptions.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </>
+                )}
+              </select>
+            ) : (
+              <select
+                value={activePackId}
+                onChange={(e) => {
+                  setActivePackId(e.target.value)
+                  setSelected(null)
+                }}
+                disabled={batchPacks.length === 0}
+                className="mt-0.5 min-w-[12rem] max-w-[20rem] cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[15px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {batchPacks.map((p) => (
+                  <option key={p.packId} value={p.packId}>
+                    {p.intentId} · {p.packId}
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="mt-1 max-w-[20rem] text-[12px] leading-snug text-[#94a3b8]">
+              {resolvingIntentId
+                ? 'Loading evidence pack for the selected intent…'
+                : 'Graph below is for this intent; metrics in the bar stay batch-aggregated.'}
             </p>
           </div>
+          ) : null}
           <ContextField label="Intents" value={String(batchMetaResolved?.totalIntents ?? batchPacks.length)} />
           <ContextField label="Transactions" value={String(batchMetaResolved?.totalTransactions ?? 0)} />
           <ContextField

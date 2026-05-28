@@ -53,7 +53,11 @@ export function SettlementJournalDataHealthPanel() {
         <MetricCard
           label={copy.matchedToIntents}
           value={health.matchedCount.toLocaleString('en-IN')}
-          sub="Provisional match from attachment score"
+          sub={
+            health.recordsReceived > 0 && health.matchedCount === 0
+              ? copy.matchedAwaitingPipeline
+              : copy.matchedProvisional
+          }
         />
         <MetricCard label={copy.unmatchedValue} value={formatOrphanValue(health.unmatchedOrphanValue)} />
         <MetricCard

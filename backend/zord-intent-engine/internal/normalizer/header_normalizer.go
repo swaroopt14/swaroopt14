@@ -460,6 +460,9 @@ func isAlreadyCanonical(raw map[string]any) bool {
 
 // ensureDefaults applies 10.3 row-level defaults.
 func ensureDefaults(canonical map[string]any, warnings *[]string) {
+	// ── Hardcode schema_version to v1 ─────────────────────────────────────────
+	canonical["schema_version"] = "v1"
+
 	// ── Default intent_type to PAYOUT ────────────────────────────────────────
 	// ERP/Tally/SAP CSVs never contain an intent_type column. Without this
 	// default the field arrives empty → ApplyPolicy sets SemanticValid=false

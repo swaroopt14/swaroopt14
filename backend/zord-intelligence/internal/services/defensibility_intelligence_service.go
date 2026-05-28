@@ -21,13 +21,13 @@ package services
 //   KYC checked?                  +10  (part of +10 governance check)
 //   AML checked?                  +10
 //   supporting carriers OK?       +10  (derived from ambiguity — low missing rate)
-//   Total possible:               100  (we use audit_ready_pct as proxy)
+//   Total possible:               65   (we use audit_ready_pct as proxy)
 //
 // TIER assignment (from score):
-//   STRONG:   >= 85
-//   GOOD:     >= 70
-//   WEAK:     >= 50
-//   FRAGILE:  < 50
+//   STRONG:   >= 55.25
+//   GOOD:     >= 45.5
+//   WEAK:     >= 32.5
+//   FRAGILE:  < 32.5
 
 import (
 	"context"
@@ -96,7 +96,7 @@ type DefensibilitySnapshot struct {
 	WeakEvidenceCount int     `json:"weak_evidence_count"`
 	WeakEvidenceRate  float64 `json:"weak_evidence_rate"`
 
-	// ── Composite defensibility score (0–100) ────────────────────────────
+	// ── Composite defensibility score (0–65) ────────────────────────────
 	// Computed from the rubric in spec §10.3.
 	DefensibilityScore float64 `json:"defensibility_score"`
 
@@ -206,7 +206,7 @@ func (s *DefensibilityIntelligenceService) buildSnapshot(dv *models.Defensibilit
 		ComputedAt:                 time.Now().UTC(),
 	}
 
-	// Compute defensibility score from the spec rubric (total = 100 points)
+	// Compute defensibility score from the spec rubric (total = 65 points)
 	snap.DefensibilityScore = s.computeScore(dv)
 	snap.DefensibilityTier = defensibilityTier(snap.DefensibilityScore)
 	snap.RecommendedAction = s.recommendedAction(dv)
@@ -222,7 +222,7 @@ func (s *DefensibilityIntelligenceService) buildSnapshot(dv *models.Defensibilit
 }
 
 // computeScore applies the ML doc §7.3 defensibility scoring formula.
-// Returns a score 0–100.
+// Returns a score 0–65.
 //
 // FORMULA (from ML spec, 7 components, total = 100):
 //   0.20 × pack_completeness_score    — do evidence packs exist and are they complete?
@@ -290,29 +290,29 @@ func (s *DefensibilityIntelligenceService) computeScore(dv *models.Defensibility
 		lowAmbiguity = 0
 	}
 
-	// Weighted sum → scale to 0–100 (ML doc §7.3 D8 formula)
+	// Weighted sum → scale to 0–65 (ML doc §7.3 D8 formula)
 	score := (0.20*packCompleteness +
 		0.15*govCoverage +
 		0.15*attachConfidence +
 		0.15*carrierRichness +
 		0.15*settlementEvidence +
 		0.10*replayFlag +
-		0.10*lowAmbiguity) * 100
+		0.10*lowAmbiguity) * 65
 
-	if score > 100 {
-		score = 100
+	if score > 65 {
+		score = 65
 	}
 	return score
 }
 
-// defensibilityTier maps a score to a tier.
+// defensibilityTier maps a 0–65 score to a tier.
 func defensibilityTier(score float64) string {
 	switch {
-	case score >= 85:
+	case score >= 55.25:
 		return "STRONG"
-	case score >= 70:
+	case score >= 45.5:
 		return "GOOD"
-	case score >= 50:
+	case score >= 32.5:
 		return "WEAK"
 	default:
 		return "FRAGILE"

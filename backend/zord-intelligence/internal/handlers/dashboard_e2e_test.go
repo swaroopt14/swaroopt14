@@ -362,7 +362,7 @@ func TestDashboard_Defensibility_HappyPath(t *testing.T) {
 		"evidence_pack_rate":      0.92,
 		"governance_coverage_pct": 0.88,
 		"replayability_pct":       0.95,
-		"defensibility_score":     0.91,
+		"defensibility_score":     60.0,
 		"defensibility_tier":      "STRONG",
 		"audit_ready_pct":         0.93,
 		"dispute_ready_pct":       0.89

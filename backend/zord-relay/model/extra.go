@@ -100,7 +100,7 @@ type AttachmentDecisionCreatedPayload struct {
 	IntentID                string          `json:"intent_id"`
 	ContractID              string          `json:"contract_id"`
 	CorridorID              string          `json:"corridor_id"`
-	BatchID                 string          `json:"batch_id"`
+	ClientBatchID           string          `json:"batch_id"`
 	SettledAmount           string          `json:"settled_amount"`
 	IntendedAmount          string          `json:"intended_amount"`
 	Currency                string          `json:"currency"`

@@ -148,13 +148,7 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 
 	// Map wire leaves → pending leaf models.
 	contractID := relayEvt.ContractID
-	// Carry the originating batch_id (when present) onto every intent leaf so the
-	// resulting evidence pack inherits it and shows up in batch-scoped queries.
-	var batchIDPtr *string
-	if relayEvt.BatchID != "" {
-		b := relayEvt.BatchID
-		batchIDPtr = &b
-	}
+	batchID := relayEvt.ClientBatchID
 	pendingLeaves := make([]models.PendingLeafCandidate, 0, len(evt.Leaves))
 	for _, l := range evt.Leaves {
 		sv := l.SchemaVersion
@@ -165,7 +159,7 @@ func handleLeafBundle(ctx context.Context, raw []byte, pg PackGenerator) error {
 			TenantID:      tenantID,
 			IntentID:      &intentID,
 			ContractID:    &contractID,
-			BatchID:       batchIDPtr,
+			ClientBatchID: &batchID,
 			LeafType:      l.Type,
 			ItemRef:       l.Ref,
 			Hash:          l.Hash,
@@ -271,7 +265,7 @@ func handleBatchUpdated(ctx context.Context, raw []byte, pg PackGenerator) error
 	leaves := []models.PendingLeafCandidate{
 		{
 			TenantID:      relayEvt.TenantID,
-			BatchID:       &batchID,
+			ClientBatchID:       &batchID,
 			LeafType:      models.LeafTypeBatchAttachmentSummary,
 			ItemRef:       batchID,
 			Hash:          attachmentHash,
@@ -280,7 +274,7 @@ func handleBatchUpdated(ctx context.Context, raw []byte, pg PackGenerator) error
 		},
 		{
 			TenantID:      relayEvt.TenantID,
-			BatchID:       &batchID,
+			ClientBatchID:       &batchID,
 			LeafType:      models.LeafTypeBatchVarianceSummary,
 			ItemRef:       batchID,
 			Hash:          varianceHash,
@@ -289,7 +283,7 @@ func handleBatchUpdated(ctx context.Context, raw []byte, pg PackGenerator) error
 		},
 		{
 			TenantID:      relayEvt.TenantID,
-			BatchID:       &batchID,
+			ClientBatchID:       &batchID,
 			LeafType:      models.LeafTypeCanonicalBatch,
 			ItemRef:       batchID,
 			Hash:          batchHash,
@@ -298,10 +292,19 @@ func handleBatchUpdated(ctx context.Context, raw []byte, pg PackGenerator) error
 		},
 		{
 			TenantID:      relayEvt.TenantID,
-			BatchID:       &batchID,
+			ClientBatchID: &batchID,
 			LeafType:      models.LeafTypeRawSettlementFile,
 			ItemRef:       batchID,
 			Hash:          rawSettlementHash,
+			SchemaVersion: "v1",
+			SourceTopic:   "batch.summary.updated",
+		},
+		{
+			TenantID:      relayEvt.TenantID,
+			ClientBatchID: &batchID,
+			LeafType:      models.LeafTypeFileContentHash,
+			ItemRef:       batchID,
+			Hash:          fileHash,
 			SchemaVersion: "v1",
 			SourceTopic:   "batch.summary.updated",
 		},
@@ -337,7 +340,7 @@ func handleFileUploaded(ctx context.Context, raw []byte, pg PackGenerator) error
 
 	leaves := []models.PendingLeafCandidate{{
 		TenantID:      relayEvt.TenantID,
-		BatchID:       &batchID,
+		ClientBatchID: &batchID,
 		LeafType:      models.LeafTypeRawSettlementFile,
 		ItemRef:       batchID,
 		Hash:          hash,
@@ -373,7 +376,7 @@ func handleBatchCanonical(ctx context.Context, raw []byte, pg PackGenerator) err
 
 	leaves := []models.PendingLeafCandidate{{
 		TenantID:      relayEvt.TenantID,
-		BatchID:       &batchID,
+		ClientBatchID: &batchID,
 		LeafType:      models.LeafTypeCanonicalBatch,
 		ItemRef:       batchID,
 		Hash:          hash,

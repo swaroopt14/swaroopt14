@@ -48,9 +48,9 @@ func buildEdgeHandler(pg PackGenerator) MessageHandler {
 			pendingLeaves = append(pendingLeaves, models.PendingLeafCandidate{
 				TenantID:      relayEvt.TenantID,
 				EnvelopeID:    &relayEvt.EnvelopeID,
-				BatchID:       &relayEvt.BatchID,
+				ClientBatchID: &relayEvt.ClientBatchID,
 				LeafType:      models.LeafTypeFileContentHash,
-				ItemRef:       relayEvt.BatchID, // Use envelopeID as ref for the file hash link
+				ItemRef:       relayEvt.ClientBatchID, // Use envelopeID as ref for the file hash link
 				Hash:          relayEvt.FileContentHash,
 				SchemaVersion: "v1",
 				SourceTopic:   "payments.ledger.events.v1",

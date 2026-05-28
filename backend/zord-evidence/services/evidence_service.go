@@ -813,6 +813,14 @@ func (s *EvidenceService) GetPackForBatch(ctx context.Context, tenantID, clientB
 	return pack, nil
 }
 
+func (s *EvidenceService) ListIntentPacksByBatchID(ctx context.Context, tenantID, clientBatchID string) (*models.ListPacksResponse, error) {
+	packs, err := s.repo.ListIntentPacksByBatchID(ctx, tenantID, clientBatchID)
+	if err != nil {
+		return nil, err
+	}
+	return &models.ListPacksResponse{Packs: packs, Total: len(packs)}, nil
+}
+
 // GetInclusionProofs returns all Merkle inclusion proofs for a pack (§14.4).
 func (s *EvidenceService) GetInclusionProofs(ctx context.Context, packID string) ([]models.InclusionProof, error) {
 	return s.repo.GetInclusionProofs(ctx, packID)

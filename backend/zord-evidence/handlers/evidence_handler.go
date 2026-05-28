@@ -82,6 +82,28 @@ func (h *EvidenceHandler) ListEvidencePacks(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
+// GET /v1/evidence/batch/:batchID/intents — list intent-level packs for a batch
+func (h *EvidenceHandler) ListIntentPacksByBatch(c *gin.Context) {
+	tenantID := strings.TrimSpace(c.Query("tenant_id"))
+	batchID := c.Param("batchID")
+
+	if tenantID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "tenant_id query param is required"})
+		return
+	}
+	if batchID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "batchID path param is required"})
+		return
+	}
+
+	resp, err := h.svc.ListIntentPacksByBatchID(c.Request.Context(), tenantID, batchID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
 // GET /v1/evidence/packs/:packID/views/:viewType — role-specific projection (spec §18)
 func (h *EvidenceHandler) GetEvidencePackView(c *gin.Context) {
 	packID := c.Param("packID")

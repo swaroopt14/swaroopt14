@@ -45,6 +45,9 @@ func Register(r *gin.Engine, h *handlers.EvidenceHandler, outboxHandler *handler
 		// §14.4: Merkle inclusion proofs for selective disclosure
 		v1.GET("/packs/:packID/inclusion-proofs", h.GetInclusionProofs)
 
+		// List all intent-level evidence packs for a specific batch
+		v1.GET("/batch/:batchID/intents", h.ListIntentPacksByBatch)
+
 		// §17: Replay and equivalence check
 		v1.POST("/replay", h.ReplayEvidencePack)
 	}

@@ -420,10 +420,91 @@ func (r *EvidenceRepository) ListByBatchID(ctx context.Context, tenantID, batchI
 	return result, nil
 }
 
+// ListIntentPacksByBatchID returns all intent-level packs for a given batch.
+func (r *EvidenceRepository) ListIntentPacksByBatchID(ctx context.Context, tenantID, batchID string) ([]models.EvidencePackSummary, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT evidence_pack_id, tenant_id, intent_id, contract_id, batch_id, mode, pack_status,
+		       merkle_root, ruleset_version, supersedes_pack_id, pack_completeness_score, leaf_count,
+		       required_leaf_count, settlement_leaf_present_flag, attachment_decision_leaf_present_flag,
+		       payment_instruction_received, canonical_intent_created, mapping_profile_used,
+		       required_fields_status, tokenization_status, governance_decision,
+		       settlement_record_received, canonical_settlement_created, bank_reference,
+		       client_reference, attachment_decision, match_confidence,
+		       value_date_check, amount_match,
+		       created_at
+		FROM evidence_packs
+		WHERE tenant_id=$1 AND batch_id=$2 AND intent_id IS NOT NULL
+		ORDER BY created_at DESC`, tenantID, batchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	result := make([]models.EvidencePackSummary, 0)
+	for rows.Next() {
+		var s models.EvidencePackSummary
+		var iid, cid, bid, spid sql.NullString
+		var srr, csc sql.NullTime
+		var br, cr, ad sql.NullString
+		var mc sql.NullFloat64
+		var vdc, am sql.NullBool
+		if err := rows.Scan(
+			&s.EvidencePackID, &s.TenantID, &iid, &cid, &bid,
+			&s.Mode, &s.PackStatus, &s.MerkleRoot, &s.RulesetVersion, &spid,
+			&s.PackCompletenessScore, &s.LeafCount, &s.RequiredLeafCount,
+			&s.SettlementLeafPresentFlag, &s.AttachmentDecisionLeafPresentFlag,
+			&s.PaymentInstructionReceived, &s.CanonicalIntentCreated, &s.MappingProfileUsed,
+			&s.RequiredFieldsStatus, &s.TokenizationStatus, &s.GovernanceDecision,
+			&srr, &csc, &br, &cr, &ad, &mc, &vdc, &am,
+			&s.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if iid.Valid {
+			s.IntentID = iid.String
+		}
+		if cid.Valid {
+			s.ContractID = cid.String
+		}
+		if bid.Valid {
+			s.ClientBatchID = bid.String
+		}
+		if spid.Valid {
+			s.SupersedesPackID = spid.String
+		}
+		if srr.Valid {
+			s.SettlementRecordReceived = &srr.Time
+		}
+		if csc.Valid {
+			s.CanonicalSettlementCreated = &csc.Time
+		}
+		if br.Valid {
+			s.BankReference = &br.String
+		}
+		if cr.Valid {
+			s.ClientReference = &cr.String
+		}
+		if ad.Valid {
+			s.AttachmentDecision = &ad.String
+		}
+		if mc.Valid {
+			s.MatchConfidence = &mc.Float64
+		}
+		if vdc.Valid {
+			s.ValueDateCheck = &vdc.Bool
+		}
+		if am.Valid {
+			s.AmountMatch = &am.Bool
+		}
+		result = append(result, s)
+	}
+	return result, nil
+}
+
 // GetPackByBatchID fetches a pack by its batch_id.
 func (r *EvidenceRepository) GetPackByBatchID(ctx context.Context, tenantID, batchID string) (*models.EvidencePack, error) {
 	var packID string
-	err := r.db.QueryRowContext(ctx, "SELECT evidence_pack_id FROM evidence_packs WHERE tenant_id=$1 AND batch_id=$2 ORDER BY created_at DESC LIMIT 1", tenantID, batchID).Scan(&packID)
+	err := r.db.QueryRowContext(ctx, "SELECT evidence_pack_id FROM evidence_packs WHERE tenant_id=$1 AND batch_id=$2 AND intent_id IS NULL ORDER BY created_at DESC LIMIT 1", tenantID, batchID).Scan(&packID)
 	if err != nil {
 		return nil, err
 	}

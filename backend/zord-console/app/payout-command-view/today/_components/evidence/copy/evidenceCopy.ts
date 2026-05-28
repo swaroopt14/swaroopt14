@@ -103,6 +103,12 @@ export const evidenceCopy = {
     title: 'Evidence Pack Lineage',
     subtitle:
       'See how this payment proof was built from the original instruction, settlement signal, matching decision, and final evidence root.',
+    timelineTitle: 'Operational proof timeline',
+    timelineEmpty: 'No timeline events returned for this pack.',
+    verifyTitle: 'Cryptographic verification',
+    verifyBusy: 'Verifying Merkle root…',
+    verified: 'Verified',
+    corrupted: 'Corrupted',
   },
   dispute: {
     title: 'Create Dispute / Evidence Case',

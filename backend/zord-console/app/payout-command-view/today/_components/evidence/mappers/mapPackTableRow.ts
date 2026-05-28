@@ -50,6 +50,7 @@ export function mapPackTableRow(
 
   return {
     packId: summary.evidence_pack_id,
+    batchId: apiTrimmedString(summary.batch_id) || '—',
     paymentRef: packPaymentRef(summary),
     intentId: apiTrimmedString(summary.intent_id) || '—',
     proofRoot: summary.merkle_root || '—',

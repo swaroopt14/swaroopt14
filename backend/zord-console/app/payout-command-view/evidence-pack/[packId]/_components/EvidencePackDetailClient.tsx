@@ -98,9 +98,17 @@ export function EvidencePackDetailClient({ packId }: EvidencePackDetailClientPro
           {tab === 'summary' ? (
             <EvidencePackSummaryTab pack={pack} batchId={batchId} loading={loading} />
           ) : null}
-          {tab === 'timeline' ? <EvidencePackTimelineTab pack={pack} loading={loading} /> : null}
+          {tab === 'timeline' ? (
+            <EvidencePackTimelineTab pack={pack} packId={packId} loading={loading} />
+          ) : null}
           {tab === 'items' ? <EvidencePackItemsTab pack={pack} loading={loading} /> : null}
-          {tab === 'graph' ? <EvidencePackGraphTab packId={packId} /> : null}
+          {tab === 'graph' ? (
+            <EvidencePackGraphTab
+              packId={packId}
+              batchId={batchId}
+              intentId={pack?.intent_id}
+            />
+          ) : null}
           {tab === 'export' ? <EvidencePackExportTab pack={pack} /> : null}
         </div>
       </div>

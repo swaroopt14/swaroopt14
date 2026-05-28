@@ -257,11 +257,13 @@ export function EvidencePackBrowser({
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-[1080px] w-full border-separate border-spacing-0 text-left text-[14px]">
+        <table className="min-w-[1180px] w-full border-separate border-spacing-0 text-left text-[14px]">
           <thead>
             <tr className="bg-slate-50/70 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">
               <th className="border-b border-slate-200/80 px-5 py-3">Evidence Pack</th>
-              <th className="border-b border-slate-200/80 px-4 py-3">Payment Ref / Intent</th>
+              <th className="border-b border-slate-200/80 px-4 py-3">Batch</th>
+              <th className="border-b border-slate-200/80 px-4 py-3">Intent</th>
+              <th className="border-b border-slate-200/80 px-4 py-3">Payment Ref</th>
               <th className="border-b border-slate-200/80 px-4 py-3">Decisions</th>
               <th className="border-b border-slate-200/80 px-4 py-3">Proof Root</th>
               <th className="border-b border-slate-200/80 px-4 py-3 text-right">Score</th>
@@ -291,11 +293,18 @@ export function EvidencePackBrowser({
                       </p>
                     ) : null}
                   </td>
-                  <td className="max-w-[16rem] px-4 py-4">
-                    <p className="font-mono text-[13px] font-semibold text-slate-900">{row.paymentRef}</p>
-                    <p className="mt-1 font-mono text-[11.5px] text-slate-500" title={row.intentId}>
+                  <td className="px-4 py-4">
+                    <p className="font-mono text-[13px] font-semibold text-slate-900" title={row.batchId}>
+                      {row.batchId}
+                    </p>
+                  </td>
+                  <td className="max-w-[10rem] px-4 py-4">
+                    <p className="font-mono text-[13px] font-semibold text-slate-900" title={row.intentId}>
                       {truncateId(row.intentId)}
                     </p>
+                  </td>
+                  <td className="max-w-[14rem] px-4 py-4">
+                    <p className="font-mono text-[13px] font-semibold text-slate-900">{row.paymentRef}</p>
                     {row.bankReference !== '—' ? (
                       <p className="mt-1 font-mono text-[11.5px] text-slate-500" title={row.bankReference}>
                         bank ref {truncateId(row.bankReference)}

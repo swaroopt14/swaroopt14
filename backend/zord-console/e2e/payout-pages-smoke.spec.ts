@@ -54,12 +54,14 @@ async function installPayoutSessionCookies(context: BrowserContext) {
 
 function packSummary(
   packId: string,
-  opts: { intentId?: string; mode: string; ref?: string },
+  opts: { intentId?: string; batchId?: string; mode: string; ref?: string },
 ) {
   return {
     evidence_pack_id: packId,
     tenant_id: SESSION_TENANT,
     intent_id: opts.intentId,
+    batch_id: opts.batchId,
+    client_reference: opts.ref ?? packId,
     client_payout_ref: opts.ref ?? packId,
     mode: opts.mode,
     pack_status: 'READY',
@@ -105,6 +107,9 @@ function emptyProdBody(path: string): unknown {
   if (path.endsWith('/evidence/packs')) {
     return { packs: [], total: 0 }
   }
+  if (/\/evidence\/batch\/[^/]+\/intents$/.test(path)) {
+    return { packs: [], total: 0 }
+  }
   if (path.endsWith('/ambiguity/velocity')) {
     return { data_available: false, points: [] }
   }
@@ -127,7 +132,30 @@ function emptyProdBody(path: string): unknown {
 }
 
 function evidenceFixtureBody(path: string, search: URLSearchParams): unknown {
-  if (/\/evidence\/packs\/[^/]+$/.test(path) && !path.endsWith('/verify')) {
+  if (/\/evidence\/batch\/[^/]+\/intents$/.test(path)) {
+    const batchId = path.split('/').slice(-2, -1)[0] ?? EVIDENCE_BATCH
+    if (batchId === EVIDENCE_BATCH) {
+      return {
+        packs: [
+          packSummary(PACK_INTENT_A, {
+            intentId: INTENT_A,
+            batchId: EVIDENCE_BATCH,
+            mode: 'INTELLIGENCE_ATTACH',
+            ref: 'ZORD_PAY_A',
+          }),
+          packSummary(PACK_INTENT_B, {
+            intentId: INTENT_B,
+            batchId: EVIDENCE_BATCH,
+            mode: 'INTELLIGENCE_ATTACH',
+            ref: 'ZORD_PAY_B',
+          }),
+        ],
+        total: 2,
+      }
+    }
+    return { packs: [], total: 0 }
+  }
+  if (/\/evidence\/packs\/[^/]+$/.test(path) && !path.endsWith('/verify') && !path.endsWith('/timeline')) {
     const packId = path.split('/').pop() ?? PACK_BATCH
     const intent =
       packId === PACK_INTENT_A ? INTENT_A : packId === PACK_INTENT_B ? INTENT_B : INTENT_A
@@ -178,14 +206,39 @@ function installAuthRoutes(page: Page) {
 
 function installEmptyProdMocks(page: Page) {
   return page.route('**/api/prod/**', async (route) => {
-    if (route.request().method() !== 'GET') {
+    const method = route.request().method()
+    if (method === 'POST' && /\/evidence\/packs\/[^/]+\/verify$/.test(new URL(route.request().url()).pathname)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'VERIFIED',
+          evidence_pack_id: PACK_BATCH,
+          checked_at: new Date().toISOString(),
+          stored_root: 'a'.repeat(64),
+          computed_root: 'a'.repeat(64),
+          explanation: 'Merkle root reproduced exactly from live database entries.',
+        }),
+      })
+      return
+    }
+    if (method !== 'GET') {
       await route.continue()
       return
     }
     const url = new URL(route.request().url())
     const path = url.pathname
     let body: unknown = emptyProdBody(path)
-    if (/\/evidence\/packs\/[^/]+$/.test(path) && !path.endsWith('/verify')) {
+    if (/\/evidence\/packs\/[^/]+\/timeline$/.test(path)) {
+      body = {
+        evidence_pack_id: path.split('/').slice(-2, -1)[0],
+        intent_id: INTENT_A,
+        timeline: [
+          { timestamp: '2026-05-01T12:00:00Z', event: 'Payment instruction received', node_id: 'n1' },
+        ],
+      }
+    }
+    if (/\/evidence\/packs\/[^/]+$/.test(path) && !path.endsWith('/verify') && !path.endsWith('/timeline')) {
       const packId = path.split('/').pop() ?? PACK_BATCH
       body = packFull(packId, INTENT_A, 'BATCH_PROOF')
     }
@@ -199,12 +252,31 @@ function installEmptyProdMocks(page: Page) {
 
 function installEvidenceFixtureMocks(page: Page) {
   return page.route('**/api/prod/**', async (route) => {
-    if (route.request().method() !== 'GET') {
+    const method = route.request().method()
+    const url = new URL(route.request().url())
+    const path = url.pathname
+
+    if (method === 'POST' && /\/evidence\/packs\/[^/]+\/verify$/.test(path)) {
+      const packId = path.split('/').slice(-2, -1)[0] ?? PACK_BATCH
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'VERIFIED',
+          evidence_pack_id: packId,
+          checked_at: new Date().toISOString(),
+          stored_root: 'c'.repeat(64),
+          computed_root: 'c'.repeat(64),
+          explanation: 'Merkle root reproduced exactly from live database entries.',
+        }),
+      })
+      return
+    }
+
+    if (method !== 'GET') {
       await route.continue()
       return
     }
-    const url = new URL(route.request().url())
-    const path = url.pathname
 
     if (path.endsWith('/intelligence/batches')) {
       await route.fulfill({
@@ -230,10 +302,9 @@ function installEvidenceFixtureMocks(page: Page) {
       })
       return
     }
-    if (path.includes('/evidence/packs') || path.includes('/intelligence/')) {
-      const body =
-        path.includes('/evidence/') ?
-          evidenceFixtureBody(path, url.searchParams)
+    if (path.includes('/evidence/') || path.includes('/intelligence/')) {
+      const body = path.includes('/evidence/')
+        ? evidenceFixtureBody(path, url.searchParams)
         : { data_available: false, tenant_id: SESSION_TENANT }
       await route.fulfill({
         status: 200,
@@ -329,6 +400,17 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
 test.describe('evidence batch → intent → pack wiring', () => {
   test.beforeEach(async ({ page, context }) => {
     await preparePage(page, context, installEvidenceFixtureMocks)
+  })
+
+  test('evidence proof dock shows batch and intent columns from batch-intents API', async ({ page }) => {
+    await page.goto(`/payout-command-view/today?dock=proof&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`)
+    await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
+      timeout: 25_000,
+    })
+    await expect(page.getByRole('columnheader', { name: 'Batch' })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('columnheader', { name: 'Intent' })).toBeVisible()
+    await expect(page.getByText(EVIDENCE_BATCH).first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('ZORD_PAY_A').first()).toBeVisible({ timeout: 10_000 })
   })
 
   test('fan-out API calls and table on Evidence dock', async ({ page }) => {

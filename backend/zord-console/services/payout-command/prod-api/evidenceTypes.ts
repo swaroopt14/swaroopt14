@@ -59,6 +59,27 @@ export type ListPacksResponse = {
   total: number
 }
 
+export type EvidenceTimelineEntry = {
+  timestamp: string
+  event: string
+  node_id: string
+}
+
+export type EvidencePackTimelineResponse = {
+  evidence_pack_id: string
+  intent_id: string
+  timeline: EvidenceTimelineEntry[]
+}
+
+export type EvidencePackVerifyResponse = {
+  status: string
+  evidence_pack_id: string
+  checked_at: string
+  stored_root: string
+  computed_root?: string
+  explanation: string
+}
+
 export type EvidencePackFull = {
   evidence_pack_id: string
   tenant_id: string

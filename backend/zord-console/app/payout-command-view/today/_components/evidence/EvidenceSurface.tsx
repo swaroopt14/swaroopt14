@@ -14,7 +14,7 @@ import type {
   LeakageKpiResolved,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
-import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
+import { getEvidencePacksForBatchIntents } from '@/services/payout-command/prod-api/getEvidencePacksForBatchIntents'
 import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { EvidencePageTabs } from './components/EvidencePageTabs'
@@ -118,10 +118,13 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     let cancelled = false
     setPacksLoading(true)
     setPackListError(null)
-    void listEvidencePacksForBatch(bid).then((packs) => {
+    void getEvidencePacksForBatchIntents(bid).then(({ packs, error }) => {
       if (cancelled) return
-      if (!packs.length) {
-        setPackListError('No evidence packs for this batch.')
+      if (error) {
+        setPackListError(error)
+        setPackSummaries([])
+      } else if (!packs.length) {
+        setPackListError(`No evidence packs for batch ${bid}.`)
         setPackSummaries([])
       } else {
         setPackListError(null)
@@ -177,6 +180,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     return scopedTableRows.filter(
       (row) =>
         row.packId.toLowerCase().includes(q) ||
+        row.batchId.toLowerCase().includes(q) ||
         row.paymentRef.toLowerCase().includes(q) ||
         row.intentId.toLowerCase().includes(q) ||
         row.proofRoot.toLowerCase().includes(q),

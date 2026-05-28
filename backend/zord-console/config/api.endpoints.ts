@@ -96,6 +96,12 @@ export const BACKEND_SERVICES = {
     ENDPOINTS: {
       PACKS: '/v1/evidence/packs',
       PACK_BY_ID: (packId: string) => `/v1/evidence/packs/${encodeURIComponent(packId)}`,
+      BATCH_INTENTS: (batchId: string) =>
+        `/v1/evidence/batch/${encodeURIComponent(batchId)}/intents`,
+      PACK_TIMELINE: (packId: string) =>
+        `/v1/evidence/packs/${encodeURIComponent(packId)}/timeline`,
+      PACK_VERIFY: (packId: string) =>
+        `/v1/evidence/packs/${encodeURIComponent(packId)}/verify`,
     },
   },
 } as const

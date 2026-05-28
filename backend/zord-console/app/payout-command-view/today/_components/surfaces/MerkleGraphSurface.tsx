@@ -237,6 +237,8 @@ export type MerkleGraphSurfaceProps = {
   intentOptionsSource?: 'table' | 'journal'
   /** Hide batch / intent·pack pickers when parent controls scope. */
   hideScopePickers?: boolean
+  /** Called when the active evidence pack changes (intent · pack picker). */
+  onActivePackIdChange?: (packId: string) => void
 }
 
 export function MerkleGraphSurface({
@@ -247,6 +249,7 @@ export function MerkleGraphSurface({
   controlledPackId,
   intentOptionsSource = 'journal',
   hideScopePickers = false,
+  onActivePackIdChange,
 }: MerkleGraphSurfaceProps = {}) {
   const searchParams = useSearchParams()
   const urlBatchId = searchParams.get('batch_id')?.trim() ?? ''
@@ -294,6 +297,10 @@ export function MerkleGraphSurface({
     const pid = apiTrimmedString(controlledPackId)
     if (pid) setActivePackId(pid)
   }, [controlledPackId])
+
+  useEffect(() => {
+    if (activePackId) onActivePackIdChange?.(activePackId)
+  }, [activePackId, onActivePackIdChange])
 
   useEffect(() => {
     if (!useLive) return

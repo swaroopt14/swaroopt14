@@ -17,6 +17,8 @@ type DLQRepository interface {
 	ListByTenant(ctx context.Context, tenantID string) ([]models.DLQEntry, error)
 	GetByTenantAndID(ctx context.Context, tenantID, dlqID string) (*models.DLQEntry, error)
 	GetByID(ctx context.Context, dlqID string) (*models.DLQEntry, error)
+	ListManualReview(ctx context.Context) ([]models.DLQEntry, error)
+	CountTerminal(ctx context.Context) (int, error)
 }
 
 // Concrete Postgres implementation
@@ -203,7 +205,76 @@ func (r *DLQPostgresRepo) ListAll(
 
 	return entries, nil
 }
+func (r *DLQPostgresRepo) ListManualReview(
+	ctx context.Context,
+) ([]models.DLQEntry, error) {
 
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT
+			dlq_id,
+			tenant_id,
+			envelope_id,
+			stage,
+			reason_code,
+			error_detail,
+			replayable,
+			client_batch_ref,
+			created_at,
+			source_row_num,
+			dlq_status,
+			intent_context,
+			trace_id
+		FROM dlq_items
+		WHERE dlq_status = 'NEEDS_MANUAL_REVIEW'
+		ORDER BY created_at DESC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var entries []models.DLQEntry
+
+	for rows.Next() {
+		var e models.DLQEntry
+		if err := rows.Scan(
+			&e.DLQID,
+			&e.TenantID,
+			&e.EnvelopeID,
+			&e.Stage,
+			&e.ReasonCode,
+			&e.ErrorDetail,
+			&e.Replayable,
+			&e.ClientBatchRef,
+			&e.CreatedAt,
+			&e.SourceRowNum,
+			&e.DLQStatus,
+			&e.IntentContext,
+			&e.TraceID,
+		); err != nil {
+			return nil, err
+		}
+		entries = append(entries, e)
+	}
+
+	return entries, nil
+}
+func (r *DLQPostgresRepo) CountTerminal(
+	ctx context.Context,
+) (int, error) {
+
+	var count int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM dlq_items
+		WHERE dlq_status = 'DLQ_TERMINAL'
+	`).Scan(&count)
+	if err != nil {
+		return 0, err
+	}
+
+	return count, nil
+}
 func (r *DLQPostgresRepo) GetByTenantAndID(
 	ctx context.Context,
 	tenantID string,

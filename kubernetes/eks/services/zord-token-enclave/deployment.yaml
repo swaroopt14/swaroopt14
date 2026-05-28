@@ -23,6 +23,7 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       terminationGracePeriodSeconds: 45
+      serviceAccountName: zord-aws-access
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

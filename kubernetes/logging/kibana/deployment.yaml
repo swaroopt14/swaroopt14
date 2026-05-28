@@ -21,8 +21,18 @@ spec:
           env:
             - name: ELASTICSEARCH_HOSTS
               value: http://elasticsearch.logging.svc.cluster.local:9200
+            - name: ELASTICSEARCH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: ELASTIC_USERNAME
+            - name: ELASTICSEARCH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: ELASTIC_PASSWORD
             - name: xpack.security.enabled
-              value: "false"
+              value: "true"
             - name: telemetry.enabled
               value: "false"
           resources:

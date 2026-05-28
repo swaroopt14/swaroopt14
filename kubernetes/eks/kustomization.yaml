@@ -58,4 +58,3 @@ resources:
   - services/zord-console/deployment.yaml
   - services/zord-console/pdb.yaml
   - services/zord-console/hpa.yaml
-  - ingress/public-alb.yaml

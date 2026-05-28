@@ -39,9 +39,14 @@ spec:
             - name: discovery.type
               value: single-node
             - name: xpack.security.enabled
-              value: "false"
+              value: "true"
             - name: xpack.security.http.ssl.enabled
               value: "false"
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: elasticsearch-credentials
+                  key: ELASTIC_PASSWORD
             - name: ES_JAVA_OPTS
               value: "-Xms1g -Xmx1g"
             - name: cluster.name

@@ -24,12 +24,12 @@ data:
         tls:
           insecure: true
 
-      logging:
-        loglevel: warn
+      debug:
+        verbosity: basic
 
     service:
       pipelines:
         traces:
           receivers: [otlp]
           processors: [batch]
-          exporters: [otlp/jaeger, logging]
+          exporters: [otlp/jaeger, debug]

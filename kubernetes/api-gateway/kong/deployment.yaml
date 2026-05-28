@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kong-gateway
+  namespace: api-gateway
+  labels:
+    app.kubernetes.io/name: kong-gateway
+    app.kubernetes.io/component: api-gateway
+    app.kubernetes.io/part-of: arealis-zord
+spec:
+  replicas: 2
+  minReadySeconds: 10
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kong-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kong-gateway
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8100"
+        prometheus.io/path: "/metrics"
+    spec:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: kong-gateway
+              topologyKey: kubernetes.io/hostname
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: kong-gateway
+      containers:
+        - name: kong
+          image: kong:3.9
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: proxy
+              containerPort: 8000
+              protocol: TCP
+            - name: proxy-ssl
+              containerPort: 8443
+              protocol: TCP
+            - name: admin
+              containerPort: 8001
+              protocol: TCP
+            - name: metrics
+              containerPort: 8100
+              protocol: TCP
+          env:
+            # DB-less mode — config from declarative YAML
+            - name: KONG_DATABASE
+              value: "off"
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /etc/kong/kong.yaml
+            # Proxy settings
+            - name: KONG_PROXY_LISTEN
+              value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"
+            - name: KONG_ADMIN_LISTEN
+              value: "0.0.0.0:8001"
+            # Logging
+            - name: KONG_PROXY_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_PROXY_ERROR_LOG
+              value: /dev/stderr
+            - name: KONG_ADMIN_ACCESS_LOG
+              value: /dev/stdout
+            - name: KONG_ADMIN_ERROR_LOG
+              value: /dev/stderr
+            # Performance
+            - name: KONG_NGINX_WORKER_PROCESSES
+              value: "2"
+            - name: KONG_UPSTREAM_KEEPALIVE_POOL_SIZE
+              value: "60"
+            - name: KONG_UPSTREAM_KEEPALIVE_MAX_REQUESTS
+              value: "100"
+            - name: KONG_UPSTREAM_KEEPALIVE_IDLE_TIMEOUT
+              value: "60"
+            # Status endpoint for health checks
+            - name: KONG_STATUS_LISTEN
+              value: "0.0.0.0:8100"
+            # Plugins to load
+            - name: KONG_PLUGINS
+              value: "bundled"
+          volumeMounts:
+            - name: kong-config
+              mountPath: /etc/kong
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /status
+              port: 8100
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /status
+              port: 8100
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: kong-config
+          configMap:
+            name: kong-declarative-config
+      terminationGracePeriodSeconds: 30

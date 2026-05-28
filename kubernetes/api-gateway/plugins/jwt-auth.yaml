@@ -1,0 +1,75 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Kong Plugin: JWT Authentication
+# ─────────────────────────────────────────────────────────────────────────────
+# NOT currently enabled in kong/configmap.yaml.
+# This file documents how to enable JWT validation at the gateway level.
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# CURRENT STATE
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Authentication is currently handled by each service internally:
+#   - zord-edge validates API keys (Bearer token from tenant registration)
+#   - zord-edge validates X-Zord-ADMIN-KEY for admin routes
+#   - Other services trust internal traffic (K8s network isolation)
+#
+# Kong currently does NOT validate tokens — it passes them through to services.
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# FUTURE: ENABLE JWT AT GATEWAY LEVEL
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# To move JWT validation to Kong (recommended for production):
+#
+# Step 1: Add JWT plugin to specific routes in kong/configmap.yaml:
+#
+#   - name: jwt
+#     route: edge-bulk-ingest
+#     config:
+#       key_claim_name: iss
+#       claims_to_verify:
+#         - exp
+#       header_names:
+#         - Authorization
+#       uri_param_names: []
+#       cookie_names: []
+#       run_on_preflight: true
+#
+# Step 2: Register JWT credentials (consumers):
+#
+#   consumers:
+#     - username: tenant-bms3
+#       jwt_secrets:
+#         - key: "bms3"
+#           algorithm: "HS256"
+#           secret: "<shared-secret>"
+#
+# Step 3: Remove JWT validation from zord-edge (avoid double validation)
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# WHY NOT ENABLED NOW
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# 1. zord-edge uses custom API key format (tenant_name.hash), not standard JWT
+# 2. Moving auth to Kong requires refactoring the auth flow
+# 3. Current setup works — Kong adds rate limiting and security headers
+# 4. Can be enabled incrementally per-route without breaking existing clients
+#
+# ═══════════════════════════════════════════════════════════════════════════════
+# ALTERNATIVE: KEY-AUTH PLUGIN (matches current zord-edge pattern)
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# If you want Kong to validate API keys (instead of JWT):
+#
+#   - name: key-auth
+#     route: edge-bulk-ingest
+#     config:
+#       key_names:
+#         - Authorization
+#       key_in_header: true
+#       key_in_query: false
+#       key_in_body: false
+#       hide_credentials: false
+#
+# This requires registering each tenant's API key as a Kong consumer credential.
+# ─────────────────────────────────────────────────────────────────────────────

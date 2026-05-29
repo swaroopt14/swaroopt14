@@ -178,6 +178,8 @@ kubectl get pods -n external-secrets
 # 2. metrics-server
 kubectl get pods -n kube-system | grep metrics-server
 # Must show running pod
+# Install metrics server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
 # 3. AWS Load Balancer Controller
 kubectl get deployment -A | grep aws-load-balancer

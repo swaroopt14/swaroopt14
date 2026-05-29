@@ -34,7 +34,9 @@ spec:
             - name: NO_AUTH
               value: "true"
             - name: BASE_URL
-              value: http://localhost:1337
+              value: https://kong-admin.zordnet.com
+            - name: TOKEN_SECRET
+              value: zord-konga-token-secret-2026
           ports:
             - name: http
               containerPort: 1337

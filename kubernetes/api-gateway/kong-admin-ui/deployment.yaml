@@ -24,7 +24,7 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: NODE_ENV
-              value: production
+              value: development
             - name: KONGA_HOOK_TIMEOUT
               value: "120000"
             - name: DB_ADAPTER
@@ -43,14 +43,16 @@ spec:
             httpGet:
               path: /
               port: 1337
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 10
           livenessProbe:
             httpGet:
               path: /
               port: 1337
-            initialDelaySeconds: 30
+            initialDelaySeconds: 60
             periodSeconds: 30
+            failureThreshold: 5
           resources:
             requests:
               cpu: 50m

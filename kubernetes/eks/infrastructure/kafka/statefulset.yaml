@@ -57,6 +57,7 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/kafka/data
+              subPath: kafka-data
           readinessProbe:
             tcpSocket:
               port: 9092

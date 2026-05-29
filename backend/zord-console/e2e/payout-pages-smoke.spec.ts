@@ -19,7 +19,7 @@ const DOCK_CASES: { dock: string; title: string }[] = [
   { dock: 'ambiguity', title: 'Matching Confidence' },
   { dock: 'grid', title: 'Intent Journal' },
   { dock: 'settlement', title: 'Settlement Journal' },
-  { dock: 'connectors', title: 'Connector Intelligence' },
+  { dock: 'connectors', title: 'Routing & Network Intelligence' },
   { dock: 'sync', title: 'Connected Systems' },
   { dock: 'proof', title: 'Evidence & Dispute Resolution' },
   { dock: 'billing', title: 'Billing' },
@@ -54,7 +54,14 @@ async function installPayoutSessionCookies(context: BrowserContext) {
 
 function packSummary(
   packId: string,
-  opts: { intentId?: string; batchId?: string; mode: string; ref?: string },
+  opts: {
+    intentId?: string
+    batchId?: string
+    mode: string
+    ref?: string
+    leafCount?: number
+    requiredLeafCount?: number
+  },
 ) {
   return {
     evidence_pack_id: packId,
@@ -68,8 +75,9 @@ function packSummary(
     merkle_root: 'a'.repeat(64),
     ruleset_version: '1',
     created_at: '2026-05-01T12:00:00Z',
-    leaf_count: 4,
-    artifact_count: 4,
+    leaf_count: opts.leafCount ?? 4,
+    required_leaf_count: opts.requiredLeafCount,
+    artifact_count: opts.leafCount ?? 4,
   }
 }
 
@@ -142,12 +150,16 @@ function evidenceFixtureBody(path: string, search: URLSearchParams): unknown {
             batchId: EVIDENCE_BATCH,
             mode: 'INTELLIGENCE_ATTACH',
             ref: 'ZORD_PAY_A',
+            leafCount: 9,
+            requiredLeafCount: 5,
           }),
           packSummary(PACK_INTENT_B, {
             intentId: INTENT_B,
             batchId: EVIDENCE_BATCH,
             mode: 'INTELLIGENCE_ATTACH',
             ref: 'ZORD_PAY_B',
+            leafCount: 9,
+            requiredLeafCount: 9,
           }),
         ],
         total: 2,
@@ -168,14 +180,44 @@ function evidenceFixtureBody(path: string, search: URLSearchParams): unknown {
   const intentId = search.get('intent_id')
   const batchId = search.get('batch_id')
   if (intentId === INTENT_A) {
-    return { packs: [packSummary(PACK_INTENT_A, { intentId: INTENT_A, mode: 'INTELLIGENCE_INTENT', ref: 'PAY-A' })], total: 1 }
+    return {
+      packs: [
+        packSummary(PACK_INTENT_A, {
+          intentId: INTENT_A,
+          mode: 'INTELLIGENCE_INTENT',
+          ref: 'PAY-A',
+          leafCount: 9,
+          requiredLeafCount: 5,
+        }),
+      ],
+      total: 1,
+    }
   }
   if (intentId === INTENT_B) {
-    return { packs: [packSummary(PACK_INTENT_B, { intentId: INTENT_B, mode: 'INTELLIGENCE_INTENT', ref: 'PAY-B' })], total: 1 }
+    return {
+      packs: [
+        packSummary(PACK_INTENT_B, {
+          intentId: INTENT_B,
+          mode: 'INTELLIGENCE_INTENT',
+          ref: 'PAY-B',
+          leafCount: 9,
+          requiredLeafCount: 9,
+        }),
+      ],
+      total: 1,
+    }
   }
   if (batchId === EVIDENCE_BATCH) {
     return {
-      packs: [packSummary(PACK_BATCH, { mode: 'BATCH_PROOF', ref: 'BATCH-REF' })],
+      packs: [
+        packSummary(PACK_BATCH, {
+          mode: 'BATCH_PROOF',
+          ref: 'BATCH-REF',
+          batchId: EVIDENCE_BATCH,
+          leafCount: 6,
+          requiredLeafCount: 6,
+        }),
+      ],
       total: 1,
     }
   }
@@ -375,10 +417,12 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(6)
   })
 
-  test('leakage keeps blue hero + 2x2 KPI layout', async ({ page }) => {
+  test('leakage keeps 2x2 KPI structure with dark hero styling', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=leakage')
     await expect(page.getByTestId('leakage-kpi-strip')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByTestId('leakage-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    const hero = page.getByTestId('leakage-kpi-hero')
+    await expect(hero).toBeVisible({ timeout: 20_000 })
+    await expect(hero).toHaveAttribute('style', /0f172a/i)
     await expect(page.locator('[data-testid^="leakage-kpi-secondary-"]')).toHaveCount(4)
   })
 
@@ -391,6 +435,23 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await page.goto('/payout-command-view/today?dock=ambiguity')
     await expect(page.getByText('Ambiguity Velocity')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText(/60 batches|batch mock/).first()).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('connectors renders routing wireframe sections and drawer drill-down', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=connectors')
+    await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
+      timeout: 25_000,
+    })
+    await expect(page.getByTestId('routing-kpi-bar')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('network-health-chart')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('leakage-composition-chart')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('recommended-routes')).toContainText('Razorpay → UPI → HDFC')
+    await expect(page.getByTestId('connector-grid')).toContainText('Recommended Action')
+    await page.getByText('ICICI Bank').first().click()
+    await expect(page.getByTestId('connector-drawer')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('connector-drawer')).toContainText('Top failures')
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page.getByTestId('connector-drawer')).toHaveCount(0)
   })
 
   test('evidence charts show Preview when packs empty', async ({ page }) => {
@@ -429,15 +490,24 @@ test.describe('evidence batch → intent → pack wiring', () => {
     await preparePage(page, context, installEvidenceFixtureMocks)
   })
 
-  test('evidence proof dock shows batch and intent columns from batch-intents API', async ({ page }) => {
+  test('evidence proof dock shows reshaped browser columns and merged packs', async ({ page }) => {
     await page.goto(`/payout-command-view/today?dock=proof&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`)
     await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
-    await expect(page.getByRole('columnheader', { name: 'Batch' })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('columnheader', { name: 'Evidence Pack' })).toBeVisible({ timeout: 15_000 })
     await expect(page.getByRole('columnheader', { name: 'Intent' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Proof Root' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Score' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Leaves' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Generated' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Actions' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Batch' })).toHaveCount(0)
     await expect(page.getByText(EVIDENCE_BATCH).first()).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText('ZORD_PAY_A').first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(PACK_INTENT_A).first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('9/9').first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('1100%')).toHaveCount(0)
   })
 
   test('fan-out API calls and table on Evidence dock', async ({ page }) => {
@@ -464,5 +534,8 @@ test.describe('evidence batch → intent → pack wiring', () => {
     expect(packs.some((c) => c.searchParams.get('intent_id') === INTENT_B)).toBe(true)
 
     await expect(page.getByText('Batch pack').first()).toBeVisible({ timeout: 10_000 })
+
+    await page.getByRole('link', { name: 'View graph' }).first().click()
+    await expect(page.getByText('Operational proof timeline')).toHaveCount(0)
   })
 })

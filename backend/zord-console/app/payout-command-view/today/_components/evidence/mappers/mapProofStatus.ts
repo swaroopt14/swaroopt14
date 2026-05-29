@@ -12,9 +12,17 @@ export function mapProofStatusFromPack(
   summary: EvidencePackSummaryRow,
   itemCount?: number,
 ): MappedProofStatus {
+  const coerceCount = (value: unknown): number | undefined => {
+    if (value == null || value === '') return undefined
+    const n = Number(value)
+    if (!Number.isFinite(n)) return undefined
+    return Math.max(0, Math.round(n))
+  }
+
   const st = (summary.pack_status || '').toUpperCase()
   const proofStatus = apiTrimmedString(summary.proof_status).toUpperCase()
-  const count = itemCount ?? summary.artifact_count
+  const count = coerceCount(itemCount) ?? coerceCount(summary.leaf_count) ?? coerceCount(summary.artifact_count)
+  const leafTotal = Math.max(1, coerceCount(summary.required_leaf_count) ?? EXPECTED_PROOF_ITEMS)
 
   if (proofStatus === 'VERIFIED') return { key: 'verified', label: PROOF_STATUS.verified }
   if (proofStatus === 'EXPORTED') return { key: 'exported', label: PROOF_STATUS.exported }
@@ -28,9 +36,9 @@ export function mapProofStatusFromPack(
     return { key: 'missingSettlement', label: PROOF_STATUS.missingSettlement }
 
   if (st === 'ACTIVE' || st === 'SEALED') {
-    if (count !== undefined && count < EXPECTED_PROOF_ITEMS - 1)
+    if (count !== undefined && count < leafTotal - 1)
       return { key: 'partialProof', label: PROOF_STATUS.partialProof }
-    if (count !== undefined && count >= EXPECTED_PROOF_ITEMS - 1)
+    if (count !== undefined && count >= leafTotal - 1)
       return { key: 'proofReady', label: PROOF_STATUS.proofReady }
     return { key: 'proofReady', label: PROOF_STATUS.proofReady }
   }

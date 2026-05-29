@@ -28,6 +28,8 @@ export type EvidencePackSummaryRow = {
   proof_status?: string
   proof_score?: number
   artifact_count?: number
+  leaf_count?: number
+  required_leaf_count?: number
   missing_artifact_count?: number
   verification_status?: string
   last_verified_at?: string
@@ -35,8 +37,6 @@ export type EvidencePackSummaryRow = {
 
   /** Intent / settlement lifecycle metadata returned by intent-pack listings. */
   pack_completeness_score?: number
-  leaf_count?: number
-  required_leaf_count?: number
   settlement_leaf_present_flag?: boolean
   attachment_decision_leaf_present_flag?: boolean
   payment_instruction_received?: string
@@ -84,6 +84,12 @@ export type EvidencePackFull = {
   evidence_pack_id: string
   tenant_id: string
   intent_id: string
+  /** Optional metadata extensions (deployment-dependent). */
+  batch_id?: string
+  client_reference?: string
+  client_payout_ref?: string
+  amount?: string | number | null
+  amount_minor?: string | number | null
   contract_id: string
   mode: string
   pack_status: string
@@ -97,6 +103,8 @@ export type EvidencePackFull = {
   proof_status?: string
   proof_score?: number
   artifact_count?: number
+  leaf_count?: number
+  required_leaf_count?: number
   missing_artifact_count?: number
   verification_status?: string
   last_verified_at?: string

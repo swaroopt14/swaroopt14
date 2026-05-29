@@ -15,6 +15,7 @@ import type {
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { getEvidencePacksForBatchIntents } from '@/services/payout-command/prod-api/getEvidencePacksForBatchIntents'
+import { listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { EvidencePageTabs } from './components/EvidencePageTabs'
@@ -34,6 +35,32 @@ import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
 import type { EvidencePageTab } from './types/evidenceViewModels'
 
 const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
+
+function mergePackSummaries(
+  batchScopedPacks: EvidencePackSummaryRow[],
+  intentScopedPacks: EvidencePackSummaryRow[],
+): EvidencePackSummaryRow[] {
+  const byId = new Map<string, EvidencePackSummaryRow>()
+  const upsert = (row: EvidencePackSummaryRow) => {
+    const id = apiTrimmedString(row.evidence_pack_id)
+    if (!id) return
+    const prev = byId.get(id)
+    byId.set(id, prev ? { ...prev, ...row } : row)
+  }
+
+  // Keep batch-level rows first in table/graph flows.
+  for (const row of batchScopedPacks) upsert(row)
+  for (const row of intentScopedPacks) upsert(row)
+
+  const rows = [...byId.values()]
+  rows.sort((a, b) => {
+    const aIsBatch = !apiTrimmedString(a.intent_id) || (a.mode ?? '').toUpperCase().includes('BATCH')
+    const bIsBatch = !apiTrimmedString(b.intent_id) || (b.mode ?? '').toUpperCase().includes('BATCH')
+    if (aIsBatch !== bIsBatch) return aIsBatch ? -1 : 1
+    return (a.created_at ?? '').localeCompare(b.created_at ?? '')
+  })
+  return rows
+}
 
 /**
  * APIs (5 on workspace load):
@@ -118,17 +145,22 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     let cancelled = false
     setPacksLoading(true)
     setPackListError(null)
-    void getEvidencePacksForBatchIntents(bid).then(({ packs, error }) => {
+    void Promise.all([
+      getEvidencePacksForBatchIntents(bid),
+      listEvidencePacks({ batchId: bid }),
+    ]).then(([intentScoped, batchScoped]) => {
       if (cancelled) return
-      if (error) {
-        setPackListError(error)
+      const merged = mergePackSummaries(batchScoped?.packs ?? [], intentScoped.packs)
+
+      if (intentScoped.error && (batchScoped?.packs?.length ?? 0) === 0) {
+        setPackListError(intentScoped.error)
         setPackSummaries([])
-      } else if (!packs.length) {
+      } else if (!merged.length) {
         setPackListError(`No evidence packs for batch ${bid}.`)
         setPackSummaries([])
       } else {
         setPackListError(null)
-        setPackSummaries(packs)
+        setPackSummaries(merged)
       }
       setPacksLoading(false)
     })
@@ -141,7 +173,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     () =>
       packSummaries.map((summary) => ({
         summary,
-        itemCount: summary.artifact_count ?? summary.leaf_count ?? undefined,
+        itemCount: summary.leaf_count ?? summary.artifact_count ?? undefined,
       })),
     [packSummaries],
   )

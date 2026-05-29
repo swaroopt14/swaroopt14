@@ -260,9 +260,10 @@ export const dockItems = [
     id: 'connectors',
     label: 'Connectors',
     navLabel: 'Connectors',
-    title: 'Connector Intelligence',
+    title: 'Routing & Network Intelligence',
     breadcrumbLabel: 'Connectors',
-    summary: 'Per-connector ambiguity, latency, and defensibility exposure — walk into a QBR with the exact ₹ exposure each connector creates per month.',
+    summary:
+      'Executive routing view for connector health, leakage exposure, and top route actions to reduce preventable loss.',
     icon: 'shield',
   },
   {

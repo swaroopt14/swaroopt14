@@ -82,40 +82,11 @@ function ScopeChip({ scope }: { scope: PackTableRowVm['scope'] }) {
   )
 }
 
-function DecisionChip({ value }: { value: string }) {
-  if (!value || value === '—') return <span className="text-slate-400">—</span>
-  const v = value.toUpperCase()
-  const pos = ['PASS', 'MATCH_EXACT', 'MATCHED', 'OK', 'TRUE'].some((k) => v.includes(k))
-  const neg = ['FAIL', 'MISMATCH', 'BLOCK', 'REJECT', 'FALSE'].some((k) => v.includes(k))
-  const tone = pos
-    ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-    : neg
-      ? 'border-rose-200 bg-rose-50 text-rose-800'
-      : 'border-slate-200 bg-slate-50 text-slate-700'
-  return (
-    <span className={`inline-flex items-center rounded-md border px-1.5 py-0.5 text-[11px] font-semibold ${tone}`}>
-      {value}
-    </span>
-  )
-}
-
-function BoolDot({ value }: { value: boolean | null }) {
-  if (value == null) return <span className="text-slate-400">—</span>
-  const cls = value ? 'bg-emerald-500' : 'bg-rose-500'
-  return <span className={`inline-block h-2 w-2 rounded-full ${cls}`} />
-}
-
 function truncateId(id: string, head = 8): string {
   const v = id.trim()
   if (!v || v === '—') return '—'
   if (v.length <= head + 4) return v
   return `${v.slice(0, head)}…`
-}
-
-function formatConfidence(score: number | null): string {
-  if (score == null || !Number.isFinite(score)) return '—'
-  const pct = score <= 1 ? score * 100 : score
-  return `${pct.toFixed(0)}%`
 }
 
 function batchToPickerOption(
@@ -249,7 +220,7 @@ export function EvidencePackBrowser({
                 value={search}
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder={evidenceCopy.browser.searchPlaceholder}
-                className="h-10 w-full rounded-[0.75rem] border border-slate-200 bg-white pl-9 pr-3 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/15"
+                className="h-10 w-full rounded-[0.75rem] border border-slate-200 bg-white pl-9 pr-3 text-[14px] text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400/70 focus:ring-2 focus:ring-slate-300/45"
               />
               <Glyph name="search" className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
             </div>
@@ -257,20 +228,17 @@ export function EvidencePackBrowser({
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="min-w-[1180px] w-full border-separate border-spacing-0 text-left text-[14px]">
+        <table className="min-w-[980px] w-full border-separate border-spacing-0 text-left text-[14px]">
           <thead>
             <tr className="bg-slate-50/70 text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">
               <th className="border-b border-slate-200/80 px-5 py-3">Evidence Pack</th>
-              <th className="border-b border-slate-200/80 px-4 py-3">Batch</th>
               <th className="border-b border-slate-200/80 px-4 py-3">Intent</th>
-              <th className="border-b border-slate-200/80 px-4 py-3">Payment Ref</th>
-              <th className="border-b border-slate-200/80 px-4 py-3">Decisions</th>
               <th className="border-b border-slate-200/80 px-4 py-3">Proof Root</th>
               <th className="border-b border-slate-200/80 px-4 py-3 text-right">Score</th>
               <th className="border-b border-slate-200/80 px-4 py-3 text-right">Leaves</th>
               <th className="border-b border-slate-200/80 px-4 py-3">Status</th>
               <th className="border-b border-slate-200/80 px-4 py-3 text-right">Generated</th>
-              <th className="border-b border-slate-200/80 px-5 py-3 text-right">Action</th>
+              <th className="border-b border-slate-200/80 px-5 py-3 text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -293,49 +261,10 @@ export function EvidencePackBrowser({
                       </p>
                     ) : null}
                   </td>
-                  <td className="px-4 py-4">
-                    <p className="font-mono text-[13px] font-semibold text-slate-900" title={row.batchId}>
-                      {row.batchId}
-                    </p>
-                  </td>
                   <td className="max-w-[10rem] px-4 py-4">
                     <p className="font-mono text-[13px] font-semibold text-slate-900" title={row.intentId}>
                       {truncateId(row.intentId)}
                     </p>
-                  </td>
-                  <td className="max-w-[14rem] px-4 py-4">
-                    <p className="font-mono text-[13px] font-semibold text-slate-900">{row.paymentRef}</p>
-                    {row.bankReference !== '—' ? (
-                      <p className="mt-1 font-mono text-[11.5px] text-slate-500" title={row.bankReference}>
-                        bank ref {truncateId(row.bankReference)}
-                      </p>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex flex-col gap-1.5 text-[11.5px]">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-500">Gov</span>
-                        <DecisionChip value={row.governanceDecision} />
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-slate-500">Match</span>
-                        <DecisionChip value={row.attachmentDecision} />
-                        {row.matchConfidence != null ? (
-                          <span className="font-mono text-slate-500">{formatConfidence(row.matchConfidence)}</span>
-                        ) : null}
-                      </div>
-                      <div className="flex items-center gap-3 text-slate-500">
-                        <span className="inline-flex items-center gap-1">
-                          <BoolDot value={row.amountMatch} /> amt
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <BoolDot value={row.valueDateCheck} /> date
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <BoolDot value={row.settlementPresent} /> stl
-                        </span>
-                      </div>
-                    </div>
                   </td>
                   <td className="min-w-[12rem] px-4 py-4">
                     <div className="rounded-[0.75rem] border border-slate-200 bg-slate-50/60 p-2.5">
@@ -379,7 +308,7 @@ export function EvidencePackBrowser({
             })}
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={9} className="px-5 py-14 text-center">
+                <td colSpan={8} className="px-5 py-14 text-center">
                   <p className="text-[15px] font-semibold text-slate-900">{evidenceCopy.empty.noPack}</p>
                   <p className="mt-2 text-[13.5px] text-slate-500">{evidenceCopy.empty.noPackHint}</p>
                 </td>

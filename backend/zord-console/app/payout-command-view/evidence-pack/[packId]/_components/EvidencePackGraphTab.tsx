@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react'
 import { MerkleGraphSurface } from '../../../today/_components/surfaces/MerkleGraphSurface'
-import { EvidencePackProofRail } from '../../../today/_components/evidence/components/EvidencePackProofRail'
 import { EvidencePackVerifyCard } from '../../../today/_components/evidence/components/EvidencePackVerifyCard'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 
@@ -44,9 +43,8 @@ export function EvidencePackGraphTab({ packId, batchId, intentId }: EvidencePack
         </div>
       ) : null}
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(280px,340px)_minmax(0,1fr)]">
+      <div className="grid gap-5 lg:grid-cols-[minmax(280px,320px)_minmax(0,1fr)]">
         <div className="space-y-4">
-          <EvidencePackProofRail packId={viewPackId} />
           <EvidencePackVerifyCard packId={viewPackId} />
         </div>
         <div className="min-w-0">

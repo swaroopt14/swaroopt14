@@ -13,6 +13,22 @@ type EvidencePackTimelineTabProps = {
   loading: boolean
 }
 
+function simplifyTimelineEventLabel(event: string): string {
+  const text = event.trim().toLowerCase()
+  if (!text) return 'Evidence step recorded'
+  if (text.includes('bank settlement file')) return 'Bank settlement file received'
+  if (text.includes('payment instruction')) return 'Payment instruction received'
+  if (text.includes('payload envelope') || text.includes('securely hashed')) return 'Payload hash recorded'
+  if (text.includes('structured settlement')) return 'Settlement record structured'
+  if (text.includes('payment intent hash') || text.includes('canonical payment intent')) return 'Payment intent hash anchored'
+  if (text.includes('governance') || text.includes('compliance')) return 'Compliance check completed'
+  if (text.includes('utr') || text.includes('reconciliation') || text.includes('auto-matched')) return 'Bank reference matched'
+  if (text.includes('variance')) return 'Variance analysis completed'
+  if (text.includes('compiled and sealed') || text.includes('evidence pack')) return 'Evidence pack generated'
+  if (text.includes('proof root') || text.includes('merkle')) return 'Proof root committed'
+  return event
+}
+
 function mapApiTimeline(
   entries: { timestamp: string; event: string; node_id: string }[],
 ): TimelineEventVm[] {
@@ -23,7 +39,7 @@ function mapApiTimeline(
       hour: '2-digit',
       minute: '2-digit',
     }),
-    label: e.event,
+    label: simplifyTimelineEventLabel(e.event),
     detail: e.node_id.length > 20 ? `${e.node_id.slice(0, 12)}…${e.node_id.slice(-8)}` : e.node_id,
   }))
 }

@@ -3,11 +3,6 @@
 import type { PortfolioLeakageViewModel } from '../../leakage-portfolio/normalizeLeakagePayload'
 import { formatMinorInr } from '../../leakage-portfolio/utils/formatMinorInr'
 import { leakageCopy, mapReviewPriorityLabel, mapReviewPriorityShort } from '../copy/leakageCopy'
-import {
-  HOME_BODY_IMPERIAL_SM,
-  HOME_TITLE_BLACK,
-  INTELLIGENCE_BLUE_GRADIENT,
-} from '../../command-center/homeCommandCenterTokens'
 
 const SECONDARY = [
   { key: 'unmatchedMinor' as const, label: leakageCopy.kpi.unmatched, tooltip: leakageCopy.kpi.unmatchedTooltip },
@@ -46,7 +41,7 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
       {/* Top Hero Card - Value Needing Review */}
       <article 
         className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/10 p-5 shadow-sm min-h-[140px]"
-        style={{ background: INTELLIGENCE_BLUE_GRADIENT }}
+        style={{ background: 'linear-gradient(145deg,#0f172a 0%,#111827 56%,#1f2937 100%)' }}
         data-testid="leakage-kpi-hero"
       >
         <div
@@ -70,7 +65,7 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
         {SECONDARY.map((item) => (
           <article
             key={item.key}
-            className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+            className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#111827] p-4 shadow-sm"
             title={item.tooltip}
             data-testid={`leakage-kpi-secondary-${item.key}`}
           >
@@ -81,10 +76,10 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
             />
             <div className="relative z-[1]">
               <div className="flex items-center gap-2">
-                <div className="h-3 w-1 rounded-full bg-[#334155]" />
-                <p className={HOME_BODY_IMPERIAL_SM}>{item.label}</p>
+                <div className="h-3 w-1 rounded-full bg-white/65" />
+                <p className="text-[13px] font-medium leading-relaxed text-white/80">{item.label}</p>
               </div>
-              <p className={`mt-3 text-[1.1rem] font-semibold tabular-nums ${HOME_TITLE_BLACK}`}>
+              <p className="mt-3 text-[1.1rem] font-semibold tabular-nums text-white">
                 {formatMinorInr(data[item.key])}
               </p>
             </div>

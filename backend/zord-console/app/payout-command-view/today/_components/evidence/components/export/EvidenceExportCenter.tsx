@@ -4,8 +4,6 @@ import { useState } from 'react'
 import { evidenceCopy } from '../../copy/evidenceCopy'
 import { EVIDENCE_CARD } from '../../evidencePageTokens'
 import { EvidenceSectionHeader } from '../EvidenceSectionHeader'
-import { getEvidencePackFull } from '@/services/payout-command/prod-api/getEvidencePacks'
-import { downloadEvidenceJson } from '../../utils/verifyProofIntegrity'
 
 type EvidenceExportCenterProps = {
   defaultPackId?: string
@@ -20,24 +18,51 @@ const btnOutline =
 export function EvidenceExportCenter({ defaultPackId = '' }: EvidenceExportCenterProps) {
   const [packId, setPackId] = useState(defaultPackId)
   const [message, setMessage] = useState<string | null>(null)
+  const [exporting, setExporting] = useState<string | null>(null)
 
-  const runJsonExport = async () => {
+  const runExport = async (
+    exportType: 'FINANCE_SUMMARY' | 'AUDIT_DETAILED' | 'BANK_PSP_PACK' | 'RAW_JSON',
+    label: string,
+  ) => {
     const id = packId.trim()
     if (!id) {
-      setMessage('Enter an evidence pack ID.')
+      setMessage('Enter a payment reference or evidence pack ID.')
       return
     }
-    const full = await getEvidencePackFull(id)
-    if (!full) {
-      setMessage('Pack not found or evidence service unavailable.')
-      return
+    setExporting(exportType)
+    try {
+      const res = await fetch('/api/v1/dispute/export', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          payment_reference: id,
+          dispute_reason: 'BENEFICIARY_SAYS_NOT_RECEIVED',
+          export_type: exportType,
+        }),
+      })
+      if (!res.ok) {
+        const text = await res.text()
+        setMessage(`${label}: ${text.slice(0, 220) || evidenceCopy.export.apiPending}`)
+        return
+      }
+      const blob = await res.blob()
+      const disposition = res.headers.get('content-disposition') || ''
+      const match = disposition.match(/filename=\"?([^\";]+)\"?/i)
+      const filename = match?.[1] || `evidence-export-${Date.now()}`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+      setMessage(`Downloaded ${filename}.`)
+    } catch {
+      setMessage(`${label}: ${evidenceCopy.export.apiPending}`)
+    } finally {
+      setExporting(null)
     }
-    downloadEvidenceJson(full)
-    setMessage(`Downloaded raw JSON for ${full.evidence_pack_id}.`)
-  }
-
-  const pdfPending = (label: string) => {
-    setMessage(`${label}: ${evidenceCopy.export.apiPending}`)
   }
 
   return (
@@ -61,21 +86,34 @@ export function EvidenceExportCenter({ defaultPackId = '' }: EvidenceExportCente
           </label>
 
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => pdfPending(evidenceCopy.export.financePdf)} className={btnOutline}>
+            <button
+              type="button"
+              disabled={Boolean(exporting)}
+              onClick={() => void runExport('FINANCE_SUMMARY', evidenceCopy.export.financePdf)}
+              className={btnOutline}
+            >
               {evidenceCopy.export.financePdf}
-            </button>
-            <button type="button" onClick={() => pdfPending(evidenceCopy.export.auditPdf)} className={btnOutline}>
-              {evidenceCopy.export.auditPdf}
-            </button>
-            <button type="button" onClick={() => pdfPending(evidenceCopy.export.bankPack)} className={btnOutline}>
-              {evidenceCopy.export.bankPack}
-            </button>
-            <button type="button" onClick={() => pdfPending(evidenceCopy.export.disputePack)} className={btnOutline}>
-              {evidenceCopy.export.disputePack}
             </button>
             <button
               type="button"
-              onClick={() => void runJsonExport()}
+              disabled={Boolean(exporting)}
+              onClick={() => void runExport('AUDIT_DETAILED', evidenceCopy.export.auditPdf)}
+              className={btnOutline}
+            >
+              {evidenceCopy.export.auditPdf}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(exporting)}
+              onClick={() => void runExport('BANK_PSP_PACK', evidenceCopy.export.bankPack)}
+              className={btnOutline}
+            >
+              {evidenceCopy.export.bankPack}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(exporting)}
+              onClick={() => void runExport('RAW_JSON', evidenceCopy.export.rawJson)}
               className="rounded-xl px-4 py-2.5 text-[13px] font-semibold text-white shadow-md transition hover:opacity-95"
               style={{ background: 'linear-gradient(135deg,#103a9e 0%,#00239c 100%)' }}
             >
@@ -90,8 +128,9 @@ export function EvidenceExportCenter({ defaultPackId = '' }: EvidenceExportCente
           ) : null}
 
           <p className="max-w-2xl text-[12px] leading-relaxed text-slate-500">
-            Finance and audit PDF templates require Service 6 export endpoints. Raw JSON uses the loaded pack from{' '}
-            <code className="font-mono text-[11px] text-slate-700">GET /api/prod/evidence/packs/:id</code>.
+            Exports are generated by{' '}
+            <code className="font-mono text-[11px] text-slate-700">POST /api/v1/dispute/export</code>{' '}
+            with tenant-scoped evidence permissions.
           </p>
         </div>
       </section>

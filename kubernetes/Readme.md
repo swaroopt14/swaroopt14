@@ -184,6 +184,7 @@ kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/late
 # 3. AWS Load Balancer Controller
 kubectl get deployment -A | grep aws-load-balancer
 # Must show a deployment
+# or install in Zord-Infrastructure-aws/AWS Load Balancer Controller.sh
 
 # 4. EBS CSI Driver
 kubectl get pods -n kube-system | grep ebs

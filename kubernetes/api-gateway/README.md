@@ -306,6 +306,47 @@ Copy the ALB address and create DNS records:
 | zordnet.com | CNAME | k8s-apigate-kongpubl-xxx.ap-south-1.elb.amazonaws.com |
 | www.zordnet.com | CNAME | (same ALB) |
 | api.zordnet.com | CNAME | (same ALB) |
+| kong-admin.zordnet.com | CNAME | (same ALB) |
+
+---
+
+## Kong Admin Dashboard (Konga) — First-Time Setup
+
+After deploying and DNS is configured, open:
+
+```
+https://kong-admin.zordnet.com
+```
+
+### Step 1: Create Admin Account
+
+On first visit, Konga asks you to create an admin account:
+- **Username:** choose any (e.g., `admin`)
+- **Email:** your email
+- **Password:** choose a strong password
+
+### Step 2: Create Kong Connection
+
+After login, you'll see the "Welcome" page asking to set up a connection:
+
+1. Keep **DEFAULT** tab selected
+2. Fill in:
+   - **Name:** `zord-kong`
+   - **Kong Admin URL:** `http://kong-gateway.api-gateway.svc.cluster.local:8001`
+3. Click **CREATE CONNECTION**
+
+### Step 3: Activate Connection
+
+Click the **Activate** button next to `zord-kong`.
+
+### Step 4: Explore
+
+You'll now see the full dashboard with:
+- **Dashboard** — Kong node info, status
+- **Services** — All 9 backend services
+- **Routes** — All 26 routes configured
+- **Plugins** — All active plugins (CORS, rate-limiting, etc.)
+- **Consumers** — (empty — auth handled by services)
 
 ---
 

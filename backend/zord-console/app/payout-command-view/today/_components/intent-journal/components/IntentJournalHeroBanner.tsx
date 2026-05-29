@@ -7,6 +7,7 @@ import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatc
 import { intentJournalCopy } from '../copy/intentJournalCopy'
 import { fmtInrFull } from '../../command-center/commandCenterFormat'
 import { IntentJournalExportMenu } from './IntentJournalExportMenu'
+import { useDlqTerminalCount } from '../hooks/useDlqTerminalCount'
 
 type IntentJournalHeroBannerProps = {
   onExportIntents: () => void
@@ -22,11 +23,17 @@ export function IntentJournalHeroBanner({
   const { selectedBatchId, journalEnabled } = useJournalBatchSelection()
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, journalEnabled)
   const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, journalEnabled)
+  const { count: terminalDlqCount } = useDlqTerminalCount(journalEnabled)
 
   const valueLabel = fmtInrFull(metrics?.intendedValue ?? batch?.totalValue ?? 0, { decimals: 0 })
   const instructionCount = metrics?.instructionCount ?? batch?.transactions ?? 0
   const readinessPct = metrics?.avgReadinessPct != null ? `${metrics.avgReadinessPct.toFixed(0)}%` : '—'
   const needsReview = metrics?.needsReviewCount ?? batch?.unresolvedCount ?? 0
+  const manualReviewCount = metrics?.manualReviewCount ?? metrics?.dlqCount ?? 0
+  const terminalLine =
+    terminalDlqCount != null
+      ? `${terminalDlqCount.toLocaleString('en-IN')} terminal DLQ (tenant)`
+      : 'Terminal DLQ count loading…'
   const finalityLabel = intelDetail?.batch?.finality_status
     ? intelDetail.batch.finality_status.replace(/_/g, ' ')
     : 'Awaiting finality'
@@ -60,8 +67,8 @@ export function IntentJournalHeroBanner({
       value: needsReview.toLocaleString('en-IN'),
       sub:
         needsReview > 0
-          ? `${metrics?.dlqCount ?? 0} review items · ${metrics?.lowReadinessCount ?? 0} low readiness`
-          : 'No items need review',
+          ? `${manualReviewCount.toLocaleString('en-IN')} manual review · ${metrics?.lowReadinessCount ?? 0} low readiness · ${terminalLine}`
+          : `No batch review items · ${terminalLine}`,
     },
   ] as const
 

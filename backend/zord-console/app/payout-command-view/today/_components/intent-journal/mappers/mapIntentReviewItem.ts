@@ -1,41 +1,36 @@
 import type { IntentJournalDlqItem } from '@/services/payout-command/prod-api/intentJournalTypes'
 import type { JournalFailureRow } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
+import { mapDlqToFailureRow } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
+import type { ApiDlqRow } from '@/services/payout-command/prod-api/prodApiTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 
-function mapStage(stage: string | undefined): JournalFailureRow['failureStage'] {
-  const stageRaw = (stage ?? '').toLowerCase()
-  if (stageRaw.includes('valid')) return 'Validation'
-  if (stageRaw.includes('dispatch')) return 'Dispatch'
-  if (stageRaw.includes('settle')) return 'Settlement'
-  return 'Processing'
+function toApiDlqRow(row: IntentJournalDlqItem, selectedBatchId?: string): ApiDlqRow {
+  const batchFromIngest = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
+  return {
+    dlq_id: row.dlq_id,
+    envelope_id: row.envelope_id,
+    client_batch_ref: row.client_batch_ref,
+    batch_id: batchFromIngest || apiTrimmedString(selectedBatchId) || row.batch_id,
+    source_row_num: row.source_row_num,
+    tenant_id: row.tenant_id,
+    stage: row.stage,
+    reason_code: row.reason_code,
+    error_detail: row.error_detail,
+    dlq_status: row.dlq_status,
+    intent_context: row.intent_context,
+    trace_id: row.trace_id,
+    replayable: row.replayable,
+    created_at: row.created_at,
+  }
 }
 
-/** Map dlq-items list item → Review Items table row. */
+/** Map dlq-items / manual-review list item → Review Items table row. */
 export function mapDlqListItemToReviewRow(
   row: IntentJournalDlqItem,
   selectedBatchId?: string,
 ): JournalFailureRow {
-  const batchFromIngest =
-    apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
-  const batchId =
-    batchFromIngest || apiTrimmedString(selectedBatchId) || (row.envelope_id ? String(row.envelope_id) : '—')
-  const lastUpdated = row.created_at
-    ? new Date(row.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-    : '—'
-  const connectorSubtitle = [row.stage, row.reason_code].filter(Boolean).join(' · ') || '—'
-  const failureReason = row.error_detail || row.reason_code || '—'
-
-  return {
-    batchId,
-    requestId: row.dlq_id,
-    reference: row.envelope_id ?? row.dlq_id,
-    amount: 0,
-    method: 'Bank Transfer',
-    paymentPartner: '',
-    connectorSubtitle,
-    failureReason,
-    failureStage: mapStage(row.stage),
-    lastUpdated,
-    action: row.replayable ? 'Retry' : 'Investigate',
-  }
+  const manualReview = apiTrimmedString(row.dlq_status) === 'NEEDS_MANUAL_REVIEW'
+  return mapDlqToFailureRow(toApiDlqRow(row, selectedBatchId), {
+    inManualReviewQueue: manualReview || undefined,
+  })
 }

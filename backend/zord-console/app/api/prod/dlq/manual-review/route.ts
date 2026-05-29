@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { fetchDLQManualReviewItems } from '@/services/backend/dlq'
+import { mapBackendDlqForClient } from '@/services/backend/dlqBffTransform'
 import {
   applyRefreshedSessionCookies,
   requireSessionTenantForProdProxy,
@@ -16,19 +17,7 @@ export async function GET(request: NextRequest) {
     const items = await fetchDLQManualReviewItems({ tenant_id: tenantId })
     const list = Array.isArray(items) ? items : []
 
-    const transformedItems = list.map((item) => ({
-      dlq_id: item.dlq_id,
-      envelope_id: item.envelope_id,
-      client_batch_ref: item.client_batch_ref,
-      batch_id: item.batch_id,
-      source_row_num: item.source_row_num,
-      stage: item.stage,
-      reason_code: item.reason_code,
-      error_detail: item.error_detail,
-      replayable: item.replayable,
-      created_at: item.created_at,
-      tenant_id: item.tenant_id,
-    }))
+    const transformedItems = list.map(mapBackendDlqForClient)
 
     const res = NextResponse.json({
       items: transformedItems,

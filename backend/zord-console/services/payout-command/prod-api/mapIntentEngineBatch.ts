@@ -2,6 +2,7 @@ import type { IntentEngineBatchSidebarItem, PaymentIntentRecord } from './getPro
 import type { ApiDlqRow } from './prodApiTypes'
 import type { IntelligenceBatchRow } from './intelligenceTypes'
 import { apiTrimmedString } from './coerceApiField'
+import { formatDlqStatusLabel, parseDlqIntentContext } from './mapDlqContext'
 
 export type JournalBatchType = 'Disbursement' | 'Settlement'
 export type JournalIntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
@@ -115,6 +116,11 @@ export type JournalFailureRow = {
   failureStage: 'Validation' | 'Dispatch' | 'Processing' | 'Settlement'
   lastUpdated: string
   action: 'Retry' | 'Fix Details' | 'Investigate' | 'Escalate' | 'Fix Mandate'
+  dlqStatus?: string
+  dlqStatusLabel?: string
+  beneficiaryName?: string | null
+  idempotencyKey?: string | null
+  inManualReviewQueue?: boolean
 }
 
 function inferBatchSource(batchId: string, finality?: string): string {
@@ -266,7 +272,7 @@ export function mapPaymentIntentToIntentRow(
   }
 }
 
-export function mapDlqToFailureRow(row: ApiDlqRow): JournalFailureRow {
+export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?: boolean }): JournalFailureRow {
   const batchFromIngest = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
   const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
   const stageRaw = (row.stage ?? '').toLowerCase()
@@ -278,18 +284,27 @@ export function mapDlqToFailureRow(row: ApiDlqRow): JournalFailureRow {
     ? new Date(row.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
     : '—'
   const connectorSubtitle = [row.stage, row.reason_code].filter(Boolean).join(' · ') || '—'
+  const ctx = parseDlqIntentContext(row.intent_context)
+  const manualReview =
+    opts?.inManualReviewQueue ??
+    apiTrimmedString(row.dlq_status) === 'NEEDS_MANUAL_REVIEW'
   return {
     batchId,
     requestId: row.dlq_id,
     sourceRowNum: typeof row.source_row_num === 'number' ? row.source_row_num : null,
     reference: row.envelope_id ?? row.dlq_id,
-    amount: 0,
+    amount: ctx.amount,
     method: 'Bank Transfer',
-    paymentPartner: '',
+    paymentPartner: ctx.beneficiaryName ?? '',
     connectorSubtitle,
     failureReason: row.error_detail || row.reason_code || '—',
     failureStage,
     lastUpdated,
     action: row.replayable ? 'Retry' : 'Investigate',
+    dlqStatus: row.dlq_status,
+    dlqStatusLabel: formatDlqStatusLabel(row.dlq_status),
+    beneficiaryName: ctx.beneficiaryName,
+    idempotencyKey: ctx.idempotencyKey,
+    inManualReviewQueue: manualReview,
   }
 }

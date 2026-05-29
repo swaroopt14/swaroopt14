@@ -11,6 +11,9 @@ export interface BackendDLQItem {
   stage: string
   reason_code: string
   error_detail?: string
+  dlq_status?: string
+  intent_context?: Record<string, unknown> | null
+  trace_id?: string
   replayable: boolean
   created_at: string
 }
@@ -80,6 +83,34 @@ export async function fetchDLQItems(params: DLQListParams = {}): Promise<Backend
  */
 export async function fetchDLQManualReviewItems(params: DLQListParams = {}): Promise<BackendDLQItem[]> {
   return fetchDLQListFromEndpoint(BACKEND_SERVICES.INTENT_ENGINE.ENDPOINTS.DLQ_MANUAL_REVIEW, params)
+}
+
+/** Tenant-scoped terminal DLQ count from intent-engine. */
+export async function fetchDLQTerminalCount(params: DLQListParams = {}): Promise<number | null> {
+  const { tenant_id } = params
+  const queryParams = new URLSearchParams()
+  if (tenant_id) queryParams.set('tenant_id', tenant_id)
+  const url = buildUrl('INTENT_ENGINE', BACKEND_SERVICES.INTENT_ENGINE.ENDPOINTS.DLQ_TERMINAL_COUNT)
+  const fullUrl = queryParams.toString() ? `${url}?${queryParams.toString()}` : url
+
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
+
+  try {
+    const response = await fetch(fullUrl, {
+      ...DEFAULT_FETCH_OPTIONS,
+      method: 'GET',
+      signal: controller.signal,
+    })
+    clearTimeout(timeoutId)
+    if (!response.ok) return null
+    const data = (await response.json()) as { count?: unknown }
+    const count = typeof data.count === 'number' ? data.count : Number(data.count)
+    return Number.isFinite(count) ? count : null
+  } catch {
+    clearTimeout(timeoutId)
+    return null
+  }
 }
 
 /**

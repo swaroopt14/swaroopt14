@@ -42,6 +42,9 @@ export type IntentJournalDlqItem = {
   stage?: string
   reason_code?: string
   error_detail?: string
+  dlq_status?: string
+  intent_context?: Record<string, unknown> | null
+  trace_id?: string
   replayable?: boolean
   client_batch_ref?: string
   batch_id?: string

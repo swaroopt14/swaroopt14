@@ -18,6 +18,8 @@ import {
 } from '../../command-center/homeCommandCenterTokens'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
 import { intentRowCustomerStatus } from '../mappers/mapIntentTableRow'
+import { useDlqManualReviewQueue } from '../hooks/useDlqManualReviewQueue'
+import { parseDlqIntentContext } from '@/services/payout-command/prod-api/mapDlqContext'
 const JOURNAL_FILTER_LABEL =
   'mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]'
 
@@ -57,6 +59,11 @@ type FailureRow = {
   failureStage: 'Validation' | 'Dispatch' | 'Processing' | 'Settlement'
   lastUpdated: string
   action: string
+  dlqStatus?: string
+  dlqStatusLabel?: string
+  beneficiaryName?: string | null
+  idempotencyKey?: string | null
+  inManualReviewQueue?: boolean
 }
 
 const filterSelectClass =
@@ -219,34 +226,34 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
     selectedBatch, selectedBatchId, journalUsesBackendFeed, liveDetailLoading,
     clearTableFilters, failures, batches,
   } = vm as IntentJournalActivityViewModel & Record<string, never>
+  const journalEnabled = Boolean(journalUsesBackendFeed)
+  const { items: manualReviewQueue, loading: manualReviewQueueLoading } = useDlqManualReviewQueue(journalEnabled)
   const [manualReviewLoadingId, setManualReviewLoadingId] = useState<string | null>(null)
   const [manualReviewMessage, setManualReviewMessage] = useState<string | null>(null)
 
-  const handleManualReviewCheck = async (row: FailureRow) => {
+  const handleManualReviewCheck = (row: FailureRow) => {
     if (!row.requestId) return
     setManualReviewLoadingId(row.requestId)
     setManualReviewMessage(null)
     try {
-      const res = await fetch('/api/prod/dlq/manual-review', { credentials: 'include' })
-      const payload = (await res.json()) as {
-        items?: Array<{ dlq_id?: string; batch_id?: string; source_row_num?: number }>
-        error?: string
-      }
-      if (!res.ok) {
-        setManualReviewMessage(payload.error || 'Unable to load manual-review queue.')
+      if (manualReviewQueueLoading && manualReviewQueue.length === 0) {
+        setManualReviewMessage('Loading manual-review queue…')
         return
       }
-      const items = payload.items ?? []
-      const found = items.find((it) => String(it.dlq_id || '').trim() === row.requestId)
+      const found = manualReviewQueue.find((it) => String(it.dlq_id || '').trim() === row.requestId)
       if (found) {
+        const ctx = parseDlqIntentContext(found.intent_context)
+        const beneficiary = ctx.beneficiaryName ?? row.beneficiaryName ?? '—'
         setManualReviewMessage(
-          `DLQ ${row.requestId} is in manual-review queue (batch ${found.batch_id || row.batchId}, row ${found.source_row_num ?? row.sourceRowNum ?? '—'}).`,
+          `DLQ ${row.requestId} is in manual-review queue (batch ${found.batch_id || found.client_batch_ref || row.batchId}, row ${found.source_row_num ?? row.sourceRowNum ?? '—'}, beneficiary ${beneficiary}).`,
+        )
+      } else if (row.inManualReviewQueue || row.dlqStatus === 'NEEDS_MANUAL_REVIEW') {
+        setManualReviewMessage(
+          `DLQ ${row.requestId} is flagged for manual review in this batch (batch ${row.batchId}, row ${row.sourceRowNum ?? '—'}).`,
         )
       } else {
         setManualReviewMessage(`DLQ ${row.requestId} is not currently in manual-review queue.`)
       }
-    } catch {
-      setManualReviewMessage('Manual-review API check failed.')
     } finally {
       setManualReviewLoadingId(null)
     }
@@ -625,9 +632,23 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                   <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[14px] text-amber-950">
                         <p className="font-semibold">Review — DLQ row</p>
                         {failureReviewId ? (
-                          <p className="mt-1 text-[13px] leading-relaxed">
-                            {failures.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
-                          </p>
+                          <>
+                            <p className="mt-1 text-[13px] leading-relaxed">
+                              {failures.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
+                            </p>
+                            {(() => {
+                              const active = failures.find((r) => r.requestId === failureReviewId)
+                              if (!active) return null
+                              return (
+                                <p className="mt-1 text-[12px] leading-relaxed text-amber-900/80">
+                                  {active.dlqStatusLabel ?? 'Need to review'}
+                                  {active.beneficiaryName ? ` · ${active.beneficiaryName}` : ''}
+                                  {active.sourceRowNum != null ? ` · row ${active.sourceRowNum}` : ''}
+                                  {active.idempotencyKey ? ` · idempotency ${active.idempotencyKey}` : ''}
+                                </p>
+                              )
+                            })()}
+                          </>
                         ) : null}
                         {manualReviewMessage ? (
                           <p className="mt-1 text-[13px] leading-relaxed">{manualReviewMessage}</p>
@@ -692,15 +713,25 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                           <td className="px-3 py-2.5">{row.method}</td>
                           <td className="px-3 py-2.5">
                             <div className="inline-flex items-center gap-2 rounded-lg border border-[#e6ebf2] bg-white px-2 py-1">
-                              <EntityLogo name={row.paymentPartner || '—'} kind="psp" size={18} />
-                              <span className="text-[15px] font-medium text-[#334155]">{row.connectorSubtitle}</span>
+                              {row.beneficiaryName || row.paymentPartner ? (
+                                <EntityLogo name={row.beneficiaryName || row.paymentPartner || '—'} kind="psp" size={18} />
+                              ) : null}
+                              <span className="text-[15px] font-medium text-[#334155]">
+                                {row.beneficiaryName || row.connectorSubtitle}
+                              </span>
                             </div>
                           </td>
                           <td className="px-3 py-2.5 text-rose-700">{row.failureReason}</td>
                           <td className="px-3 py-2.5">
                             <div className="flex flex-wrap items-center gap-2">
-                              <span className="inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[12px] font-semibold text-amber-800">
-                                Need to review
+                              <span
+                                className={`inline-flex rounded-full border px-2.5 py-1 text-[12px] font-semibold ${
+                                  row.inManualReviewQueue || row.dlqStatus === 'NEEDS_MANUAL_REVIEW'
+                                    ? 'border-violet-200 bg-violet-50 text-violet-800'
+                                    : 'border-amber-200 bg-amber-50 text-amber-800'
+                                }`}
+                              >
+                                {row.dlqStatusLabel ?? 'Need to review'}
                               </span>
                               <button
                                 type="button"
@@ -713,11 +744,13 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                               </button>
                               <button
                                 type="button"
-                                onClick={() => void handleManualReviewCheck(row)}
-                                disabled={manualReviewLoadingId === row.requestId}
+                                onClick={() => handleManualReviewCheck(row)}
+                                disabled={manualReviewLoadingId === row.requestId || manualReviewQueueLoading}
                                 className="inline-flex h-8 items-center rounded-lg border border-[#2563eb] bg-[#eff6ff] px-3 text-[12px] font-medium text-[#1d4ed8] transition hover:bg-[#dbeafe] disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {manualReviewLoadingId === row.requestId ? 'Checking…' : 'Manual review'}
+                                {manualReviewLoadingId === row.requestId || manualReviewQueueLoading
+                                  ? 'Checking…'
+                                  : 'Manual review'}
                               </button>
                             </div>
                           </td>

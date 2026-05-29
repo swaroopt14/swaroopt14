@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BACKEND_SERVICES } from '@/config/api.endpoints'
 import { fetchDLQItems, fetchDLQManualReviewItems } from '@/services/backend/dlq'
+import { mapBackendDlqForClient } from '@/services/backend/dlqBffTransform'
 import type { BackendDLQItem } from '@/services/backend/dlq'
 import { fetchIntents } from '@/services/backend/intents'
 import {
@@ -77,16 +78,7 @@ export async function GET(request: NextRequest) {
       Array.isArray(dlqRaw) ? dlqRaw : [],
       Array.isArray(dlqManualRaw) ? dlqManualRaw : [],
     )
-    const dlqItems = dlqList.map((item) => ({
-      dlq_id: item.dlq_id,
-      envelope_id: item.envelope_id,
-      stage: item.stage,
-      reason_code: item.reason_code,
-      error_detail: item.error_detail,
-      replayable: item.replayable,
-      created_at: item.created_at,
-      tenant_id: item.tenant_id,
-    }))
+    const dlqItems = dlqList.map(mapBackendDlqForClient)
 
     const items = (intentsRes.items ?? []).map((intent) => ({
       intent_id: intent.intent_id,

@@ -1,6 +1,7 @@
 'use client'
 
 import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntelligenceKpiHero'
+import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
 import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
@@ -25,6 +26,8 @@ export function SettlementJournalHeroBanner({
 
   const copy = settlementJournalCopy.kpi
   const netSettled = deriveNetSettledDisplay(totalAmount, totalSettled, outcome.settled, rows.length)
+  const observedValue =
+    loading && !rows.length ? '—' : rows.length === 0 ? '—' : formatJournalMoney(totalAmount)
   const countLine = rows.length.toLocaleString('en-IN')
   const health = deriveSettlementDataHealth(rows)
   const explicitMatches = rows.filter((r) => r.matchedIntentId && r.matchedIntentId !== '—').length
@@ -59,7 +62,7 @@ export function SettlementJournalHeroBanner({
     <JournalIntelligenceKpiHero
       className="mb-4"
       eyebrow={settlementJournalCopy.hero.label}
-      value={loading && !rows.length ? '—' : netSettled.value}
+      value={observedValue}
       deltaPill={outcome.label}
       subcopy={`${selectedClientBatchId || settlementJournalCopy.sidebar.selectBatch} · ${countLine} ${settlementJournalCopy.sidebar.records}`}
       buckets={buckets}

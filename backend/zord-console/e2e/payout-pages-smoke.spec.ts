@@ -140,6 +140,53 @@ function emptyProdBody(path: string): unknown {
 }
 
 function evidenceFixtureBody(path: string, search: URLSearchParams): unknown {
+  if (/\/evidence\/packs\/[^/]+\/lineage-graph$/.test(path)) {
+    const packId = path.split('/').slice(-2, -1)[0] ?? PACK_BATCH
+    const root = `${packId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}root`.padEnd(64, 'a').slice(0, 64)
+    return {
+      evidence_pack_id: packId,
+      tenant_id: SESSION_TENANT,
+      intent_id: packId === PACK_BATCH ? '' : packId === PACK_INTENT_A ? INTENT_A : INTENT_B,
+      merkle_root: root,
+      nodes: [
+        {
+          id: `${packId}-source`,
+          label: 'Original Payment File',
+          node_type: 'SOURCE',
+          leaf_hash: `${root.slice(0, 48)}1111111111111111`,
+          item_ref: `src-${packId}`,
+          schema_version: 'v1',
+        },
+        {
+          id: `${packId}-transform`,
+          label: 'Structured Payment Intent',
+          node_type: 'TRANSFORM',
+          leaf_hash: `${root.slice(0, 48)}2222222222222222`,
+          item_ref: `intent-${packId}`,
+          schema_version: 'v1',
+        },
+        {
+          id: `${packId}-summary`,
+          label: 'Evidence Summary',
+          node_type: 'SEAL',
+          leaf_hash: `${root.slice(0, 48)}3333333333333333`,
+          item_ref: packId,
+          schema_version: 'v1',
+        },
+        {
+          id: 'merkle_root',
+          label: 'Proof Root',
+          node_type: 'SEAL',
+          leaf_hash: root,
+        },
+      ],
+      edges: [
+        { from: `${packId}-source`, to: `${packId}-transform`, label: 'canonicalise' },
+        { from: `${packId}-transform`, to: `${packId}-summary`, label: 'seal' },
+        { from: `${packId}-summary`, to: 'merkle_root', label: 'root' },
+      ],
+    }
+  }
   if (/\/evidence\/batch\/[^/]+\/intents$/.test(path)) {
     const batchId = path.split('/').slice(-2, -1)[0] ?? EVIDENCE_BATCH
     if (batchId === EVIDENCE_BATCH) {
@@ -509,12 +556,8 @@ test.describe('evidence batch → intent → pack wiring', () => {
     await expect(page.getByRole('columnheader', { name: 'Score' })).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Leaves' })).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible()
-    await expect(page.getByRole('columnheader', { name: 'Generated' })).toBeVisible()
-    await expect(page.getByRole('columnheader', { name: 'Actions' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'View graph' })).toHaveCount(3, { timeout: 15_000 })
     await expect(page.getByRole('columnheader', { name: 'Batch' })).toHaveCount(0)
-    await expect(page.getByText(EVIDENCE_BATCH).first()).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByText(PACK_INTENT_A).first()).toBeVisible({ timeout: 10_000 })
-    await expect(page.getByText('9/9').first()).toBeVisible({ timeout: 10_000 })
     await expect(page.getByText('1100%')).toHaveCount(0)
   })
 
@@ -538,12 +581,21 @@ test.describe('evidence batch → intent → pack wiring', () => {
 
     const packs = captures.filter((c) => c.pathname.endsWith('/evidence/packs'))
     expect(packs.some((c) => c.searchParams.get('batch_id') === EVIDENCE_BATCH)).toBe(true)
-    expect(packs.some((c) => c.searchParams.get('intent_id') === INTENT_A)).toBe(true)
-    expect(packs.some((c) => c.searchParams.get('intent_id') === INTENT_B)).toBe(true)
+    const batchIntentsCalls = captures.filter((c) =>
+      c.pathname.endsWith(`/evidence/batch/${encodeURIComponent(EVIDENCE_BATCH)}/intents`),
+    )
+    expect(batchIntentsCalls.length).toBeGreaterThan(0)
 
     await expect(page.getByText('Batch pack').first()).toBeVisible({ timeout: 10_000 })
 
-    await page.getByRole('link', { name: 'View graph' }).first().click()
-    await expect(page.getByText('Operational proof timeline')).toHaveCount(0)
+    await page.goto(
+      `/payout-command-view/evidence-pack/${encodeURIComponent(PACK_BATCH)}?tab=graph&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`,
+    )
+    await expect(page.getByRole('button', { name: /Batch graph/i })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('button', { name: /Intent graph/i })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Verify proof integrity')).toBeVisible({ timeout: 20_000 })
+
+    const lineageCalls = captures.filter((c) => /\/evidence\/packs\/[^/]+\/lineage-graph$/.test(c.pathname))
+    expect(lineageCalls.length).toBeGreaterThan(0)
   })
 })

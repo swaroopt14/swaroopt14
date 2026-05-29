@@ -12,6 +12,7 @@ import {
   pickEvidenceBatchId,
 } from '@/services/payout-command/prod-api/evidenceBatchScope'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
+import { getEvidencePackLineageGraph } from '@/services/payout-command/prod-api/getEvidencePackLineageGraph'
 import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
 import { getIntentJournalPaymentIntentsForSession } from '@/services/payout-command/prod-api/intentJournalApi'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
@@ -21,7 +22,10 @@ import { isDataAvailable } from '@/services/payout-command/prod-api/intelligence
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { evidenceCopy } from '../evidence/copy/evidenceCopy'
-import { buildEvidencePackGraphFromApi } from './evidencePackGraphFromApi'
+import {
+  buildEvidencePackGraphFromApi,
+  buildEvidencePackGraphFromLineage,
+} from './evidencePackGraphFromApi'
 import type {
   BatchMeta,
   EvidenceItemType,
@@ -316,7 +320,7 @@ export function MerkleGraphSurface({
     return () => {
       cancelled = true
     }
-  }, [useLive])
+  }, [useLive, urlBatchId])
 
   useEffect(() => {
     if (!useLive || !activeBatchId) {
@@ -364,10 +368,17 @@ export function MerkleGraphSurface({
       ids.map(async (id) => {
         const full = await getEvidencePackFull(id)
         if (!full) return
-        const g = buildEvidencePackGraphFromApi(full, {
-          batchId: activeBatchId,
-          defensibilityScore,
-        })
+        const lineage = await getEvidencePackLineageGraph(id)
+        const g =
+          lineage.data != null
+            ? buildEvidencePackGraphFromLineage(full, lineage.data, {
+                batchId: activeBatchId,
+                defensibilityScore,
+              })
+            : buildEvidencePackGraphFromApi(full, {
+                batchId: activeBatchId,
+                defensibilityScore,
+              })
         return [id, g] as const
       }),
     ).then((pairs) => {
@@ -387,12 +398,20 @@ export function MerkleGraphSurface({
     const packIdFromUrl = apiTrimmedString(initialPackId)
     if (!useLive || !packIdFromUrl) return
     let cancelled = false
-    void getEvidencePackFull(packIdFromUrl).then((full) => {
+    void getEvidencePackFull(packIdFromUrl).then(async (full) => {
       if (cancelled || !full) return
-      const g = buildEvidencePackGraphFromApi(full, {
-        batchId: activeBatchId || 'batch',
-        defensibilityScore,
-      })
+      const lineage = await getEvidencePackLineageGraph(packIdFromUrl)
+      if (cancelled) return
+      const g =
+        lineage.data != null
+          ? buildEvidencePackGraphFromLineage(full, lineage.data, {
+              batchId: activeBatchId || 'batch',
+              defensibilityScore,
+            })
+          : buildEvidencePackGraphFromApi(full, {
+              batchId: activeBatchId || 'batch',
+              defensibilityScore,
+            })
       setLiveGraphs((prev) => ({ ...prev, [g.packId]: g }))
       setActivePackId(g.packId)
     })
@@ -547,10 +566,17 @@ export function MerkleGraphSurface({
         )
         const full = await getEvidencePackFull(pid)
         if (!full) return
-        const g = buildEvidencePackGraphFromApi(full, {
-          batchId: activeBatchId || 'batch',
-          defensibilityScore,
-        })
+        const lineage = await getEvidencePackLineageGraph(pid)
+        const g =
+          lineage.data != null
+            ? buildEvidencePackGraphFromLineage(full, lineage.data, {
+                batchId: activeBatchId || 'batch',
+                defensibilityScore,
+              })
+            : buildEvidencePackGraphFromApi(full, {
+                batchId: activeBatchId || 'batch',
+                defensibilityScore,
+              })
         setLiveGraphs((prev) => ({ ...prev, [pid]: g }))
         setActivePackId(pid)
       } finally {

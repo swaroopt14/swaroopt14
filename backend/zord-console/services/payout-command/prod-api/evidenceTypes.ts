@@ -71,6 +71,30 @@ export type EvidencePackTimelineResponse = {
   timeline: EvidenceTimelineEntry[]
 }
 
+export type EvidenceLineageNode = {
+  id: string
+  label: string
+  node_type?: string
+  leaf_hash?: string
+  item_ref?: string
+  schema_version?: string
+}
+
+export type EvidenceLineageEdge = {
+  from: string
+  to: string
+  label?: string
+}
+
+export type EvidencePackLineageGraphResponse = {
+  evidence_pack_id: string
+  tenant_id?: string
+  intent_id?: string
+  merkle_root?: string
+  nodes: EvidenceLineageNode[]
+  edges: EvidenceLineageEdge[]
+}
+
 export type EvidencePackVerifyResponse = {
   status: string
   evidence_pack_id: string

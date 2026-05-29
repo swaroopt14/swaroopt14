@@ -102,6 +102,8 @@ export const BACKEND_SERVICES = {
         `/v1/evidence/batch/${encodeURIComponent(batchId)}/intents`,
       PACK_TIMELINE: (packId: string) =>
         `/v1/evidence/packs/${encodeURIComponent(packId)}/timeline`,
+      PACK_LINEAGE_GRAPH: (packId: string) =>
+        `/v1/evidence/packs/${encodeURIComponent(packId)}/lineage-graph`,
       PACK_VERIFY: (packId: string) =>
         `/v1/evidence/packs/${encodeURIComponent(packId)}/verify`,
     },

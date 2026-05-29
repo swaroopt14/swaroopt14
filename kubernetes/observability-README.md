@@ -329,13 +329,90 @@ Check:
 
 ## Destroy
 
+### Destroy Observability Only
+
 ```bash
-kubectl delete -k kubernetes/monitoring
-kubectl delete -k kubernetes/logging
+# Delete tracing (Jaeger + OTel Collector)
 kubectl delete -k kubernetes/tracing
+
+# Delete logging (Elasticsearch + Fluentd + Kibana)
+kubectl delete -k kubernetes/logging
+
+# Delete monitoring (Prometheus + Grafana)
+kubectl delete -k kubernetes/monitoring
+
+# Verify namespaces are gone
+kubectl get ns | grep -E "monitoring|logging|tracing"
 ```
 
-**Warning:** This deletes all stored metrics, logs, and traces (PVCs are deleted).
+**Warning:** This deletes all stored metrics, logs, and traces. PVCs (persistent data) are also deleted.
+
+---
+
+### Destroy Everything (Full Platform Teardown)
+
+Run in this order (reverse of deploy order):
+
+```bash
+# Step 1: Delete Argo CD (if deployed)
+kubectl delete -f kubernetes/argocd/apps/
+kubectl delete -f kubernetes/argocd/ingress.yaml
+kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.3/manifests/install.yaml
+kubectl delete -f kubernetes/argocd/namespace.yaml
+
+# Step 2: Delete Observability
+kubectl delete -k kubernetes/tracing
+kubectl delete -k kubernetes/logging
+kubectl delete -k kubernetes/monitoring
+
+# Step 3: Delete Kong API Gateway
+kubectl delete -k kubernetes/api-gateway
+
+# Step 4: Delete Application Services
+kubectl delete -k kubernetes/eks
+
+# Step 5: Delete PVCs (persistent data — IRREVERSIBLE)
+kubectl delete pvc --all -n zord
+kubectl delete pvc --all -n monitoring
+kubectl delete pvc --all -n logging
+kubectl delete pvc --all -n tracing
+
+# Step 6: Delete namespaces (cleanup)
+kubectl delete ns zord
+kubectl delete ns api-gateway
+kubectl delete ns monitoring
+kubectl delete ns logging
+kubectl delete ns tracing
+kubectl delete ns argocd
+
+# Step 7: Verify everything is gone
+kubectl get ns
+kubectl get pods --all-namespaces | grep -E "zord|kong|grafana|kibana|jaeger|argocd|prometheus|elasticsearch|fluentd"
+```
+
+### After Destroy — AWS Resources to Clean Up Manually
+
+These are NOT deleted by `kubectl delete` — clean them up in AWS Console:
+
+| Resource | Where | Action |
+|----------|-------|--------|
+| ALB (Kong) | EC2 → Load Balancers | Delete (auto-deleted after ingress removal, wait 5 min) |
+| ALB (Observability) | EC2 → Load Balancers | Delete (auto-deleted after ingress removal, wait 5 min) |
+| EBS Volumes | EC2 → Volumes | Delete any `Available` volumes tagged with `zord` |
+| ECR Images | ECR → Repositories | Delete if no longer needed |
+| Secrets Manager | Secrets Manager | Keep or delete `production/zord/*` secrets |
+| EKS Cluster | EKS → Clusters | Delete via Terraform (`terraform destroy`) |
+| Node Group | EKS → Compute | Deleted with cluster |
+| IAM Roles | IAM → Roles | Delete `ZordAppS3AccessRole` if no longer needed |
+
+### Quick Destroy (Single Command — Dangerous)
+
+```bash
+# THIS DELETES EVERYTHING IN ONE GO — NO CONFIRMATION
+kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-not-found
+```
+
+**Use only if you want to wipe the entire platform immediately.** All data is lost.
 
 ---
 

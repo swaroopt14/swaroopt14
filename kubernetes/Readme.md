@@ -563,23 +563,104 @@ If all print resources without errors, you're ready to deploy.
 
 ---
 
-## Step 8: Deploy Application Services
+## Step 8: Deploy Application Services (Step by Step)
+
+Deploy in order — wait for each group to be healthy before moving to the next.
+
+### 8.1 Deploy Shared Config + Infrastructure (Postgres + Kafka + Redis)
 
 ```bash
+# Apply namespace, secrets, configmaps, postgres, kafka, redis
+kubectl apply -f kubernetes/eks/namespace.yaml
 kubectl apply -k kubernetes/eks
 
-# Wait 2 minutes for Kafka
-sleep 120
+# Wait for Postgres to be ready
+kubectl wait --for=condition=Ready pod/zord-postgres-0 -n zord --timeout=300s
+echo "Postgres is ready"
 
-# Restart services that crashed
-kubectl rollout restart deployment \
-  zord-relay \
-  zord-intent-engine \
-  zord-token-enclave \
-  zord-intelligence \
-  zord-outcome-engine \
-  -n zord
+# Wait for Kafka to be ready
+kubectl wait --for=condition=Ready pod/zord-kafka-0 -n zord --timeout=300s
+echo "Kafka is ready"
+
+# Wait for Redis to be ready
+kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=zord-prompt-layer-redis -n zord --timeout=60s
+echo "Redis is ready"
 ```
+
+If Kafka shows `CrashLoopBackOff` with `lost+found` error:
+```bash
+kubectl delete statefulset zord-kafka -n zord
+kubectl delete pvc data-zord-kafka-0 -n zord
+kubectl apply -k kubernetes/eks
+kubectl wait --for=condition=Ready pod/zord-kafka-0 -n zord --timeout=300s
+```
+
+### 8.2 Verify Kafka Topics Created
+
+```bash
+kubectl wait --for=condition=Complete job/zord-kafka-topics -n zord --timeout=120s
+kubectl exec -n zord zord-kafka-0 -- kafka-topics --bootstrap-server localhost:9092 --list
+```
+
+### 8.3 Deploy Core Services (Edge + Intent Engine + Token Enclave)
+
+```bash
+# Check these 3 are running
+kubectl get pods -n zord -l app.kubernetes.io/name=zord-edge
+kubectl get pods -n zord -l app.kubernetes.io/name=zord-intent-engine
+kubectl get pods -n zord -l app.kubernetes.io/name=zord-token-enclave
+
+# If any are in CrashLoopBackOff, restart them now that Kafka is ready
+kubectl rollout restart deployment zord-edge -n zord
+kubectl rollout restart deployment zord-intent-engine -n zord
+kubectl rollout restart deployment zord-token-enclave -n zord
+
+# Wait for them
+kubectl rollout status deployment/zord-edge -n zord --timeout=120s
+kubectl rollout status deployment/zord-intent-engine -n zord --timeout=120s
+kubectl rollout status deployment/zord-token-enclave -n zord --timeout=120s
+echo "Core services ready"
+```
+
+### 8.4 Deploy Relay + Outcome Engine + Evidence
+
+```bash
+kubectl rollout restart deployment zord-relay -n zord
+kubectl rollout restart deployment zord-outcome-engine -n zord
+kubectl rollout restart deployment zord-evidence -n zord
+
+# Wait for them
+kubectl rollout status deployment/zord-relay -n zord --timeout=120s
+kubectl rollout status deployment/zord-outcome-engine -n zord --timeout=120s
+kubectl rollout status deployment/zord-evidence -n zord --timeout=120s
+echo "Relay + Outcome + Evidence ready"
+```
+
+### 8.5 Deploy Intelligence + Prompt Layer + Console
+
+```bash
+kubectl rollout restart deployment zord-intelligence -n zord
+kubectl rollout restart deployment zord-prompt-layer -n zord
+kubectl rollout restart deployment zord-console -n zord
+
+# Wait for them
+kubectl rollout status deployment/zord-intelligence -n zord --timeout=180s
+kubectl rollout status deployment/zord-prompt-layer -n zord --timeout=120s
+kubectl rollout status deployment/zord-console -n zord --timeout=120s
+echo "All services ready"
+```
+
+### 8.6 Final Check — All Pods Running
+
+```bash
+kubectl get pods -n zord
+```
+
+Expected: All pods `Running` (or `Completed` for kafka-topics job). No `CrashLoopBackOff`.
+
+**If pods are stuck in `Pending`:**
+- Cluster Autoscaler will add nodes automatically (wait 2-3 minutes)
+- Or manually scale: `aws eks update-nodegroup-config --cluster-name arealis-zord-prod-eks --nodegroup-name <nodegroup> --scaling-config desiredSize=5,minSize=3,maxSize=7 --region ap-south-1`
 
 ---
 
@@ -742,6 +823,7 @@ To change any of these (e.g., switch to RDS or MSK), edit this one file and rede
 |-----------|----------------|-------------------|---------|
 | Postgres | 500m / 2 | 1Gi / 2Gi | 50Gi |
 | Kafka | 500m / 2 | 2Gi / 4Gi | 50Gi |
+| Redis | 50m / 200m | 128Mi / 300Mi | — |
 | Kong Gateway | 250m / 1 | 512Mi / 1Gi | — |
 | zord-edge | 200m / 750m | 384Mi / 768Mi | — |
 | zord-intent-engine | 200m / 750m | 384Mi / 768Mi | — |
@@ -802,11 +884,14 @@ kubernetes/
 │   │   ├── postgres/
 │   │   │   ├── service.yaml
 │   │   │   └── statefulset.yaml
-│   │   └── kafka/
-│   │       ├── headless-service.yaml
-│   │       ├── service.yaml
-│   │       ├── statefulset.yaml
-│   │       └── topic-job.yaml
+│   │   ├── kafka/
+│   │   │   ├── headless-service.yaml
+│   │   │   ├── service.yaml
+│   │   │   ├── statefulset.yaml
+│   │   │   └── topic-job.yaml
+│   │   └── redis/
+│   │       ├── deployment.yaml      ← Redis for prompt-layer memory
+│   │       └── service.yaml
 │   ├── services/
 │   │   └── <service-name>/
 │   │       ├── deployment.yaml
@@ -815,6 +900,7 @@ kubernetes/
 │   │       └── hpa.yaml
 │   └── ingress/
 │       └── public-alb.yaml         ← DEPRECATED (fallback only)
+├── argocd/                         ← Argo CD GitOps
 ├── monitoring/                     ← Prometheus + Grafana
 ├── logging/                        ← Elasticsearch + Fluentd + Kibana
 └── tracing/                        ← OpenTelemetry + Jaeger
@@ -863,13 +949,19 @@ kubectl logs zord-kafka-0 -n zord --tail=20
 Common causes:
 - OOM killed (exit 137) → already fixed with 4Gi memory limit
 - DNS resolution error → already fixed with `localhost:9093` for quorum voter
-- Corrupt data → wipe PVC and redeploy
+- `lost+found` directory error → already fixed with `subPath: kafka-data` in volume mount
+- Corrupt data → wipe PVC and redeploy:
+  ```bash
+  kubectl delete statefulset zord-kafka -n zord
+  kubectl delete pvc data-zord-kafka-0 -n zord
+  kubectl apply -k kubernetes/eks
+  ```
 
 ### ALB not created
 
 ```bash
-kubectl get ingress -n zord
-kubectl describe ingress zord-public -n zord
+kubectl get ingress -n api-gateway
+kubectl describe ingress kong-public -n api-gateway
 ```
 
 Check:

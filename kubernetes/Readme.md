@@ -1018,3 +1018,109 @@ For higher production reliability:
 | Future Upgrades (RDS + MSK) | `kubernetes/future-upgrades/README.md` |
 | EKS Environment Variables | `docs/EKS-ENVIRONMENT-VARIABLES.md` |
 | Jenkins CI/CD | `jenkins/README.md` |
+
+---
+
+## Destroy — Complete Platform Teardown
+
+Run in reverse order of deployment. Each step is independent — you can destroy only what you need.
+
+### Destroy Observability Only
+
+```bash
+kubectl delete -k kubernetes/tracing
+kubectl delete -k kubernetes/logging
+kubectl delete -k kubernetes/monitoring
+```
+
+### Destroy Kong API Gateway Only
+
+```bash
+kubectl delete -k kubernetes/api-gateway
+```
+
+### Destroy Argo CD Only
+
+```bash
+kubectl delete -f kubernetes/argocd/apps/
+kubectl delete -f kubernetes/argocd/ingress.yaml
+kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.3/manifests/install.yaml
+kubectl delete -f kubernetes/argocd/namespace.yaml
+```
+
+### Destroy Application Services Only
+
+```bash
+kubectl delete -k kubernetes/eks
+```
+
+### Destroy Everything (Full Teardown)
+
+```bash
+# Step 1: Argo CD
+kubectl delete -f kubernetes/argocd/apps/ --ignore-not-found
+kubectl delete -f kubernetes/argocd/ingress.yaml --ignore-not-found
+kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.3/manifests/install.yaml --ignore-not-found
+kubectl delete ns argocd --ignore-not-found
+
+# Step 2: Observability
+kubectl delete -k kubernetes/tracing --ignore-not-found
+kubectl delete -k kubernetes/logging --ignore-not-found
+kubectl delete -k kubernetes/monitoring --ignore-not-found
+
+# Step 3: Kong API Gateway
+kubectl delete -k kubernetes/api-gateway --ignore-not-found
+
+# Step 4: Application Services
+kubectl delete -k kubernetes/eks --ignore-not-found
+
+# Step 5: Delete persistent data (IRREVERSIBLE)
+kubectl delete pvc --all -n zord --ignore-not-found
+kubectl delete pvc --all -n monitoring --ignore-not-found
+kubectl delete pvc --all -n logging --ignore-not-found
+kubectl delete pvc --all -n tracing --ignore-not-found
+
+# Step 6: Delete namespaces
+kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-not-found
+
+# Step 7: Verify everything is gone
+kubectl get ns
+kubectl get pods --all-namespaces | grep -E "zord|kong|grafana|kibana|jaeger|argocd|prometheus|elasticsearch|fluentd"
+```
+
+### AWS Resources to Clean Up Manually
+
+These are NOT deleted by `kubectl delete` — clean them in AWS Console:
+
+| Resource | Location | Action |
+|----------|----------|--------|
+| ALB (Kong) | EC2 → Load Balancers | Auto-deleted after ingress removal (wait 5 min) |
+| ALB (Observability) | EC2 → Load Balancers | Auto-deleted after ingress removal (wait 5 min) |
+| EBS Volumes | EC2 → Volumes | Delete any `Available` volumes tagged with `zord` |
+| ECR Images | ECR → Repositories | Delete if no longer needed |
+| Secrets Manager | Secrets Manager | Keep or delete `production/zord/*` secrets |
+| EKS Cluster | EKS → Clusters | Delete via Terraform: `terraform destroy` |
+| Node Group | EKS → Compute | Deleted with cluster |
+| IAM Roles | IAM → Roles | Delete `ZordAppS3AccessRole` if no longer needed |
+| ACM Certificate | ACM | Delete if domain no longer used |
+| Route53 Records | Route53 | Delete DNS records for zordnet.com subdomains |
+
+### Quick Destroy (Single Command — DANGEROUS)
+
+```bash
+kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-not-found
+```
+
+**WARNING:** This deletes everything immediately. All data is permanently lost. No confirmation. Use only when you want to completely wipe the platform.
+
+### Destroy EKS Cluster (Terraform)
+
+After all Kubernetes resources are deleted:
+
+```
+Go to Zord-Infrastructure-aws repo → Actions → EKS Terraform → Run workflow:
+  - Set action = destroy
+  - Click "Run workflow"
+```
+
+This removes the EKS cluster, node groups, VPC, and all associated AWS resources.

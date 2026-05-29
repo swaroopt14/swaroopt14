@@ -690,6 +690,34 @@ func (s *ProjectionService) HandleDLQEvent(
 	return nil
 }
 
+// HandleDLQItemEvent processes a leased DLQ item dispatched from Service 1.
+func (s *ProjectionService) HandleDLQItemEvent(
+	ctx context.Context,
+	e models.DLQItemEvent,
+) error {
+	if e.TenantID == "" || e.DLQID == "" {
+		log.Printf("invalid event: missing required fields tenant=%s dlq_id=%s",
+			e.TenantID, e.DLQID)
+		return nil
+	}
+
+	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.DLQID)
+	if err != nil {
+		return fmt.Errorf("HandleDLQItemEvent IsProcessed dlq_id=%s: %w", e.DLQID, err)
+	}
+	if processed {
+		return nil
+	}
+
+	log.Printf("HandleDLQItemEvent: dlq_id=%s tenant=%s stage=%s reason=%s status=%s",
+		e.DLQID, e.TenantID, e.Stage, e.ReasonCode, e.DLQStatus)
+
+	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.DLQID); err != nil {
+		return fmt.Errorf("HandleDLQItemEvent MarkProcessed dlq_id=%s: %w", e.DLQID, err)
+	}
+	return nil
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 type windowBounds struct {

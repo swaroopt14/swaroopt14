@@ -260,10 +260,44 @@ func CreateTables() error {
 		source_row_num INT,
 		dlq_status TEXT NOT NULL DEFAULT 'DLQ_TERMINAL',
 		intent_context JSONB,
-		trace_id TEXT
+		trace_id TEXT,
+		lease_id UUID,
+		leased_by TEXT,
+		lease_until TIMESTAMPTZ,
+		retry_count INT NOT NULL DEFAULT 0,
+		next_attempt_at TIMESTAMPTZ,
+		dispatched_at TIMESTAMPTZ
 	);`
 
 	if _, err := DB.Exec(dlqItems); err != nil {
+		return err
+	}
+
+	// Ensure lease columns exist on dlq_items for the pull API
+	if _, err := DB.Exec(`
+		ALTER TABLE dlq_items
+		ADD COLUMN IF NOT EXISTS lease_id UUID,
+		ADD COLUMN IF NOT EXISTS leased_by TEXT,
+		ADD COLUMN IF NOT EXISTS lease_until TIMESTAMPTZ,
+		ADD COLUMN IF NOT EXISTS retry_count INT NOT NULL DEFAULT 0,
+		ADD COLUMN IF NOT EXISTS next_attempt_at TIMESTAMPTZ,
+		ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ;
+	`); err != nil {
+		return err
+	}
+
+	// Indexes for lease scanning and ack/nack operations
+	if _, err := DB.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_dlq_items_pending_lease
+		ON dlq_items (dlq_status, lease_until, created_at);
+	`); err != nil {
+		return err
+	}
+
+	if _, err := DB.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_dlq_items_lease_id
+		ON dlq_items (lease_id);
+	`); err != nil {
 		return err
 	}
 

@@ -56,6 +56,7 @@ type Config struct {
 	TopicFinalContract     string
 	TopicEvidenceReady     string
 	TopicDLQ               string
+	TopicDLQItem           string
 	TopicStatementMatch    string
 	TopicCorridorHealthTick string
 	TopicSLATimerTick      string
@@ -122,6 +123,7 @@ func Load() *Config {
 		TopicFinalContract:      getWithDefault("TOPIC_FINAL_CONTRACT", "final.contract.updated"),
 		TopicEvidenceReady:      getWithDefault("TOPIC_EVIDENCE_CREATED", "evidence.pack.created"),
 		TopicDLQ:                getWithDefault("TOPIC_DLQ", "dlq.event"),
+		TopicDLQItem:            getWithDefault("TOPIC_DLQ_ITEM", "payments.intent.dlq"),
 		TopicStatementMatch:     getWithDefault("TOPIC_STATEMENT_MATCH", "statement.match.event"),
 		TopicCorridorHealthTick: getWithDefault("TOPIC_CORRIDOR_HEALTH_TICK", "corridor.health.tick"),
 		TopicSLATimerTick:       getWithDefault("TOPIC_SLA_TIMER_TICK", "sla.timer.tick"),

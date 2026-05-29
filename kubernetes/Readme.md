@@ -468,6 +468,47 @@ metadata:
 
 Replace the ARN with your real role ARN from Step E.
 
+**Step G: Add Secrets Manager policy to the role**
+
+The role needs Secrets Manager access for External Secrets Operator to pull secrets.
+
+Go to:
+
+```
+IAM -> Roles -> ZordAppS3AccessRole -> Add permissions -> Create inline policy -> JSON
+```
+
+Paste this policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:ap-south-1:522189039032:secret:production/zord/app-secrets-*",
+        "arn:aws:secretsmanager:ap-south-1:522189039032:secret:production/zord/edge-signing-key-*"
+      ]
+    }
+  ]
+}
+```
+
+Use this policy name:
+
+```
+ZordSecretsManagerReadPolicy
+```
+
+Click `Create policy`.
+
+**Important:** The `*` at the end of each ARN is required because AWS appends a random suffix to secret ARNs.
+
 ### 6.2 ALB Certificate and Domain
 
 File: `kubernetes/api-gateway/ingress/alb-ingress.yaml`

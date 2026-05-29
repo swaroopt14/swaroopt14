@@ -35,6 +35,8 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
   }
 
   const gapRate = `${(data.paymentGapRate <= 1 ? data.paymentGapRate * 100 : data.paymentGapRate).toFixed(1)}%`
+  const reviewValue =
+    data.valueNeedingReviewMinor != null ? formatMinorInr(data.valueNeedingReviewMinor) : '—'
 
   return (
     <div className="flex h-full flex-col gap-4" data-testid="leakage-kpi-strip">
@@ -52,7 +54,7 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
         <p className="relative text-[14px] font-medium text-white/80">{leakageCopy.kpi.valueNeedingReview}</p>
         <div className="relative mt-4 flex items-end gap-3">
           <p className="text-[2.25rem] font-bold leading-none tabular-nums text-white">
-            {formatMinorInr(data.valueNeedingReviewMinor)}
+            {reviewValue}
           </p>
           <span className="mb-1 inline-flex items-center rounded-full bg-white/20 px-2 py-0.5 text-[12px] font-semibold text-white">
             ↗ {gapRate}

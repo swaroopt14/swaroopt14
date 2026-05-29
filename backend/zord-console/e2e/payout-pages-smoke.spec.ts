@@ -382,7 +382,7 @@ async function expectNoRuntimeOverlay(page: Page) {
   await expect(page.getByText('Unhandled Runtime Error')).toHaveCount(0)
 }
 
-test.describe('payout console pages smoke (empty prod → preview fallbacks)', () => {
+test.describe('payout console pages smoke (empty prod → strict no-data states)', () => {
   test.beforeEach(async ({ page, context }) => {
     await preparePage(page, context, installEmptyProdMocks)
   })
@@ -426,15 +426,23 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.locator('[data-testid^="leakage-kpi-secondary-"]')).toHaveCount(4)
   })
 
-  test('leakage shows Preview on comparison chart', async ({ page }) => {
+  test('leakage shows no-data state on comparison chart when API series is unavailable', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=leakage')
-    await expect(page.getByText('Preview', { exact: true }).first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('No data available for selected period.')).toBeVisible({ timeout: 20_000 })
   })
 
-  test('ambiguity shows Preview on velocity scatter', async ({ page }) => {
+  test('ambiguity shows no-data state on velocity scatter when API points are unavailable', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=ambiguity')
     await expect(page.getByText('Ambiguity Velocity')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText(/60 batches|batch mock/).first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('No points to display.')).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('kpi surfaces do not render known fixed fallback amount patterns', async ({ page }) => {
+    const disallowed = /26129543|26,129,543/
+    for (const dock of ['home', 'leakage', 'workspace', 'proof']) {
+      await page.goto(`/payout-command-view/today?dock=${dock}`)
+      await expect(page.locator('body')).not.toContainText(disallowed)
+    }
   })
 
   test('connectors renders routing wireframe sections and drawer drill-down', async ({ page }) => {

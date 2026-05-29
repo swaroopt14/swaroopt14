@@ -7,7 +7,7 @@ export type GroundedAnswerInput = {
   hasLiveData: boolean
   matchConfidencePct: number | null
   refCompletenessPct: number | null
-  reviewMinor: number
+  reviewMinor: number | null
   ambiguousCount: number
   intentMissing: boolean
   ingestIncomplete: boolean
@@ -40,7 +40,7 @@ export function buildGroundedAnswerSnapshot(input: GroundedAnswerInput): string 
   }
 
   const reviewValue = fmtInrFull(reviewMinor, { decimals: 0 })
-  const hasReview = reviewMinor > 0 || ambiguousCount > 0
+  const hasReview = (reviewMinor != null && reviewMinor > 0) || ambiguousCount > 0
 
   if (!hasReview && matchConfidencePct != null && matchConfidencePct >= 85) {
     const refPart =

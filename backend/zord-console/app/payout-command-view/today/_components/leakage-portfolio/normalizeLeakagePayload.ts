@@ -10,8 +10,8 @@ export type PortfolioLeakageViewModel = {
   reversalMinor: number
   ambiguousRiskMinor: number
   riskAdjustedMinor: number
-  /** Sum of unmatched + short-settled + orphan + reversal + ambiguous (client-derived). */
-  valueNeedingReviewMinor: number
+  /** Canonical review value from ambiguity API signal when available. */
+  valueNeedingReviewMinor: number | null
   paymentGapRate: number
   leakageFraction: number
   riskTier: string
@@ -30,6 +30,11 @@ export function toPortfolioLeakageViewModel(leak: LeakageKpiResolved): Portfolio
   const ambiguousRiskMinor = coerceMinor(leak.ambiguous_value_at_risk_minor)
   const paymentGapRate = leak.leakage_percentage ?? 0
 
+  const hasAmbiguousRisk =
+    leak.ambiguous_value_at_risk_minor != null &&
+    leak.ambiguous_value_at_risk_minor !== '' &&
+    Number.isFinite(Number(leak.ambiguous_value_at_risk_minor))
+
   return {
     totalSettledMinor: coerceMinor(leak.total_observed_settled_amount_minor),
     intendedMinor: coerceMinor(leak.total_intended_amount_minor),
@@ -39,8 +44,7 @@ export function toPortfolioLeakageViewModel(leak: LeakageKpiResolved): Portfolio
     reversalMinor,
     ambiguousRiskMinor,
     riskAdjustedMinor: coerceMinor(leak.risk_adjusted_leakage_minor),
-    valueNeedingReviewMinor:
-      unmatchedMinor + underSettlementMinor + orphanMinor + reversalMinor + ambiguousRiskMinor,
+    valueNeedingReviewMinor: hasAmbiguousRisk ? ambiguousRiskMinor : null,
     paymentGapRate,
     leakageFraction: paymentGapRate,
     riskTier: leak.risk_tier ?? 'N/A',

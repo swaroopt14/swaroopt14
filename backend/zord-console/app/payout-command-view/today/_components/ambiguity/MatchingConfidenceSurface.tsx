@@ -61,7 +61,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         ambiguous_intent_count: kpis.ambiguous_intent_count,
         ambiguity_rate: kpis.ambiguity_rate,
         provider_ref_missing_rate: kpis.provider_ref_missing_rate,
-        value_at_risk_minor: String(kpis.value_at_risk_minor ?? ''),
+        value_at_risk_minor: amb?.value_at_risk_minor ?? '',
         avg_attachment_confidence: amb?.avg_attachment_confidence ?? 0,
         risk_tier: amb?.risk_tier ?? 'LOW',
       } as AmbiguityKpiResolved

@@ -2,6 +2,7 @@ import { evidenceCopy } from '../copy/evidenceCopy'
 import type { EvidenceKpiCard } from '../types/evidenceViewModels'
 import { EXPECTED_PROOF_ITEMS } from '../types/evidenceViewModels'
 import type {
+  AmbiguityKpiResolved,
   DefensibilityKpiResolved,
   LeakageKpiResolved,
   BatchHealth,
@@ -23,11 +24,12 @@ function formatMinorInrLabel(minor: string | number | undefined | null): string 
 export function deriveEvidenceKpis(input: {
   defensibility: DefensibilityKpiResolved | null
   leakage: LeakageKpiResolved | null
+  ambiguity: AmbiguityKpiResolved | null
   packRows: PackRowInput[]
   batchHealth?: BatchHealth | null
   batchId?: string
 }): EvidenceKpiCard[] {
-  const { defensibility, leakage, packRows, batchHealth, batchId } = input
+  const { defensibility, ambiguity, packRows } = input
   const packCount = packRows.length
 
   let readyCount = 0
@@ -66,16 +68,12 @@ export function deriveEvidenceKpis(input: {
     readinessExplanation = evidenceCopy.scoreLowExplanation
   }
 
-  let exposureValue = '—'
-  let exposureSub: string = evidenceCopy.valueReviewHelper
-  if (leakage) {
-    exposureValue = formatMinorInrLabel(leakage.unmatched_amount_minor)
-    exposureSub = `Unmatched value · tier ${leakage.risk_tier}`
-  } else if (batchHealth && batchId) {
-    const variance = batchHealth.total_variance_minor
-    exposureValue = formatMinorInrLabel(variance)
-    exposureSub = `Batch variance · ${batchHealth.finality_status ?? 'N/A'}`
-  }
+  const exposureValue = ambiguity
+    ? formatMinorInrLabel(ambiguity.value_at_risk_minor)
+    : '—'
+  const exposureSub: string = ambiguity
+    ? `Ambiguity value-at-risk · tier ${ambiguity.risk_tier ?? 'N/A'}`
+    : evidenceCopy.valueReviewHelper
 
   const packsSub =
     packCount > 0

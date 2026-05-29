@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
+  getAmbiguityKpis,
   getDefensibilityKpis,
   getIntelligenceBatches,
   getLeakageKpis,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type {
+  AmbiguityKpiResolved,
   DefensibilityKpiResolved,
   IntelligenceBatchRow,
   LeakageKpiResolved,
@@ -81,6 +83,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const [packsLoading, setPacksLoading] = useState(false)
   const [defensibility, setDefensibility] = useState<DefensibilityKpiResolved | null>(null)
   const [leakage, setLeakage] = useState<LeakageKpiResolved | null>(null)
+  const [ambiguity, setAmbiguity] = useState<AmbiguityKpiResolved | null>(null)
   const [kpisLoading, setKpisLoading] = useState(false)
 
   const { tenantReady } = useSessionTenant()
@@ -117,15 +120,17 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     if (!tenantReady) {
       setDefensibility(null)
       setLeakage(null)
+      setAmbiguity(null)
       return
     }
     const bid = apiTrimmedString(batchId) || undefined
     let cancelled = false
     setKpisLoading(true)
-    void Promise.all([getDefensibilityKpis(), getLeakageKpis(undefined, bid)]).then(([def, leak]) => {
+    void Promise.all([getDefensibilityKpis(), getLeakageKpis(undefined, bid), getAmbiguityKpis(undefined, bid)]).then(([def, leak, amb]) => {
       if (cancelled) return
       setDefensibility(isDataAvailable(def) ? def : null)
       setLeakage(isDataAvailable(leak) ? leak : null)
+      setAmbiguity(isDataAvailable(amb) ? amb : null)
       setKpisLoading(false)
     })
     return () => {
@@ -220,8 +225,8 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   }, [scopedTableRows, search])
 
   const kpiCards = useMemo(
-    () => deriveEvidenceKpis({ defensibility, leakage, packRows, batchHealth, batchId }),
-    [defensibility, leakage, packRows, batchHealth, batchId],
+    () => deriveEvidenceKpis({ defensibility, leakage, ambiguity, packRows, batchHealth, batchId }),
+    [defensibility, leakage, ambiguity, packRows, batchHealth, batchId],
   )
 
   const breakdownRows = useMemo(

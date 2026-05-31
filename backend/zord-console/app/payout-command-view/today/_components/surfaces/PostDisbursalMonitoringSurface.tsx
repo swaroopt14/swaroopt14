@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { DM_Mono } from 'next/font/google'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   POST_DISBURSAL_MONITORING_MOCK,
@@ -9,6 +10,7 @@ import {
 } from '../monitoring/postDisbursalMonitoringMock'
 import { COMMAND_CENTER_LABEL_GREEN, HOME_BODY_IMPERIAL_SM, HOME_TITLE_BLACK } from '../command-center/homeCommandCenterTokens'
 import { JournalIntelligenceKpiHero } from '../command-center/JournalIntelligenceKpiHero'
+import { JOURNAL_DM_SANS } from '../journal/journalFonts'
 import { Glyph } from '../shared'
 
 type QueueFilter = 'All' | MonitoringQueueStatus
@@ -22,6 +24,12 @@ const STATUS_ORDER: Record<MonitoringQueueStatus, number> = {
   Pending: 1,
   'At risk': 2,
 }
+
+const dmMono = DM_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  display: 'swap',
+})
 
 function formatLoanCompact(amountInr: number): string {
   const lakh = amountInr / 100_000
@@ -178,6 +186,9 @@ export function PostDisbursalMonitoringSurface() {
   const repaymentLinePoints = repaymentCoordinates.map((point) => `${point.x},${point.y}`).join(' ')
   const repaymentAreaPoints = `0,100 ${repaymentLinePoints} 100,100`
   const repaymentTicks = [95, 85, 75, 65, 55]
+  const repaymentPeak = Math.max(...data.repaymentTrend.map((row) => row.pct))
+  const repaymentCurrent = data.repaymentTrend[data.repaymentTrend.length - 1]?.pct ?? 0
+  const repaymentDelta = repaymentCurrent - repaymentPeak
   const heroBuckets = data.summaryCards.map((card) => ({
     label: card.label,
     value: card.value,
@@ -205,7 +216,7 @@ export function PostDisbursalMonitoringSurface() {
   }
 
   return (
-    <div className="mt-2 space-y-4">
+    <div className={`mt-2 space-y-4 ${JOURNAL_DM_SANS}`}>
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className={`text-[1.35rem] font-semibold tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>{data.header.title}</h2>
@@ -280,8 +291,10 @@ export function PostDisbursalMonitoringSurface() {
       </section>
 
       <section className="grid gap-3 xl:grid-cols-2">
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <article className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#3b82f6] via-[#0ea5e9] to-[#10b981]" />
           <h3 className="text-[1.2rem] font-semibold tracking-[-0.01em] text-[#0f172a]">Money flow status</h3>
+          <p className="mt-0.5 text-[13px] text-slate-500">Post-disbursal breakdown — ₹42Cr total sent</p>
           <div className="mt-4 rounded-xl border border-[#394554] bg-[#252a32] p-4">
             <div className="grid grid-cols-[54px_1fr] gap-3">
               <div className="relative h-60 text-right text-[12px] font-semibold text-slate-400">
@@ -315,8 +328,14 @@ export function PostDisbursalMonitoringSurface() {
                               ? 'bg-[#ea4b4b]'
                               : 'bg-[#4f8f17]'
                     return (
-                      <div key={row.label} className="flex h-full flex-1 flex-col items-center justify-end">
-                        <div className={`w-full rounded-md ${color}`} style={{ height: `${height}%` }} />
+                      <div key={row.label} className="group relative flex h-full flex-1 flex-col items-center justify-end">
+                        <div className={`relative w-full rounded-md ${color}`} style={{ height: `${height}%` }}>
+                          <p className={`absolute inset-x-1 top-1 text-center text-[11px] font-semibold text-white ${dmMono.className}`}>{row.amount}</p>
+                          <p className={`absolute inset-x-1 bottom-1 text-center text-[10px] font-semibold text-white/90 ${dmMono.className}`}>{row.pct}</p>
+                        </div>
+                        <div className="pointer-events-none absolute -top-8 hidden rounded-md border border-slate-600 bg-[#161a21] px-2 py-1 text-[11px] text-slate-200 group-hover:block">
+                          {row.label}: {row.amount} ({row.pct})
+                        </div>
                       </div>
                     )
                   })}
@@ -334,8 +353,10 @@ export function PostDisbursalMonitoringSurface() {
           </div>
         </article>
 
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <article className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#7c6fd1] via-[#ec4899] to-[#ef4444]" />
           <h3 className="text-[1.2rem] font-semibold tracking-[-0.01em] text-[#0f172a]">Suspicious behavior</h3>
+          <p className="mt-0.5 text-[13px] text-slate-500">{suspiciousTotal} flagged accounts post-disbursal</p>
           <div className="mt-4 rounded-xl border border-[#394554] bg-[#252a32] p-4">
             <div className="grid gap-2 sm:grid-cols-2">
               {suspiciousSlices.map((row) => (
@@ -353,7 +374,7 @@ export function PostDisbursalMonitoringSurface() {
               >
                 <div className="grid h-[8.5rem] w-[8.5rem] place-items-center rounded-full bg-[#252a32] shadow-[inset_0_0_0_2px_#1f2937]">
                   <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">Signals</p>
-                  <p className="text-[24px] font-semibold text-slate-100">{suspiciousTotal}</p>
+                  <p className={`text-[24px] font-semibold text-slate-100 ${dmMono.className}`}>{suspiciousTotal}</p>
                 </div>
               </div>
             </div>
@@ -362,8 +383,28 @@ export function PostDisbursalMonitoringSurface() {
       </section>
 
       <section className="grid gap-3 xl:grid-cols-2">
-        <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h3 className="text-[1.2rem] font-semibold tracking-[-0.01em] text-[#0f172a]">Repayment trend</h3>
+        <article className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#10b981] via-[#0ea5e9] to-[#3b82f6]" />
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-[1.2rem] font-semibold tracking-[-0.01em] text-[#0f172a]">Repayment trend</h3>
+              <p className="mt-0.5 text-[13px] text-slate-500">On-time rate by week — current cycle</p>
+            </div>
+            <div className="flex items-start gap-5">
+              <div className="text-right">
+                <p className="text-[12px] font-semibold text-slate-500">Week 1</p>
+                <p className={`text-[42px] font-semibold leading-none text-[#10b981] ${dmMono.className}`}>{repaymentPeak}%</p>
+                <span className="inline-flex rounded-full border border-emerald-300/40 bg-emerald-100/70 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">peak</span>
+              </div>
+              <div className="text-right">
+                <p className="text-[12px] font-semibold text-slate-500">Week 4</p>
+                <p className={`text-[42px] font-semibold leading-none text-[#ef4444] ${dmMono.className}`}>{repaymentCurrent}%</p>
+                <span className="inline-flex rounded-full border border-rose-300/40 bg-rose-100/70 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                  {repaymentDelta}pp
+                </span>
+              </div>
+            </div>
+          </div>
           <div className="mt-4 rounded-xl border border-[#394554] bg-[#252a32] p-4">
             <p className="mb-2 text-[13px] font-semibold text-slate-300">● On-time repayment %</p>
             <div className="relative h-56">
@@ -411,7 +452,7 @@ export function PostDisbursalMonitoringSurface() {
             </div>
           </div>
           <p className="mt-5 border-t border-slate-200 pt-3 text-[14px] font-semibold text-[#b91c1c]">
-            Repayment rate declining — down 16pp over 4 weeks
+            Repayment rate has declined {Math.abs(repaymentDelta)} percentage points over 4 weeks
           </p>
         </article>
 

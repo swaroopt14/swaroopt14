@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { workspaceTabs, type WorkspaceTab } from '@/services/payout-command/model'
 import type { WorkspaceState } from '../hooks/useWorkspaceState'
@@ -9,7 +8,6 @@ import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { Glyph } from '../shared'
 import { ConnectionPill, MarkdownMessage, MessageBubble, ZordAvatar } from './WorkspaceChatMessages'
 import { PAYMENT_OPERATIONS } from './paymentOperationsCopy'
-import type { PaymentOpsWorkArea } from './paymentOperationsCopy'
 import {
   WORKSPACE_PANEL_SHELL,
   WORKSPACE_TAB_ACTIVE,
@@ -24,9 +22,6 @@ type WorkspaceIntelligencePanelProps = {
   workspace: WorkspaceState
   question: string
   supporting: string
-  suggestions: readonly string[]
-  selectedPromptLabel: string | null
-  workAreas: readonly PaymentOpsWorkArea[]
   groundedAnswer: string
 }
 
@@ -47,9 +42,6 @@ export function WorkspaceIntelligencePanel({
   workspace,
   question,
   supporting,
-  suggestions,
-  selectedPromptLabel,
-  workAreas,
   groundedAnswer,
 }: WorkspaceIntelligencePanelProps) {
   const { tenantId, tenantReady } = useSessionTenant()
@@ -73,6 +65,7 @@ export function WorkspaceIntelligencePanel({
 
   const displayPrompt = hasUserTurn ? lastUserMessage : question
   const answerBody = latestAnswer?.body ?? groundedAnswer
+  const showLatestAnswer = answerBody.trim().length > 0
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -162,35 +155,11 @@ export function WorkspaceIntelligencePanel({
             <div className={`mt-3 text-[12px] leading-5 ${WORKSPACE_TEXT_MUTED}`}>{supporting}</div>
           </div>
 
-          <div className="mt-5" data-testid="workspace-latest-answer">
-            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#8a8a86]">Latest answer</div>
-            <div className={`mt-3 text-[14px] leading-relaxed ${WORKSPACE_TEXT_PRIMARY}`}>
-              <MarkdownMessage body={answerBody} />
-            </div>
-          </div>
-
-          {suggestions.length > 0 ? (
-            <div className="mt-5">
-              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#8a8a86]">
-                Suggested Questions
-              </div>
-              <div className="mt-3 flex flex-col gap-2.5" data-testid="workspace-suggested-questions">
-                {suggestions.map((suggestion) => (
-                  <button
-                    key={suggestion}
-                    type="button"
-                    disabled={workspace.isSubmitting}
-                    onClick={() => void workspace.submitPrompt(suggestion)}
-                    className={`flex items-center justify-between gap-3 rounded-[1rem] border px-4 py-3 text-left text-[13px] transition disabled:opacity-50 ${
-                      selectedPromptLabel === suggestion
-                        ? 'border-[#355695]/40 bg-[#d7e4f4] text-[#111111]'
-                        : 'border-black/10 bg-white text-[#111111] shadow-[0_4px_12px_rgba(0,0,0,0.03)] hover:border-[#355695]/25'
-                    }`}
-                  >
-                    <span>{suggestion}</span>
-                    <Glyph name="arrow-up-right" className="h-4 w-4 shrink-0 text-[#5c7194]" />
-                  </button>
-                ))}
+          {showLatestAnswer ? (
+            <div className="mt-5" data-testid="workspace-latest-answer">
+              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#8a8a86]">Latest answer</div>
+              <div className={`mt-3 text-[14px] leading-relaxed ${WORKSPACE_TEXT_PRIMARY}`}>
+                <MarkdownMessage body={answerBody} />
               </div>
             </div>
           ) : null}
@@ -210,31 +179,6 @@ export function WorkspaceIntelligencePanel({
         </div>
 
         <div className="shrink-0 border-t border-black/8 px-4 py-4 sm:px-5">
-          <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.16em] text-[#8a8a86]">
-            {PAYMENT_OPERATIONS.workAreasTitle}
-          </div>
-          <div className="mb-4 grid gap-3 md:grid-cols-2">
-            {workAreas.map((tile) => (
-              <Link
-                key={tile.title}
-                href={tile.href}
-                className="rounded-[1.25rem] border border-black/10 bg-white px-5 py-5 shadow-[0_10px_24px_rgba(0,0,0,0.04)] transition hover:border-[#355695]/30"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[#eef1f5] text-[#111111]">
-                    <Glyph name={tile.icon} className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className={`text-[1.05rem] font-medium tracking-[-0.03em] ${WORKSPACE_TEXT_PRIMARY}`}>
-                      {tile.title}
-                    </div>
-                    <p className={`mt-3 text-[13px] leading-6 ${WORKSPACE_TEXT_MUTED}`}>{tile.body}</p>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-
           <div className="rounded-[1.35rem] border border-black/10 bg-[#eef1f5] p-3">
             <p className={`mb-2 text-center text-[12px] ${WORKSPACE_TEXT_MUTED}`}>{PAYMENT_OPERATIONS.footerLabel}</p>
             <div className="flex items-end gap-2 rounded-[1rem] border border-black/10 bg-white p-3">

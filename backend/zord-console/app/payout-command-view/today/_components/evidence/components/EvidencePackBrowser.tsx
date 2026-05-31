@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useMemo, useState } from 'react'
 import { Glyph } from '../../shared'
 import { JOURNAL_DM_SANS } from '../../journal/journalFonts'
 import { evidenceCopy } from '../copy/evidenceCopy'
@@ -31,6 +32,7 @@ type EvidencePackBrowserProps = {
 
 const INTENT_FILTER_ALL = ''
 const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
+const PACKS_PER_PAGE = 10
 
 function CopyProofRootButton({ text }: { text: string }) {
   return (
@@ -145,6 +147,23 @@ export function EvidencePackBrowser({
   ]
 
   const intentPickerValue = intentId || INTENT_FILTER_ALL
+  const [page, setPage] = useState(1)
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / PACKS_PER_PAGE))
+  const safePage = Math.min(page, totalPages)
+  const pageStart = (safePage - 1) * PACKS_PER_PAGE
+  const pageRows = useMemo(
+    () => rows.slice(pageStart, pageStart + PACKS_PER_PAGE),
+    [rows, pageStart],
+  )
+
+  useEffect(() => {
+    setPage(1)
+  }, [batchId, intentId, search])
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
 
   const countLine = packsLoading ? (
     <span className="font-medium text-slate-900">Loading packs…</span>
@@ -168,6 +187,12 @@ export function EvidencePackBrowser({
         </>
       ) : intentId === INTENT_FILTER_BATCH_ONLY ? (
         <> · batch-level only</>
+      ) : null}
+      {rows.length > 0 ? (
+        <>
+          {' '}
+          · showing {pageStart + 1}-{Math.min(pageStart + PACKS_PER_PAGE, rows.length)}
+        </>
       ) : null}
     </>
   )
@@ -242,7 +267,7 @@ export function EvidencePackBrowser({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {rows.map((row) => {
+            {pageRows.map((row) => {
               const merkleShort = shortHash(row.proofRoot)
               const href = `/payout-command-view/evidence-pack/${encodeURIComponent(row.packId)}?tab=graph${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`
               return (
@@ -306,7 +331,7 @@ export function EvidencePackBrowser({
                 </tr>
               )
             })}
-            {rows.length === 0 ? (
+            {pageRows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-5 py-14 text-center">
                   <p className="text-[15px] font-semibold text-slate-900">{evidenceCopy.empty.noPack}</p>
@@ -317,6 +342,31 @@ export function EvidencePackBrowser({
           </tbody>
         </table>
       </div>
+      {rows.length > 0 ? (
+        <div className="flex items-center justify-between border-t border-slate-100/90 px-5 py-3 text-[13px] text-slate-600">
+          <p>
+            Page <span className="font-semibold text-slate-900">{safePage}</span> of {totalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage <= 1 || packsLoading}
+              className="inline-flex h-8 items-center rounded-[0.6rem] border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 transition hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages || packsLoading}
+              className="inline-flex h-8 items-center rounded-[0.6rem] border border-slate-200 bg-white px-3 text-[12px] font-semibold text-slate-700 transition hover:border-slate-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

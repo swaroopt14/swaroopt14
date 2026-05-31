@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { DM_Mono } from 'next/font/google'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   BORROWER_VERIFICATION_MOCK,
@@ -15,6 +16,7 @@ import {
   HOME_TITLE_BLACK,
 } from '../command-center/homeCommandCenterTokens'
 import { JournalIntelligenceKpiHero } from '../command-center/JournalIntelligenceKpiHero'
+import { JOURNAL_DM_SANS } from '../journal/journalFonts'
 import { Glyph } from '../shared'
 
 type QueueFilter = 'All' | BorrowerQueueStatus
@@ -29,6 +31,12 @@ const STATUS_ORDER: Record<BorrowerQueueStatus, number> = {
   Blocked: 2,
   Rejected: 3,
 }
+
+const dmMono = DM_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  display: 'swap',
+})
 
 function formatLoanCompact(amountInr: number): string {
   const lakh = amountInr / 100_000
@@ -174,28 +182,11 @@ export function BorrowerVerificationSurface() {
   const baseFunnel = source.funnel[0]?.count ?? 1
   const riskAxisMax = Math.max(20, Math.ceil(riskMax / 5) * 5)
   const riskAxisTicks = Array.from({ length: Math.floor(riskAxisMax / 5) + 1 }, (_, idx) => idx * 5)
-  const funnelMax = Math.max(...source.funnel.map((step) => step.count), baseFunnel)
-  const funnelMin = Math.min(...source.funnel.map((step) => step.count))
-  const funnelFloor = Math.max(0, Math.floor((funnelMin - 70) / 50) * 50)
-  const funnelCeil = Math.ceil((funnelMax + 40) / 50) * 50
-  const funnelSpan = Math.max(1, funnelCeil - funnelFloor)
-  const funnelCoordinates = source.funnel.map((step, idx) => {
-    const x = source.funnel.length <= 1 ? 0 : (idx / (source.funnel.length - 1)) * 100
-    const y = 100 - ((step.count - funnelFloor) / funnelSpan) * 100
-    return { x, y, count: step.count, label: step.label }
-  })
-  const funnelStepPoints = funnelCoordinates
-    .flatMap((point, idx) => {
-      if (idx === 0) return [`${point.x},${point.y}`]
-      const prev = funnelCoordinates[idx - 1]
-      return [`${point.x},${prev.y}`, `${point.x},${point.y}`]
-    })
-    .join(' ')
-  const funnelAreaPoints = `0,100 ${funnelStepPoints} 100,100`
-  const funnelTicks = Array.from({ length: 6 }, (_, idx) => {
-    const value = funnelFloor + Math.round((funnelSpan / 5) * idx)
-    const y = 100 - ((value - funnelFloor) / funnelSpan) * 100
-    return { value, y }
+  const funnelRows = source.funnel.map((step, index) => {
+    const ratio = Math.max(1, Math.round((step.count / baseFunnel) * 1000) / 10)
+    const prev = source.funnel[index - 1]?.count ?? step.count
+    const drop = Math.max(0, prev - step.count)
+    return { ...step, ratio, drop }
   })
   const heroBuckets = [
     {
@@ -246,7 +237,7 @@ export function BorrowerVerificationSurface() {
   }
 
   return (
-    <div className="mt-2 space-y-4">
+    <div className={`mt-2 space-y-4 ${JOURNAL_DM_SANS}`}>
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
@@ -347,21 +338,26 @@ export function BorrowerVerificationSurface() {
       </section>
 
       <section className="grid gap-3 xl:grid-cols-2">
-        <article className={COMMAND_CENTER_KPI_CARD}>
+        <article className={`${COMMAND_CENTER_KPI_CARD} relative overflow-hidden`}>
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#ef4444] via-[#dc2626] to-[#d08a18]" />
           <h3 className={`text-[1.1rem] font-semibold ${HOME_TITLE_BLACK}`}>Top risk signals</h3>
+          <p className="mt-0.5 text-[13px] text-slate-500">Flagged across 910 borrower verifications</p>
           <div className="mt-4 rounded-xl border border-[#394554] bg-[#252a32] p-4">
             <div className="space-y-3">
               {source.riskSignals.map((signal, index) => {
                 const percent = Math.max(8, Math.round((signal.value / riskAxisMax) * 100))
                 const tone = index === 0 ? 'bg-gradient-to-r from-[#d08a18] to-[#c97f10]' : riskBarTone(index)
                 return (
-                  <div key={signal.label} className="grid grid-cols-[160px_1fr_auto] items-center gap-3">
+                  <div key={signal.label} className="group relative grid grid-cols-[160px_1fr_auto] items-center gap-3">
                     <p className="text-[15px] font-semibold text-slate-200">{signal.label}</p>
                     <div className="relative h-10 overflow-hidden rounded-lg bg-[#1e232b]">
                       <div className="absolute inset-0 bg-[linear-gradient(90deg,transparent_24%,rgba(148,163,184,0.15)_25%,transparent_26%,transparent_49%,rgba(148,163,184,0.15)_50%,transparent_51%,transparent_74%,rgba(148,163,184,0.15)_75%,transparent_76%)]" />
                       <div className={`relative h-full rounded-lg ${tone}`} style={{ width: `${percent}%` }} />
+                      <div className="pointer-events-none absolute -top-8 left-2 hidden rounded-md border border-slate-600 bg-[#161a21] px-2 py-1 text-[11px] text-slate-200 group-hover:block">
+                        {signal.label}: {signal.value}
+                      </div>
                     </div>
-                    <p className="w-8 text-right text-[20px] font-semibold tabular-nums text-slate-100">{signal.value}</p>
+                    <p className={`w-8 text-right text-[20px] font-semibold tabular-nums text-slate-100 ${dmMono.className}`}>{signal.value}</p>
                   </div>
                 )
               })}
@@ -374,46 +370,34 @@ export function BorrowerVerificationSurface() {
           </div>
         </article>
 
-        <article className={COMMAND_CENTER_KPI_CARD}>
-          <h3 className={`text-[1.1rem] font-semibold ${HOME_TITLE_BLACK}`}>Verification funnel — {source.totals.totalBorrowers} borrowers</h3>
+        <article className={`${COMMAND_CENTER_KPI_CARD} relative overflow-hidden`}>
+          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#3b82f6] via-[#10b981] to-[#65a30d]" />
+          <h3 className={`text-[1.1rem] font-semibold ${HOME_TITLE_BLACK}`}>Verification funnel</h3>
+          <p className="mt-0.5 text-[13px] text-slate-500">Drop-off at each stage — {source.totals.totalBorrowers} borrowers</p>
           <div className="mt-4 rounded-xl border border-[#394554] bg-[#252a32] p-4">
-            <div className="relative h-56">
-              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
-                {funnelTicks.map((tick) => (
-                  <line
-                    key={tick.value}
-                    x1="0"
-                    y1={tick.y}
-                    x2="100"
-                    y2={tick.y}
-                    stroke="rgba(148,163,184,0.22)"
-                    strokeWidth="0.5"
-                  />
-                ))}
-                <polygon points={funnelAreaPoints} fill="rgba(59,130,246,0.12)" />
-                <polyline
-                  fill="none"
-                  stroke="#4a94e8"
-                  strokeWidth="1.8"
-                  points={funnelStepPoints}
-                  vectorEffect="non-scaling-stroke"
-                />
-                {funnelCoordinates.map((point) => (
-                  <circle key={point.label} cx={point.x} cy={point.y} r="1.9" fill="#4a94e8" />
-                ))}
-              </svg>
-            </div>
-            <div className="mt-2 grid grid-cols-6 gap-1 text-center">
-              {source.funnel.map((step, index) => {
-                const ratio = Math.max(1, Math.round((step.count / baseFunnel) * 100))
-                const prev = source.funnel[index - 1]?.count ?? step.count
-                const drop = Math.max(0, prev - step.count)
+            <div className="space-y-2.5">
+              {funnelRows.map((step, idx) => {
+                const tone =
+                  idx < 2 ? 'from-[#223547] to-[#233647]' :
+                  idx < 4 ? 'from-[#1e3c36] to-[#24443c]' :
+                  idx === 4 ? 'from-[#4d3a1f] to-[#3f3221]' :
+                  'from-[#2a3c1f] to-[#25381d]'
                 return (
-                  <div key={step.label} className="rounded-lg border border-[#3a4757] bg-[#1f252d] px-1 py-1.5">
-                    <p className="text-[11px] font-semibold text-slate-400">{step.label}</p>
-                    <p className="text-[13px] font-semibold tabular-nums text-slate-100">{step.count}</p>
-                    <p className="text-[11px] font-semibold tabular-nums text-slate-400">
-                      {ratio}%{index > 0 ? ` · -${drop}` : ''}
+                  <div key={step.label} className="grid grid-cols-[160px_1fr_auto] items-center gap-3">
+                    <p className="text-[14px] font-semibold text-slate-200">{step.label}</p>
+                    <div className="h-12 rounded-xl bg-[#1f232a] p-1">
+                      <div
+                        className={`flex h-full items-center justify-start rounded-[10px] bg-gradient-to-r ${tone} px-3`}
+                        style={{ width: `${Math.max(12, step.ratio)}%` }}
+                      >
+                        <span className={`text-[36px] font-semibold leading-none tracking-tight text-[#36a2ff] ${dmMono.className}`}>
+                          {step.count}
+                        </span>
+                        <span className={`ml-3 text-[13px] font-semibold text-[#36a2ff]/85 ${dmMono.className}`}>{step.ratio}%</span>
+                      </div>
+                    </div>
+                    <p className={`w-10 text-right text-[28px] font-semibold ${step.drop > 0 ? 'text-[#ef4444]' : 'text-slate-500'} ${dmMono.className}`}>
+                      {step.drop > 0 ? `-${step.drop}` : '—'}
                     </p>
                   </div>
                 )

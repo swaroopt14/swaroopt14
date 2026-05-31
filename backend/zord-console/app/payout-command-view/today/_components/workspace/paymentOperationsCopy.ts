@@ -1,5 +1,3 @@
-import type { GlyphName } from '@/services/payout-command/model'
-
 /** User-facing copy for Payment Operations View (workspace dock). */
 export const PAYMENT_OPERATIONS = {
   pageTitle: 'Payment Operations View',
@@ -29,7 +27,6 @@ export const PAYMENT_OPERATIONS = {
   composerPlaceholder: 'Ask anything or search',
   composerHint: 'Ask: "Which payments need review?" or "What data is missing?"',
   footerLabel: 'Ask Zord about payments, gaps, or proof',
-  workAreasTitle: 'Work Areas',
   routingTabDisabled: 'Routing — Coming after bank/PSP dispatch integration',
 } as const
 
@@ -116,40 +113,6 @@ export const workspacePromptCopyByTab = {
     suggestions: [],
   },
 } as const
-
-export type PaymentOpsWorkArea = {
-  icon: GlyphName
-  title: string
-  body: string
-  href: string
-}
-
-export const paymentOpsWorkAreas: readonly PaymentOpsWorkArea[] = [
-  {
-    icon: 'chart',
-    title: 'Payment Review',
-    body: 'Review unmatched, ambiguous, or low-confidence payments.',
-    href: '/payout-command-view/today?dock=leakage',
-  },
-  {
-    icon: 'grid',
-    title: 'Source Files',
-    body: 'Check uploaded intent files, settlement files, bank statements, and processing status.',
-    href: '/payout-command-view/today?dock=grid',
-  },
-  {
-    icon: 'document',
-    title: 'Proof Reports',
-    body: 'Export evidence-ready payment reports for finance, audit, or customer review.',
-    href: '/payout-command-view/today?dock=proof',
-  },
-  {
-    icon: 'zap',
-    title: 'Actions',
-    body: 'Track recommended fixes, accepted actions, and resolved issues.',
-    href: '/payout-command-view/today?dock=leakage',
-  },
-] as const
 
 export const SUMMARY_TILE_LABELS = {
   inScope: 'Payments in Scope',

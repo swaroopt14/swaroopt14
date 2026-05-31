@@ -26,10 +26,7 @@ export function buildGroundedAnswerSnapshot(input: GroundedAnswerInput): string 
   } = input
 
   if (!hasLiveData || ingestIncomplete) {
-    return (
-      'Zord does not have enough payment data for this period yet. ' +
-      'Upload payment instructions (intent file/API) and bank or settlement confirmation files so Zord can calculate gaps, match confidence, and proof readiness.'
-    )
+    return ''
   }
 
   if (intentMissing || lifecycle === 'settlement_only') {

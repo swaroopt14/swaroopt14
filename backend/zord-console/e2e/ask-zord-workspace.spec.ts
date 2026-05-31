@@ -199,7 +199,7 @@ test.describe('Payment Operations View (Ask Zord workspace)', () => {
     await expect(page.getByRole('tab', { name: 'Payment Clarity' })).toBeVisible()
   })
 
-  test('suggested question triggers prompt-layer POST', async ({ page }) => {
+  test('typed prompt triggers prompt-layer POST', async ({ page }) => {
     const promptWait = page.waitForRequest(
       (req) => req.method() === 'POST' && req.url().includes('/api/prompt-layer/query'),
       { timeout: 20_000 },
@@ -207,13 +207,13 @@ test.describe('Payment Operations View (Ask Zord workspace)', () => {
 
     await page.goto('/payout-command-view/today?dock=workspace')
 
-    const firstSuggestion = page.getByTestId('workspace-suggested-questions').getByRole('button').first()
-    await firstSuggestion.click()
+    await page.getByPlaceholder('Ask anything or search').fill('Which payments need review?')
+    await page.getByRole('button', { name: 'Send message' }).click()
 
     const req = await promptWait
     const body = req.postDataJSON() as { query?: string; tenant_id?: string }
     expect(body.tenant_id).toBe(SESSION_TENANT)
-    expect(body.query).toMatch(/review|proof|missing|unmatched|upload/i)
+    expect(body.query).toBe('Which payments need review?')
 
     await expect(page.getByText(/payments needing review|missing bank references/i)).toBeVisible({
       timeout: 15_000,

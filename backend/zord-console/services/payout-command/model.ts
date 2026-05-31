@@ -34,6 +34,8 @@ export type DockId =
   | 'workspace'
   | 'leakage'
   | 'ambiguity'
+  | 'verification'
+  | 'monitoring'
   | 'grid'
   | 'settlement'
   | 'connectors'
@@ -234,6 +236,26 @@ export const dockItems = [
     breadcrumbLabel: 'Matching',
     summary:
       'See where Zord cannot confidently connect payment instructions to bank, PSP, or settlement outcomes.',
+    icon: 'chart',
+  },
+  {
+    id: 'verification',
+    label: 'Verification',
+    navLabel: 'Verification',
+    title: 'Borrower Verification',
+    breadcrumbLabel: 'Borrower Verification',
+    summary:
+      'Track borrower KYC, bank checks, fraud risk, and proof readiness before disbursal.',
+    icon: 'users',
+  },
+  {
+    id: 'monitoring',
+    label: 'Monitoring',
+    navLabel: 'Monitoring',
+    title: 'Post-Disbursal Monitoring',
+    breadcrumbLabel: 'Post-Disbursal Monitoring',
+    summary:
+      'Monitor confirmation, repayment health, suspicious behavior, and evidence readiness after disbursal.',
     icon: 'chart',
   },
   {

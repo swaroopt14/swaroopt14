@@ -17,6 +17,8 @@ const DOCK_CASES: { dock: string; title: string }[] = [
   { dock: 'workspace', title: 'Payment Operations View' },
   { dock: 'leakage', title: 'Payment Gaps & Value at Risk' },
   { dock: 'ambiguity', title: 'Matching Confidence' },
+  { dock: 'verification', title: 'Borrower Verification' },
+  { dock: 'monitoring', title: 'Post-Disbursal Monitoring' },
   { dock: 'grid', title: 'Intent Journal' },
   { dock: 'settlement', title: 'Settlement Journal' },
   { dock: 'connectors', title: 'Routing & Network Intelligence' },

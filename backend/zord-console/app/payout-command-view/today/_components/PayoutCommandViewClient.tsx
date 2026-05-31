@@ -20,6 +20,7 @@ import ConnectorIntelligenceClient from '@/app/payout-command-view/connector-int
 import {
   AmbiguitySurface,
   BillingSurface,
+  BorrowerVerificationSurface,
   EvidenceSurface,
   HomeSurface,
   IntentJournalSurface,
@@ -27,6 +28,7 @@ import {
   LeakageSurface,
   LiveSyncSurface,
   ProofSurface,
+  PostDisbursalMonitoringSurface,
   SandboxConnectorsSurface,
   SupportSurface,
   WorkspaceSurface,
@@ -171,6 +173,8 @@ export default function PayoutCommandViewClient({
 
     if (activeDock === 'leakage') return <LeakageSurface initialBatchId={sharedBatchId} />
     if (activeDock === 'ambiguity') return <AmbiguitySurface initialBatchId={sharedBatchId} />
+    if (activeDock === 'verification') return <BorrowerVerificationSurface />
+    if (activeDock === 'monitoring') return <PostDisbursalMonitoringSurface />
     if (activeDock === 'grid') return <IntentJournalSurface initialBatchId={initialJournalBatchId} />
     if (activeDock === 'settlement') {
       return <SettlementJournalSurface initialClientBatchId={initialSettlementClientBatchId} />

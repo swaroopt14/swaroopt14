@@ -18,6 +18,7 @@ import {
 } from 'recharts'
 import { CommandCenterCardGlow } from '../today/_components/command-center/CommandCenterCardGlow'
 import { COMMAND_CENTER_KPI_CARD, COMMAND_CENTER_LABEL_GREEN } from '../today/_components/command-center/homeCommandCenterTokens'
+import { JournalIntelligenceKpiHero } from '../today/_components/command-center/JournalIntelligenceKpiHero'
 import { EntityLogo } from '../today/_components/entity-logo'
 import { getRoutingIntelligenceAdapter } from './routingDataAdapter'
 import { rankRoutes } from './scoring'
@@ -101,16 +102,6 @@ function buildImpactSeries(snapshot: RoutingKpiSnapshot) {
   }))
 }
 
-function KpiTile({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="rounded-xl border border-white/12 bg-white/[0.05] px-4 py-3 backdrop-blur-[1px]">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.09em] text-white/65">{label}</p>
-      <p className="mt-2 text-[1.65rem] font-extrabold text-white tabular-nums">{value}</p>
-      {sub ? <p className="mt-1 text-[12px] text-white/70">{sub}</p> : null}
-    </div>
-  )
-}
-
 function ConnectorIdentity({ row }: { row: ConnectorHealthRow }) {
   const isLogoType = row.type === 'PSP' || row.type === 'Bank'
   return (
@@ -163,6 +154,39 @@ export default function ConnectorIntelligenceClient() {
   const topRoutes = rankedRoutes.slice(0, 3)
   const lowConfidenceExists = topRoutes.some((route) => route.confidence === 'Low')
   const kpis = buildKpis(snapshot)
+  const windowLabel = TIME_WINDOWS.find((item) => item.value === window)?.label ?? 'Last 24h'
+  const routingBuckets = [
+    {
+      label: 'Total volume routed',
+      value: formatCompactInr(kpis.totalVolumeMinor),
+      sub: 'Across active connector network',
+    },
+    {
+      label: 'Success rate',
+      value: `${kpis.successRate.toFixed(1)}%`,
+      sub: 'Weighted by routed volume',
+    },
+    {
+      label: 'Money at risk',
+      value: formatCompactInr(kpis.moneyAtRiskMinor),
+      sub: 'Current unresolved exposure',
+    },
+    {
+      label: 'Preventable leakage',
+      value: formatCompactInr(kpis.preventableLeakageMinor),
+      sub: `${kpis.preventablePct.toFixed(0)}% preventable share`,
+    },
+    {
+      label: 'Active connectors',
+      value: String(kpis.activeConnectors),
+      sub: 'PSP, bank, and rail endpoints',
+    },
+    {
+      label: 'Degraded routes',
+      value: String(kpis.degradedRoutes),
+      sub: 'Needs immediate routing attention',
+    },
+  ] as const
   const isStale = Date.now() - new Date(snapshot.generatedAtIso).getTime() > snapshot.staleAfterMinutes * 60 * 1000
   const impactSeries = buildImpactSeries(snapshot)
 
@@ -186,24 +210,16 @@ export default function ConnectorIntelligenceClient() {
       ) : null}
 
       <section
-        className="relative overflow-hidden rounded-[28px] border border-[#243f82]/60 bg-[linear-gradient(140deg,#06143a_0%,#081d4f_48%,#0b255f_100%)] p-5 shadow-[0_22px_56px_rgba(6,20,58,0.36)] ring-1 ring-white/10"
         data-testid="routing-kpi-bar"
       >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_0%,rgba(255,255,255,0.18),rgba(255,255,255,0)_38%)]" />
-        <p className="relative text-[13px] font-semibold uppercase tracking-[0.14em] text-white/70">
-          Routing Intelligence Overview
-        </p>
-        <div className="relative mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-          <KpiTile label="Total Volume Routed" value={formatCompactInr(kpis.totalVolumeMinor)} />
-          <KpiTile label="Success Rate" value={`${kpis.successRate.toFixed(1)}%`} />
-          <KpiTile label="Money at Risk" value={formatCompactInr(kpis.moneyAtRiskMinor)} />
-          <KpiTile
-            label="Preventable Leakage"
-            value={`${formatCompactInr(kpis.preventableLeakageMinor)} (${kpis.preventablePct.toFixed(0)}%)`}
-          />
-          <KpiTile label="Active Connectors" value={String(kpis.activeConnectors)} />
-          <KpiTile label="Degraded Routes" value={String(kpis.degradedRoutes)} />
-        </div>
+        <JournalIntelligenceKpiHero
+          eyebrow="Routing intelligence overview"
+          value={formatCompactInr(kpis.totalVolumeMinor)}
+          deltaPill={`Success ${kpis.successRate.toFixed(1)}%`}
+          subcopy={`Window: ${windowLabel} · Money at risk ${formatCompactInr(kpis.moneyAtRiskMinor)}`}
+          buckets={routingBuckets}
+          testId="routing-kpi-bar"
+        />
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">

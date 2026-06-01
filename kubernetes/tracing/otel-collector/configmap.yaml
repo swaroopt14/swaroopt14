@@ -13,16 +13,6 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
-    connectors:
-      spanmetrics:
-        histogram:
-          explicit:
-            buckets: [1ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 500ms, 1s, 2.5s, 5s, 10s]
-        dimensions:
-          - name: http.method
-          - name: http.status_code
-          - name: service.name
-
     processors:
       batch:
         timeout: 5s
@@ -34,10 +24,6 @@ data:
         tls:
           insecure: true
 
-      prometheus:
-        endpoint: 0.0.0.0:8889
-        namespace: span_metrics
-
       debug:
         verbosity: basic
 
@@ -46,7 +32,4 @@ data:
         traces:
           receivers: [otlp]
           processors: [batch]
-          exporters: [otlp/jaeger, spanmetrics, debug]
-        metrics:
-          receivers: [spanmetrics]
-          exporters: [prometheus]
+          exporters: [otlp/jaeger, debug]

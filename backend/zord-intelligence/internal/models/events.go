@@ -213,19 +213,19 @@ type FinalContractUpdatedEvent struct {
 //   - Mark this contract as "has evidence" (reduces compliance risk score)
 
 type EvidencePackReadyEvent struct {
-	EventID        string    `json:"event_id"`
-	TenantID       string    `json:"tenant_id"`
-	IntentID       string    `json:"intent_id"`
-	ContractID     string    `json:"contract_id"`
-	EvidencePackID string    `json:"evidence_pack_id"`
-	MerkleRoot     string    `json:"merkle_root"` // cryptographic proof of evidence contents
-	OccurredAt     time.Time `json:"occurred_at"`
-	TraceID        string    `json:"trace_id"`
-	PackCompletenessScore float64 `json:"pack_completeness_score"`
-	LeafCount int `json:"leaf_count"`
-	RequiredLeafCount int `json:"required_leaf_count"`
-	SettlementLeafPresentFlag bool `json:"settlement_leaf_present_flag"`
-	AttachmentDecisionLeafPresentFlag bool `json:"attachment_decision_leaf_present_flag"`
+	EventID                           string    `json:"event_id"`
+	TenantID                          string    `json:"tenant_id"`
+	IntentID                          string    `json:"intent_id"`
+	ContractID                        string    `json:"contract_id"`
+	EvidencePackID                    string    `json:"evidence_pack_id"`
+	MerkleRoot                        string    `json:"merkle_root"` // cryptographic proof of evidence contents
+	OccurredAt                        time.Time `json:"occurred_at"`
+	TraceID                           string    `json:"trace_id"`
+	PackCompletenessScore             float64   `json:"pack_completeness_score"`
+	LeafCount                         int       `json:"leaf_count"`
+	RequiredLeafCount                 int       `json:"required_leaf_count"`
+	SettlementLeafPresentFlag         bool      `json:"settlement_leaf_present_flag"`
+	AttachmentDecisionLeafPresentFlag bool      `json:"attachment_decision_leaf_present_flag"`
 }
 
 // ── Event 7: from any service's Dead Letter Queue ─────────────────────────────
@@ -321,6 +321,8 @@ type CanonicalSettlementCreatedEvent struct {
 	// LOW    = manually uploaded CSV (human error risk)
 
 	SourceSystemID  string  `json:"source_system_id"` // identifies the specific PSP/bank/ERP
+	ProviderID      string  `json:"source_system"`    // e.g. ERP name, internal name
+	PaymentRail     string  `json:"corridor_id"`      // PSP corridor ID
 	ParseConfidence float64 `json:"parse_confidence"` // 0.0–1.0: how confident was the parser?
 	// 1.0 = perfect parse, all fields found
 	// 0.7 = some fields missing or ambiguous
@@ -340,6 +342,7 @@ type CanonicalSettlementCreatedEvent struct {
 	UTR             string  `json:"utr"`              // Unique Transaction Reference (Indian banking)
 	RRN             string  `json:"rrn"`              // Retrieval Reference Number
 	BankRef         string  `json:"bank_ref"`         // bank's own reference number
+	BankID          string  `json:"bank_id"`          // bank identifier
 	ProviderRef     string  `json:"provider_ref"`     // PSP reference (e.g. Razorpay payment ID)
 	ClientRef       string  `json:"client_ref"`       // merchant's own reference (most reliable)
 	CarrierRichness float64 `json:"carrier_richness"` // 0.0–1.0: fraction of carrier fields populated
@@ -508,16 +511,16 @@ type VarianceRecordCreatedEvent struct {
 	EvidenceGapFlags []string `json:"evidence_gap_flags"` // named gaps: ["missing_utr", "no_bank_confirmation"]
 
 	// Fields added from VarianceRecord DB model — required for KPI computation
-	DeductionVariance    decimal.Decimal `json:"deduction_variance"`      // deduction amount in minor units (TDS, PSP fee)
-	FeeVariance          decimal.Decimal `json:"fee_variance"`            // fee component of variance in minor units
-	CurrencyMatchFlag    bool            `json:"currency_match_flag"`     // true = intent and settlement currencies match
-	StatusVarianceFlag   bool            `json:"status_variance_flag"`    // true = status differs between intent and observation
-	ValueDateMismatchFlag bool           `json:"value_date_mismatch_flag"` // true = value date differs from expected
-	SettlementDelayDays  int             `json:"settlement_delay_days"`   // calendar days between intended_execution_at and settlement — needed for P6 p95
-	ProviderRefMissingFlag bool          `json:"provider_ref_missing_flag"` // true = no UTR/RRN/BankRef on settlement side
-	BankRefMissingFlag   bool            `json:"bank_ref_missing_flag"`   // true = bank reference absent
-	EvidenceGapFlag      bool            `json:"evidence_gap_flag"`       // true = any evidence gap exists (bool summary of EvidenceGapFlags)
-	VarianceSeverity     string          `json:"variance_severity"`       // "LOW" | "MEDIUM" | "HIGH" — computed by variance engine
+	DeductionVariance      decimal.Decimal `json:"deduction_variance"`        // deduction amount in minor units (TDS, PSP fee)
+	FeeVariance            decimal.Decimal `json:"fee_variance"`              // fee component of variance in minor units
+	CurrencyMatchFlag      bool            `json:"currency_match_flag"`       // true = intent and settlement currencies match
+	StatusVarianceFlag     bool            `json:"status_variance_flag"`      // true = status differs between intent and observation
+	ValueDateMismatchFlag  bool            `json:"value_date_mismatch_flag"`  // true = value date differs from expected
+	SettlementDelayDays    int             `json:"settlement_delay_days"`     // calendar days between intended_execution_at and settlement — needed for P6 p95
+	ProviderRefMissingFlag bool            `json:"provider_ref_missing_flag"` // true = no UTR/RRN/BankRef on settlement side
+	BankRefMissingFlag     bool            `json:"bank_ref_missing_flag"`     // true = bank reference absent
+	EvidenceGapFlag        bool            `json:"evidence_gap_flag"`         // true = any evidence gap exists (bool summary of EvidenceGapFlags)
+	VarianceSeverity       string          `json:"variance_severity"`         // "LOW" | "MEDIUM" | "HIGH" — computed by variance engine
 }
 
 // ── NEW EVENT D: from Service 5C ─────────────────────────────────────────────
@@ -571,12 +574,12 @@ type BatchSummaryUpdatedEvent struct {
 	// matches batch_contracts.batch_finality_status values from Phase 1 schema
 
 	// Fields added from BatchAttachmentSummary DB model — required for P1 batch_quality_score
-	ExactMatchCount     int     `json:"exact_match_count"`      // attachments resolved as MATCH_EXACT
-	HighConfidenceCount int     `json:"high_confidence_count"`  // attachments resolved as MATCH_HIGH
-	AmbiguousCount      int     `json:"ambiguous_count"`        // attachments resolved as MATCH_AMBIGUOUS
-	UnresolvedCount     int     `json:"unresolved_count"`       // attachments with no match (MATCH_UNRESOLVED)
-	ConflictedCount     int     `json:"conflicted_count"`       // attachments with conflicting signals
-	AggregateScore      float64 `json:"aggregate_score"`        // overall batch attachment quality score — primary input for P1
+	ExactMatchCount     int     `json:"exact_match_count"`     // attachments resolved as MATCH_EXACT
+	HighConfidenceCount int     `json:"high_confidence_count"` // attachments resolved as MATCH_HIGH
+	AmbiguousCount      int     `json:"ambiguous_count"`       // attachments resolved as MATCH_AMBIGUOUS
+	UnresolvedCount     int     `json:"unresolved_count"`      // attachments with no match (MATCH_UNRESOLVED)
+	ConflictedCount     int     `json:"conflicted_count"`      // attachments with conflicting signals
+	AggregateScore      float64 `json:"aggregate_score"`       // overall batch attachment quality score — primary input for P1
 }
 
 // ── NEW EVENT E: from Service 6 ──────────────────────────────────────────────

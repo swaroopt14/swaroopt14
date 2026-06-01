@@ -74,6 +74,9 @@ type OutboxEvent struct {
 	// 🆕 Settlement Metadata
 	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty"`
 	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty"`
+	BankID                     *string    `json:"bank_id,omitempty"`
+	SourceSystem               *string    `json:"source_system,omitempty"`
+	CorridorID                 *string    `json:"corridor_id,omitempty"`
 	BankReference              *string    `json:"bank_reference,omitempty"`
 	ClientReference            *string    `json:"client_reference,omitempty"`
 	AttachmentDecision        *string    `json:"attachment_decision,omitempty"`

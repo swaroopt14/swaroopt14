@@ -35,7 +35,6 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/zord/zord-intelligence/config"
@@ -84,7 +83,6 @@ type EventHandler interface {
 	HandleVarianceRecord(ctx context.Context, e models.VarianceRecordCreatedEvent) error
 	HandleBatchSummaryUpdated(ctx context.Context, e models.BatchSummaryUpdatedEvent) error
 	HandleGovernanceDecision(ctx context.Context, e models.GovernanceDecisionCreatedEvent) error
-	HandleDLQItemEvent(ctx context.Context, e models.DLQItemEvent) error
 }
 
 // CorridorHealthTickHandler is a separate optional interface.
@@ -143,22 +141,16 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 		func(msg kafka.Message) error {
 			var re models.RelayEvent
 			if err := json.Unmarshal(msg.Value, &re); err != nil {
-				log.Printf("[ZPI-DIAG] ❌ IntentCreated: RelayEvent decode failed topic=%s offset=%d err=%v",
-					msg.Topic, msg.Offset, err)
 				return err
 			}
 			var e models.IntentCreatedEvent
 			if err := json.Unmarshal(re.Payload, &e); err != nil {
-				log.Printf("[ZPI-DIAG] ❌ IntentCreated: payload decode failed event_id=%s err=%v",
-					re.EventID, err)
 				return err
 			}
 			e.EventID = re.EventID
 			e.TenantID = re.TenantID
 			e.TraceID = re.TraceID
 			e.ContractID = re.ContractID
-			log.Printf("[ZPI-DIAG] ✅ IntentCreated  event_id=%s tenant_id=%s intent_id=%s corridor=%s amount=%s currency=%s trace_id=%s",
-				e.EventID, e.TenantID, e.IntentID, e.CorridorID, e.Amount, e.Currency, e.TraceID)
 			return handler.HandleIntentCreated(ctx, e)
 		})
 
@@ -278,21 +270,16 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 		func(msg kafka.Message) error {
 			var re models.RelayEvent
 			if err := json.Unmarshal(msg.Value, &re); err != nil {
-				log.Printf("[ZPI-DIAG] ❌ SettlementCreated: RelayEvent decode failed topic=%s offset=%d err=%v",
-					msg.Topic, msg.Offset, err)
 				return err
 			}
 			var e models.CanonicalSettlementCreatedEvent
 			if err := json.Unmarshal(re.Payload, &e); err != nil {
-				log.Printf("[ZPI-DIAG] ❌ SettlementCreated: payload decode failed event_id=%s err=%v",
-					re.EventID, err)
 				return err
 			}
 			e.EventID = re.EventID
 			e.TenantID = re.TenantID
 			e.TraceID = re.TraceID
-			log.Printf("[ZPI-DIAG] ✅ SettlementCreated  event_id=%s tenant_id=%s settlement_id=%s currency=%s source_type=%s attachment_readiness=%.4f trace_id=%s",
-				e.EventID, e.TenantID, e.SettlementID, e.Currency, e.SourceType, e.AttachmentReadiness, e.TraceID)
+	
 			return handler.HandleSettlementCreated(ctx, e)
 		})
 
@@ -300,22 +287,16 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 		func(msg kafka.Message) error {
 			var re models.RelayEvent
 			if err := json.Unmarshal(msg.Value, &re); err != nil {
-				log.Printf("[ZPI-DIAG] ❌ AttachmentDecision: RelayEvent decode failed topic=%s offset=%d err=%v",
-					msg.Topic, msg.Offset, err)
 				return err
 			}
 			var e models.AttachmentDecisionCreatedEvent
 			if err := json.Unmarshal(re.Payload, &e); err != nil {
-				log.Printf("[ZPI-DIAG] ❌ AttachmentDecision: payload decode failed event_id=%s err=%v",
-					re.EventID, err)
 				return err
 			}
 			// Map envelope fields to ensure identity is preserved
 			e.EventID = re.EventID
 			e.TenantID = re.TenantID
 			e.TraceID = re.TraceID
-			log.Printf("[ZPI-DIAG] ✅ AttachmentDecision  event_id=%s tenant_id=%s decision=%s intent_id=%s confidence=%.4f ambiguity=%.4f trace_id=%s",
-				e.EventID, e.TenantID, e.DecisionType, e.IntentID, e.ConfidenceScore, e.AmbiguityScore, e.TraceID)
 			return handler.HandleAttachmentDecision(ctx, e)
 		})
 
@@ -367,18 +348,6 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 			return handler.HandleGovernanceDecision(ctx, e)
 		})
 
-	wireHandler(topicHandlers, cfg.TopicDLQItem,
-		func(msg kafka.Message) error {
-			var e models.DLQItemEvent
-			if err := json.Unmarshal(msg.Value, &e); err != nil {
-				log.Printf("[ZPI-DIAG] ❌ DLQItemEvent: decode failed topic=%s offset=%d err=%v",
-					msg.Topic, msg.Offset, err)
-				return err
-			}
-			log.Printf("[ZPI-DIAG] ✅ DLQItemEvent  event_id=%s tenant_id=%s trace_id=%s occurred_at=%s intent_id=%s batch_id=%s source_system=%s amount=%s reason_code=%s",
-				e.DLQID, e.TenantID, e.TraceID, e.CreatedAt.Format(time.RFC3339), e.IntentID, e.BatchID, e.SourceSystem, string(e.Amount), e.ReasonCode)
-			return handler.HandleDLQItemEvent(ctx, e)
-		})
 
 	// ── Optional tick handlers (interface type assertion) ─────────────────────
 	//
@@ -502,13 +471,7 @@ func consumeSingleTopic(
 		}
 
 		// ── [DIAGNOSTIC] Log every raw Kafka message before dispatch ────────────
-		msgKey := string(msg.Key)
-		if len(msgKey) > 64 {
-			msgKey = msgKey[:64] + "..."
-		}
-		log.Printf("[ZPI-DIAG] ▶ raw msg received  topic=%s partition=%d offset=%d key=%q payload_bytes=%d",
-			msg.Topic, msg.Partition, msg.Offset, msgKey, len(msg.Value))
-
+		
 		if err := handle(msg); err != nil {
 			log.Printf("kafka: handler error topic=%s partition=%d offset=%d: %v",
 				msg.Topic, msg.Partition, msg.Offset, err)

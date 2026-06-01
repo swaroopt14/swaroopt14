@@ -639,15 +639,3 @@ type GovernanceDecisionCreatedEvent struct {
 	DecidedAt time.Time `json:"decided_at"` // when the governance decision was made
 }
 
-// DLQItemEvent represents a leased DLQ item dispatched from Service 1.
-type DLQItemEvent struct {
-	DLQID        string    `json:"event_id"`
-	TenantID     string    `json:"tenant_id"`
-	TraceID      string    `json:"trace_id,omitempty"`
-	CreatedAt    time.Time `json:"occurred_at"`
-	IntentID     string    `json:"intent_id,omitempty"`
-	BatchID      string    `json:"batch_id,omitempty"`
-	SourceSystem string          `json:"source_system,omitempty"`
-	Amount       json.RawMessage `json:"amount,omitempty"`
-	ReasonCode   string          `json:"reason_code"`
-}

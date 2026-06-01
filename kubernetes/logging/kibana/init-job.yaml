@@ -55,6 +55,18 @@ spec:
                   "force": true
                 }' && echo " -> default data view set"
 
+              # Wait for data to be indexed
+              echo "Waiting 30s for logs to be indexed..."
+              sleep 30
+
+              # Create Kibana dashboard — Zord Service Logs Overview
+              curl -s -X POST "http://kibana.logging.svc.cluster.local:5601/api/saved_objects/_import?overwrite=true" \
+                -H "kbn-xsrf: true" \
+                --form file=@- << 'DASHBOARD_EOF'
+              {"attributes":{"title":"Zord Service Logs Overview","hits":0,"description":"All microservice logs with filters","panelsJSON":"[{\"version\":\"8.13.0\",\"type\":\"lens\",\"gridData\":{\"x\":0,\"y\":0,\"w\":24,\"h\":8,\"i\":\"1\"},\"panelIndex\":\"1\",\"embeddableConfig\":{\"attributes\":{\"title\":\"Log Volume Over Time\",\"visualizationType\":\"lnsXY\",\"state\":{\"datasourceStates\":{\"formBased\":{\"layers\":{\"layer1\":{\"columns\":{\"col1\":{\"operationType\":\"date_histogram\",\"sourceField\":\"@timestamp\",\"params\":{\"interval\":\"auto\"}},\"col2\":{\"operationType\":\"count\",\"label\":\"Log Count\"}},\"columnOrder\":[\"col1\",\"col2\"]}}}},\"visualization\":{\"layers\":[{\"layerId\":\"layer1\",\"seriesType\":\"bar\",\"xAccessor\":\"col1\",\"accessors\":[\"col2\"]}]}},\"references\":[{\"type\":\"index-pattern\",\"id\":\"zord-logs-*\",\"name\":\"indexpattern-datasource-layer-layer1\"}]}}}]","optionsJSON":"{\"useMargins\":true,\"syncColors\":false,\"syncCursor\":true,\"syncTooltips\":false,\"hidePanelTitles\":false}","timeRestore":true,"timeTo":"now","timeFrom":"now-1h","kibanaSavedObjectMeta":{"searchSourceJSON":"{\"query\":{\"query\":\"\",\"language\":\"kuery\"},\"filter\":[]}"}},"id":"zord-logs-dashboard","type":"dashboard","references":[]}
+              DASHBOARD_EOF
+              echo " -> Zord logs dashboard created"
+
               echo "Kibana initialization complete!"
           resources:
             requests:

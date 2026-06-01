@@ -67,6 +67,11 @@ data:
         static_configs:
           - targets: ['kube-state-metrics.monitoring.svc.cluster.local:8080']
 
+      - job_name: 'otel-spanmetrics'
+        static_configs:
+          - targets: ['otel-collector.tracing.svc.cluster.local:8889']
+        scrape_interval: 15s
+
       - job_name: 'kubernetes-nodes'
         kubernetes_sd_configs:
           - role: node

@@ -360,6 +360,19 @@ type CanonicalSettlementCreatedEvent struct {
 	IngestRunID       string `json:"ingest_run_id"`
 
 	MappingConfidence float64 `json:"mapping_confidence"`
+
+	// ── Pattern Intelligence fields (added per upstream contract — Service 5B) ──
+	// ProviderID: logical PSP/intermediary that processed this settlement.
+	// Service 5B sends this under the key "source_system".
+	// e.g. "razorpay", "payu", "cashfree"
+	ProviderID string `json:"source_system"`
+	// BankID: destination bank or financial institution code.
+	// e.g. "HDFC", "ICICI", "SBI"
+	BankID string `json:"bank_id"`
+	// PaymentRail: the transfer rail used.
+	// Service 5B sends this under the key "corridor_id".
+	// e.g. "NEFT", "RTGS", "IMPS", "UPI"
+	PaymentRail string `json:"corridor_id"`
 }
 
 // ── NEW EVENT B: from Service 5C ─────────────────────────────────────────────
@@ -642,3 +655,65 @@ type GovernanceDecisionCreatedEvent struct {
 	DecidedAt time.Time `json:"decided_at"` // when the governance decision was made
 }
 
+// ── NEW EVENT F: from Service 2 ──────────────────────────────────────────────
+//
+// Arrives when a payment intent row is routed to manual review before or during
+// dispatch. Emitted per-intent (one event per reviewed row).
+//
+// WHAT IS MANUAL REVIEW?
+// When a payment row fails automated validation (invalid IFSC, missing fields,
+// schema mismatch, amount format errors, duplicate risk) it is held in a manual
+// review queue for a human operator to inspect before the payment is dispatched.
+//
+// ZPI uses this event to:
+//   - Compute manual_review_rate_by_source (which source system generates the most errors)
+//   - Detect recurring file quality patterns per source
+//   - Trigger "Fix Source Export" and "Fix Source Schema" recommendation cards
+//   - Compute manual_review_amount exposure per source over rolling windows
+//
+// KEY RULE: amount_minor must follow the same minor-unit convention as all
+// other monetary fields in ZPI (paise for INR, cents for USD). Never float64.
+//
+// Kafka topic: payments.intent.dlq  ← Service 2
+// =============================================================================
+
+// DLQItemEvent represents a single payment intent row that was routed to
+// manual review due to a validation or quality failure.
+type DLQItemEvent struct {
+	EventID    string    `json:"event_id"`
+	TenantID   string    `json:"tenant_id"`
+	TraceID    string    `json:"trace_id"`
+	OccurredAt time.Time `json:"occurred_at"`
+
+	// ── Intent reference ──────────────────────────────────────────────────────
+	IntentID string `json:"intent_id"` // the intent that was flagged
+	BatchID  string `json:"batch_id"`  // which batch this intent belongs to
+
+	// ── Source attribution ────────────────────────────────────────────────────
+	// SourceSystem identifies the upstream ERP, file upload, or API channel that
+	// created this intent. This is the primary dimension ZPI groups by.
+	// Examples: "tally_branch_a", "sap_vendor_batch", "manual_excel", "api_direct"
+	SourceSystem string `json:"source_system"`
+
+	// ── Financial impact ──────────────────────────────────────────────────────
+	// AmountMinor: the intended payment amount for this row in minor currency units.
+	// Accumulated by ZPI to compute manual_review_amount_minor_by_source.
+	AmountMinor decimal.Decimal `json:"amount_minor"`
+
+	// ── Failure reason ────────────────────────────────────────────────────────
+	// ReasonCode: the primary reason this row was routed to manual review.
+	// ZPI groups by this to detect dominant failure patterns per source.
+	//
+	// Expected values:
+	//   MISSING_CLIENT_PAYOUT_REF — client_payout_ref / VoucherNo / InvoiceNo absent
+	//   INVALID_IFSC              — bank IFSC is malformed or not in master list
+	//   MISSING_ACCOUNT_NUMBER    — beneficiary account number absent
+	//   INVALID_AMOUNT_FORMAT     — amount is non-numeric, negative, or exceeds limit
+	//   DUPLICATE_ROW             — row is a duplicate of another row in same batch
+	//   SCHEMA_MISMATCH           — row fields do not match expected source mapping
+	//   MISSING_VENDOR_CODE       — vendor/seller identifier absent
+	//   BENEFICIARY_BLACKLISTED   — beneficiary flagged in AML/compliance list
+	//   CURRENCY_MISMATCH         — currency code invalid or mismatched with corridor
+	//   OTHER                     — any other reason not covered above
+	ReasonCode string `json:"reason_code"`
+}

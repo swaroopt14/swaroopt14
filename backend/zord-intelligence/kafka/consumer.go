@@ -83,6 +83,11 @@ type EventHandler interface {
 	HandleVarianceRecord(ctx context.Context, e models.VarianceRecordCreatedEvent) error
 	HandleBatchSummaryUpdated(ctx context.Context, e models.BatchSummaryUpdatedEvent) error
 	HandleGovernanceDecision(ctx context.Context, e models.GovernanceDecisionCreatedEvent) error
+
+	// ── Pattern Intelligence method ───────────────────────────────────────────
+	// Handles per-intent manual review events from Service 2.
+	// Used to compute manual_review_rate_by_source and trigger source-fix recommendations.
+	HandleDLQItem(ctx context.Context, e models.DLQItemEvent) error
 }
 
 // CorridorHealthTickHandler is a separate optional interface.
@@ -348,6 +353,17 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 			return handler.HandleGovernanceDecision(ctx, e)
 		})
 
+	// ── Pattern Intelligence: manual review DLQ handler ──────────────────────
+	// payments.intent.dlq is a direct (non-relay-wrapped) event from Service 2.
+	// It does not use the RelayEvent envelope — decoded directly as DLQItemEvent.
+	wireHandler(topicHandlers, cfg.TopicDLQItem,
+		func(msg kafka.Message) error {
+			var e models.DLQItemEvent
+			if err := json.Unmarshal(msg.Value, &e); err != nil {
+				return err
+			}
+			return handler.HandleDLQItem(ctx, e)
+		})
 
 	// ── Optional tick handlers (interface type assertion) ─────────────────────
 	//

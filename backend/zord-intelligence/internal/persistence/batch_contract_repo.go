@@ -43,6 +43,16 @@ type BatchContract struct {
 	DefensibilityTier         *string         `json:"defensibility_tier,omitempty"`
 	LastUpdatedAt             time.Time       `json:"last_updated_at"`
 	CreatedAt                 time.Time       `json:"created_at"`
+
+	// ── Per-batch risk attribution (Pattern Intelligence) ─────────────────────
+	// Incremented by individual event handlers — NOT reset by BatchSummaryUpdatedEvent.
+	UnmatchedAmountMinor         decimal.Decimal `json:"unmatched_amount_minor"`
+	ReversalExposureMinor        decimal.Decimal `json:"reversal_exposure_minor"`
+	OrphanAmountMinor            decimal.Decimal `json:"orphan_amount_minor"`
+	DuplicateRiskExposureMinor   decimal.Decimal `json:"duplicate_risk_exposure_minor"`
+	MissingRefCount              int             `json:"missing_ref_count"`
+	UnexplainedVarianceMinor     decimal.Decimal `json:"unexplained_variance_minor"`
+	WhitelistedDeductionMinor    decimal.Decimal `json:"whitelisted_deduction_minor"`
 }
 
 // BatchContractRepo provides Upsert and Read operations for batch_contracts.
@@ -171,7 +181,11 @@ func (r *BatchContractRepo) GetByID(
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
-		       last_updated_at, created_at
+		       last_updated_at, created_at,
+		       unmatched_amount_minor::text, reversal_exposure_minor::text,
+		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
+		       missing_ref_count,
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
 		FROM   batch_contracts
 		WHERE  batch_id = $1
 	`
@@ -203,7 +217,11 @@ func (r *BatchContractRepo) ListByTenant(
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
-		       last_updated_at, created_at
+		       last_updated_at, created_at,
+		       unmatched_amount_minor::text, reversal_exposure_minor::text,
+		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
+		       missing_ref_count,
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		ORDER  BY last_updated_at DESC
@@ -252,7 +270,11 @@ func (r *BatchContractRepo) ListTopByAmount(
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
-		       last_updated_at, created_at
+		       last_updated_at, created_at,
+		       unmatched_amount_minor::text, reversal_exposure_minor::text,
+		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
+		       missing_ref_count,
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		ORDER  BY batch_contracts.total_intended_amount_minor DESC NULLS LAST
@@ -292,7 +314,11 @@ func (r *BatchContractRepo) ListRequiringReview(
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
-		       last_updated_at, created_at
+		       last_updated_at, created_at,
+		       unmatched_amount_minor::text, reversal_exposure_minor::text,
+		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
+		       missing_ref_count,
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		  AND  (
@@ -337,7 +363,11 @@ func (r *BatchContractRepo) ListByFinalityStatus(
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
 		       batch_finality_status, ambiguity_score, defensibility_tier,
-		       last_updated_at, created_at
+		       last_updated_at, created_at,
+		       unmatched_amount_minor::text, reversal_exposure_minor::text,
+		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
+		       missing_ref_count,
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		  AND  batch_finality_status = $2
@@ -365,6 +395,7 @@ func (r *BatchContractRepo) ListByFinalityStatus(
 func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	var bc BatchContract
 	var intended, confirmed, variance string
+	var unmatched, reversal, orphan, dupRisk, unexplained, whitelisted string
 	err := row.Scan(
 		&bc.BatchID,
 		&bc.TenantID,
@@ -383,6 +414,13 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 		&bc.DefensibilityTier,
 		&bc.LastUpdatedAt,
 		&bc.CreatedAt,
+		&unmatched,
+		&reversal,
+		&orphan,
+		&dupRisk,
+		&bc.MissingRefCount,
+		&unexplained,
+		&whitelisted,
 	)
 	if err != nil {
 		return nil, err
@@ -400,6 +438,24 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	if parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContract: invalid total_variance_minor %q: %w", variance, parseErr)
 	}
+	if bc.UnmatchedAmountMinor, parseErr = decimal.NewFromString(unmatched); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid unmatched_amount_minor %q: %w", unmatched, parseErr)
+	}
+	if bc.ReversalExposureMinor, parseErr = decimal.NewFromString(reversal); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid reversal_exposure_minor %q: %w", reversal, parseErr)
+	}
+	if bc.OrphanAmountMinor, parseErr = decimal.NewFromString(orphan); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid orphan_amount_minor %q: %w", orphan, parseErr)
+	}
+	if bc.DuplicateRiskExposureMinor, parseErr = decimal.NewFromString(dupRisk); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid duplicate_risk_exposure_minor %q: %w", dupRisk, parseErr)
+	}
+	if bc.UnexplainedVarianceMinor, parseErr = decimal.NewFromString(unexplained); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid unexplained_variance_minor %q: %w", unexplained, parseErr)
+	}
+	if bc.WhitelistedDeductionMinor, parseErr = decimal.NewFromString(whitelisted); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid whitelisted_deduction_minor %q: %w", whitelisted, parseErr)
+	}
 	return &bc, nil
 }
 
@@ -407,6 +463,7 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	var bc BatchContract
 	var intended, confirmed, variance string
+	var unmatched, reversal, orphan, dupRisk, unexplained, whitelisted string
 	err := rows.Scan(
 		&bc.BatchID,
 		&bc.TenantID,
@@ -425,6 +482,13 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 		&bc.DefensibilityTier,
 		&bc.LastUpdatedAt,
 		&bc.CreatedAt,
+		&unmatched,
+		&reversal,
+		&orphan,
+		&dupRisk,
+		&bc.MissingRefCount,
+		&unexplained,
+		&whitelisted,
 	)
 	if err != nil {
 		return nil, err
@@ -442,5 +506,196 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	if parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContractFromRows: invalid total_variance_minor %q: %w", variance, parseErr)
 	}
+	if bc.UnmatchedAmountMinor, parseErr = decimal.NewFromString(unmatched); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid unmatched_amount_minor %q: %w", unmatched, parseErr)
+	}
+	if bc.ReversalExposureMinor, parseErr = decimal.NewFromString(reversal); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid reversal_exposure_minor %q: %w", reversal, parseErr)
+	}
+	if bc.OrphanAmountMinor, parseErr = decimal.NewFromString(orphan); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid orphan_amount_minor %q: %w", orphan, parseErr)
+	}
+	if bc.DuplicateRiskExposureMinor, parseErr = decimal.NewFromString(dupRisk); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid duplicate_risk_exposure_minor %q: %w", dupRisk, parseErr)
+	}
+	if bc.UnexplainedVarianceMinor, parseErr = decimal.NewFromString(unexplained); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid unexplained_variance_minor %q: %w", unexplained, parseErr)
+	}
+	if bc.WhitelistedDeductionMinor, parseErr = decimal.NewFromString(whitelisted); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid whitelisted_deduction_minor %q: %w", whitelisted, parseErr)
+	}
 	return &bc, nil
+}
+
+// ── Per-batch risk attribution atomic increments ──────────────────────────────
+//
+// Each method safely increments ONE risk field on the batch_contracts row.
+// Uses INSERT ... ON CONFLICT DO UPDATE so it is safe to call even before the
+// first BatchSummaryUpdatedEvent has created the row (the row will be created
+// with all other columns at their DEFAULT values).
+//
+// IMPORTANT: None of these methods touch the fields managed by Upsert()
+// (total_count, success_count, total_intended_amount_minor, etc.).
+// The two write paths are completely orthogonal.
+
+// AtomicAddBatchUnmatchedAmount increments unmatched_amount_minor for a batch.
+// Called from HandleAttachmentDecision when DecisionType = MATCH_UNRESOLVED.
+func (r *BatchContractRepo) AtomicAddBatchUnmatchedAmount(
+	ctx context.Context,
+	batchID, tenantID string,
+	amountMinor decimal.Decimal,
+) error {
+	if batchID == "" || !amountMinor.IsPositive() {
+		return nil
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (batch_id, tenant_id, unmatched_amount_minor)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			unmatched_amount_minor = batch_contracts.unmatched_amount_minor + EXCLUDED.unmatched_amount_minor,
+			last_updated_at        = now()
+	`, batchID, tenantID, amountMinor.String())
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicAddBatchUnmatchedAmount batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+// AtomicAddBatchReversalExposure increments reversal_exposure_minor for a batch.
+// Called from HandleVarianceRecord when VarianceType = REVERSAL.
+func (r *BatchContractRepo) AtomicAddBatchReversalExposure(
+	ctx context.Context,
+	batchID, tenantID string,
+	amountMinor decimal.Decimal,
+) error {
+	if batchID == "" || !amountMinor.IsPositive() {
+		return nil
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (batch_id, tenant_id, reversal_exposure_minor)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			reversal_exposure_minor = batch_contracts.reversal_exposure_minor + EXCLUDED.reversal_exposure_minor,
+			last_updated_at         = now()
+	`, batchID, tenantID, amountMinor.String())
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicAddBatchReversalExposure batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+// AtomicAddBatchOrphanAmount increments orphan_amount_minor for a batch.
+// Called from HandleSettlementCreated when orphan settlement is detected.
+func (r *BatchContractRepo) AtomicAddBatchOrphanAmount(
+	ctx context.Context,
+	batchID, tenantID string,
+	amountMinor decimal.Decimal,
+) error {
+	if batchID == "" || !amountMinor.IsPositive() {
+		return nil
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (batch_id, tenant_id, orphan_amount_minor)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			orphan_amount_minor = batch_contracts.orphan_amount_minor + EXCLUDED.orphan_amount_minor,
+			last_updated_at     = now()
+	`, batchID, tenantID, amountMinor.String())
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicAddBatchOrphanAmount batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+// AtomicAddBatchDuplicateRiskExposure increments duplicate_risk_exposure_minor.
+// Called from HandleIntentCreated when DuplicateRiskFlag = true.
+func (r *BatchContractRepo) AtomicAddBatchDuplicateRiskExposure(
+	ctx context.Context,
+	batchID, tenantID string,
+	amountMinor decimal.Decimal,
+) error {
+	if batchID == "" || !amountMinor.IsPositive() {
+		return nil
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (batch_id, tenant_id, duplicate_risk_exposure_minor)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			duplicate_risk_exposure_minor = batch_contracts.duplicate_risk_exposure_minor + EXCLUDED.duplicate_risk_exposure_minor,
+			last_updated_at               = now()
+	`, batchID, tenantID, amountMinor.String())
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicAddBatchDuplicateRiskExposure batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+// AtomicAddBatchVarianceBreakdown increments the explained/unexplained variance
+// split and missing ref count for a batch.
+// Called from HandleVarianceRecord for every non-REVERSAL, non-OVER_SETTLEMENT variance.
+//
+//   isWhitelisted=true  → increments whitelisted_deduction_minor (PSP fees, TDS)
+//   isWhitelisted=false → increments unexplained_variance_minor (real leakage candidates)
+//   missingRef=true     → increments missing_ref_count by 1
+func (r *BatchContractRepo) AtomicAddBatchVarianceBreakdown(
+	ctx context.Context,
+	batchID, tenantID string,
+	amountMinor decimal.Decimal,
+	isWhitelisted bool,
+	missingRef bool,
+) error {
+	if batchID == "" {
+		return nil
+	}
+
+	whitelisted := decimal.Zero
+	unexplained := decimal.Zero
+	if isWhitelisted {
+		whitelisted = amountMinor
+	} else {
+		unexplained = amountMinor
+	}
+	missingRefIncr := 0
+	if missingRef {
+		missingRefIncr = 1
+	}
+
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts
+			(batch_id, tenant_id, whitelisted_deduction_minor, unexplained_variance_minor, missing_ref_count)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			whitelisted_deduction_minor = batch_contracts.whitelisted_deduction_minor + EXCLUDED.whitelisted_deduction_minor,
+			unexplained_variance_minor  = batch_contracts.unexplained_variance_minor  + EXCLUDED.unexplained_variance_minor,
+			missing_ref_count           = batch_contracts.missing_ref_count           + EXCLUDED.missing_ref_count,
+			last_updated_at             = now()
+	`, batchID, tenantID, whitelisted.String(), unexplained.String(), missingRefIncr)
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicAddBatchVarianceBreakdown batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+// AtomicIncrementBatchMissingRef increments missing_ref_count by 1 for a batch.
+// Called from HandleIntentCreated when ClientPayoutRef is empty,
+// and from HandleVarianceRecord when ProviderRefMissingFlag or BankRefMissingFlag is true.
+func (r *BatchContractRepo) AtomicIncrementBatchMissingRef(
+	ctx context.Context,
+	batchID, tenantID string,
+	count int,
+) error {
+	if batchID == "" || count <= 0 {
+		return nil
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (batch_id, tenant_id, missing_ref_count)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			missing_ref_count = batch_contracts.missing_ref_count + EXCLUDED.missing_ref_count,
+			last_updated_at   = now()
+	`, batchID, tenantID, count)
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicIncrementBatchMissingRef batch=%s: %w", batchID, err)
+	}
+	return nil
 }

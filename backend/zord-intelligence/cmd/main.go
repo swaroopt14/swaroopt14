@@ -129,7 +129,7 @@ func main() {
 	ambiguitySvc := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
 	defensibilitySvc := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
 	rcaSvc := services.NewRCAIntelligenceService(projRepo, snapshotRepo, mlClient)
-	patternSvc := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo, mlClient)
+	patternSvc := services.NewPatternIntelligenceService(projRepo, snapshotRepo, batchRepo, mlRepo, predRepo, mlClient, slaRepo)
 	recommendationSvc := services.NewRecommendationIntelligenceService(snapshotRepo)
 	explSvc := services.NewExplanationService(explRepo, snapshotRepo, batchRepo)
 
@@ -168,7 +168,7 @@ func main() {
 	}()
 
 	// ── Step 7: Create background workers ─────────────────────────────────
-	outboxWorker := worker.NewOutboxWorker(outboxRepo, actionRepo, producer, cfg)
+	outboxWorker := worker.NewOutboxWorker(outboxRepo, actionRepo, producer, cfg, projRepo)
 	slaWorker := worker.NewSLAWorker(slaRepo, actionService, projectionService)
 	cronWorker := worker.NewPolicyCronWorker(projRepo, policyService)
 
@@ -314,6 +314,7 @@ func activeTopicsForMode(cfg *config.Config) []string {
 			cfg.TopicEvidenceReady,
 			cfg.TopicGovernanceDecision,
 			cfg.TopicBatchSummary,
+			cfg.TopicDLQItem, // Pattern Intelligence: manual review events
 		)
 	}
 
@@ -333,6 +334,7 @@ func activeTopicsForMode(cfg *config.Config) []string {
 		cfg.TopicVarianceRecord,
 		cfg.TopicBatchSummary,
 		cfg.TopicGovernanceDecision,
+		cfg.TopicDLQItem, // Pattern Intelligence: manual review events
 	)
 }
 

@@ -67,6 +67,12 @@ type Config struct {
 	TopicBatchSummary       string
 	TopicGovernanceDecision string
 
+	// ── Pattern Intelligence Input Topics ────────────────────────
+	// TopicDLQItem receives per-intent manual review events from Service 2.
+	// Emitted when a payment row is routed to human review before dispatch.
+	// Used to compute manual_review_rate_by_source and trigger source-fix recommendations.
+	TopicDLQItem string
+
 	// ── Kafka Output Topics (ZPI publishes TO these) ──────────────
 	TopicActuationRetry      string
 	TopicActuationEvidence   string
@@ -132,6 +138,9 @@ func Load() *Config {
 		TopicVarianceRecord:     getWithDefault("TOPIC_VARIANCE_RECORD", "variance.record.created"),
 		TopicBatchSummary:       getWithDefault("TOPIC_BATCH_SUMMARY", "batch.summary.updated"),
 		TopicGovernanceDecision: getWithDefault("TOPIC_GOVERNANCE_DECISION", "governance.decision.created"),
+
+		// ── Pattern Intelligence Input Topics ─────────────────────
+		TopicDLQItem: getWithDefault("TOPIC_DLQ_ITEM", "payments.intent.dlq"),
 
 		// ── Kafka Output Topics ──────────────────────────────────────
 		TopicActuationRetry:      getWithDefault("TOPIC_ACTUATION_RETRY", "zpi.actuation.retry"),

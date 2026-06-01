@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math"
 	"time"
 
@@ -2814,6 +2815,65 @@ func (r *ProjectionRepo) GetAllByProjectionKeyPrefix(
 		return nil, fmt.Errorf("projection_repo.GetAllByProjectionKeyPrefix rows: %w", err)
 	}
 	return fragments, nil
+}
+
+// CleanupStaleRCAFragments deletes all rca.frag.* rows that are older than
+// maxAge across ALL tenants. Called by the outbox worker on every tick.
+//
+// RCA fragments are temporary per-intent accumulation rows created while
+// events are arriving for a batch. Once clustering runs (triggered by
+// BatchSummaryUpdated) the fragments are no longer needed. However, due to
+// Kafka consumer ordering, some fragments may arrive AFTER the batch summary
+// triggers cleanup — leaving orphan rows. A TTL-based sweep ensures no
+// fragments survive past their useful window regardless of ordering.
+//
+// Production TTL: 10 minutes — comfortably longer than any batch processing window.
+// Test TTL: same — the outbox worker runs every 5s so orphans clear within 15s.
+func (r *ProjectionRepo) CleanupStaleRCAFragments(ctx context.Context, maxAge time.Duration) (int64, error) {
+	cutoff := time.Now().UTC().Add(-maxAge)
+	tag, err := r.pool.Exec(ctx, `
+		DELETE FROM projection_state
+		WHERE projection_key LIKE 'rca.frag.%'
+		  AND computed_at < $1
+	`, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("projection_repo.CleanupStaleRCAFragments: %w", err)
+	}
+	if tag.RowsAffected() > 0 {
+		log.Printf("projection_repo: cleaned %d stale rca fragment rows (age>%s)",
+			tag.RowsAffected(), maxAge)
+	}
+	return tag.RowsAffected(), nil
+}
+
+// DeleteProjectionsByKeyPrefix deletes all projection_state rows whose
+// projection_key starts with the given prefix for a tenant.
+//
+// Used to clean up RCA fragment rows after HDBSCAN clustering completes.
+// Fragments are temporary accumulation artifacts — once clustering has consumed
+// them and written the RCA snapshot, they serve no further purpose and would
+// otherwise grow indefinitely in the projection_state table.
+//
+// Safe to call even if no rows match — returns nil in that case.
+func (r *ProjectionRepo) DeleteProjectionsByKeyPrefix(
+	ctx context.Context,
+	tenantID, prefix string,
+) error {
+	sql := `
+		DELETE FROM projection_state
+		WHERE tenant_id     = $1
+		  AND projection_key LIKE $2
+	`
+	tag, err := r.pool.Exec(ctx, sql, tenantID, prefix+"%")
+	if err != nil {
+		return fmt.Errorf("projection_repo.DeleteProjectionsByKeyPrefix tenant=%s prefix=%s: %w",
+			tenantID, prefix, err)
+	}
+	if tag.RowsAffected() > 0 {
+		log.Printf("projection_repo: deleted %d rca fragment rows prefix=%s tenant=%s",
+			tag.RowsAffected(), prefix, tenantID)
+	}
+	return nil
 }
 
 // UpsertRCAFragment reads the existing RCAFragment for (tenantID, key), applies

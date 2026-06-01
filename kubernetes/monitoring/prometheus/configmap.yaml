@@ -49,6 +49,21 @@ data:
           - targets: ['zord-relay.zord.svc.cluster.local:8082']
         metrics_path: /metrics
 
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - source_labels: [__address__]
+            regex: (.+):(.+)
+            target_label: __address__
+            replacement: $1:9100
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+
+      - job_name: 'kube-state-metrics'
+        static_configs:
+          - targets: ['kube-state-metrics.monitoring.svc.cluster.local:8080']
+
       - job_name: 'kubernetes-nodes'
         kubernetes_sd_configs:
           - role: node

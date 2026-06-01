@@ -51,6 +51,9 @@ func Register(r *gin.Engine, h *handlers.EvidenceHandler, outboxHandler *handler
 		// Get the batch-level summary evidence pack
 		v1.GET("/batch/:batchID", h.GetBatchEvidencePack)
 
+		// Get the batch-level lineage graph
+		v1.GET("/batch/:batchID/lineage-graph", h.GetBatchLineageGraph)
+
 		// §17: Replay and equivalence check
 		v1.POST("/replay", h.ReplayEvidencePack)
 	}

@@ -321,8 +321,8 @@ type CanonicalSettlementCreatedEvent struct {
 	// LOW    = manually uploaded CSV (human error risk)
 
 	SourceSystemID  string  `json:"source_system_id"` // identifies the specific PSP/bank/ERP
-	SourceSystem    string  `json:"source_system"`    // e.g. ERP name, internal name
-	CorridorID      string  `json:"corridor_id"`      // PSP corridor ID
+	ProviderID      string  `json:"source_system"`    // e.g. ERP name, internal name
+	PaymentRail     string  `json:"corridor_id"`      // PSP corridor ID
 	ParseConfidence float64 `json:"parse_confidence"` // 0.0–1.0: how confident was the parser?
 	// 1.0 = perfect parse, all fields found
 	// 0.7 = some fields missing or ambiguous

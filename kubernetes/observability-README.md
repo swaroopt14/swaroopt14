@@ -65,13 +65,11 @@ kubernetes/
     ├── namespace.yaml
     ├── ingress.yaml                ← jaeger.zordnet.com
     ├── otel-collector/
-    │   ├── configmap.yaml
+    │   ├── configmap.yaml          ← OTLP receiver + Jaeger exporter
     │   ├── deployment.yaml
     │   └── service.yaml
     └── jaeger/
-        ├── secret.yaml             ← basic auth credentials
-        ├── auth-config.yaml        ← Nginx reverse proxy config
-        ├── deployment.yaml         ← 10Gi persistent storage + auth sidecar
+        ├── deployment.yaml         ← 10Gi persistent storage, no auth (open access)
         └── service.yaml
 ```
 
@@ -112,13 +110,13 @@ kubectl get ingress -n tracing
 
 ## Access UIs (Custom Subdomains)
 
-| Tool | URL | Username | Password | Secret File |
-|------|-----|----------|----------|-------------|
-| **Grafana** | `https://grafana.zordnet.com` | admin | zord-grafana-2026 | `monitoring/grafana/secret.yaml` |
-| **Kibana** | `https://kibana.zordnet.com` | elastic | zord-elastic-2026 | `logging/kibana/secret.yaml` |
-| **Jaeger** | `https://jaeger.zordnet.com` | admin | zord-jaeger-2026 | `tracing/jaeger/secret.yaml` |
+| Tool | URL | Login Required? | Credentials |
+|------|-----|----------------|-------------|
+| **Grafana** | `https://grafana.zordnet.com` | Yes | admin / zord-grafana-2026 (from `monitoring/grafana/secret.yaml`) |
+| **Kibana** | `https://kibana.zordnet.com` | No | Open access (security disabled) |
+| **Jaeger** | `https://jaeger.zordnet.com` | No | Open access (no auth proxy) |
 
-**To change passwords:** Edit the secret file → redeploy → restart the pod.
+**To change Grafana password:** Edit `monitoring/grafana/secret.yaml` → redeploy → restart Grafana pod.
 
 ---
 
@@ -160,41 +158,57 @@ Copy the ALB DNS name and create these DNS records:
 
 - **Fluentd** runs on every node (DaemonSet), collects all pod logs
 - Enriches logs with Kubernetes metadata (namespace, pod, service name)
-- Ships to Elasticsearch with authentication
+- Ships to Elasticsearch (no authentication — internal only)
 - Logs indexed as `zord-logs-YYYY.MM.DD`
 - Kong access logs indexed as `kong-access-YYYY.MM.DD`
 - **Kibana** provides search, filtering, and visualization
-- Login required (elastic / zord-elastic-2026)
+- No login required (Elasticsearch security disabled)
 - 50Gi storage for Elasticsearch
+- Data views auto-created by `kibana-init` Job
 
 ### Tracing (OpenTelemetry + Jaeger)
 
 - **OTel Collector** receives traces via OTLP (gRPC:4317, HTTP:4318)
 - Batches and forwards to Jaeger
 - **Jaeger** stores traces in Badger (10Gi persistent storage)
-- Protected by Nginx basic auth sidecar
-- Login required (admin / zord-jaeger-2026)
+- Open access (no login required) — protected by subdomain only
+- **Important:** Services must use gRPC endpoint format: `host:4317` (not `http://host:4318`)
+- The `OTEL_EXPORTER_OTLP_ENDPOINT` in `zord-aws-config` ConfigMap is set to: `otel-collector.tracing.svc.cluster.local:4317`
+
+**Jaeger UI Tabs:**
+- **Search** — find traces by service, operation, tags, duration
+- **System Architecture** — service dependency graph (requires multi-service traces)
+- **Compare** — compare two traces side by side
+- **Monitor** — latency/error rate/request rate (requires spanmetrics connector — future enhancement)
 
 ---
 
 ## Connect Your Services to Tracing
 
-All services that have this env var will automatically send traces:
+Services send traces via the `OTEL_EXPORTER_OTLP_ENDPOINT` env var (gRPC format, no `http://` prefix):
 
 ```yaml
 - name: OTEL_EXPORTER_OTLP_ENDPOINT
-  value: http://otel-collector.tracing.svc.cluster.local:4318
+  valueFrom:
+    configMapKeyRef:
+      name: zord-aws-config
+      key: OTEL_EXPORTER_OTLP_ENDPOINT
+# Value: otel-collector.tracing.svc.cluster.local:4317
 ```
 
-**Already configured (via `zord-aws-config` ConfigMap):**
+**Important:** The Go services use `otlptracegrpc` (gRPC exporter). The endpoint must be `host:4317` format — NOT `http://host:4318`.
+
+**Services with tracing code:**
 - zord-edge
 - zord-intent-engine
 - zord-token-enclave
 - zord-intelligence
 
+**Requirement:** Docker images must be rebuilt after tracing code was added. If Jaeger Search only shows `jaeger-all-in-one`, the images need rebuilding via Jenkins.
+
 **For zord-relay (requires manual enable):**
 
-After deploying the tracing stack, edit `kubernetes/eks/services/zord-relay/deployment.yaml`:
+After deploying the tracing stack and rebuilding images, edit `kubernetes/eks/services/zord-relay/deployment.yaml`:
 
 ```yaml
 # Change:
@@ -225,9 +239,9 @@ kubectl rollout restart deployment/zord-relay -n zord
 
 | Tool | Auth Method | How it works |
 |------|-------------|-------------|
-| **Grafana** | Built-in login | Grafana has its own user management. Credentials from K8s Secret. |
-| **Kibana** | Elasticsearch security (xpack) | Kibana authenticates against Elasticsearch. Credentials from K8s Secret. |
-| **Jaeger** | Nginx basic auth sidecar | Nginx sits in front of Jaeger, requires htpasswd login. Credentials from K8s Secret. |
+| **Grafana** | Built-in login | Grafana has its own user management. Credentials from K8s Secret (`monitoring/grafana/secret.yaml`). |
+| **Kibana** | No auth (open access) | Elasticsearch security disabled. Protected by subdomain only. |
+| **Jaeger** | No auth (open access) | Direct access to Jaeger UI. Protected by subdomain only. |
 
 ---
 
@@ -242,7 +256,6 @@ kubectl rollout restart deployment/zord-relay -n zord
 | Fluentd (per node) | 100m / 500m | 256Mi / 512Mi | — |
 | OTel Collector | 100m / 500m | 256Mi / 512Mi | — |
 | Jaeger | 100m / 500m | 256Mi / 1Gi | 10Gi PVC |
-| Jaeger auth proxy | 10m / 50m | 16Mi / 32Mi | — |
 
 ---
 
@@ -262,15 +275,15 @@ Import: Grafana → Dashboards → Import → Enter ID → Load
 
 ## Kibana: First-Time Setup
 
-After logging into Kibana:
+Data views are **auto-created** by the `kibana-init` Job on deployment. No manual setup needed.
 
-1. Go to **Stack Management** → **Index Patterns**
-2. Create index pattern: `zord-logs-*`
-3. Set time field: `@timestamp`
-4. Create another: `kong-access-*`
-5. Go to **Discover** → Select `zord-logs-*` → See all service logs
+After deploying, open `https://kibana.zordnet.com` → **Discover** → select `Zord Application Logs` → see all service logs.
 
-**Useful filters:**
+**Auto-created data views:**
+- `zord-logs-*` — All microservice logs (default)
+- `kong-access-*` — Kong API gateway access logs
+
+**Useful filters in Discover:**
 - `service: "zord-edge"` — show only edge logs
 - `namespace: "zord"` — show only app logs
 - `namespace: "api-gateway"` — show only Kong logs
@@ -418,9 +431,10 @@ kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-no
 
 ## Security Notes
 
-- All UIs require authentication (no anonymous access)
-- Credentials stored in Kubernetes Secrets (not hardcoded in deployments)
+- Grafana requires login (admin credentials from K8s Secret)
+- Kibana and Jaeger are open access — protected by subdomain only (team members know the URL)
 - Observability ALB is separate from the main app ALB
 - Prometheus admin API is not exposed externally
 - Elasticsearch is only accessible within the cluster (Kibana proxies to it)
 - Jaeger collector ports (4317/4318) are internal-only (services send traces via K8s DNS)
+- For production hardening: add Cloudflare Access or AWS Cognito for SSO on all observability UIs

@@ -641,18 +641,13 @@ type GovernanceDecisionCreatedEvent struct {
 
 // DLQItemEvent represents a leased DLQ item dispatched from Service 1.
 type DLQItemEvent struct {
-	DLQID          string          `json:"dlq_id"`
-	TenantID       string          `json:"tenant_id"`
-	EnvelopeID     string          `json:"envelope_id"`
-	Stage          string          `json:"stage"`
-	ReasonCode     string          `json:"reason_code"`
-	ErrorDetail    string          `json:"error_detail"`
-	DLQStatus      string          `json:"dlq_status"`
-	Replayable     bool            `json:"replayable"`
-	ClientBatchRef string          `json:"client_batch_ref"`
-	BatchID        string          `json:"batch_id,omitempty"`
-	SourceRowNum   *int            `json:"source_row_num,omitempty"`
-	IntentContext  json.RawMessage `json:"intent_context,omitempty"`
-	TraceID        string          `json:"trace_id,omitempty"`
-	CreatedAt      time.Time       `json:"created_at"`
+	DLQID        string    `json:"event_id"`
+	TenantID     string    `json:"tenant_id"`
+	TraceID      string    `json:"trace_id,omitempty"`
+	CreatedAt    time.Time `json:"occurred_at"`
+	IntentID     string    `json:"intent_id,omitempty"`
+	BatchID      string    `json:"batch_id,omitempty"`
+	SourceSystem string          `json:"source_system,omitempty"`
+	Amount       json.RawMessage `json:"amount,omitempty"`
+	ReasonCode   string          `json:"reason_code"`
 }

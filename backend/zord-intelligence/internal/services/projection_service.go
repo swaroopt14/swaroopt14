@@ -696,24 +696,24 @@ func (s *ProjectionService) HandleDLQItemEvent(
 	e models.DLQItemEvent,
 ) error {
 	if e.TenantID == "" || e.DLQID == "" {
-		log.Printf("invalid event: missing required fields tenant=%s dlq_id=%s",
+		log.Printf("invalid event: missing required fields tenant=%s event_id=%s",
 			e.TenantID, e.DLQID)
 		return nil
 	}
 
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.DLQID)
 	if err != nil {
-		return fmt.Errorf("HandleDLQItemEvent IsProcessed dlq_id=%s: %w", e.DLQID, err)
+		return fmt.Errorf("HandleDLQItemEvent IsProcessed event_id=%s: %w", e.DLQID, err)
 	}
 	if processed {
 		return nil
 	}
 
-	log.Printf("HandleDLQItemEvent: dlq_id=%s tenant=%s stage=%s reason=%s status=%s",
-		e.DLQID, e.TenantID, e.Stage, e.ReasonCode, e.DLQStatus)
+	log.Printf("HandleDLQItemEvent: event_id=%s tenant=%s intent_id=%s batch_id=%s source_system=%s amount=%s reason_code=%s",
+		e.DLQID, e.TenantID, e.IntentID, e.BatchID, e.SourceSystem, string(e.Amount), e.ReasonCode)
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.DLQID); err != nil {
-		return fmt.Errorf("HandleDLQItemEvent MarkProcessed dlq_id=%s: %w", e.DLQID, err)
+		return fmt.Errorf("HandleDLQItemEvent MarkProcessed event_id=%s: %w", e.DLQID, err)
 	}
 	return nil
 }

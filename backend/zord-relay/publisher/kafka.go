@@ -157,7 +157,42 @@ func (p *KafkaPublisher) PublishDLQItem(ctx context.Context, event *model.DLQIte
 	)
 	defer span.End()
 
-	payload, err := json.Marshal(event)
+	var contextMap map[string]interface{}
+	var amount interface{}
+	var intentID string
+	var sourceSystem string
+
+	if len(event.IntentContext) > 0 {
+		if err := json.Unmarshal(event.IntentContext, &contextMap); err == nil {
+			if amtVal, ok := contextMap["amount"]; ok {
+				if amtStr, isStr := amtVal.(string); isStr {
+					amount = json.RawMessage(amtStr)
+				} else {
+					amount = amtVal
+				}
+			}
+			if id, ok := contextMap["intent_id"].(string); ok {
+				intentID = id
+			}
+			if sys, ok := contextMap["source_system"].(string); ok {
+				sourceSystem = sys
+			}
+		}
+	}
+
+	mappedEvent := map[string]interface{}{
+		"event_id":      event.DLQID,
+		"tenant_id":     event.TenantID,
+		"trace_id":      event.TraceID,
+		"occurred_at":   event.CreatedAt,
+		"intent_id":     intentID,
+		"batch_id":      event.BatchID,
+		"source_system": sourceSystem,
+		"amount":        amount,
+		"reason_code":   event.ReasonCode,
+	}
+
+	payload, err := json.Marshal(mappedEvent)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "dlq item marshal failed")

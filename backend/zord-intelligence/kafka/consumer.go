@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 	"github.com/zord/zord-intelligence/config"
@@ -374,8 +375,8 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 					msg.Topic, msg.Offset, err)
 				return err
 			}
-			log.Printf("[ZPI-DIAG] ✅ DLQItemEvent  dlq_id=%s tenant_id=%s envelope_id=%s stage=%s reason=%s replayable=%v trace_id=%s",
-				e.DLQID, e.TenantID, e.EnvelopeID, e.Stage, e.ReasonCode, e.Replayable, e.TraceID)
+			log.Printf("[ZPI-DIAG] ✅ DLQItemEvent  event_id=%s tenant_id=%s trace_id=%s occurred_at=%s intent_id=%s batch_id=%s source_system=%s amount=%s reason_code=%s",
+				e.DLQID, e.TenantID, e.TraceID, e.CreatedAt.Format(time.RFC3339), e.IntentID, e.BatchID, e.SourceSystem, string(e.Amount), e.ReasonCode)
 			return handler.HandleDLQItemEvent(ctx, e)
 		})
 

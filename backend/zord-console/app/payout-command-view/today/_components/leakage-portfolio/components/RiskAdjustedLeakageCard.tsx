@@ -17,6 +17,10 @@ import { leakageCopy } from '../../leakage/copy/leakageCopy'
 import type { PortfolioLeakageViewModel } from '../normalizeLeakagePayload'
 import { formatMinorInr } from '../utils/formatMinorInr'
 import {
+  buildLeakageComparisonMock,
+  mockProjectStartAt,
+} from '../constants/leakageComparisonMock'
+import {
   mapLeakageComparisonSeries,
   type LeakageComparisonChartPoint,
 } from '../utils/mapLeakageComparisonSeries'
@@ -112,6 +116,7 @@ export function RiskAdjustedLeakageCard({ data, loading, batchId }: RiskAdjusted
   const [granularity, setGranularity] = useState<LeakageExposureGranularity>('day')
   const [livePoints, setLivePoints] = useState<LeakageComparisonChartPoint[] | null>(null)
   const [projectStartAt, setProjectStartAt] = useState<string | null>(null)
+  const [seriesLive, setSeriesLive] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -121,9 +126,11 @@ export function RiskAdjustedLeakageCard({ data, loading, batchId }: RiskAdjusted
       if (mapped.live && mapped.points.length > 0) {
         setLivePoints(mapped.points)
         setProjectStartAt(mapped.projectStartAt)
+        setSeriesLive(true)
       } else {
         setLivePoints(null)
         setProjectStartAt(null)
+        setSeriesLive(false)
       }
     })
     return () => {
@@ -131,11 +138,15 @@ export function RiskAdjustedLeakageCard({ data, loading, batchId }: RiskAdjusted
     }
   }, [granularity, batchId])
 
-  const chartPoints = useMemo(() => livePoints ?? [], [livePoints])
-  const projectStart = projectStartAt
+  const mockPoints = useMemo(
+    () => buildLeakageComparisonMock(data.intendedMinor, granularity),
+    [data.intendedMinor, granularity],
+  )
+
+  const chartPoints = livePoints?.length ? livePoints : mockPoints
+  const projectStart = projectStartAt ?? mockProjectStartAt(mockPoints)
   const startPeriod = projectStartPeriod(chartPoints, projectStart)
   const rangeLabel = formatRangeLabel(chartPoints)
-  const hasChartData = chartPoints.length > 0
 
   if (loading) {
     return <div className="min-h-[420px] animate-pulse rounded-3xl bg-gradient-to-br from-slate-100 to-slate-200" />
@@ -197,97 +208,94 @@ export function RiskAdjustedLeakageCard({ data, loading, batchId }: RiskAdjusted
             <p className="text-[11px] text-slate-500">{rangeLabel}</p>
           </div>
         </div>
+        {!seriesLive ? (
+          <span className="rounded-full bg-[#e8eef5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#103a9e]">
+            Preview
+          </span>
+        ) : null}
       </div>
 
       <div className="relative mt-4 min-h-[260px] flex-1">
-        {hasChartData ? (
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={chartPoints} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
-              <defs>
-                <linearGradient id="leakageCurrentFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={CURRENT_COLOR} stopOpacity={0.2} />
-                  <stop offset="95%" stopColor={CURRENT_COLOR} stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="leakagePredictedFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={PREDICTED_COLOR} stopOpacity={0.18} />
-                  <stop offset="95%" stopColor={PREDICTED_COLOR} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid
-                vertical
-                horizontal
-                stroke="#e2e8f0"
-                strokeOpacity={0.45}
-                strokeWidth={1}
+        <ResponsiveContainer width="100%" height={260}>
+          <AreaChart data={chartPoints} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+            <defs>
+              <linearGradient id="leakageCurrentFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={CURRENT_COLOR} stopOpacity={0.2} />
+                <stop offset="95%" stopColor={CURRENT_COLOR} stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="leakagePredictedFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor={PREDICTED_COLOR} stopOpacity={0.18} />
+                <stop offset="95%" stopColor={PREDICTED_COLOR} stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid
+              vertical
+              horizontal
+              stroke="#e2e8f0"
+              strokeOpacity={0.45}
+              strokeWidth={1}
+            />
+            <XAxis
+              dataKey="period"
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: '#64748b', fontSize: 11 }}
+              dy={8}
+              interval={granularity === 'day' ? 4 : 0}
+            />
+            <YAxis
+              axisLine={false}
+              tickLine={false}
+              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              width={48}
+              tickFormatter={(v) =>
+                v >= 1_000_000 ? `${(v / 1_000_000).toFixed(0)}M` : `${Math.round(v / 1000)}k`
+              }
+            />
+            <Tooltip
+              content={
+                <ComparisonTooltip projectStartAt={projectStart} />
+              }
+              cursor={{ stroke: CURRENT_COLOR, strokeWidth: 1.5 }}
+            />
+            {startPeriod ? (
+              <ReferenceLine
+                x={startPeriod}
+                stroke="#94a3b8"
+                strokeDasharray="4 4"
+                label={{
+                  value: leakageCopy.chart.projectStart,
+                  position: 'insideTopRight',
+                  fill: '#64748b',
+                  fontSize: 9,
+                  angle: -90,
+                }}
               />
-              <XAxis
-                dataKey="period"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#64748b', fontSize: 11 }}
-                dy={8}
-                interval={granularity === 'day' ? 4 : 0}
-              />
-              <YAxis
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#94a3b8', fontSize: 10 }}
-                width={48}
-                tickFormatter={(v) =>
-                  v >= 1_000_000 ? `${(v / 1_000_000).toFixed(0)}M` : `${Math.round(v / 1000)}k`
-                }
-              />
-              <Tooltip
-                content={
-                  <ComparisonTooltip projectStartAt={projectStart} />
-                }
-                cursor={{ stroke: CURRENT_COLOR, strokeWidth: 1.5 }}
-              />
-              {startPeriod ? (
-                <ReferenceLine
-                  x={startPeriod}
-                  stroke="#94a3b8"
-                  strokeDasharray="4 4"
-                  label={{
-                    value: leakageCopy.chart.projectStart,
-                    position: 'insideTopRight',
-                    fill: '#64748b',
-                    fontSize: 9,
-                    angle: -90,
-                  }}
-                />
-              ) : null}
-              <Area
-                type="monotone"
-                dataKey="currentLeakageMinor"
-                name="Current leakage"
-                stroke={CURRENT_COLOR}
-                strokeWidth={2.5}
-                fill="url(#leakageCurrentFill)"
-                dot={{ r: 3, fill: '#fff', stroke: CURRENT_COLOR, strokeWidth: 2 }}
-                activeDot={{ r: 5, fill: '#fff', stroke: CURRENT_COLOR, strokeWidth: 2 }}
-                isAnimationActive={false}
-              />
-              <Area
-                type="monotone"
-                dataKey="predictedLeakageMinor"
-                name="Predicted leakage"
-                stroke={PREDICTED_COLOR}
-                strokeWidth={2.5}
-                fill="url(#leakagePredictedFill)"
-                dot={{ r: 3, fill: '#fff', stroke: PREDICTED_COLOR, strokeWidth: 2 }}
-                activeDot={{ r: 5, fill: '#fff', stroke: PREDICTED_COLOR, strokeWidth: 2 }}
-                isAnimationActive={false}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="flex h-[260px] items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50">
-            <p className="text-[13px] font-medium text-slate-600">
-              No data available for selected period.
-            </p>
-          </div>
-        )}
+            ) : null}
+            <Area
+              type="monotone"
+              dataKey="currentLeakageMinor"
+              name="Current leakage"
+              stroke={CURRENT_COLOR}
+              strokeWidth={2.5}
+              fill="url(#leakageCurrentFill)"
+              dot={{ r: 3, fill: '#fff', stroke: CURRENT_COLOR, strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: '#fff', stroke: CURRENT_COLOR, strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+            <Area
+              type="monotone"
+              dataKey="predictedLeakageMinor"
+              name="Predicted leakage"
+              stroke={PREDICTED_COLOR}
+              strokeWidth={2.5}
+              fill="url(#leakagePredictedFill)"
+              dot={{ r: 3, fill: '#fff', stroke: PREDICTED_COLOR, strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: '#fff', stroke: PREDICTED_COLOR, strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       </div>
     </article>
   )

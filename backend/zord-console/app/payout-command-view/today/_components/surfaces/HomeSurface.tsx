@@ -184,7 +184,7 @@ export function HomeSurface({
     }
   }, [tenantReady, trendSeries])
 
-  const chartData = liveTrendChart?.chartData ?? []
+  const chartData = useMemo(() => liveTrendChart?.chartData ?? [], [liveTrendChart])
   const axisLabelsForChart = liveTrendChart?.axisLabels ?? []
   const yDomainMax = liveTrendChart?.yMax ?? HOME_CHART_DOMAIN_MAX
   const yTicks = liveTrendChart?.ticks ?? [0, 50000, 100000, 150000]
@@ -234,8 +234,9 @@ export function HomeSurface({
   const tooltipConfirmed = activeBucket
     ? fmtInrFull(activeBucket.confirmed_amount)
     : fmtTrendTooltipInr(activeChartDatum.lineValue)
+  const tooltipReviewFallbackMinor = parseMinorStrict(leakageData?.unmatched_amount_minor)
   const tooltipReview = activeBucket
-    ? fmtInrFull(activeBucket.review_amount)
+    ? fmtInrFull(Number(activeBucket.review_amount) > 0 ? activeBucket.review_amount : tooltipReviewFallbackMinor)
     : fmtTrendTooltipInr(activeChartDatum.reviewLineValue)
 
   const chartTags = useMemo(() => {
@@ -279,12 +280,14 @@ export function HomeSurface({
   const unmatchedMinor = parseMinorStrict(leakageData?.unmatched_amount_minor)
   const underSettlementMinor = parseMinorStrict(leakageData?.under_settlement_amount_minor)
   const orphanMinor = parseMinorStrict(leakageData?.orphan_amount_minor)
+  const unlinkedSettlementMinor = orphanMinor > 0 ? orphanMinor : unmatchedMinor
   const reversalMinor = parseMinorStrict(leakageData?.reversal_exposure_minor)
   const observedMinor = parseMinorStrict(leakageData?.total_observed_settled_amount_minor)
 
   const bankConfirmedMinor = observedMinor
 
   const exposureMinor = ambData ? parseMinorStrict(ambData.value_at_risk_minor) : null
+  const reviewMinor = unmatchedMinor > 0 ? unmatchedMinor : exposureMinor
 
   const intentCountLabel =
     trendTotalsMinor && trendTotalsMinor.intentCount > 0
@@ -308,8 +311,8 @@ export function HomeSurface({
   }, [carouselTrendSeries, carouselPeriod, leakageData, patternsData])
 
   const reviewDisplay =
-    exposureMinor !== null
-      ? fmtInrFull(exposureMinor)
+    reviewMinor !== null
+      ? fmtInrFull(reviewMinor)
       : loading
         ? '…'
         : '—'
@@ -322,10 +325,12 @@ export function HomeSurface({
         emptyInsightParagraph: TENANT_KPI_EMPTY_CAROUSEL_INSIGHT,
         mismatchHeadline: reviewDisplay,
         mismatchSubtext:
-          exposureMinor !== null
-            ? 'Payment value affected by ambiguity and uncertain matching outcomes.'
-            : 'No ambiguity value-at-risk data available for this period.',
-        reviewValueMinor: exposureMinor,
+          unmatchedMinor > 0
+            ? 'Payment value from unmatched settlement or payment records needing review.'
+            : exposureMinor !== null
+              ? 'Payment value affected by ambiguity and uncertain matching outcomes.'
+              : 'No review value data available for this period.',
+        reviewValueMinor: reviewMinor,
         mismatchPendingCount: patternsData?.pending_count ?? ambData?.ambiguous_intent_count ?? 0,
         trendInsight,
         trendSeries: carouselTrendSeries,
@@ -344,6 +349,8 @@ export function HomeSurface({
       leakageData,
       patternsData,
       reviewDisplay,
+      reviewMinor,
+      unmatchedMinor,
       exposureMinor,
       ambData?.ambiguous_intent_count,
     ],
@@ -378,9 +385,9 @@ export function HomeSurface({
     actions.push({
       title: 'Review payments needing attention',
       description:
-        exposureMinor !== null
-          ? `${reviewDisplay} currently marked for ambiguity review.`
-          : 'No ambiguity value-at-risk data available for this period.',
+        reviewMinor !== null
+          ? `${reviewDisplay} currently marked for review.`
+          : 'No review value data available for this period.',
       href: '/payout-command-view/today?dock=leakage',
     })
     actions.push({
@@ -389,7 +396,7 @@ export function HomeSurface({
       href: '/payout-command-view/today?dock=proof',
     })
     return actions
-  }, [dataSources.settlementStatus, exposureMinor, reviewDisplay])
+  }, [dataSources.settlementStatus, reviewMinor, reviewDisplay])
 
   const completionHint =
     dataSources.settlementStatus === 'missing'
@@ -746,13 +753,15 @@ export function HomeSurface({
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={
-              exposureMinor !== null
-                ? 'Payment value from ambiguity engine needing review.'
-                : 'No ambiguity value-at-risk data available for this period.'
+              unmatchedMinor > 0
+                ? 'Payment value from unmatched settlement or payment records.'
+                : exposureMinor !== null
+                  ? 'Payment value from ambiguity engine needing review.'
+                  : 'No review value data available for this period.'
             }
             unmatchedDisplay={leakageData ? fmtInrFull(unmatchedMinor) : '—'}
             shortSettledDisplay={leakageData ? fmtInrFull(underSettlementMinor) : '—'}
-            unlinkedDisplay={leakageData ? fmtInrFull(orphanMinor) : '—'}
+            unlinkedDisplay={leakageData ? fmtInrFull(unlinkedSettlementMinor) : '—'}
             reversalDisplay={leakageData ? fmtInrFull(reversalMinor) : '—'}
             reviewHref="/payout-command-view/today?dock=leakage"
             matchConfidencePct={matchConfidencePct}

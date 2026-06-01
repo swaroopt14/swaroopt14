@@ -46,6 +46,10 @@ spec:
               value: http://prometheus.monitoring.svc.cluster.local:9090
             - name: PROMETHEUS_QUERY_SUPPORT_SPANMETRICS_CONNECTOR
               value: "true"
+            - name: QUERY_BASE_PATH
+              value: /
+            - name: DEPENDENCY_STORAGE_TYPE
+              value: badger
           volumeMounts:
             - name: data
               mountPath: /badger

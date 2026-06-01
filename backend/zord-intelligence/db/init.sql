@@ -721,6 +721,40 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     defensibility_tier          TEXT,
     CHECK (defensibility_tier IN ('STRONG', 'GOOD', 'WEAK', 'FRAGILE', NULL)),
 
+    -- ── Per-batch risk attribution (Pattern Intelligence) ─────────────────────
+    -- These fields are incremented by individual event handlers (NOT reset by
+    -- BatchSummaryUpdatedEvent). They give the frontend per-batch leakage and
+    -- risk detail so operators can see exactly which batch is causing issues.
+
+    unmatched_amount_minor      NUMERIC(20,2) NOT NULL DEFAULT 0,
+    -- Sum of intended_amount_minor for MATCH_UNRESOLVED attachment decisions.
+    -- An unmatched intent means no settlement was found — money at risk.
+
+    reversal_exposure_minor     NUMERIC(20,2) NOT NULL DEFAULT 0,
+    -- Sum of variance_amount_minor for REVERSAL variance records.
+    -- Settled and then reversed — money already paid out but clawed back.
+
+    orphan_amount_minor         NUMERIC(20,2) NOT NULL DEFAULT 0,
+    -- Sum of settled_amount_minor for orphan settlements (no matching intent).
+    -- Settlements that cannot be attributed to any payout intent.
+
+    duplicate_risk_exposure_minor NUMERIC(20,2) NOT NULL DEFAULT 0,
+    -- Sum of intended_amount_minor for intents with duplicate_risk_flag=true.
+    -- Potential duplicate payouts that need review before dispatch or settlement.
+
+    missing_ref_count           INT          NOT NULL DEFAULT 0,
+    -- Count of intents/settlements missing critical references:
+    -- client_payout_ref (empty), provider_ref (missing), or bank_ref (missing).
+    -- High count = attachment ambiguity risk and weak audit trail.
+
+    unexplained_variance_minor  NUMERIC(20,2) NOT NULL DEFAULT 0,
+    -- Sum of variance_amount_minor for non-whitelisted variance records.
+    -- Real unexplained loss — NOT pre-agreed PSP fees or TDS.
+
+    whitelisted_deduction_minor NUMERIC(20,2) NOT NULL DEFAULT 0,
+    -- Sum of variance_amount_minor for whitelisted (pre-agreed) deductions.
+    -- PSP fees, TDS, commissions — expected and approved, NOT real leakage.
+
     last_updated_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
     created_at                  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );

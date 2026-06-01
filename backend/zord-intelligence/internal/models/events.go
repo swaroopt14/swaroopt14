@@ -321,6 +321,8 @@ type CanonicalSettlementCreatedEvent struct {
 	// LOW    = manually uploaded CSV (human error risk)
 
 	SourceSystemID  string  `json:"source_system_id"` // identifies the specific PSP/bank/ERP
+	SourceSystem    string  `json:"source_system"`    // e.g. ERP name, internal name
+	CorridorID      string  `json:"corridor_id"`      // PSP corridor ID
 	ParseConfidence float64 `json:"parse_confidence"` // 0.0–1.0: how confident was the parser?
 	// 1.0 = perfect parse, all fields found
 	// 0.7 = some fields missing or ambiguous
@@ -340,6 +342,7 @@ type CanonicalSettlementCreatedEvent struct {
 	UTR             string  `json:"utr"`              // Unique Transaction Reference (Indian banking)
 	RRN             string  `json:"rrn"`              // Retrieval Reference Number
 	BankRef         string  `json:"bank_ref"`         // bank's own reference number
+	BankID          string  `json:"bank_id"`          // bank identifier
 	ProviderRef     string  `json:"provider_ref"`     // PSP reference (e.g. Razorpay payment ID)
 	ClientRef       string  `json:"client_ref"`       // merchant's own reference (most reliable)
 	CarrierRichness float64 `json:"carrier_richness"` // 0.0–1.0: fraction of carrier fields populated

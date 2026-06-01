@@ -104,7 +104,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				settlement_envelope_id, ingest_run_id, settlement_batch_id,
 				source_file_ref, source_row_ref, source_system,
 				observation_kind, source_strength_class,
-				client_reference_candidate, provider_reference, bank_reference,
+				client_reference_candidate, provider_reference, bank_id, bank_reference,
 				external_reference, batch_reference,
 				amount, settled_amount, fee_amount, deduction_amount,
 				currency_code, settlement_status,
@@ -123,13 +123,13 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 				$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 				$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
 				$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,
-				$41,$42,$43,$44,$45,$46,$47
+				$41,$42,$43,$44,$45,$46,$47,$48
 			) ON CONFLICT (settlement_observation_id) DO NOTHING`,
 			obs.SettlementObservationID, obs.TenantID, obs.TraceID,
 			obs.SettlementEnvelopeID, ingestRunID, settlementBatchID,
 			obs.SourceFileRef, obs.SourceRowRef, obs.SourceSystem,
 			obs.ObservationKind, obs.SourceStrengthClass,
-			obs.ClientReferenceCandidate, obs.ProviderReference, obs.BankReference,
+			obs.ClientReferenceCandidate, obs.ProviderReference, obs.BankID, obs.BankReference,
 			obs.ExternalReference, obs.BatchReference,
 			obs.Amount, obs.SettledAmount, obs.FeeAmount,
 			obs.DeductionAmount, obs.CurrencyCode, obs.SettlementStatus, obs.RetryFlag,
@@ -279,6 +279,7 @@ func buildCanonicalObservation(
 		SourceStrengthClass:      shape.SourceStrengthClass,
 		ClientReferenceCandidate: shape.ClientReferenceCandidate,
 		ProviderReference:        shape.ProviderReference,
+		BankID:                   shape.BankID,
 		BankReference:            shape.BankReference,
 		ExternalReference:        shape.ExternalReference,
 		BatchReference:           shape.BatchReference,
@@ -357,7 +358,6 @@ func computeMappingConfidence(shape models.UniversalSettlementShape) float64 {
 func computeCarrierRichnessScore(shape models.UniversalSettlementShape) float64 {
 	return ComputeCarrierRichnessScore(shape)
 }
-
 
 func computeCanonicalHash(tenantID uuid.UUID, obsID uuid.UUID, shape models.UniversalSettlementShape) string {
 	parts := []string{

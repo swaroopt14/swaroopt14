@@ -242,6 +242,7 @@ CREATE TABLE IF NOT EXISTS canonical_settlement_observations(
 	source_strength_class TEXT NOT NULL,
 	client_reference_candidate TEXT,
 	provider_reference TEXT,
+	bank_id TEXT,
 	bank_reference TEXT,
 	external_reference TEXT,
 	batch_reference TEXT,
@@ -641,7 +642,10 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			attachment_decision        TEXT,
 			match_confidence           DOUBLE PRECISION,
 			value_date_check            BOOLEAN,
-			amount_match                BOOLEAN
+			amount_match                BOOLEAN,
+			bank_id                    TEXT,
+			source_system              TEXT,
+			corridor_id                TEXT
 		);`,
 		`CREATE INDEX IF NOT EXISTS outcome_outbox_status_idx
 			ON outcome_outbox(status, next_attempt_at);`,

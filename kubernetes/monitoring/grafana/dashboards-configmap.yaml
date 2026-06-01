@@ -37,14 +37,14 @@ data:
           "title": "Total CPU Cores",
           "type": "stat",
           "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
-          "targets": [{"expr": "sum(machine_cpu_cores)", "refId": "A"}],
+          "targets": [{"expr": "count(node_cpu_seconds_total{mode=\"idle\"})", "refId": "A"}],
           "fieldConfig": {"defaults": {"color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
         },
         {
           "title": "Total Memory (GB)",
           "type": "stat",
           "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
-          "targets": [{"expr": "sum(machine_memory_bytes) / 1024 / 1024 / 1024", "refId": "A"}],
+          "targets": [{"expr": "sum(node_memory_MemTotal_bytes) / 1024 / 1024 / 1024", "refId": "A"}],
           "fieldConfig": {"defaults": {"unit": "decgbytes", "color": {"mode": "thresholds"}, "thresholds": {"steps": [{"color": "blue", "value": null}]}}}
         },
         {

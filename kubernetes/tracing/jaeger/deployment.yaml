@@ -13,10 +13,17 @@ spec:
       labels:
         app: jaeger
     spec:
+      securityContext:
+        fsGroup: 10001
+        runAsUser: 10001
+        runAsNonRoot: true
       containers:
         # Nginx sidecar for basic auth protection
         - name: auth-proxy
           image: nginx:1.25-alpine
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
           ports:
             - containerPort: 8080
               name: auth-proxy

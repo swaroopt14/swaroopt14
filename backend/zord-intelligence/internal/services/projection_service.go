@@ -689,7 +689,6 @@ func (s *ProjectionService) HandleDLQEvent(
 	}
 	return nil
 }
-
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 type windowBounds struct {

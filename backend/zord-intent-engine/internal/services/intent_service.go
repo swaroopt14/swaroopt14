@@ -1347,6 +1347,10 @@ func (s *IntentService) ProcessIncomingIntent(
 		nir.FieldConfidenceSummary = confSummaryBytes
 	}
 
+	// FIX: Generate IntentID early to include in GovernanceHash and DLQ Context
+	intentID := uuid.NewString()
+	parsed.IntentID = intentID
+
 	// -------- STEP 6.5: APPLY GOVERNANCE POLICY (NEW) --------
 	governance := s.ApplyPolicy(nir, parsed)
 	if !governance.SemanticValid {
@@ -1391,9 +1395,6 @@ func (s *IntentService) ProcessIncomingIntent(
 		return nil, &savedDLQ, nil
 	}
 
-	// FIX: Generate IntentID early to include in GovernanceHash (NEW)
-	intentID := uuid.NewString()
-
 	// FIX: Compute GovernanceHash early (UPDATED)
 	// We need a temporary canonical for reason codes aggregation
 	tempGovCanonical := &models.CanonicalIntent{
@@ -1407,6 +1408,7 @@ func (s *IntentService) ProcessIncomingIntent(
 	parsed.FieldConfidenceSummary = nir.FieldConfidenceSummary
 	parsed.LowConfidenceFieldCount = nir.LowConfidenceFieldCount
 	parsed.RequiredFieldGapCount = nir.RequiredFieldGapCount
+	parsed.IntentID = intentID
 
 	// -------- STEP 5.5: Idempotency guard --------
 

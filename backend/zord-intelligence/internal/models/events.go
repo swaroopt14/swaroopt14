@@ -638,3 +638,4 @@ type GovernanceDecisionCreatedEvent struct {
 
 	DecidedAt time.Time `json:"decided_at"` // when the governance decision was made
 }
+

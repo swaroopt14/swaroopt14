@@ -41,7 +41,7 @@ export function PortfolioHeader({ onRefresh, refreshing, riskTier, batches = [],
         <select
           value={selectedBatchId || ''}
           onChange={(e) => onSelectBatch?.(e.target.value || undefined)}
-          className="h-9 rounded-full border border-slate-200 bg-white px-4 text-[13px] font-medium text-slate-700 shadow-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 appearance-none"
+          className="h-9 appearance-none rounded-full border border-slate-200 bg-white px-4 text-[13px] font-medium text-slate-700 shadow-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
         >
           <option value="">All Batches (Tenant)</option>
           {batches.map((b) => (

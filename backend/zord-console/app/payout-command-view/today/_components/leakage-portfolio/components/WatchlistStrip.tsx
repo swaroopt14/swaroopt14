@@ -26,8 +26,8 @@ export function WatchlistStrip() {
       <div className="mt-4 flex gap-4 overflow-x-auto pb-1">
         {WATCHLIST_ITEMS.map((item) => {
           const Icon = ICONS[item.id as keyof typeof ICONS]
-          const trendColor = item.trendUp ? 'text-emerald-600' : 'text-red-600'
-          const sparkStroke = item.trendUp ? '#10b981' : '#ef4444'
+          const trendColor = item.trendUp ? 'text-slate-700' : 'text-red-600'
+          const sparkStroke = item.trendUp ? '#475569' : '#ef4444'
 
           return (
             <article

@@ -12,7 +12,6 @@ import { buildLiveIntentDetailFromRowAndApi } from '@/services/payout-command/li
 import { formatJournalMoney } from '../intent-journal/formatJournalMoney'
 import { JournalBatchSelectionProvider } from '../intent-journal/context/JournalBatchSelectionContext'
 import { IntentJournalHeroBanner } from '../intent-journal/components/IntentJournalHeroBanner'
-import { IntentJournalKpiStrip } from '../intent-journal/components/IntentJournalKpiStrip'
 import { IntentJournalBatchSidebar } from '../intent-journal/components/IntentJournalBatchSidebar'
 import {
   IntentJournalActivityPanel,
@@ -71,9 +70,13 @@ type IntentMatch = 'Matched' | 'Likely Matched' | 'Awaiting' | 'Mismatch' | 'Not
 type IntentRow = {
   batchId: string
   requestId: string
+  sourceRowNum?: number | null
   reference: string
+  clientBatchRef?: string
+  beneficiaryName?: string | null
   amount: number
   method: 'Bank Transfer' | 'LSM' | 'NACH'
+  rail?: string
   status: IntentStatus
   match: IntentMatch
   lastUpdated: string
@@ -94,6 +97,7 @@ type IntentRow = {
 type FailureRow = {
   batchId: string
   requestId: string
+  sourceRowNum?: number | null
   reference: string
   amount: number
   method: 'Bank Transfer' | 'LSM' | 'NACH'
@@ -961,7 +965,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                     filteredIntents.length === 0 && filteredFailures.length === 0
                   }
                 />
-                <IntentJournalKpiStrip />
 
                 <IntentJournalActivityPanel vm={activityVm} />
               </>

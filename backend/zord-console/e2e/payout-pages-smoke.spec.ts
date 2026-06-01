@@ -17,9 +17,11 @@ const DOCK_CASES: { dock: string; title: string }[] = [
   { dock: 'workspace', title: 'Payment Operations View' },
   { dock: 'leakage', title: 'Payment Gaps & Value at Risk' },
   { dock: 'ambiguity', title: 'Matching Confidence' },
+  { dock: 'verification', title: 'Borrower Verification' },
+  { dock: 'monitoring', title: 'Post-Disbursal Monitoring' },
   { dock: 'grid', title: 'Intent Journal' },
   { dock: 'settlement', title: 'Settlement Journal' },
-  { dock: 'connectors', title: 'Connector Intelligence' },
+  { dock: 'connectors', title: 'Routing & Network Intelligence' },
   { dock: 'sync', title: 'Connected Systems' },
   { dock: 'proof', title: 'Evidence & Dispute Resolution' },
   { dock: 'billing', title: 'Billing' },
@@ -46,32 +48,75 @@ function captureProdGet(url: string): ProdCapture | null {
 }
 
 async function installPayoutSessionCookies(context: BrowserContext) {
-  await context.addCookies([
-    { name: 'zord_access_token', value: 'e2e-playwright-access', url: BASE_URL },
-    { name: 'zord_role', value: 'CUSTOMER_USER', url: BASE_URL },
+  const parsed = new URL(BASE_URL)
+  const port = parsed.port ? `:${parsed.port}` : ''
+  const origins = new Set<string>([
+    `${parsed.protocol}//${parsed.hostname}${port}`,
+    `${parsed.protocol}//localhost${port}`,
+    `${parsed.protocol}//127.0.0.1${port}`,
   ])
+  const cookies = [...origins].flatMap((url) => ([
+    { name: 'zord_access_token', value: 'e2e-playwright-access', url },
+    { name: 'zord_refresh_token', value: 'e2e-playwright-refresh', url },
+    { name: 'zord_role', value: 'CUSTOMER_USER', url },
+  ]))
+  await context.addCookies(cookies)
 }
 
 function packSummary(
   packId: string,
-  opts: { intentId?: string; mode: string; ref?: string },
+  opts: {
+    intentId?: string
+    batchId?: string
+    mode: string
+    ref?: string
+    leafCount?: number
+    requiredLeafCount?: number
+  },
 ) {
+  const hasSettlement = (opts.leafCount ?? 4) > 0
+  const hasAttachment = opts.intentId === INTENT_A ? false : true
   return {
     evidence_pack_id: packId,
     tenant_id: SESSION_TENANT,
     intent_id: opts.intentId,
+    batch_id: opts.batchId,
+    client_reference: opts.ref ?? packId,
     client_payout_ref: opts.ref ?? packId,
     mode: opts.mode,
     pack_status: 'READY',
     merkle_root: 'a'.repeat(64),
     ruleset_version: '1',
     created_at: '2026-05-01T12:00:00Z',
-    leaf_count: 4,
-    artifact_count: 4,
+    proof_status: 'CERTIFIED',
+    proof_score: 100,
+    leaf_count: opts.leafCount ?? 4,
+    required_leaf_count: opts.requiredLeafCount,
+    artifact_count: opts.leafCount ?? 4,
+    pack_completeness_score: 1,
+    settlement_leaf_present_flag: hasSettlement,
+    attachment_decision_leaf_present_flag: hasAttachment,
+    governance_decision: 'Pass',
+    settlement_record_received: '2026-05-01T12:00:02Z',
+    canonical_settlement_created: '2026-05-01T12:00:03Z',
+    bank_reference: opts.intentId === INTENT_A ? 'UTR-CONFLICT-A' : 'UTR-OK-B',
+    attachment_decision: 'MATCH_EXACT',
+    match_confidence: 0.9675,
+    value_date_check: true,
+    amount_match: true,
+    verification_status: false,
+    proof_components: {
+      payment_instruction_available: true,
+      settlement_record_available: true,
+      match_decision_available: hasAttachment,
+      governance_decision_available: true,
+      replay_check_passed: true,
+    },
   }
 }
 
 function packFull(packId: string, intentId: string, mode: string) {
+  const hasAttachment = intentId === INTENT_A ? false : true
   return {
     evidence_pack_id: packId,
     tenant_id: SESSION_TENANT,
@@ -80,12 +125,81 @@ function packFull(packId: string, intentId: string, mode: string) {
     mode,
     pack_status: 'READY',
     items: [
-      { type: 'CANONICAL_INTENT', ref: 'ref-1', schema_version: '1', hash: 'h1', leaf_hash: 'lh1' },
-      { type: 'ATTACHMENT_DECISION', ref: 'ref-2', schema_version: '1', hash: 'h2', leaf_hash: 'lh2' },
+      { type: 'CANONICAL_INTENT_HASH', ref: intentId, schema_version: 'v1', hash: 'h1', leaf_hash: 'lh1' },
+      { type: 'RAW_SETTLEMENT_LINE', ref: `line-${intentId}`, schema_version: 'v1', hash: 'h2', leaf_hash: 'lh2' },
+      { type: 'CANONICAL_SETTLEMENT_OBSERVATION', ref: `set-${intentId}`, schema_version: 'v1', hash: 'h3', leaf_hash: 'lh3' },
+      { type: 'ATTACHMENT_DECISION', ref: `att-${intentId}`, schema_version: 'v1', hash: 'h4', leaf_hash: 'lh4' },
+      { type: 'VARIANCE_DECISION', ref: `var-${intentId}`, schema_version: 'v1', hash: 'h5', leaf_hash: 'lh5' },
+      { type: 'ENVELOPE_HASH', ref: `env-${intentId}`, schema_version: 'v1', hash: 'h6', leaf_hash: 'lh6' },
+      { type: 'GOVERNANCE_DECISION_AT_CANONICAL', ref: intentId, schema_version: 'v1', hash: 'h7', leaf_hash: 'lh7' },
+      { type: 'RAW_SETTLEMENT_FILE', ref: `raw-${intentId}`, schema_version: 'v1', hash: 'h8', leaf_hash: 'lh8' },
+      { type: 'FINAL_EVIDENCE_VIEW', ref: packId, schema_version: 'v1', hash: 'h9', leaf_hash: 'lh9' },
     ],
     merkle_root: 'b'.repeat(64),
     ruleset_version: '1',
+    schema_versions: {
+      attachment_schema: 'v1',
+      contract_schema: 'v1',
+      intent_schema: 'v1',
+      outcome_schema: 'v1',
+    },
+    signatures: [
+      {
+        signer: 'zord_evidence',
+        alg: 'ed25519',
+        sig: 'sig',
+        signed_at: '2026-05-01T12:00:10Z',
+      },
+    ],
+    pack_completeness_score: 1,
+    leaf_count: 9,
+    required_leaf_count: 5,
+    settlement_leaf_present_flag: true,
+    attachment_decision_leaf_present_flag: hasAttachment,
+    payment_instruction_received: '2026-05-01T12:00:00Z',
+    canonical_intent_created: '2026-05-01T12:00:01Z',
+    mapping_profile_used: 'auto-generic-test-v1',
+    required_fields_status: true,
+    tokenization_status: true,
+    governance_decision: 'Fail',
+    settlement_record_received: '2026-05-01T12:00:02Z',
+    canonical_settlement_created: '2026-05-01T12:00:03Z',
+    bank_reference: 'UTR172777748433',
+    client_reference: intentId === INTENT_A ? 'ZORD_PAY_CONFLICT_A' : 'ZORD_PAY_OK_B',
+    attachment_decision: 'MATCH_EXACT',
+    match_confidence: 0.9675,
+    value_date_check: true,
+    amount_match: false,
     created_at: '2026-05-01T12:00:00Z',
+    proof_status: 'CERTIFIED',
+    proof_score: 100,
+    proof_score_breakdown: {
+      score: 100,
+      components: [
+        { check: 'Original Payment Instruction', weight: 20, passed: true, deduction: 0 },
+        { check: 'Settlement / Bank Record', weight: 20, passed: true, deduction: 0 },
+        { check: 'Match Decision', weight: 20, passed: true, deduction: 0 },
+      ],
+      deductions: null,
+    },
+    generated_by: 'system',
+    verification_status: false,
+    export_count: 0,
+    proof_components: {
+      payment_instruction_available: true,
+      settlement_record_available: true,
+      match_decision_available: hasAttachment,
+      governance_decision_available: true,
+      replay_check_passed: true,
+    },
+    cryptographic_signatures: {
+      raw_intent_hash: 'raw-intent-hash',
+      raw_settlement_hash: 'raw-settlement-hash',
+      canonical_settlement_hash: 'canonical-settlement-hash',
+      attachment_decision_hash: 'attachment-decision-hash',
+      governance_decision_hash: 'governance-decision-hash',
+      final_evidence_view_hash: 'final-evidence-view-hash',
+    },
   }
 }
 
@@ -103,6 +217,9 @@ function emptyProdBody(path: string): unknown {
     return { items: [] }
   }
   if (path.endsWith('/evidence/packs')) {
+    return { packs: [], total: 0 }
+  }
+  if (/\/evidence\/batch\/[^/]+\/intents$/.test(path)) {
     return { packs: [], total: 0 }
   }
   if (path.endsWith('/ambiguity/velocity')) {
@@ -127,7 +244,130 @@ function emptyProdBody(path: string): unknown {
 }
 
 function evidenceFixtureBody(path: string, search: URLSearchParams): unknown {
-  if (/\/evidence\/packs\/[^/]+$/.test(path) && !path.endsWith('/verify')) {
+  if (/\/evidence\/batch\/[^/]+\/lineage-graph$/.test(path)) {
+    const batchId = path.split('/').slice(-2, -1)[0] ?? EVIDENCE_BATCH
+    const root = `${batchId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}batchroot`
+      .padEnd(64, 'b')
+      .slice(0, 64)
+    return {
+      evidence_pack_id: PACK_BATCH,
+      tenant_id: SESSION_TENANT,
+      intent_id: '',
+      merkle_root: root,
+      nodes: [
+        {
+          id: `${batchId}-settlement-source`,
+          label: 'Original Settlement File',
+          node_type: 'SOURCE',
+          leaf_hash: `${root.slice(0, 48)}aaaaaaaaaaaaaaaa`,
+          item_ref: batchId,
+          schema_version: 'v1',
+        },
+        {
+          id: `${batchId}-canonical-batch`,
+          label: 'Canonical Batch',
+          node_type: 'TRANSFORM',
+          leaf_hash: `${root.slice(0, 48)}bbbbbbbbbbbbbbbb`,
+          item_ref: batchId,
+          schema_version: 'v1',
+        },
+        {
+          id: `${batchId}-batch-summary`,
+          label: 'Evidence Summary',
+          node_type: 'SEAL',
+          leaf_hash: `${root.slice(0, 48)}cccccccccccccccc`,
+          item_ref: PACK_BATCH,
+          schema_version: 'v1',
+        },
+        {
+          id: 'merkle_root',
+          label: 'Proof Root',
+          node_type: 'SEAL',
+          leaf_hash: root,
+        },
+      ],
+      edges: [
+        { from: `${batchId}-settlement-source`, to: `${batchId}-canonical-batch`, label: 'canonicalise batch' },
+        { from: `${batchId}-canonical-batch`, to: `${batchId}-batch-summary`, label: 'summarise' },
+        { from: `${batchId}-batch-summary`, to: 'merkle_root', label: 'seal' },
+      ],
+    }
+  }
+  if (/\/evidence\/packs\/[^/]+\/lineage-graph$/.test(path)) {
+    const packId = path.split('/').slice(-2, -1)[0] ?? PACK_BATCH
+    const root = `${packId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}root`.padEnd(64, 'a').slice(0, 64)
+    return {
+      evidence_pack_id: packId,
+      tenant_id: SESSION_TENANT,
+      intent_id: packId === PACK_BATCH ? '' : packId === PACK_INTENT_A ? INTENT_A : INTENT_B,
+      merkle_root: root,
+      nodes: [
+        {
+          id: `${packId}-source`,
+          label: 'Original Payment File',
+          node_type: 'SOURCE',
+          leaf_hash: `${root.slice(0, 48)}1111111111111111`,
+          item_ref: `src-${packId}`,
+          schema_version: 'v1',
+        },
+        {
+          id: `${packId}-transform`,
+          label: 'Structured Payment Intent',
+          node_type: 'TRANSFORM',
+          leaf_hash: `${root.slice(0, 48)}2222222222222222`,
+          item_ref: `intent-${packId}`,
+          schema_version: 'v1',
+        },
+        {
+          id: `${packId}-summary`,
+          label: 'Evidence Summary',
+          node_type: 'SEAL',
+          leaf_hash: `${root.slice(0, 48)}3333333333333333`,
+          item_ref: packId,
+          schema_version: 'v1',
+        },
+        {
+          id: 'merkle_root',
+          label: 'Proof Root',
+          node_type: 'SEAL',
+          leaf_hash: root,
+        },
+      ],
+      edges: [
+        { from: `${packId}-source`, to: `${packId}-transform`, label: 'canonicalise' },
+        { from: `${packId}-transform`, to: `${packId}-summary`, label: 'seal' },
+        { from: `${packId}-summary`, to: 'merkle_root', label: 'root' },
+      ],
+    }
+  }
+  if (/\/evidence\/batch\/[^/]+\/intents$/.test(path)) {
+    const batchId = path.split('/').slice(-2, -1)[0] ?? EVIDENCE_BATCH
+    if (batchId === EVIDENCE_BATCH) {
+      return {
+        packs: [
+          packSummary(PACK_INTENT_A, {
+            intentId: INTENT_A,
+            batchId: EVIDENCE_BATCH,
+            mode: 'INTELLIGENCE_ATTACH',
+            ref: 'ZORD_PAY_A',
+            leafCount: 9,
+            requiredLeafCount: 5,
+          }),
+          packSummary(PACK_INTENT_B, {
+            intentId: INTENT_B,
+            batchId: EVIDENCE_BATCH,
+            mode: 'INTELLIGENCE_ATTACH',
+            ref: 'ZORD_PAY_B',
+            leafCount: 9,
+            requiredLeafCount: 9,
+          }),
+        ],
+        total: 2,
+      }
+    }
+    return { packs: [], total: 0 }
+  }
+  if (/\/evidence\/packs\/[^/]+$/.test(path) && !path.endsWith('/verify') && !path.endsWith('/timeline')) {
     const packId = path.split('/').pop() ?? PACK_BATCH
     const intent =
       packId === PACK_INTENT_A ? INTENT_A : packId === PACK_INTENT_B ? INTENT_B : INTENT_A
@@ -140,14 +380,44 @@ function evidenceFixtureBody(path: string, search: URLSearchParams): unknown {
   const intentId = search.get('intent_id')
   const batchId = search.get('batch_id')
   if (intentId === INTENT_A) {
-    return { packs: [packSummary(PACK_INTENT_A, { intentId: INTENT_A, mode: 'INTELLIGENCE_INTENT', ref: 'PAY-A' })], total: 1 }
+    return {
+      packs: [
+        packSummary(PACK_INTENT_A, {
+          intentId: INTENT_A,
+          mode: 'INTELLIGENCE_INTENT',
+          ref: 'PAY-A',
+          leafCount: 9,
+          requiredLeafCount: 5,
+        }),
+      ],
+      total: 1,
+    }
   }
   if (intentId === INTENT_B) {
-    return { packs: [packSummary(PACK_INTENT_B, { intentId: INTENT_B, mode: 'INTELLIGENCE_INTENT', ref: 'PAY-B' })], total: 1 }
+    return {
+      packs: [
+        packSummary(PACK_INTENT_B, {
+          intentId: INTENT_B,
+          mode: 'INTELLIGENCE_INTENT',
+          ref: 'PAY-B',
+          leafCount: 9,
+          requiredLeafCount: 9,
+        }),
+      ],
+      total: 1,
+    }
   }
   if (batchId === EVIDENCE_BATCH) {
     return {
-      packs: [packSummary(PACK_BATCH, { mode: 'BATCH_PROOF', ref: 'BATCH-REF' })],
+      packs: [
+        packSummary(PACK_BATCH, {
+          mode: 'BATCH_PROOF',
+          ref: 'BATCH-REF',
+          batchId: EVIDENCE_BATCH,
+          leafCount: 6,
+          requiredLeafCount: 6,
+        }),
+      ],
       total: 1,
     }
   }
@@ -178,14 +448,39 @@ function installAuthRoutes(page: Page) {
 
 function installEmptyProdMocks(page: Page) {
   return page.route('**/api/prod/**', async (route) => {
-    if (route.request().method() !== 'GET') {
+    const method = route.request().method()
+    if (method === 'POST' && /\/evidence\/packs\/[^/]+\/verify$/.test(new URL(route.request().url()).pathname)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'VERIFIED',
+          evidence_pack_id: PACK_BATCH,
+          checked_at: new Date().toISOString(),
+          stored_root: 'a'.repeat(64),
+          computed_root: 'a'.repeat(64),
+          explanation: 'Merkle root reproduced exactly from live database entries.',
+        }),
+      })
+      return
+    }
+    if (method !== 'GET') {
       await route.continue()
       return
     }
     const url = new URL(route.request().url())
     const path = url.pathname
     let body: unknown = emptyProdBody(path)
-    if (/\/evidence\/packs\/[^/]+$/.test(path) && !path.endsWith('/verify')) {
+    if (/\/evidence\/packs\/[^/]+\/timeline$/.test(path)) {
+      body = {
+        evidence_pack_id: path.split('/').slice(-2, -1)[0],
+        intent_id: INTENT_A,
+        timeline: [
+          { timestamp: '2026-05-01T12:00:00Z', event: 'Payment instruction received', node_id: 'n1' },
+        ],
+      }
+    }
+    if (/\/evidence\/packs\/[^/]+$/.test(path) && !path.endsWith('/verify') && !path.endsWith('/timeline')) {
       const packId = path.split('/').pop() ?? PACK_BATCH
       body = packFull(packId, INTENT_A, 'BATCH_PROOF')
     }
@@ -199,12 +494,31 @@ function installEmptyProdMocks(page: Page) {
 
 function installEvidenceFixtureMocks(page: Page) {
   return page.route('**/api/prod/**', async (route) => {
-    if (route.request().method() !== 'GET') {
+    const method = route.request().method()
+    const url = new URL(route.request().url())
+    const path = url.pathname
+
+    if (method === 'POST' && /\/evidence\/packs\/[^/]+\/verify$/.test(path)) {
+      const packId = path.split('/').slice(-2, -1)[0] ?? PACK_BATCH
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'VERIFIED',
+          evidence_pack_id: packId,
+          checked_at: new Date().toISOString(),
+          stored_root: 'c'.repeat(64),
+          computed_root: 'c'.repeat(64),
+          explanation: 'Merkle root reproduced exactly from live database entries.',
+        }),
+      })
+      return
+    }
+
+    if (method !== 'GET') {
       await route.continue()
       return
     }
-    const url = new URL(route.request().url())
-    const path = url.pathname
 
     if (path.endsWith('/intelligence/batches')) {
       await route.fulfill({
@@ -230,10 +544,9 @@ function installEvidenceFixtureMocks(page: Page) {
       })
       return
     }
-    if (path.includes('/evidence/packs') || path.includes('/intelligence/')) {
-      const body =
-        path.includes('/evidence/') ?
-          evidenceFixtureBody(path, url.searchParams)
+    if (path.includes('/evidence/') || path.includes('/intelligence/')) {
+      const body = path.includes('/evidence/')
+        ? evidenceFixtureBody(path, url.searchParams)
         : { data_available: false, tenant_id: SESSION_TENANT }
       await route.fulfill({
         status: 200,
@@ -269,7 +582,7 @@ async function expectNoRuntimeOverlay(page: Page) {
   await expect(page.getByText('Unhandled Runtime Error')).toHaveCount(0)
 }
 
-test.describe('payout console pages smoke (empty prod → preview fallbacks)', () => {
+test.describe('payout console pages smoke (empty prod → strict no-data states)', () => {
   test.beforeEach(async ({ page, context }) => {
     await preparePage(page, context, installEmptyProdMocks)
   })
@@ -286,15 +599,67 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     })
   }
 
-  test('leakage shows Preview on comparison chart', async ({ page }) => {
-    await page.goto('/payout-command-view/today?dock=leakage')
-    await expect(page.getByText('Preview', { exact: true }).first()).toBeVisible({ timeout: 20_000 })
+  test('navy KPI heroes render all expected bucket counts', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=grid')
+    await expect(page.getByTestId('intent-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="intent-kpi-hero-bucket-"]')).toHaveCount(5)
+
+    await page.goto('/payout-command-view/today?dock=settlement')
+    await expect(page.getByTestId('settlement-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="settlement-kpi-hero-bucket-"]')).toHaveCount(5)
+
+    await page.goto('/payout-command-view/today?dock=ambiguity')
+    await expect(page.getByTestId('ambiguity-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="ambiguity-kpi-hero-bucket-"]')).toHaveCount(4)
+
+    await page.goto('/payout-command-view/today?dock=proof')
+    await expect(page.getByTestId('evidence-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(6)
   })
 
-  test('ambiguity shows Preview on velocity scatter', async ({ page }) => {
+  test('leakage keeps 2x2 KPI structure with dark hero styling', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=leakage')
+    await expect(page.getByTestId('leakage-kpi-strip')).toBeVisible({ timeout: 20_000 })
+    const hero = page.getByTestId('leakage-kpi-hero')
+    await expect(hero).toBeVisible({ timeout: 20_000 })
+    await expect(hero).toHaveAttribute('style', /0f172a/i)
+    await expect(page.locator('[data-testid^="leakage-kpi-secondary-"]')).toHaveCount(4)
+  })
+
+  test('leakage shows no-data state on comparison chart when API series is unavailable', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=leakage')
+    await expect(page.getByText('No data available for selected period.')).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('ambiguity shows no-data state on velocity scatter when API points are unavailable', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=ambiguity')
     await expect(page.getByText('Ambiguity Velocity')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText(/60 batches|batch mock/).first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('No points to display.')).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('kpi surfaces do not render known fixed fallback amount patterns', async ({ page }) => {
+    const disallowed = /26129543|26,129,543/
+    for (const dock of ['home', 'leakage', 'workspace', 'proof']) {
+      await page.goto(`/payout-command-view/today?dock=${dock}`)
+      await expect(page.locator('body')).not.toContainText(disallowed)
+    }
+  })
+
+  test('connectors renders routing wireframe sections and drawer drill-down', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=connectors')
+    await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
+      timeout: 25_000,
+    })
+    await expect(page.getByTestId('routing-kpi-bar')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('network-health-chart')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('leakage-composition-chart')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('recommended-routes')).toContainText('Razorpay → UPI → HDFC')
+    await expect(page.getByTestId('connector-grid')).toContainText('Recommended Action')
+    await page.getByText('ICICI Bank').first().click()
+    await expect(page.getByTestId('connector-drawer')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('connector-drawer')).toContainText('Top failures')
+    await page.getByRole('button', { name: 'Close' }).click()
+    await expect(page.getByTestId('connector-drawer')).toHaveCount(0)
   })
 
   test('evidence charts show Preview when packs empty', async ({ page }) => {
@@ -322,6 +687,8 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.getByRole('heading', { name: 'Payment Batch Review', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
+    await expect(page.getByText('File processing status')).toHaveCount(0)
+    await expect(page.getByText('Batch Progress')).toHaveCount(0)
     await expectNoRuntimeOverlay(page)
   })
 })
@@ -331,7 +698,23 @@ test.describe('evidence batch → intent → pack wiring', () => {
     await preparePage(page, context, installEvidenceFixtureMocks)
   })
 
-  test('fan-out API calls and table on Evidence dock', async ({ page }) => {
+  test('evidence proof dock shows reshaped browser columns and merged packs', async ({ page }) => {
+    await page.goto(`${BASE_URL}/payout-command-view/today?dock=proof&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`)
+    await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
+      timeout: 25_000,
+    })
+    await expect(page.getByRole('columnheader', { name: 'Evidence Pack' })).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('columnheader', { name: 'Intent' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Proof Root' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Score' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Leaves' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'View graph' })).toHaveCount(3, { timeout: 15_000 })
+    await expect(page.getByRole('columnheader', { name: 'Batch' })).toHaveCount(0)
+    await expect(page.getByText('1100%')).toHaveCount(0)
+  })
+
+  test('fan-out API calls and table on Evidence dock', async ({ page, context }) => {
     const captures: ProdCapture[] = []
     page.on('request', (req) => {
       if (req.method() !== 'GET') return
@@ -339,9 +722,7 @@ test.describe('evidence batch → intent → pack wiring', () => {
       if (cap) captures.push(cap)
     })
 
-    await page.goto(
-      `/payout-command-view/today?dock=proof&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`,
-    )
+    await page.goto(`${BASE_URL}/payout-command-view/today?dock=proof&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`)
     await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
@@ -351,9 +732,33 @@ test.describe('evidence batch → intent → pack wiring', () => {
 
     const packs = captures.filter((c) => c.pathname.endsWith('/evidence/packs'))
     expect(packs.some((c) => c.searchParams.get('batch_id') === EVIDENCE_BATCH)).toBe(true)
-    expect(packs.some((c) => c.searchParams.get('intent_id') === INTENT_A)).toBe(true)
-    expect(packs.some((c) => c.searchParams.get('intent_id') === INTENT_B)).toBe(true)
+    const batchIntentsCalls = captures.filter((c) =>
+      c.pathname.endsWith(`/evidence/batch/${encodeURIComponent(EVIDENCE_BATCH)}/intents`),
+    )
+    expect(batchIntentsCalls.length).toBeGreaterThan(0)
 
     await expect(page.getByText('Batch pack').first()).toBeVisible({ timeout: 10_000 })
+
+    await installPayoutSessionCookies(context)
+    await page.goto(`${BASE_URL}/payout-command-view/evidence-pack/${encodeURIComponent(PACK_BATCH)}?tab=graph&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`)
+    await expect(page.getByRole('button', { name: /Batch graph/i })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('button', { name: /Intent graph/i })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Verify proof integrity')).toBeVisible({ timeout: 20_000 })
+
+    const lineageCalls = captures.filter((c) => /\/evidence\/packs\/[^/]+\/lineage-graph$/.test(c.pathname))
+    expect(lineageCalls.length).toBeGreaterThan(0)
+    const batchLineageCalls = captures.filter((c) =>
+      c.pathname.endsWith(`/evidence/batch/${encodeURIComponent(EVIDENCE_BATCH)}/lineage-graph`),
+    )
+    expect(batchLineageCalls.length).toBeGreaterThan(0)
+
+    await installPayoutSessionCookies(context)
+    await page.goto(`${BASE_URL}/payout-command-view/evidence-pack/${encodeURIComponent(PACK_INTENT_A)}?tab=summary&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`)
+    await expect(page.getByText('Match confidence')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('96.75%')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Governance decision')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Fail')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('To complete this proof:')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Confirm match decision')).toBeVisible({ timeout: 20_000 })
   })
 })

@@ -32,7 +32,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     selectedBatchId,
   )
 
-  const { viewModel, defensibility, loading, refresh, hasData, leak } =
+  const { viewModel, ambiguity, defensibility, loading, refresh, hasData, leak } =
     usePortfolioLeakageData(tenantReady, selectedBatchId)
 
   useEffect(() => {
@@ -61,12 +61,21 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     )
   }, [batchHealth, selectedBatchId, leak])
 
-  const displayData = batchScopedData ?? viewModel
+  const displayDataBase = batchScopedData ?? viewModel
+  const ambiguityReviewMinor =
+    ambiguity && ambiguity.value_at_risk_minor != null && ambiguity.value_at_risk_minor !== ''
+      ? Number.isFinite(Number(ambiguity.value_at_risk_minor))
+        ? Number(ambiguity.value_at_risk_minor)
+        : null
+      : null
+  const displayData = displayDataBase
+    ? { ...displayDataBase, valueNeedingReviewMinor: ambiguityReviewMinor }
+    : null
   const kpiLoading = (loading && !viewModel && !batchScopedData) || (Boolean(selectedBatchId) && batchHealthLoading)
   const showLiveHint = Boolean(batchScopedData) || hasData
 
   return (
-    <div className="space-y-6 rounded-2xl bg-[#e8eef5] p-4 sm:p-6 min-h-screen">
+    <div className="min-h-screen space-y-6 rounded-2xl bg-[#f4f4f1] p-4 sm:p-6">
       <PortfolioHeader
         onRefresh={() => void refresh()}
         refreshing={loading}
@@ -110,7 +119,6 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
 
           <ReviewWatchlist
             tenantReady={tenantReady}
-            data={displayData}
             batches={batches}
             selectedBatchId={selectedBatchId}
             onSelectBatch={setSelectedBatchId}

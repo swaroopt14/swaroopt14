@@ -22,6 +22,8 @@ spec:
         prometheus.io/port: "8086"
         prometheus.io/path: "/metrics"
     spec:
+      serviceAccountName: zord-aws-access
+      terminationGracePeriodSeconds: 45
       affinity:
         podAntiAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -44,7 +46,7 @@ spec:
               app.kubernetes.io/name: zord-prompt-layer
       containers:
         - name: zord-prompt-layer
-          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-prompt-layer:v5
+          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-prompt-layer:v2
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8086
@@ -94,6 +96,12 @@ spec:
               value: "5"
             - name: DEFAULT_TOP_K
               value: "5"
+            - name: REDIS_URL
+              value: redis://zord-prompt-layer-redis:6379/0
+            - name: MEMORY_TTL_SECONDS
+              value: "3600"
+            - name: MEMORY_MAX_TURNS
+              value: "8"
           readinessProbe:
             httpGet:
               path: /health

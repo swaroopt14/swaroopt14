@@ -5,8 +5,19 @@ resources:
   - namespace.yaml
   - prometheus/rbac.yaml
   - prometheus/configmap.yaml
+  - prometheus/alerting-rules.yaml
   - prometheus/deployment.yaml
   - prometheus/service.yaml
+  - node-exporter/daemonset.yaml
+  - node-exporter/service.yaml
+  - kube-state-metrics/deployment.yaml
+  - kube-state-metrics/service.yaml
+  - grafana/secret.yaml
   - grafana/datasources.yaml
+  - grafana/dashboard-provisioning.yaml
+  - grafana/dashboards-configmap.yaml
+  - grafana/dashboards-nodes.yaml
+  - grafana/dashboards-platform.yaml
   - grafana/deployment.yaml
   - grafana/service.yaml
+  - ingress.yaml

@@ -16,10 +16,10 @@ export function EvidenceHeroBanner({
   batchOptions,
 }: Props) {
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-r from-[#f0fdf4] via-white to-[#e8eef5] px-4 py-3.5 shadow-sm ring-1 ring-emerald-500/10 sm:px-5">
+    <section className="relative overflow-hidden rounded-2xl border border-slate-200/90 bg-gradient-to-r from-[#f8f8f6] via-white to-[#eef2f7] px-4 py-3.5 shadow-sm ring-1 ring-black/[0.04] sm:px-5">
       <div
         className="pointer-events-none absolute -right-16 -top-20 h-40 w-40 rounded-full blur-3xl"
-        style={{ background: 'radial-gradient(circle, rgba(61,255,130,0.25) 0%, transparent 70%)' }}
+        style={{ background: 'radial-gradient(circle, rgba(148,163,184,0.2) 0%, transparent 70%)' }}
         aria-hidden
       />
       <div className="relative flex flex-wrap items-center gap-3">

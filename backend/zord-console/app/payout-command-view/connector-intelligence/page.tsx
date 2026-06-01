@@ -2,12 +2,11 @@ import type { Metadata } from 'next'
 import ConnectorIntelligenceClient from './ConnectorIntelligenceClient'
 
 export const metadata: Metadata = {
-  title: 'Connector Intelligence | Zord',
+  title: 'Routing & Network Intelligence | Zord',
   description:
-    'Which connectors are performing, which are failing, and what ambiguity costs in defensibility exposure — for ops, CTO, and PSP negotiation.',
+    'Routing and network health intelligence for connector performance, leakage prevention, and route-level decisioning.',
 }
 
 export default function ConnectorIntelligencePage() {
   return <ConnectorIntelligenceClient />
 }
-

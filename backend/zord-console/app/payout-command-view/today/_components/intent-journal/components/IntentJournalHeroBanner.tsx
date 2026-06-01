@@ -1,15 +1,13 @@
 'use client'
 
-import {
-  JOURNAL_HERO_BLACK_CARD,
-  JOURNAL_INSIGHT_DARK_LABEL,
-  JOURNAL_INSIGHT_DARK_MUTED,
-} from '../../command-center/homeCommandCenterTokens'
+import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntelligenceKpiHero'
 import { useJournalBatchSelection } from '../context/JournalBatchSelectionContext'
 import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
+import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
 import { fmtInrFull } from '../../command-center/commandCenterFormat'
 import { IntentJournalExportMenu } from './IntentJournalExportMenu'
+import { useDlqTerminalCount } from '../hooks/useDlqTerminalCount'
 
 type IntentJournalHeroBannerProps = {
   onExportIntents: () => void
@@ -24,46 +22,72 @@ export function IntentJournalHeroBanner({
 }: IntentJournalHeroBannerProps) {
   const { selectedBatchId, journalEnabled } = useJournalBatchSelection()
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, journalEnabled)
+  const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, journalEnabled)
+  const { count: terminalDlqCount } = useDlqTerminalCount(journalEnabled)
 
   const valueLabel = fmtInrFull(metrics?.intendedValue ?? batch?.totalValue ?? 0, { decimals: 0 })
   const instructionCount = metrics?.instructionCount ?? batch?.transactions ?? 0
+  const readinessPct = metrics?.avgReadinessPct != null ? `${metrics.avgReadinessPct.toFixed(0)}%` : '—'
+  const needsReview = metrics?.needsReviewCount ?? batch?.unresolvedCount ?? 0
+  const manualReviewCount = metrics?.manualReviewCount ?? metrics?.dlqCount ?? 0
+  const terminalLine =
+    terminalDlqCount != null
+      ? `${terminalDlqCount.toLocaleString('en-IN')} terminal DLQ (tenant)`
+      : 'Terminal DLQ count loading…'
+  const finalityLabel = intelDetail?.batch?.finality_status
+    ? intelDetail.batch.finality_status.replace(/_/g, ' ')
+    : 'Awaiting finality'
+
+  const buckets = [
+    {
+      label: intentJournalCopy.kpi.paymentWorkflow,
+      value: batch?.apiType && batch.apiType !== '—' ? batch.apiType : 'Payment batch',
+      sub: batch?.source ?? 'Payment instructions',
+    },
+    {
+      label: intentJournalCopy.kpi.instructionsCreated,
+      value: instructionCount.toLocaleString('en-IN'),
+      sub:
+        instructionCount > 0
+          ? `${instructionCount.toLocaleString('en-IN')} payment instruction${instructionCount === 1 ? '' : 's'}`
+          : 'No instructions yet',
+    },
+    {
+      label: intentJournalCopy.kpi.intendedValue,
+      value: valueLabel,
+      sub: 'Sum of payment instruction amounts',
+    },
+    {
+      label: intentJournalCopy.kpi.readiness,
+      value: readinessPct,
+      sub: finalityLabel === 'Awaiting finality' ? 'Average intent quality score' : `Batch finality · ${finalityLabel}`,
+    },
+    {
+      label: intentJournalCopy.kpi.needsReview,
+      value: needsReview.toLocaleString('en-IN'),
+      sub:
+        needsReview > 0
+          ? `${manualReviewCount.toLocaleString('en-IN')} manual review · ${metrics?.lowReadinessCount ?? 0} low readiness · ${terminalLine}`
+          : `No batch review items · ${terminalLine}`,
+    },
+  ] as const
 
   return (
-    <section className={`mb-4 ${JOURNAL_HERO_BLACK_CARD}`}>
-      <motionlessGradient />
-      <div className="relative flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className={JOURNAL_INSIGHT_DARK_MUTED}>{intentJournalCopy.hero.label}</p>
-          <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/45">
-            {intentJournalCopy.hero.subtitle}
-          </p>
-          {loading && !batch ? (
-            <p className={`mt-3 text-[15px] ${JOURNAL_INSIGHT_DARK_LABEL}`}>Loading batch value…</p>
-          ) : (
-            <>
-              <p className="mt-2 text-[2.25rem] font-extrabold tabular-nums tracking-[-0.03em] text-white">{valueLabel}</p>
-              <p className="mt-1 font-mono text-[13px] text-white/55">
-                {selectedBatchId || intentJournalCopy.sidebar.selectBatch} · {instructionCount.toLocaleString('en-IN')}{' '}
-                {intentJournalCopy.sidebar.instructions}
-              </p>
-            </>
-          )}
-        </div>
+    <JournalIntelligenceKpiHero
+      className="mb-4"
+      eyebrow={intentJournalCopy.hero.label}
+      value={loading && !batch ? '—' : valueLabel}
+      deltaPill={finalityLabel}
+      subcopy={`${selectedBatchId || intentJournalCopy.sidebar.selectBatch} · ${instructionCount.toLocaleString('en-IN')} ${intentJournalCopy.sidebar.instructions}`}
+      buckets={buckets}
+      testId="intent-kpi-hero"
+      footer={
         <IntentJournalExportMenu
           onExportIntents={onExportIntents}
           onExportReviewItems={onExportReviewItems}
           disabled={exportDisabled || !selectedBatchId}
         />
-      </div>
-    </section>
-  )
-}
-
-function motionlessGradient() {
-  return (
-    <div
-      className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_72%_18%,rgba(255,255,255,0.08)_0%,transparent_58%)]"
-      aria-hidden
+      }
     />
   )
 }

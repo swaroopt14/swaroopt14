@@ -151,6 +151,16 @@ func (h *ProofHandler) DisputeExport(c *gin.Context) {
 		return
 	}
 
+	// Override or set ExportType from query parameter if provided
+	if qType := c.Query("export_type"); qType != "" {
+		req.ExportType = strings.ToUpper(qType)
+	}
+
+	if req.ExportType == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "export_type is required (as query param or in JSON body)"})
+		return
+	}
+
 	// RAW_JSON requires admin token — spec §8 admin-permission gate
 	if req.ExportType == models.ExportTypeRawJSON {
 		if c.GetHeader("X-Admin-Token") == "" {

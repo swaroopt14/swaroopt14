@@ -284,6 +284,7 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 			e.EventID = re.EventID
 			e.TenantID = re.TenantID
 			e.TraceID = re.TraceID
+	
 			return handler.HandleSettlementCreated(ctx, e)
 		})
 
@@ -485,6 +486,8 @@ func consumeSingleTopic(
 			continue
 		}
 
+		// ── [DIAGNOSTIC] Log every raw Kafka message before dispatch ────────────
+		
 		if err := handle(msg); err != nil {
 			log.Printf("kafka: handler error topic=%s partition=%d offset=%d: %v",
 				msg.Topic, msg.Partition, msg.Offset, err)

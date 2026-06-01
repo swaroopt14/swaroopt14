@@ -150,7 +150,7 @@ export type AmbiguityKpiResolved = Resolved<{
 export type AmbiguityKpiResponse = AmbiguityKpiResolved | EmptyKpiResponse
 
 // ── KPIs 11–13: Defensibility ─────────────────────────────────────────────
-export type DefensibilityTier = 'EXCELLENT' | 'GOOD' | 'FAIR' | 'POOR' | 'WEAK' | 'STRONG'
+export type DefensibilityTier = 'STRONG' | 'GOOD' | 'WEAK' | 'FRAGILE'
 export type DefensibilityKpiResolved = Resolved<{
   evidence_pack_rate: number
   governance_coverage_pct: number

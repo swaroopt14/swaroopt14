@@ -3,28 +3,31 @@
 import { useEffect, useMemo, useState } from 'react'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type { PortfolioLeakageViewModel } from '../../leakage-portfolio/normalizeLeakagePayload'
 import { formatMinorInr } from '../../leakage-portfolio/utils/formatMinorInr'
-import { leakageCopy, mapReviewPriorityShort } from '../copy/leakageCopy'
 
 type ReviewWatchlistProps = {
   tenantReady: boolean
-  data: PortfolioLeakageViewModel
+  batches?: IntelligenceBatchRow[]
   selectedBatchId?: string
   onSelectBatch?: (id: string) => void
 }
 
-function batchReviewRate(b: IntelligenceBatchRow): number {
-  const t = Math.max(1, b.total_count)
-  return ((b.failed_count + b.pending_count) / t) * 100
-}
-
-export function ReviewWatchlist({ tenantReady, data, selectedBatchId, onSelectBatch }: ReviewWatchlistProps) {
+export function ReviewWatchlist({
+  tenantReady,
+  batches: suppliedBatches,
+  selectedBatchId,
+  onSelectBatch,
+}: ReviewWatchlistProps) {
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
   const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
 
   useEffect(() => {
+    if (suppliedBatches?.length) {
+      setBatches(suppliedBatches)
+      setLoading(false)
+      return
+    }
     if (!tenantReady) {
       setBatches([])
       return
@@ -45,31 +48,7 @@ export function ReviewWatchlist({ tenantReady, data, selectedBatchId, onSelectBa
     return () => {
       cancelled = true
     }
-  }, [tenantReady])
-
-  const issueGroups = useMemo(
-    () => [
-      {
-        id: 'unmatched',
-        label: 'Unmatched value',
-        value: formatMinorInr(data.unmatchedMinor),
-        tier: data.unmatchedMinor > 0 ? mapReviewPriorityShort(data.riskTier) : 'CLEAN',
-      },
-      {
-        id: 'short',
-        label: 'Short-settlement',
-        value: formatMinorInr(data.underSettlementMinor),
-        tier: data.underSettlementMinor > 0 ? 'WATCH' : 'CLEAN',
-      },
-      {
-        id: 'orphan',
-        label: 'Orphan settlements',
-        value: formatMinorInr(data.orphanMinor),
-        tier: data.orphanMinor > 0 ? 'WATCH' : 'CLEAN',
-      },
-    ],
-    [data],
-  )
+  }, [suppliedBatches, tenantReady])
 
   const filteredBatches = useMemo(() => {
     if (!searchQuery.trim()) return batches
@@ -93,7 +72,7 @@ export function ReviewWatchlist({ tenantReady, data, selectedBatchId, onSelectBa
             placeholder="Search batch ID..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="block w-full rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-9 pr-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+            className="block w-full rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-9 pr-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-400"
           />
         </div>
       </div>
@@ -115,7 +94,7 @@ export function ReviewWatchlist({ tenantReady, data, selectedBatchId, onSelectBa
                 onClick={() => onSelectBatch?.(b.batch_id)}
                 className={`group flex min-w-[180px] shrink-0 items-center justify-between rounded-full border px-4 py-2 text-left transition ${
                   isSelected
-                    ? 'border-[#064e3b] bg-[#064e3b] text-white shadow-sm'
+                    ? 'border-[#0f172a] bg-[#0f172a] text-white shadow-sm'
                     : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300 hover:bg-slate-100'
                 }`}
               >

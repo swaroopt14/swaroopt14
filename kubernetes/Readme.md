@@ -1,6 +1,6 @@
 # Zord EKS Deployment Guide — Step by Step
 
-This guide deploys the entire Arealis Zord platform (9 microservices + Postgres + Kafka) to AWS EKS.
+This guide deploys the entire Arealis Zord platform (9 microservices + Kong API Gateway + Postgres + Kafka + Observability) to AWS EKS.
 
 ---
 
@@ -14,6 +14,41 @@ Before starting, you need:
 - Access to AWS account `522189039032`
 - Access to the infrastructure repo: `Zord-Infrastructure-aws`
 - Access to this app repo: `Arealis-Zord-intent`
+- ACM certificate for `*.zordnet.com` (wildcard) — covers all subdomains
+
+---
+
+## Platform Architecture
+
+```
+Internet
+  │
+  ├── zordnet.com / api.zordnet.com / kong-admin.zordnet.com
+  │     → ALB (Kong) → Kong API Gateway (api-gateway namespace)
+  │                         ├── / → zord-console:3000
+  │                         ├── /v1/admin, /v1/bulk-ingest, /v1/ingest → zord-edge:8080
+  │                         ├── /v1/intents, /v1/dlq, /v1/etl → zord-intent-engine:8083
+  │                         ├── /v1/dispatch → zord-relay:8082
+  │                         ├── /v1/settlement, /v1/reconciliation → zord-outcome-engine:8081
+  │                         ├── /v1/evidence, /v1/verify → zord-evidence:8088
+  │                         ├── /v1/projections, /v1/policies, /v1/rca → zord-intelligence:8089
+  │                         └── /v1/query, /v1/chat → zord-prompt-layer:8086
+  │
+  └── grafana.zordnet.com / kibana.zordnet.com / jaeger.zordnet.com
+        → ALB (Observability) → Grafana / Kibana / Jaeger
+```
+
+## DNS Records (All Subdomains)
+
+| Domain | ALB | Purpose |
+|--------|-----|---------|
+| `zordnet.com` | Kong ALB | Frontend UI |
+| `www.zordnet.com` | Kong ALB | Frontend UI (www) |
+| `api.zordnet.com` | Kong ALB | API testing (Postman) |
+| `kong-admin.zordnet.com` | Kong ALB | Kong Admin Dashboard |
+| `grafana.zordnet.com` | Observability ALB | Metrics dashboards |
+| `kibana.zordnet.com` | Observability ALB | Log search |
+| `jaeger.zordnet.com` | Observability ALB | Trace viewer |
 
 ---
 
@@ -90,8 +125,8 @@ Go to `Zord-Infrastructure-aws` repo → Actions → `Secret Manager Terraform` 
 - Click "Run workflow"
 
 Wait for it to complete. This creates:
-- `zord/app-secrets` in AWS Secrets Manager
-- `zord/edge-signing-key` in AWS Secrets Manager
+- `production/zord/app-secrets` in AWS Secrets Manager
+- `production/zord/edge-signing-key` in AWS Secrets Manager
 
 ---
 
@@ -143,10 +178,13 @@ kubectl get pods -n external-secrets
 # 2. metrics-server
 kubectl get pods -n kube-system | grep metrics-server
 # Must show running pod
+# Install metrics server
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
 
 # 3. AWS Load Balancer Controller
 kubectl get deployment -A | grep aws-load-balancer
 # Must show a deployment
+# or install in Zord-Infrastructure-aws/AWS Load Balancer Controller.sh
 
 # 4. EBS CSI Driver
 kubectl get pods -n kube-system | grep ebs
@@ -433,19 +471,63 @@ metadata:
 
 Replace the ARN with your real role ARN from Step E.
 
+**Step G: Add Secrets Manager policy to the role**
+
+The role needs Secrets Manager access for External Secrets Operator to pull secrets.
+
+Go to:
+
+```
+IAM -> Roles -> ZordAppS3AccessRole -> Add permissions -> Create inline policy -> JSON
+```
+
+Paste this policy:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:DescribeSecret"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:ap-south-1:522189039032:secret:production/zord/app-secrets-*",
+        "arn:aws:secretsmanager:ap-south-1:522189039032:secret:production/zord/edge-signing-key-*"
+      ]
+    }
+  ]
+}
+```
+
+Use this policy name:
+
+```
+ZordSecretsManagerReadPolicy
+```
+
+Click `Create policy`.
+
+**Important:** The `*` at the end of each ARN is required because AWS appends a random suffix to secret ARNs.
+
 ### 6.2 ALB Certificate and Domain
 
-File: `kubernetes/eks/ingress/public-alb.yaml`
+File: `kubernetes/api-gateway/ingress/alb-ingress.yaml`
 
 ```yaml
 alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:ap-south-1:522189039032:certificate/6dc91f57-59fd-4e76-b6ae-8cc53ffc6564
 ```
 
-Replace with your actual ACM certificate ARN.
+Replace with your actual ACM certificate ARN. Must be a wildcard cert (`*.zordnet.com`) to cover all subdomains.
 
 ```yaml
 rules:
   - host: zordnet.com
+  - host: www.zordnet.com
+  - host: api.zordnet.com
+  - host: kong-admin.zordnet.com
 ```
 
 Replace with your actual domain.
@@ -465,36 +547,180 @@ Must match the region where your AWS Secrets Manager secrets are stored.
 ## Step 7: Dry Run (Validate Manifests)
 
 ```bash
+# Validate application services
 kubectl kustomize kubernetes/eks
+
+# Validate Kong API Gateway
+kubectl kustomize kubernetes/api-gateway
+
+# Validate observability (optional)
+kubectl kustomize kubernetes/monitoring
+kubectl kustomize kubernetes/logging
+kubectl kustomize kubernetes/tracing
 ```
 
-If this prints all resources without errors, you're ready to deploy.
+If all print resources without errors, you're ready to deploy.
 
 ---
 
-## Step 8: Deploy
+## Step 8: Deploy Application Services (Step by Step)
+
+Deploy in order — wait for each group to be healthy before moving to the next.
+
+### 8.1 Deploy Shared Config + Infrastructure (Postgres + Kafka + Redis)
 
 ```bash
+# Apply namespace, secrets, configmaps, postgres, kafka, redis
+kubectl apply -f kubernetes/eks/namespace.yaml
 kubectl apply -k kubernetes/eks
 
-# Wait 2 minutes for Kafka
-sleep 120
+# Wait for Postgres to be ready
+kubectl wait --for=condition=Ready pod/zord-postgres-0 -n zord --timeout=300s
+echo "Postgres is ready"
 
-# Restart services that crashed
-kubectl rollout restart deployment \
-  zord-relay \
-  zord-intent-engine \
-  zord-token-enclave \
-  zord-intelligence \
-  zord-outcome-engine \
-  -n zord
+# Wait for Kafka to be ready
+kubectl wait --for=condition=Ready pod/zord-kafka-0 -n zord --timeout=300s
+echo "Kafka is ready"
 
-
+# Wait for Redis to be ready
+kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=zord-prompt-layer-redis -n zord --timeout=60s
+echo "Redis is ready"
 ```
+
+If Kafka shows `CrashLoopBackOff` with `lost+found` error:
+```bash
+kubectl delete statefulset zord-kafka -n zord
+kubectl delete pvc data-zord-kafka-0 -n zord
+kubectl apply -k kubernetes/eks
+kubectl wait --for=condition=Ready pod/zord-kafka-0 -n zord --timeout=300s
+```
+
+### 8.2 Verify Kafka Topics Created
+
+```bash
+kubectl wait --for=condition=Complete job/zord-kafka-topics -n zord --timeout=120s
+kubectl exec -n zord zord-kafka-0 -- kafka-topics --bootstrap-server localhost:9092 --list
+```
+
+### 8.3 Deploy Core Services (Edge + Intent Engine + Token Enclave)
+
+```bash
+# Check these 3 are running
+kubectl get pods -n zord -l app.kubernetes.io/name=zord-edge
+kubectl get pods -n zord -l app.kubernetes.io/name=zord-intent-engine
+kubectl get pods -n zord -l app.kubernetes.io/name=zord-token-enclave
+
+# If any are in CrashLoopBackOff, restart them now that Kafka is ready
+kubectl rollout restart deployment zord-edge -n zord
+kubectl rollout restart deployment zord-intent-engine -n zord
+kubectl rollout restart deployment zord-token-enclave -n zord
+
+# Wait for them
+kubectl rollout status deployment/zord-edge -n zord --timeout=120s
+kubectl rollout status deployment/zord-intent-engine -n zord --timeout=120s
+kubectl rollout status deployment/zord-token-enclave -n zord --timeout=120s
+echo "Core services ready"
+```
+
+### 8.4 Deploy Relay + Outcome Engine + Evidence
+
+```bash
+kubectl rollout restart deployment zord-relay -n zord
+kubectl rollout restart deployment zord-outcome-engine -n zord
+kubectl rollout restart deployment zord-evidence -n zord
+
+# Wait for them
+kubectl rollout status deployment/zord-relay -n zord --timeout=120s
+kubectl rollout status deployment/zord-outcome-engine -n zord --timeout=120s
+kubectl rollout status deployment/zord-evidence -n zord --timeout=120s
+echo "Relay + Outcome + Evidence ready"
+```
+
+### 8.5 Deploy Intelligence + Prompt Layer + Console
+
+```bash
+kubectl rollout restart deployment zord-intelligence -n zord
+kubectl rollout restart deployment zord-prompt-layer -n zord
+kubectl rollout restart deployment zord-console -n zord
+
+# Wait for them
+kubectl rollout status deployment/zord-intelligence -n zord --timeout=180s
+kubectl rollout status deployment/zord-prompt-layer -n zord --timeout=120s
+kubectl rollout status deployment/zord-console -n zord --timeout=120s
+echo "All services ready"
+```
+
+### 8.6 Final Check — All Pods Running
+
+```bash
+kubectl get pods -n zord
+```
+
+Expected: All pods `Running` (or `Completed` for kafka-topics job). No `CrashLoopBackOff`.
+
+**If pods are stuck in `Pending`:**
+- Cluster Autoscaler will add nodes automatically (wait 2-3 minutes)
+- Or manually scale: `aws eks update-nodegroup-config --cluster-name arealis-zord-prod-eks --nodegroup-name <nodegroup> --scaling-config desiredSize=5,minSize=3,maxSize=7 --region ap-south-1`
 
 ---
 
-## Step 9: Watch Pods Come Up
+## Step 8.5: Deploy Kong API Gateway
+
+After all services are running in the `zord` namespace, deploy Kong:
+
+```bash
+# Deploy Kong API Gateway
+kubectl apply -k kubernetes/api-gateway
+
+# Wait for Kong pods
+kubectl get pods -n api-gateway -w
+
+# Expected:
+# kong-gateway-xxx   1/1   Running
+# kong-gateway-yyy   1/1   Running
+
+# Verify Kong can reach backend services
+kubectl exec -n api-gateway deploy/kong-gateway -- wget -qO- http://zord-edge.zord.svc.cluster.local:8080/health
+
+# Check ALB is created
+kubectl get ingress -n api-gateway
+```
+
+See [kubernetes/api-gateway/README.md](./api-gateway/README.md) for full Kong documentation.
+
+---
+
+## Step 8.6: Deploy Observability Stack (Optional)
+
+Deploy after all services are running. Each stack is independent:
+
+```bash
+# Metrics (Grafana + Prometheus)
+kubectl apply -k kubernetes/monitoring
+
+# Logs (Kibana + Elasticsearch + Fluentd)
+kubectl apply -k kubernetes/logging
+
+# Traces (Jaeger + OpenTelemetry)
+kubectl apply -k kubernetes/tracing
+
+# Verify
+kubectl get pods -n monitoring
+kubectl get pods -n logging
+kubectl get pods -n tracing
+
+# Check observability ALB is created
+kubectl get ingress -n monitoring
+```
+
+Access after DNS is configured:
+- `https://grafana.zordnet.com` (admin / see `monitoring/grafana/secret.yaml`)
+- `https://kibana.zordnet.com` (elastic / see `logging/kibana/secret.yaml`)
+- `https://jaeger.zordnet.com` (admin / see `tracing/jaeger/secret.yaml`)
+
+See [kubernetes/observability-README.md](./observability-README.md) for full documentation.
+
+---## Step 9: Watch Pods Come Up
 
 ```bash
 kubectl get pods -n zord -w
@@ -529,21 +755,27 @@ zord-console-xxx         1/1  Running
 ```bash
 # All pods running
 kubectl get pods -n zord
+kubectl get pods -n api-gateway
 
 # Services created
 kubectl get svc -n zord
+kubectl get svc -n api-gateway
 
-# Ingress created (ALB)
-kubectl get ingress -n zord
+# Ingress created (ALB — now in api-gateway namespace)
+kubectl get ingress -n api-gateway
 
 # HPA working
 kubectl get hpa -n zord
+kubectl get hpa -n api-gateway
 
 # Secrets synced
 kubectl get externalsecret -n zord
 
-# Frontend accessible
+# Frontend accessible through Kong
 curl https://zordnet.com/api/health
+
+# Test Kong routing
+curl https://zordnet.com/edge/health
 ```
 
 ---
@@ -553,13 +785,15 @@ curl https://zordnet.com/api/health
 After the ALB is created:
 
 ```bash
-kubectl get ingress -n zord
+kubectl get ingress -n api-gateway
 ```
 
-Copy the ALB DNS name (e.g., `k8s-zord-zordpubl-xxx.ap-south-1.elb.amazonaws.com`).
+Copy the ALB DNS name (e.g., `k8s-apigate-kongpubl-xxx.ap-south-1.elb.amazonaws.com`).
 
 Go to your DNS provider (Route53 or other) and create:
 - `zordnet.com` → CNAME → ALB DNS name
+- `www.zordnet.com` → CNAME → ALB DNS name
+- `api.zordnet.com` → CNAME → ALB DNS name
 
 ---
 
@@ -589,6 +823,8 @@ To change any of these (e.g., switch to RDS or MSK), edit this one file and rede
 |-----------|----------------|-------------------|---------|
 | Postgres | 500m / 2 | 1Gi / 2Gi | 50Gi |
 | Kafka | 500m / 2 | 2Gi / 4Gi | 50Gi |
+| Redis | 50m / 200m | 128Mi / 300Mi | — |
+| Kong Gateway | 250m / 1 | 512Mi / 1Gi | — |
 | zord-edge | 200m / 750m | 384Mi / 768Mi | — |
 | zord-intent-engine | 200m / 750m | 384Mi / 768Mi | — |
 | zord-token-enclave | 100m / 500m | 256Mi / 512Mi | — |
@@ -603,6 +839,7 @@ To change any of these (e.g., switch to RDS or MSK), edit this one file and rede
 
 | Service | Min Replicas | Max Replicas | Scale-up at |
 |---------|-------------|-------------|-------------|
+| Kong Gateway | 2 | 6 | 70% CPU |
 | zord-edge | 2 | 5 | 70% CPU |
 | zord-intent-engine | 2 | 8 | 70% CPU |
 | zord-token-enclave | 2 | 4 | 70% CPU |
@@ -618,34 +855,55 @@ To change any of these (e.g., switch to RDS or MSK), edit this one file and rede
 ## Folder Structure
 
 ```
-kubernetes/eks/
-├── kustomization.yaml              ← single apply entrypoint
-├── namespace.yaml
-├── shared/
-│   ├── aws-config.yaml             ← centralized ConfigMap
-│   ├── serviceaccount.yaml         ← IRSA for S3 access
-│   ├── secret-store.yaml           ← External Secrets provider
-│   ├── external-secret-app-secrets.yaml
-│   ├── external-secret-edge-signing-key.yaml
-│   ├── relay-config.yaml           ← relay service ConfigMap
-│   └── postgres-bootstrap-config.yaml
-├── infrastructure/
-│   ├── postgres/
+kubernetes/
+├── api-gateway/                    ← Kong API Gateway (Phase 5)
+│   ├── kustomization.yaml
+│   ├── namespace.yaml
+│   ├── kong/
+│   │   ├── deployment.yaml
 │   │   ├── service.yaml
-│   │   └── statefulset.yaml
-│   └── kafka/
-│       ├── headless-service.yaml
-│       ├── service.yaml
-│       ├── statefulset.yaml
-│       └── topic-job.yaml
-├── services/
-│   └── <service-name>/
-│       ├── deployment.yaml
-│       ├── service.yaml
-│       ├── pdb.yaml
-│       └── hpa.yaml
-└── ingress/
-    └── public-alb.yaml
+│   │   ├── configmap.yaml
+│   │   ├── hpa.yaml
+│   │   └── pdb.yaml
+│   ├── ingress/
+│   │   └── alb-ingress.yaml
+│   ├── routes/                     ← documentation
+│   └── plugins/                    ← documentation
+├── eks/
+│   ├── kustomization.yaml          ← single apply entrypoint
+│   ├── namespace.yaml
+│   ├── shared/
+│   │   ├── aws-config.yaml
+│   │   ├── serviceaccount.yaml
+│   │   ├── secret-store.yaml
+│   │   ├── external-secret-app-secrets.yaml
+│   │   ├── external-secret-edge-signing-key.yaml
+│   │   ├── relay-config.yaml
+│   │   └── postgres-bootstrap-config.yaml
+│   ├── infrastructure/
+│   │   ├── postgres/
+│   │   │   ├── service.yaml
+│   │   │   └── statefulset.yaml
+│   │   ├── kafka/
+│   │   │   ├── headless-service.yaml
+│   │   │   ├── service.yaml
+│   │   │   ├── statefulset.yaml
+│   │   │   └── topic-job.yaml
+│   │   └── redis/
+│   │       ├── deployment.yaml      ← Redis for prompt-layer memory
+│   │       └── service.yaml
+│   ├── services/
+│   │   └── <service-name>/
+│   │       ├── deployment.yaml
+│   │       ├── service.yaml
+│   │       ├── pdb.yaml
+│   │       └── hpa.yaml
+│   └── ingress/
+│       └── public-alb.yaml         ← DEPRECATED (fallback only)
+├── argocd/                         ← Argo CD GitOps
+├── monitoring/                     ← Prometheus + Grafana
+├── logging/                        ← Elasticsearch + Fluentd + Kibana
+└── tracing/                        ← OpenTelemetry + Jaeger
 ```
 
 ---
@@ -691,13 +949,19 @@ kubectl logs zord-kafka-0 -n zord --tail=20
 Common causes:
 - OOM killed (exit 137) → already fixed with 4Gi memory limit
 - DNS resolution error → already fixed with `localhost:9093` for quorum voter
-- Corrupt data → wipe PVC and redeploy
+- `lost+found` directory error → already fixed with `subPath: kafka-data` in volume mount
+- Corrupt data → wipe PVC and redeploy:
+  ```bash
+  kubectl delete statefulset zord-kafka -n zord
+  kubectl delete pvc data-zord-kafka-0 -n zord
+  kubectl apply -k kubernetes/eks
+  ```
 
 ### ALB not created
 
 ```bash
-kubectl get ingress -n zord
-kubectl describe ingress zord-public -n zord
+kubectl get ingress -n api-gateway
+kubectl describe ingress kong-public -n api-gateway
 ```
 
 Check:
@@ -725,16 +989,138 @@ kubectl delete pods -n zord -l app.kubernetes.io/name=<service-name>
 - Postgres bootstrap script creates all 7 databases and users on first start only
 - All Kafka-consuming services have `terminationGracePeriodSeconds: 45`
 - Relay auth tokens are in ConfigMap (`relay-config.yaml`) because Viper cannot map array env vars
-- Only `zord-console` is exposed publicly via ALB — all backend services are private
-- The browser calls Next.js API routes, which call internal services via Kubernetes DNS
+- All traffic flows through Kong API Gateway (`api-gateway` namespace) → backend services (`zord` namespace)
+- Kong uses DB-less mode — all config is declarative YAML in a ConfigMap
+- The browser hits Kong → Kong routes to zord-console or backend APIs based on path
+- Internal service-to-service calls (relay → edge, relay → intent-engine) bypass Kong and use K8s DNS directly
 
 ---
 
 ## Future Improvements
 
 For higher production reliability:
-- Replace in-cluster Postgres with **AWS RDS Multi-AZ**
-- Replace in-cluster Kafka with **AWS MSK** (3+ brokers)
+- Replace in-cluster Postgres with **AWS RDS Multi-AZ** (see `kubernetes/future-upgrades/README.md`)
+- Replace in-cluster Kafka with **AWS MSK** (3+ brokers) (see `kubernetes/future-upgrades/README.md`)
 - Add **NetworkPolicy** for service isolation
 - Add **Pod Security Standards** (runAsNonRoot)
-- Set up **Prometheus + Grafana** monitoring (see `backend/observability/`)
+- Add **Cloudflare Access or AWS Cognito** for observability UI SSO (replace basic auth)
+- Enable **relay tracing** after deploying tracing stack
+- Add **Kong JWT plugin** to move auth validation to gateway level
+
+## Related Documentation
+
+| Document | Path |
+|----------|------|
+| Kong API Gateway Guide | `kubernetes/api-gateway/README.md` |
+| Observability Stack Guide | `kubernetes/observability-README.md` |
+| API Testing (Postman) | `docs/KONG-API-TESTING.md` |
+| End-to-End Testing | `kubernetes/eks_deployment_end-to-end_testing/Readme.md` |
+| Future Upgrades (RDS + MSK) | `kubernetes/future-upgrades/README.md` |
+| EKS Environment Variables | `docs/EKS-ENVIRONMENT-VARIABLES.md` |
+| Jenkins CI/CD | `jenkins/README.md` |
+
+---
+
+## Destroy — Complete Platform Teardown
+
+Run in reverse order of deployment. Each step is independent — you can destroy only what you need.
+
+### Destroy Observability Only
+
+```bash
+kubectl delete -k kubernetes/tracing
+kubectl delete -k kubernetes/logging
+kubectl delete -k kubernetes/monitoring
+```
+
+### Destroy Kong API Gateway Only
+
+```bash
+kubectl delete -k kubernetes/api-gateway
+```
+
+### Destroy Argo CD Only
+
+```bash
+kubectl delete -f kubernetes/argocd/apps/
+kubectl delete -f kubernetes/argocd/ingress.yaml
+kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.3/manifests/install.yaml
+kubectl delete -f kubernetes/argocd/namespace.yaml
+```
+
+### Destroy Application Services Only
+
+```bash
+kubectl delete -k kubernetes/eks
+```
+
+### Destroy Everything (Full Teardown)
+
+```bash
+# Step 1: Argo CD
+kubectl delete -f kubernetes/argocd/apps/ --ignore-not-found
+kubectl delete -f kubernetes/argocd/ingress.yaml --ignore-not-found
+kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.3/manifests/install.yaml --ignore-not-found
+kubectl delete ns argocd --ignore-not-found
+
+# Step 2: Observability
+kubectl delete -k kubernetes/tracing --ignore-not-found
+kubectl delete -k kubernetes/logging --ignore-not-found
+kubectl delete -k kubernetes/monitoring --ignore-not-found
+
+# Step 3: Kong API Gateway
+kubectl delete -k kubernetes/api-gateway --ignore-not-found
+
+# Step 4: Application Services
+kubectl delete -k kubernetes/eks --ignore-not-found
+
+# Step 5: Delete persistent data (IRREVERSIBLE)
+kubectl delete pvc --all -n zord --ignore-not-found
+kubectl delete pvc --all -n monitoring --ignore-not-found
+kubectl delete pvc --all -n logging --ignore-not-found
+kubectl delete pvc --all -n tracing --ignore-not-found
+
+# Step 6: Delete namespaces
+kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-not-found
+
+# Step 7: Verify everything is gone
+kubectl get ns
+kubectl get pods --all-namespaces | grep -E "zord|kong|grafana|kibana|jaeger|argocd|prometheus|elasticsearch|fluentd"
+```
+
+### AWS Resources to Clean Up Manually
+
+These are NOT deleted by `kubectl delete` — clean them in AWS Console:
+
+| Resource | Location | Action |
+|----------|----------|--------|
+| ALB (Kong) | EC2 → Load Balancers | Auto-deleted after ingress removal (wait 5 min) |
+| ALB (Observability) | EC2 → Load Balancers | Auto-deleted after ingress removal (wait 5 min) |
+| EBS Volumes | EC2 → Volumes | Delete any `Available` volumes tagged with `zord` |
+| ECR Images | ECR → Repositories | Delete if no longer needed |
+| Secrets Manager | Secrets Manager | Keep or delete `production/zord/*` secrets |
+| EKS Cluster | EKS → Clusters | Delete via Terraform: `terraform destroy` |
+| Node Group | EKS → Compute | Deleted with cluster |
+| IAM Roles | IAM → Roles | Delete `ZordAppS3AccessRole` if no longer needed |
+| ACM Certificate | ACM | Delete if domain no longer used |
+| Route53 Records | Route53 | Delete DNS records for zordnet.com subdomains |
+
+### Quick Destroy (Single Command — DANGEROUS)
+
+```bash
+kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-not-found
+```
+
+**WARNING:** This deletes everything immediately. All data is permanently lost. No confirmation. Use only when you want to completely wipe the platform.
+
+### Destroy EKS Cluster (Terraform)
+
+After all Kubernetes resources are deleted:
+
+```
+Go to Zord-Infrastructure-aws repo → Actions → EKS Terraform → Run workflow:
+  - Set action = destroy
+  - Click "Run workflow"
+```
+
+This removes the EKS cluster, node groups, VPC, and all associated AWS resources.

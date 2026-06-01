@@ -35,13 +35,16 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
   }
 
   const gapRate = `${(data.paymentGapRate <= 1 ? data.paymentGapRate * 100 : data.paymentGapRate).toFixed(1)}%`
+  const reviewValue =
+    data.valueNeedingReviewMinor != null ? formatMinorInr(data.valueNeedingReviewMinor) : '—'
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex h-full flex-col gap-4" data-testid="leakage-kpi-strip">
       {/* Top Hero Card - Value Needing Review */}
       <article 
         className="relative flex flex-col justify-between overflow-hidden rounded-2xl border border-white/10 p-5 shadow-sm min-h-[140px]"
-        style={{ background: 'linear-gradient(140deg,#4a6fe6 0%,#103a9e 28%,#00239c 52%,#5c7ec9 100%)' }}
+        style={{ background: 'linear-gradient(145deg,#0f172a 0%,#111827 56%,#1f2937 100%)' }}
+        data-testid="leakage-kpi-hero"
       >
         <div
           className="pointer-events-none absolute -right-20 -top-24 h-52 w-52 rounded-full blur-3xl"
@@ -51,7 +54,7 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
         <p className="relative text-[14px] font-medium text-white/80">{leakageCopy.kpi.valueNeedingReview}</p>
         <div className="relative mt-4 flex items-end gap-3">
           <p className="text-[2.25rem] font-bold leading-none tabular-nums text-white">
-            {formatMinorInr(data.valueNeedingReviewMinor)}
+            {reviewValue}
           </p>
           <span className="mb-1 inline-flex items-center rounded-full bg-white/20 px-2 py-0.5 text-[12px] font-semibold text-white">
             ↗ {gapRate}
@@ -62,18 +65,25 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
       {/* 2x2 Grid for Secondary Metrics */}
       <div className="grid grid-cols-2 gap-3">
         {SECONDARY.map((item) => (
-          <article key={item.key} className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-4 shadow-sm" title={item.tooltip}>
+          <article
+            key={item.key}
+            className="relative overflow-hidden rounded-2xl border border-white/10 bg-[#111827] p-4 shadow-sm"
+            title={item.tooltip}
+            data-testid={`leakage-kpi-secondary-${item.key}`}
+          >
             <div
               className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full blur-2xl"
-              style={{ background: 'radial-gradient(circle, rgba(61,255,130,0.2) 0%, transparent 72%)' }}
+              style={{ background: 'radial-gradient(circle, rgba(148,163,184,0.24) 0%, transparent 72%)' }}
               aria-hidden
             />
             <div className="relative z-[1]">
               <div className="flex items-center gap-2">
-                <div className="h-3 w-1 rounded-full bg-[#16a34a]" />
-                <p className="text-[11px] font-medium text-slate-500">{item.label}</p>
+                <div className="h-3 w-1 rounded-full bg-white/65" />
+                <p className="text-[13px] font-medium leading-relaxed text-white/80">{item.label}</p>
               </div>
-              <p className="mt-3 text-[1.1rem] font-semibold tabular-nums text-slate-900">{formatMinorInr(data[item.key])}</p>
+              <p className="mt-3 text-[1.1rem] font-semibold tabular-nums text-white">
+                {formatMinorInr(data[item.key])}
+              </p>
             </div>
           </article>
         ))}

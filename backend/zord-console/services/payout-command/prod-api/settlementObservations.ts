@@ -97,6 +97,13 @@ export type SettlementObservationBatchDetailItem = {
   updated_at?: string
 }
 
+export type SettlementParseErrorRow = {
+  source_row_ref?: string
+  error_stage?: string
+  reason_code?: string
+  severity?: string
+}
+
 function isBatchIdListItem(
   item: SettlementObservationBatchListItem | CanonicalSettlementObservation | SettlementObservationBatchDetailItem,
 ): item is SettlementObservationBatchListItem {
@@ -122,12 +129,20 @@ export function extractClientBatchIdsFromListResponse(
 }
 
 export const SETTLEMENT_OBSERVATIONS_BFF_PATH = '/api/prod/settlement/observations/batches'
+export const SETTLEMENT_PARSE_ERRORS_BFF_PATH = '/api/prod/settlement/errors'
 
 function observationsUrl(clientBatchId?: string) {
   const params = new URLSearchParams()
   if (clientBatchId?.trim()) params.set('client_batch_id', clientBatchId.trim())
   const qs = params.toString()
   return qs ? `${SETTLEMENT_OBSERVATIONS_BFF_PATH}?${qs}` : SETTLEMENT_OBSERVATIONS_BFF_PATH
+}
+
+function settlementParseErrorsUrl(clientBatchId?: string) {
+  const params = new URLSearchParams()
+  if (clientBatchId?.trim()) params.set('batch_id', clientBatchId.trim())
+  const qs = params.toString()
+  return qs ? `${SETTLEMENT_PARSE_ERRORS_BFF_PATH}?${qs}` : SETTLEMENT_PARSE_ERRORS_BFF_PATH
 }
 
 export async function getSettlementObservationBatchesForSession(): Promise<
@@ -144,6 +159,21 @@ export async function getSettlementObservationsForClientBatch(
     return { data: { items: [] }, ok: true, status: 200, url: observationsUrl() }
   }
   return fetchProdJsonGetWithMeta<SettlementObservationDetailResponse>(observationsUrl(bid))
+}
+
+export async function getSettlementParseErrorsForClientBatch(
+  clientBatchId: string,
+): Promise<ProdJsonGetResult<SettlementParseErrorRow[]>> {
+  const bid = clientBatchId.trim()
+  if (!bid) {
+    return { data: [], ok: true, status: 200, url: settlementParseErrorsUrl() }
+  }
+  const res = await fetchProdJsonGetWithMeta<SettlementParseErrorRow[] | { items?: SettlementParseErrorRow[] }>(
+    settlementParseErrorsUrl(bid),
+  )
+  if (!res.ok) return { ...res, data: [] }
+  const data = Array.isArray(res.data) ? res.data : res.data?.items ?? []
+  return { ...res, data }
 }
 
 export type SettlementObservationTableRow = {
@@ -209,9 +239,10 @@ function parseMoney(raw: string | number | null | undefined): number {
 }
 
 function formatObsTime(iso: string | undefined): string {
-  if (!apiTrimmedString(iso)) return '—'
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return iso
+  const safeIso = apiTrimmedString(iso)
+  if (!safeIso) return '—'
+  const d = new Date(safeIso)
+  if (Number.isNaN(d.getTime())) return safeIso
   return d.toLocaleString('en-IN', {
     day: '2-digit',
     month: 'short',

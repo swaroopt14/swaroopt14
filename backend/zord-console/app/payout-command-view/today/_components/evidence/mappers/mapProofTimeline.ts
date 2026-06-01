@@ -30,6 +30,24 @@ export function mapProofTimeline(pack: EvidencePackFull | null): TimelineEventVm
   if (!pack) return []
 
   const created = pack.created_at
+  const lifecycleEvents: TimelineEventVm[] = []
+  const pushLifecycle = (iso: string | undefined, label: string, detail?: string) => {
+    if (!apiTrimmedString(iso)) return
+    lifecycleEvents.push({
+      time: formatTime(iso as string, 0),
+      label,
+      detail,
+    })
+  }
+
+  pushLifecycle(pack.payment_instruction_received, 'Payment instruction received')
+  pushLifecycle(pack.canonical_intent_created, 'Payment intent created')
+  pushLifecycle(pack.settlement_record_received, 'Settlement record received')
+  pushLifecycle(pack.canonical_settlement_created, 'Structured settlement record created')
+  if (apiTrimmedString(pack.attachment_decision)) {
+    pushLifecycle(pack.canonical_settlement_created ?? pack.created_at, 'Bank reference matched', pack.attachment_decision)
+  }
+
   const items = pack.items ?? []
   const events: TimelineEventVm[] = []
   let offset = 0
@@ -62,6 +80,11 @@ export function mapProofTimeline(pack: EvidencePackFull | null): TimelineEventVm
     label: 'Proof root committed',
     detail: pack.merkle_root ? `${pack.merkle_root.slice(0, 20)}…` : undefined,
   })
+
+  if (lifecycleEvents.length > 0) {
+    const merged = [...lifecycleEvents, ...events]
+    return merged.filter((ev, idx) => merged.findIndex((x) => x.label === ev.label && x.time === ev.time) === idx)
+  }
 
   return events
 }

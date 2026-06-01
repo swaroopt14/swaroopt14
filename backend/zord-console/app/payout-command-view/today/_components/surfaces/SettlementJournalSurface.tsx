@@ -5,8 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { SettlementBatchSelectionProvider } from '../settlement-journal/context/SettlementBatchSelectionContext'
 import { SettlementJournalBatchSidebar } from '../settlement-journal/components/SettlementJournalBatchSidebar'
 import { SettlementJournalHeroBanner } from '../settlement-journal/components/SettlementJournalHeroBanner'
-import { SettlementJournalKpiStrip } from '../settlement-journal/components/SettlementJournalKpiStrip'
 import { SettlementJournalDataHealthPanel } from '../settlement-journal/components/SettlementJournalDataHealthPanel'
+import { SettlementParseErrorsPanel } from '../settlement-journal/components/SettlementParseErrorsPanel'
 import {
   SettlementJournalActivityPanel,
   type SettlementJournalActivityViewModel,
@@ -35,7 +35,11 @@ import { JOURNAL_DM_SANS } from '../journal/journalFonts'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
 import { dockItems } from '@/services/payout-command/model'
-import { observationSearchHaystack } from '@/services/payout-command/prod-api/settlementObservations'
+import {
+  observationSearchHaystack,
+  getSettlementParseErrorsForClientBatch,
+  type SettlementParseErrorRow,
+} from '@/services/payout-command/prod-api/settlementObservations'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { SessionTenantScopeBar } from '../layout/SessionTenantScopeBar'
 import { LiveDataHint } from '../shared'
@@ -163,6 +167,8 @@ function SettlementJournalSurfaceContent({
   const [feedRefreshing, setFeedRefreshing] = useState(false)
   const [batchOutcomeCache, setBatchOutcomeCache] = useState<Record<string, SettlementSidebarOutcome>>({})
   const [syncAt, setSyncAt] = useState<Date | null>(null)
+  const [parseErrors, setParseErrors] = useState<SettlementParseErrorRow[]>([])
+  const [parseErrorsLoading, setParseErrorsLoading] = useState(false)
 
   const selectClientBatch = useCallback(
     (batchId: string) => setSelectedClientBatchId(batchId),
@@ -191,6 +197,25 @@ function SettlementJournalSurfaceContent({
     amountRangeFilter,
   ])
 
+  useEffect(() => {
+    const bid = selectedClientBatchId.trim()
+    if (!tenantReady || !bid) {
+      setParseErrors([])
+      setParseErrorsLoading(false)
+      return
+    }
+    let cancelled = false
+    setParseErrorsLoading(true)
+    void getSettlementParseErrorsForClientBatch(bid).then((res) => {
+      if (cancelled) return
+      setParseErrors(res.data ?? [])
+      setParseErrorsLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantReady, selectedClientBatchId])
+
   const statusOptions = useMemo(() => {
     const set = new Set(observationRows.map((r) => r.status).filter(Boolean))
     return ['All', ...Array.from(set).sort()]
@@ -206,7 +231,7 @@ function SettlementJournalSurfaceContent({
     const bankQ = filterBankRef.trim().toLowerCase()
     const clientQ = filterClientRef.trim().toLowerCase()
     const settlementBatchQ = filterSettlementBatchId.trim().toLowerCase()
-    return observationRows.filter((row) => {
+    const scopedRows = observationRows.filter((row) => {
       const bySearch = !q || observationSearchHaystack(row).includes(q)
       const byStatus = statusFilter === 'All' || row.status === statusFilter
       const byDate = observationInDateRange(row.observationTime, dateRange)
@@ -226,6 +251,16 @@ function SettlementJournalSurfaceContent({
         bySource &&
         byAmount
       )
+    })
+    return scopedRows.sort((a, b) => {
+      const aNum = Number.parseInt(a.sourceRowRef, 10)
+      const bNum = Number.parseInt(b.sourceRowRef, 10)
+      const aValid = Number.isFinite(aNum)
+      const bValid = Number.isFinite(bNum)
+      if (aValid && bValid) return bNum - aNum
+      if (aValid) return -1
+      if (bValid) return 1
+      return 0
     })
   }, [
     observationRows,
@@ -392,9 +427,15 @@ function SettlementJournalSurfaceContent({
                     )
                   }}
                   exportDisabled={filteredRows.length === 0}
+                  filteredCount={filteredRows.length}
+                  filtersActive={filtersActive}
                 />
-                <SettlementJournalKpiStrip filteredCount={filteredRows.length} filtersActive={filtersActive} />
                 <SettlementJournalDataHealthPanel />
+                <SettlementParseErrorsPanel
+                  rows={parseErrors}
+                  loading={parseErrorsLoading}
+                  selectedClientBatchId={selectedClientBatchId}
+                />
 
                 <SettlementJournalActivityPanel vm={activityVm} />
               </>

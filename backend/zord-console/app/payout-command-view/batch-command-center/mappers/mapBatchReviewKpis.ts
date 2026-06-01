@@ -68,18 +68,10 @@ export function mapBatchReviewKpis(args: {
       ? coerceMinor(args.leakageKpi.total_observed_settled_amount_minor)
       : null
 
-  let valueNeedingReviewMinor: number | null = null
-  if (args.leakageKpi && isDataAvailable(args.leakageKpi)) {
-    const l = args.leakageKpi
-    valueNeedingReviewMinor =
-      coerceMinor(l.unmatched_amount_minor) +
-      coerceMinor(l.under_settlement_amount_minor) +
-      coerceMinor(l.orphan_amount_minor) +
-      coerceMinor(l.reversal_exposure_minor) +
-      coerceMinor(l.ambiguous_value_at_risk_minor)
-  } else if (health) {
-    valueNeedingReviewMinor = coerceMinor(health.total_variance_minor)
-  }
+  const valueNeedingReviewMinor =
+    args.ambiguityKpi && isDataAvailable(args.ambiguityKpi)
+      ? coerceMinor(args.ambiguityKpi.value_at_risk_minor)
+      : null
 
   const processedPct = formatBatchMetricPercent(processed, total)
   const cards: BatchKpiCardModel[] = [
@@ -135,8 +127,8 @@ export function mapBatchReviewKpis(args: {
       id: 'value-needing-review',
       title: BATCH_REVIEW_COPY.kpis.valueNeedingReview.title,
       value: formatMinorDisplay(valueNeedingReviewMinor),
-      subtitle: 'Unmatched, short-settled, orphan, reversal, and ambiguous exposure',
-      empty: !valueNeedingReviewMinor,
+      subtitle: 'Ambiguity engine value at risk',
+      empty: valueNeedingReviewMinor == null,
     },
   ]
 

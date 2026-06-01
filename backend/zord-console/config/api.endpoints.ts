@@ -40,6 +40,8 @@ export const BACKEND_SERVICES = {
       INTENTS: '/v1/intents',
       INTENT_BY_ID: (id: string) => `/v1/intents/${id}`,
       DLQ: '/v1/dlq',
+      DLQ_MANUAL_REVIEW: '/v1/dlq/manual-review',
+      DLQ_TERMINAL_COUNT: '/v1/dlq/terminal/count',
       DLQ_BY_ID: (id: string) => `/v1/dlq/${id}`,
     },
   },
@@ -96,6 +98,16 @@ export const BACKEND_SERVICES = {
     ENDPOINTS: {
       PACKS: '/v1/evidence/packs',
       PACK_BY_ID: (packId: string) => `/v1/evidence/packs/${encodeURIComponent(packId)}`,
+      BATCH_INTENTS: (batchId: string) =>
+        `/v1/evidence/batch/${encodeURIComponent(batchId)}/intents`,
+      BATCH_LINEAGE_GRAPH: (batchId: string) =>
+        `/v1/evidence/batch/${encodeURIComponent(batchId)}/lineage-graph`,
+      PACK_TIMELINE: (packId: string) =>
+        `/v1/evidence/packs/${encodeURIComponent(packId)}/timeline`,
+      PACK_LINEAGE_GRAPH: (packId: string) =>
+        `/v1/evidence/packs/${encodeURIComponent(packId)}/lineage-graph`,
+      PACK_VERIFY: (packId: string) =>
+        `/v1/evidence/packs/${encodeURIComponent(packId)}/verify`,
     },
   },
 } as const

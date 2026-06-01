@@ -7,6 +7,7 @@ export type IntentBatchMetrics = {
   avgReadinessPct: number | null
   lowReadinessCount: number
   dlqCount: number
+  manualReviewCount: number
   needsReviewCount: number
 }
 
@@ -37,6 +38,9 @@ export function deriveIntentBatchMetrics(
   ).length
 
   const dlqCount = dlqItems.length
+  const manualReviewCount = dlqItems.filter(
+    (item) => String(item.dlq_status ?? '').trim() === 'NEEDS_MANUAL_REVIEW',
+  ).length
   const needsReviewCount = dlqCount + lowReadinessCount
 
   return {
@@ -45,6 +49,7 @@ export function deriveIntentBatchMetrics(
     avgReadinessPct,
     lowReadinessCount,
     dlqCount,
+    manualReviewCount,
     needsReviewCount,
   }
 }

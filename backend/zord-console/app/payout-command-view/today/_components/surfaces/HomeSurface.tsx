@@ -43,6 +43,13 @@ import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCar
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
   'No payment data in this period yet. Upload payment instructions or connect bank/settlement files to populate this view.'
 
+function parseMinorStrict(value: string | number | undefined | null): number | null {
+  if (value == null || value === '') return null
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return null
+  return parseMinorField(value)
+}
+
 export function HomeSurface({
   batchId,
   scenario,
@@ -129,27 +136,32 @@ export function HomeSurface({
     trendSeries,
   ])
 
-  /** When intelligence has no snapshot yet, sum trend buckets for headline INR. */
   const trendTotalsMinor = useMemo(() => {
     if (!trendSeries?.data_available || !trendSeries.buckets?.length) return null
     let total = 0
-    let confirmed = 0
     let intentCount = 0
     for (const b of trendSeries.buckets) {
-      total += Number(b.total_amount) || 0
-      confirmed += Number(b.confirmed_amount) || 0
-      intentCount += b.intent_count ?? 0
+      total += Number.isFinite(Number(b.total_amount)) ? Number(b.total_amount) : 0
+      intentCount += Number.isFinite(Number(b.intent_count)) ? Number(b.intent_count) : 0
     }
-    if (total <= 0 && confirmed <= 0 && intentCount <= 0) return null
-    return { total, confirmed, intentCount }
+    if (total <= 0 && intentCount <= 0) return null
+    return { total, intentCount }
   }, [trendSeries])
 
   const liveTrendChart = useMemo(() => {
     if (!tenantReady || !trendSeries?.data_available || trendSeries.buckets.length < 1) return null
     const rows = trendSeries.buckets.map((b, i) => {
-      const rupeesT = b.total_amount
-      const rupeesC = b.confirmed_amount
-      const rupeesR = b.review_amount ?? Math.max(0, b.total_amount - b.confirmed_amount)
+      const rupeesT = Number(b.total_amount)
+      const rupeesC = Number(b.confirmed_amount)
+      const rupeesR = Number(b.review_amount)
+      if (
+        !Number.isFinite(rupeesT) ||
+        !Number.isFinite(rupeesC) ||
+        !Number.isFinite(rupeesR) ||
+        !b.label
+      ) {
+        return null
+      }
       return {
         point: i,
         barValue: Math.max(0.001, rupeesT / 1000),
@@ -159,12 +171,14 @@ export function HomeSurface({
         isHoliday: false,
       }
     })
-    const maxV = Math.max(0.001, ...rows.flatMap((r) => [r.barValue, r.lineValue, r.reviewLineValue]))
+    const validRows = rows.filter((row): row is NonNullable<typeof row> => Boolean(row))
+    if (!validRows.length) return null
+    const maxV = Math.max(0.001, ...validRows.flatMap((r) => [r.barValue, r.lineValue, r.reviewLineValue]))
     const yMax = Math.max(5, Math.ceil((maxV * 1.15) / 5) * 5)
     const ticks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map((x) => Math.round(x * 1000) / 1000)
     return {
-      chartData: rows,
-      axisLabels: trendSeries.buckets.map((b) => b.label),
+      chartData: validRows,
+      axisLabels: trendSeries.buckets.map((b) => b.label || '—'),
       yMax,
       ticks,
     }
@@ -221,7 +235,7 @@ export function HomeSurface({
     ? fmtInrFull(activeBucket.confirmed_amount)
     : fmtTrendTooltipInr(activeChartDatum.lineValue)
   const tooltipReview = activeBucket
-    ? fmtInrFull(activeBucket.review_amount ?? Math.max(0, activeBucket.total_amount - activeBucket.confirmed_amount))
+    ? fmtInrFull(activeBucket.review_amount)
     : fmtTrendTooltipInr(activeChartDatum.reviewLineValue)
 
   const chartTags = useMemo(() => {
@@ -262,28 +276,15 @@ export function HomeSurface({
     : trendTotalsMinor && trendTotalsMinor.total > 0
       ? trendTotalsMinor.total
       : null
-  const unmatchedMinor = parseMinorField(leakageData?.unmatched_amount_minor)
-  const underSettlementMinor = parseMinorField(leakageData?.under_settlement_amount_minor)
-  const orphanMinor = parseMinorField(leakageData?.orphan_amount_minor)
-  const reversalMinor = parseMinorField(leakageData?.reversal_exposure_minor)
-  const observedFromLeakage = parseMinorField(leakageData?.total_observed_settled_amount_minor)
-  const observedMinor =
-    observedFromLeakage > 0
-      ? observedFromLeakage
-      : intendedMinor !== null
-        ? Math.max(0, intendedMinor - unmatchedMinor - underSettlementMinor)
-        : null
+  const unmatchedMinor = parseMinorStrict(leakageData?.unmatched_amount_minor)
+  const underSettlementMinor = parseMinorStrict(leakageData?.under_settlement_amount_minor)
+  const orphanMinor = parseMinorStrict(leakageData?.orphan_amount_minor)
+  const reversalMinor = parseMinorStrict(leakageData?.reversal_exposure_minor)
+  const observedMinor = parseMinorStrict(leakageData?.total_observed_settled_amount_minor)
 
-  const bankConfirmedMinor = (() => {
-    if (trendTotalsMinor && trendTotalsMinor.confirmed > 0) return trendTotalsMinor.confirmed
-    if (observedMinor != null && observedMinor > 0) return observedMinor
-    return null
-  })()
+  const bankConfirmedMinor = observedMinor
 
-  const exposureMinor =
-    intendedMinor !== null
-      ? Math.max(0, unmatchedMinor + underSettlementMinor + reversalMinor)
-      : null
+  const exposureMinor = ambData ? parseMinorStrict(ambData.value_at_risk_minor) : null
 
   const intentCountLabel =
     trendTotalsMinor && trendTotalsMinor.intentCount > 0
@@ -307,13 +308,11 @@ export function HomeSurface({
   }, [carouselTrendSeries, carouselPeriod, leakageData, patternsData])
 
   const reviewDisplay =
-    exposureMinor !== null && exposureMinor === 0
-      ? '₹0'
-      : exposureMinor !== null
-        ? fmtInrFull(exposureMinor)
-        : loading
-          ? '…'
-          : '—'
+    exposureMinor !== null
+      ? fmtInrFull(exposureMinor)
+      : loading
+        ? '…'
+        : '—'
 
   const insightCarouselCards = useMemo(
     () =>
@@ -323,9 +322,10 @@ export function HomeSurface({
         emptyInsightParagraph: TENANT_KPI_EMPTY_CAROUSEL_INSIGHT,
         mismatchHeadline: reviewDisplay,
         mismatchSubtext:
-          exposureMinor === 0
-            ? 'No payment gaps detected in this period.'
-            : 'Payment value affected by missing match, short settlement, or reversal.',
+          exposureMinor !== null
+            ? 'Payment value affected by ambiguity and uncertain matching outcomes.'
+            : 'No ambiguity value-at-risk data available for this period.',
+        reviewValueMinor: exposureMinor,
         mismatchPendingCount: patternsData?.pending_count ?? ambData?.ambiguous_intent_count ?? 0,
         trendInsight,
         trendSeries: carouselTrendSeries,
@@ -334,8 +334,6 @@ export function HomeSurface({
         ),
         leakageData,
         patternsData,
-        unmatchedMinor,
-        underSettlementMinor,
       }),
     [
       tenantReady,
@@ -345,8 +343,6 @@ export function HomeSurface({
       carouselTrendSeries,
       leakageData,
       patternsData,
-      unmatchedMinor,
-      underSettlementMinor,
       reviewDisplay,
       exposureMinor,
       ambData?.ambiguous_intent_count,
@@ -382,9 +378,9 @@ export function HomeSurface({
     actions.push({
       title: 'Review payments needing attention',
       description:
-        exposureMinor === 0
-          ? 'No payments currently need review.'
-          : `${reviewDisplay} across unmatched, short-settled, and reversal exposure.`,
+        exposureMinor !== null
+          ? `${reviewDisplay} currently marked for ambiguity review.`
+          : 'No ambiguity value-at-risk data available for this period.',
       href: '/payout-command-view/today?dock=leakage',
     })
     actions.push({
@@ -443,7 +439,7 @@ export function HomeSurface({
         {heroMetric === 'intended' ? (
           <>
             <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
-              {intendedMinor !== null ? fmtInrFull(intendedMinor) : loading || trendLoading ? '₹…' : '₹0'}
+              {intendedMinor !== null ? fmtInrFull(intendedMinor) : loading || trendLoading ? '₹…' : '—'}
             </div>
             <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Intended Payment Value</div>
             {intentCountLabel > 0 ? (
@@ -455,12 +451,10 @@ export function HomeSurface({
         ) : (
           <>
             <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
-              {bankConfirmedMinor != null && bankConfirmedMinor > 0
-                ? fmtInrFull(bankConfirmedMinor)
-                : '₹0'}
+              {bankConfirmedMinor != null ? fmtInrFull(bankConfirmedMinor) : '—'}
             </div>
             <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Bank-Confirmed Value</div>
-            {bankConfirmedMinor != null && bankConfirmedMinor > 0 ? (
+            {bankConfirmedMinor != null ? (
               <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
                 Confirmed from bank/settlement records in this period.
               </p>
@@ -749,12 +743,12 @@ export function HomeSurface({
             onCarouselPeriodChange={setCarouselPeriod}
             cleanlyMatchedValue={observedMinor !== null ? fmtInrFull(observedMinor) : loading ? '…' : '—'}
             cleanlyMatchedSub="Payment value matched between instruction and confirmation."
-            awaitingConfirmation={bankConfirmedMinor == null || bankConfirmedMinor <= 0}
+            awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={
-              exposureMinor === 0
-                ? 'No payment value currently needs review.'
-                : 'Payment value affected by missing match, short settlement, reversal, or unclear status.'
+              exposureMinor !== null
+                ? 'Payment value from ambiguity engine needing review.'
+                : 'No ambiguity value-at-risk data available for this period.'
             }
             unmatchedDisplay={leakageData ? fmtInrFull(unmatchedMinor) : '—'}
             shortSettledDisplay={leakageData ? fmtInrFull(underSettlementMinor) : '—'}
@@ -763,7 +757,9 @@ export function HomeSurface({
             reviewHref="/payout-command-view/today?dock=leakage"
             matchConfidencePct={matchConfidencePct}
             matchConfidenceSub="Average match confidence"
-            paymentsNeedingReview={String(ambData?.ambiguous_intent_count ?? 0)}
+            paymentsNeedingReview={
+              ambData?.ambiguous_intent_count != null ? String(ambData.ambiguous_intent_count) : '—'
+            }
             missingRefRate={
               ambData ? `${((ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(1)}%` : '—'
             }

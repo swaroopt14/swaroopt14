@@ -48,6 +48,10 @@ spec:
               readOnly: true
             - name: buffer
               mountPath: /var/log/fluentd-buffers
+          ports:
+            - name: http
+              containerPort: 9880
+              protocol: TCP
           resources:
             requests:
               cpu: 100m

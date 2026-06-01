@@ -30,6 +30,7 @@ export type PackScope = 'batch' | 'intent' | 'other'
 
 export type PackTableRowVm = {
   packId: string
+  batchId: string
   paymentRef: string
   intentId: string
   proofRoot: string

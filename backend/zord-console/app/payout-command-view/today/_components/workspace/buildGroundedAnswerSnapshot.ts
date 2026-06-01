@@ -7,7 +7,7 @@ export type GroundedAnswerInput = {
   hasLiveData: boolean
   matchConfidencePct: number | null
   refCompletenessPct: number | null
-  reviewMinor: number
+  reviewMinor: number | null
   ambiguousCount: number
   intentMissing: boolean
   ingestIncomplete: boolean
@@ -26,10 +26,7 @@ export function buildGroundedAnswerSnapshot(input: GroundedAnswerInput): string 
   } = input
 
   if (!hasLiveData || ingestIncomplete) {
-    return (
-      'Zord does not have enough payment data for this period yet. ' +
-      'Upload payment instructions (intent file/API) and bank or settlement confirmation files so Zord can calculate gaps, match confidence, and proof readiness.'
-    )
+    return ''
   }
 
   if (intentMissing || lifecycle === 'settlement_only') {
@@ -40,7 +37,7 @@ export function buildGroundedAnswerSnapshot(input: GroundedAnswerInput): string 
   }
 
   const reviewValue = fmtInrFull(reviewMinor, { decimals: 0 })
-  const hasReview = reviewMinor > 0 || ambiguousCount > 0
+  const hasReview = (reviewMinor != null && reviewMinor > 0) || ambiguousCount > 0
 
   if (!hasReview && matchConfidencePct != null && matchConfidencePct >= 85) {
     const refPart =

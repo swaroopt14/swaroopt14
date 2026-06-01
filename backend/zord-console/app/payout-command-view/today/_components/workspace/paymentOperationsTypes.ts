@@ -70,7 +70,7 @@ export type PaymentOperationsViewModel = {
     evidenceStatus: DataSourceBadgeStatus
   }
   hasLiveData: boolean
-  reviewMinor: number
+  reviewMinor: number | null
   ambiguousIntentCount: number
   matchConfidencePct: number | null
   refCompletenessPct: number | null

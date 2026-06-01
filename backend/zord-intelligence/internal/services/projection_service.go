@@ -839,7 +839,6 @@ func (s *ProjectionService) HandleDLQEvent(
 	}
 	return nil
 }
-
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 type windowBounds struct {
@@ -972,9 +971,9 @@ func (s *ProjectionService) HandleSettlementCreated(
 			e.EventID, e.TenantID, e.SettlementID)
 		return nil
 	}
-	log.Printf("HandleSettlementCreated: tenant=%s event_id=%s trace_id=%s occurred_at=%s settlement_id=%s batch_id=%s source_type=%s source_strength=%s source_system=%s parse_conf=%.2f amount=%s currency=%s date=%s utr=%s rrn=%s bank_ref=%s provider_ref=%s client_ref=%s richness=%.2f readiness=%.2f status=%s ingest_run_id=%s",
+	log.Printf("HandleSettlementCreated: tenant=%s event_id=%s trace_id=%s occurred_at=%s settlement_id=%s batch_id=%s payment_rail=%s source_type=%s source_strength=%s provider_id=%s source_system_id=%s bank_id=%s parse_conf=%.2f amount=%s currency=%s date=%s utr=%s rrn=%s bank_ref=%s provider_ref=%s client_ref=%s richness=%.2f readiness=%.2f status=%s ingest_run_id=%s",
 		e.TenantID, e.EventID, e.TraceID, e.OccurredAt,
-		e.SettlementID, e.BatchID, e.SourceType, e.SourceStrength, e.SourceSystemID, e.ParseConfidence,
+		e.SettlementID, e.BatchID, e.PaymentRail, e.SourceType, e.SourceStrength, e.ProviderID, e.SourceSystemID, e.BankID, e.ParseConfidence,
 		e.SettledAmountMinor, e.Currency, e.SettlementDate,
 		e.UTR, e.RRN, e.BankRef, e.ProviderRef, e.ClientRef,
 		e.CarrierRichness, e.AttachmentReadiness, e.StatusObservation, e.IngestRunID)

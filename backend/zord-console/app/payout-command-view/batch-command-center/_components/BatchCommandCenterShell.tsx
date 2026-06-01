@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import BatchCommandCenterClient from '@/app/payout-command-view/batch-command-center/_components/BatchCommandCenterClient'
 import { ActivateLiveWizard } from '@/app/payout-command-view/today/_components/sandbox/ActivateLiveWizard'
 import { SandboxSetupGuidePanel } from '@/app/payout-command-view/today/_components/sandbox/SandboxSetupGuidePanel'
-import { COMMAND_COOL_PAGE_BG } from '@/app/payout-command-view/today/_components/command-center/RecommendedBlackCard'
 import {
+  COMMAND_COOL_PAGE_BG,
   PAYOUT_CONSOLE_CARD_CLASS,
   PAYOUT_PAGE_BG_CLASS,
 } from '@/app/payout-command-view/today/_components/command-center/homeCommandCenterTokens'
@@ -49,7 +49,7 @@ export function BatchCommandCenterShell({ forceMode }: BatchCommandCenterShellPr
             onActivateClick={() => setActivateWizardOpen(true)}
             showSandboxStrip={isSandbox}
           />
-          <section className={`relative ${COMMAND_COOL_PAGE_BG} p-4 sm:p-5 lg:p-6`}>
+          <section className={`relative ${COMMAND_COOL_PAGE_BG} p-0`}>
             <Suspense fallback={<p className="text-[14px] text-slate-600">Loading batch command center…</p>}>
               <BatchCommandCenterClient />
             </Suspense>

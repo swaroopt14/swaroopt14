@@ -8,6 +8,7 @@ import type { JournalFailureRow } from '@/services/payout-command/prod-api/mapIn
 
 export function useJournalFailureRows(batchId: string, enabled: boolean, pollMs = LIVE_JOURNAL_POLL_MS) {
   const [rows, setRows] = useState<JournalFailureRow[]>([])
+  const [pagination, setPagination] = useState<{ page?: number; page_size?: number; total?: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -15,6 +16,7 @@ export function useJournalFailureRows(batchId: string, enabled: boolean, pollMs 
     const bid = batchId.trim()
     if (!bid || !enabled) {
       setRows([])
+      setPagination(null)
       return
     }
     setLoading(true)
@@ -24,12 +26,15 @@ export function useJournalFailureRows(batchId: string, enabled: boolean, pollMs 
       if (!res) {
         setError('Could not load review items for this batch.')
         setRows([])
+        setPagination(null)
         return
       }
-      setRows((res.items ?? []).map(mapDlqListItemToReviewRow))
+      setRows((res.items ?? []).map((row) => mapDlqListItemToReviewRow(row, bid)))
+      setPagination(res.pagination ?? null)
     } catch {
       setError('Could not load review items.')
       setRows([])
+      setPagination(null)
     } finally {
       setLoading(false)
     }
@@ -38,6 +43,7 @@ export function useJournalFailureRows(batchId: string, enabled: boolean, pollMs 
   useEffect(() => {
     if (!enabled) {
       setRows([])
+      setPagination(null)
       return
     }
     void load()
@@ -45,5 +51,5 @@ export function useJournalFailureRows(batchId: string, enabled: boolean, pollMs 
     return () => window.clearInterval(id)
   }, [enabled, load, pollMs])
 
-  return { rows, loading, error, refetch: load }
+  return { rows, pagination, loading, error, refetch: load }
 }

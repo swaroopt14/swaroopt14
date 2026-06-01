@@ -6,26 +6,24 @@ import type { WorkspaceState } from '../hooks/useWorkspaceState'
 import { buildGroundedAnswerSnapshot } from '../workspace/buildGroundedAnswerSnapshot'
 import { WorkspaceOperationsGrid } from '../workspace/WorkspaceOperationsGrid'
 import { WorkspaceIntelligencePanel } from '../workspace/WorkspaceIntelligencePanel'
-import { paymentOpsWorkAreas } from '../workspace/paymentOperationsCopy'
 import { usePaymentOperationsView } from '../workspace/usePaymentOperationsView'
 
 export function WorkspaceSurface({
   activeTab,
   setActiveTab,
   workspace,
-  suggestions,
-  selectedPromptLabel,
   batchId,
 }: {
   activeTab: WorkspaceTab
   setActiveTab: (tab: WorkspaceTab) => void
   workspace: WorkspaceState
-  suggestions: readonly string[]
-  selectedPromptLabel: string | null
   batchId?: string
 }) {
   const copy = workspacePromptCopy[activeTab]
   const { viewModel, loading } = usePaymentOperationsView(batchId)
+  const ingestIncomplete =
+    viewModel.dataSources.intentStatus === 'missing' &&
+    viewModel.dataSources.settlementStatus === 'missing'
 
   const groundedAnswer = useMemo(
     () =>
@@ -37,11 +35,9 @@ export function WorkspaceSurface({
         reviewMinor: viewModel.reviewMinor,
         ambiguousCount: viewModel.ambiguousIntentCount,
         intentMissing: viewModel.hero.showIntentMissing,
-        ingestIncomplete:
-          viewModel.dataSources.intentStatus === 'missing' &&
-          viewModel.dataSources.settlementStatus === 'missing',
+        ingestIncomplete,
       }),
-    [viewModel],
+    [ingestIncomplete, viewModel],
   )
 
   return (
@@ -55,10 +51,7 @@ export function WorkspaceSurface({
             workspace={workspace}
             question={copy.question}
             supporting={copy.supporting}
-            suggestions={suggestions}
-            selectedPromptLabel={selectedPromptLabel}
-            workAreas={paymentOpsWorkAreas}
-            groundedAnswer={groundedAnswer}
+            groundedAnswer={viewModel.hasLiveData && !ingestIncomplete ? groundedAnswer : ''}
           />
         </div>
       </div>

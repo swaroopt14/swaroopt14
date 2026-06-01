@@ -45,6 +45,18 @@ function parseCount(value: unknown): number | null {
   return Math.max(0, Math.round(parsed))
 }
 
+function formatPercent(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null
+  return `${Math.round(value * 10000) / 100}%`
+}
+
+function scoreBreakdownHeadline(pack: EvidencePackFull): string | null {
+  const components = pack.proof_score_breakdown?.components ?? []
+  if (!components.length) return null
+  const passed = components.filter((c) => c.passed === true).length
+  return `${passed} / ${components.length} checks passed`
+}
+
 function resolvePackAmount(pack: EvidencePackFull | null): string | null {
   if (!pack) return null
 
@@ -124,6 +136,10 @@ export function EvidencePackSummaryTab({ pack, batchId, loading }: EvidencePackS
       leaf_count: pack.leaf_count,
       required_leaf_count: pack.required_leaf_count,
       artifact_count: pack.items?.length,
+      verification_status: pack.verification_status,
+      settlement_leaf_present_flag: pack.settlement_leaf_present_flag,
+      attachment_decision_leaf_present_flag: pack.attachment_decision_leaf_present_flag,
+      proof_components: pack.proof_components,
     },
     pack.leaf_count ?? pack.items?.length,
   )
@@ -132,6 +148,15 @@ export function EvidencePackSummaryTab({ pack, batchId, loading }: EvidencePackS
   const coverage = mapProofCoverageFromPack(pack)
   const paymentRef = resolvePaymentRef(pack)
   const amountLabel = resolvePackAmount(pack) ?? amountFromIntent
+  const confidenceLabel = formatPercent(pack.match_confidence)
+  const breakdownHeadline = scoreBreakdownHeadline(pack)
+  const governanceLabel = cleanDisplay(pack.governance_decision)
+  const attachmentLabel = cleanDisplay(pack.attachment_decision)
+  const bankRefLabel = cleanDisplay(pack.bank_reference)
+  const amountMatchLabel =
+    typeof pack.amount_match === 'boolean' ? (pack.amount_match ? 'Pass' : 'Fail') : null
+  const valueDateLabel =
+    typeof pack.value_date_check === 'boolean' ? (pack.value_date_check ? 'Pass' : 'Fail') : null
   const leafSeen = parseCount(pack.leaf_count) ?? parseCount(pack.items?.length)
   const requiredLeaves = parseCount(pack.required_leaf_count)
   const leafTotal =
@@ -146,9 +171,14 @@ export function EvidencePackSummaryTab({ pack, batchId, loading }: EvidencePackS
     {
       label: 'Proof score',
       value: score != null ? `${score} / 100` : '—',
-      hint: PROOF_SCORE_TOOLTIP,
+      hint: breakdownHeadline ? `${PROOF_SCORE_TOOLTIP} ${breakdownHeadline}.` : PROOF_SCORE_TOOLTIP,
     },
-    { label: 'Match confidence', value: '—', hint: 'Requires attachment API on pack detail' },
+    { label: 'Match confidence', value: confidenceLabel ?? '—' },
+    { label: 'Governance decision', value: governanceLabel ?? '—' },
+    { label: 'Attachment decision', value: attachmentLabel ?? '—' },
+    { label: 'Bank reference', value: bankRefLabel ?? '—', mono: true },
+    { label: 'Amount check', value: amountMatchLabel ?? '—' },
+    { label: 'Value-date check', value: valueDateLabel ?? '—' },
     ...(amountLabel ? [{ label: 'Amount', value: amountLabel }] : []),
     { label: 'Beneficiary', value: '•••••• (masked)', hint: 'Full beneficiary controlled by access policy' },
     { label: 'Final status', value: pack.pack_status },

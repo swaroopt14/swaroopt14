@@ -293,11 +293,11 @@ export function PostDisbursalMonitoringSurface() {
       <section className="grid gap-3 xl:grid-cols-2">
         <article className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#3b82f6] via-[#0ea5e9] to-[#10b981]" />
-          <h3 className="text-[1.2rem] font-semibold tracking-[-0.01em] text-[#0f172a]">Money flow status</h3>
-          <p className="mt-0.5 text-[13px] text-slate-500">Post-disbursal breakdown — ₹42Cr total sent</p>
-          <div className="mt-4 rounded-xl border border-[#394554] bg-[#252a32] p-4">
+          <h3 className={`text-[1.2rem] font-semibold tracking-[-0.01em] ${HOME_TITLE_BLACK}`}>Money flow status</h3>
+          <p className={`mt-0.5 ${HOME_BODY_IMPERIAL_SM}`}>Post-disbursal breakdown — ₹42Cr total sent</p>
+          <div className="mt-4 rounded-xl border border-slate-200 bg-[#f8fafc] p-4">
             <div className="grid grid-cols-[54px_1fr] gap-3">
-              <div className="relative h-60 text-right text-[12px] font-semibold text-slate-400">
+              <div className={`relative h-60 text-right text-[12px] font-semibold ${HOME_BODY_IMPERIAL_SM}`}>
                 {moneyFlowTicks.map((tick) => {
                   const y = ((moneyFlowAxisMax - tick) / moneyFlowAxisMax) * 100
                   return (
@@ -307,44 +307,46 @@ export function PostDisbursalMonitoringSurface() {
                   )
                 })}
               </div>
-              <div className="relative h-60 rounded-lg border border-[#3a4757] bg-[#1e232b] px-3 pt-2 pb-10">
-                {moneyFlowTicks.map((tick) => {
-                  const y = ((moneyFlowAxisMax - tick) / moneyFlowAxisMax) * 100
-                  return (
-                    <div key={tick} className="absolute left-0 right-0 border-t border-[#334155]" style={{ top: `${y}%` }} />
-                  )
-                })}
-                <div className="absolute inset-x-3 bottom-10 top-3 flex items-end justify-between gap-3">
-                  {moneyFlowRows.map((row) => {
-                    const height = Math.max(5, (row.valueCr / moneyFlowAxisMax) * 100)
-                    const color =
-                      row.tone === 'blue'
-                        ? 'bg-[#3f88cf]'
-                        : row.tone === 'green'
-                          ? 'bg-[#28a07a]'
-                          : row.tone === 'amber'
-                            ? 'bg-[#c9861a]'
-                            : row.tone === 'red'
-                              ? 'bg-[#ea4b4b]'
-                              : 'bg-[#4f8f17]'
+              <div className="space-y-3">
+                <div className="relative h-56 rounded-lg border border-slate-200 bg-white px-3 pt-2">
+                  {moneyFlowTicks.map((tick) => {
+                    const y = ((moneyFlowAxisMax - tick) / moneyFlowAxisMax) * 100
                     return (
-                      <div key={row.label} className="group relative flex h-full flex-1 flex-col items-center justify-end">
-                        <div className={`relative w-full rounded-md ${color}`} style={{ height: `${height}%` }}>
-                          <p className={`absolute inset-x-1 top-1 text-center text-[11px] font-semibold text-white ${dmMono.className}`}>{row.amount}</p>
-                          <p className={`absolute inset-x-1 bottom-1 text-center text-[10px] font-semibold text-white/90 ${dmMono.className}`}>{row.pct}</p>
-                        </div>
-                        <div className="pointer-events-none absolute -top-8 hidden rounded-md border border-slate-600 bg-[#161a21] px-2 py-1 text-[11px] text-slate-200 group-hover:block">
-                          {row.label}: {row.amount} ({row.pct})
-                        </div>
-                      </div>
+                      <div key={tick} className="absolute left-0 right-0 border-t border-slate-100" style={{ top: `${y}%` }} />
                     )
                   })}
+                  <div className="absolute inset-x-3 bottom-3 top-3 flex items-end justify-between gap-3">
+                    {moneyFlowRows.map((row) => {
+                      const height = Math.max(9, (row.valueCr / moneyFlowAxisMax) * 100)
+                      const color =
+                        row.tone === 'blue'
+                          ? 'bg-[#3f88cf]'
+                          : row.tone === 'green'
+                            ? 'bg-[#28a07a]'
+                            : row.tone === 'amber'
+                              ? 'bg-[#c9861a]'
+                              : row.tone === 'red'
+                                ? 'bg-[#ea4b4b]'
+                                : 'bg-[#4f8f17]'
+                      return (
+                        <div key={row.label} className="group relative flex h-full flex-1 flex-col items-center justify-end">
+                          <div className={`relative w-full rounded-md ${color}`} style={{ height: `${height}%` }}>
+                            <p className={`absolute inset-x-1 top-1 text-center text-[11px] font-semibold text-white ${dmMono.className}`}>{row.amount}</p>
+                            <p className={`absolute inset-x-1 bottom-1 text-center text-[10px] font-semibold text-white/90 ${dmMono.className}`}>{row.pct}</p>
+                          </div>
+                          <div className={`pointer-events-none absolute -top-8 hidden rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] shadow-sm group-hover:block ${HOME_TITLE_BLACK}`}>
+                            {row.label}: {row.amount} ({row.pct})
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
-                <div className="absolute inset-x-3 bottom-2 grid grid-cols-5 gap-3 text-center text-[13px] font-semibold text-slate-600">
+                <div className={`grid grid-cols-5 gap-3 pt-2 text-center text-[13px] font-semibold ${HOME_TITLE_BLACK}`}>
                   {moneyFlowRows.map((row) => (
                     <div key={row.label}>
-                      <p className="text-slate-300">{row.label}</p>
-                      <p className="text-[12px] text-slate-400">{row.amount}</p>
+                      <p className={HOME_BODY_IMPERIAL_SM}>{row.label}</p>
+                      <p className={`mt-0.5 text-[12px] ${HOME_BODY_IMPERIAL_SM}`}>{row.amount}</p>
                     </div>
                   ))}
                 </div>
@@ -355,26 +357,26 @@ export function PostDisbursalMonitoringSurface() {
 
         <article className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#7c6fd1] via-[#ec4899] to-[#ef4444]" />
-          <h3 className="text-[1.2rem] font-semibold tracking-[-0.01em] text-[#0f172a]">Suspicious behavior</h3>
-          <p className="mt-0.5 text-[13px] text-slate-500">{suspiciousTotal} flagged accounts post-disbursal</p>
-          <div className="mt-4 rounded-xl border border-[#394554] bg-[#252a32] p-4">
+          <h3 className={`text-[1.2rem] font-semibold tracking-[-0.01em] ${HOME_TITLE_BLACK}`}>Suspicious behavior</h3>
+          <p className={`mt-0.5 ${HOME_BODY_IMPERIAL_SM}`}>{suspiciousTotal} flagged accounts post-disbursal</p>
+          <div className="mt-4 rounded-xl border border-slate-200 bg-[#f8fafc] p-4">
             <div className="grid gap-2 sm:grid-cols-2">
               {suspiciousSlices.map((row) => (
-                <div key={row.label} className="flex items-center gap-2 rounded-lg border border-[#3a4757] bg-[#1f252d] px-2.5 py-1.5">
+                <div key={row.label} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5">
                   <span className="h-3.5 w-3.5 rounded-sm" style={{ backgroundColor: row.color }} />
-                  <span className="text-[13px] font-semibold text-slate-300">{row.label}</span>
-                  <span className="ml-auto text-[15px] font-semibold text-slate-100">{row.value}</span>
+                  <span className={`text-[13px] font-semibold ${HOME_BODY_IMPERIAL_SM}`}>{row.label}</span>
+                  <span className={`ml-auto text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>{row.value}</span>
                 </div>
               ))}
             </div>
             <div className="mt-4 flex justify-center">
               <div
-                className="grid h-56 w-56 place-items-center rounded-full border-2 border-[#111827]"
+                className="grid h-56 w-56 place-items-center rounded-full border-2 border-slate-100"
                 style={{ background: `conic-gradient(${suspiciousDonutGradient})` }}
               >
-                <div className="grid h-[8.5rem] w-[8.5rem] place-items-center rounded-full bg-[#252a32] shadow-[inset_0_0_0_2px_#1f2937]">
-                  <p className="text-[12px] font-semibold uppercase tracking-[0.18em] text-slate-400">Signals</p>
-                  <p className={`text-[24px] font-semibold text-slate-100 ${dmMono.className}`}>{suspiciousTotal}</p>
+                <div className="grid h-[8.5rem] w-[8.5rem] place-items-center rounded-full bg-white shadow-[inset_0_0_0_1px_#e2e8f0]">
+                  <p className={COMMAND_CENTER_LABEL_GREEN}>Signals</p>
+                  <p className={`text-[24px] font-semibold ${HOME_TITLE_BLACK} ${dmMono.className}`}>{suspiciousTotal}</p>
                 </div>
               </div>
             </div>
@@ -387,17 +389,17 @@ export function PostDisbursalMonitoringSurface() {
           <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#10b981] via-[#0ea5e9] to-[#3b82f6]" />
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h3 className="text-[1.2rem] font-semibold tracking-[-0.01em] text-[#0f172a]">Repayment trend</h3>
-              <p className="mt-0.5 text-[13px] text-slate-500">On-time rate by week — current cycle</p>
+              <h3 className={`text-[1.2rem] font-semibold tracking-[-0.01em] ${HOME_TITLE_BLACK}`}>Repayment trend</h3>
+              <p className={`mt-0.5 ${HOME_BODY_IMPERIAL_SM}`}>On-time rate by week — current cycle</p>
             </div>
             <div className="flex items-start gap-5">
               <div className="text-right">
-                <p className="text-[12px] font-semibold text-slate-500">Week 1</p>
+                <p className={COMMAND_CENTER_LABEL_GREEN}>Week 1</p>
                 <p className={`text-[42px] font-semibold leading-none text-[#10b981] ${dmMono.className}`}>{repaymentPeak}%</p>
                 <span className="inline-flex rounded-full border border-emerald-300/40 bg-emerald-100/70 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">peak</span>
               </div>
               <div className="text-right">
-                <p className="text-[12px] font-semibold text-slate-500">Week 4</p>
+                <p className={COMMAND_CENTER_LABEL_GREEN}>Week 4</p>
                 <p className={`text-[42px] font-semibold leading-none text-[#ef4444] ${dmMono.className}`}>{repaymentCurrent}%</p>
                 <span className="inline-flex rounded-full border border-rose-300/40 bg-rose-100/70 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
                   {repaymentDelta}pp
@@ -405,8 +407,8 @@ export function PostDisbursalMonitoringSurface() {
               </div>
             </div>
           </div>
-          <div className="mt-4 rounded-xl border border-[#394554] bg-[#252a32] p-4">
-            <p className="mb-2 text-[13px] font-semibold text-slate-300">● On-time repayment %</p>
+          <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+            <p className={`mb-2 text-[13px] font-semibold ${HOME_BODY_IMPERIAL_SM}`}>● On-time repayment %</p>
             <div className="relative h-56">
               <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                 {repaymentTicks.map((tick) => {
@@ -418,15 +420,15 @@ export function PostDisbursalMonitoringSurface() {
                       y1={y}
                       x2="100"
                       y2={y}
-                      stroke="rgba(148,163,184,0.25)"
+                      stroke="rgba(148,163,184,0.32)"
                       strokeWidth="0.5"
                     />
                   )
                 })}
-                <polygon points={repaymentAreaPoints} fill="rgba(16,185,129,0.1)" />
+                <polygon points={repaymentAreaPoints} fill="rgba(59,130,246,0.12)" />
                 <polyline
                   fill="none"
-                  stroke="#10b981"
+                  stroke="#3b82f6"
                   strokeWidth="1.8"
                   points={repaymentLinePoints}
                   vectorEffect="non-scaling-stroke"
@@ -438,15 +440,15 @@ export function PostDisbursalMonitoringSurface() {
                       : point.tone === 'amber'
                         ? '#d97706'
                         : '#ef4444'
-                  return <circle key={point.label} cx={point.x} cy={point.y} r="2" fill={fill} stroke="#0f172a" strokeWidth="0.4" />
+                  return <circle key={point.label} cx={point.x} cy={point.y} r="2" fill={fill} stroke="#ffffff" strokeWidth="0.45" />
                 })}
               </svg>
             </div>
             <div className="mt-2 grid grid-cols-4 text-center">
               {repaymentCoordinates.map((point) => (
                 <div key={point.label}>
-                  <p className="text-[12px] font-semibold text-slate-400">{point.label}</p>
-                  <p className="text-[15px] font-semibold text-slate-100">{point.pct}%</p>
+                  <p className={COMMAND_CENTER_LABEL_GREEN}>{point.label}</p>
+                  <p className={`text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>{point.pct}%</p>
                 </div>
               ))}
             </div>

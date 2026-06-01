@@ -5,6 +5,7 @@ import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { mapProofStatusFromPack } from './mapProofStatus'
 import { normalizePercentRatio } from '../utils/evidencePercent'
+import { resolveExplicitSignal } from '../utils/proofSignals'
 
 export function computePackProofScore(itemCount: number | undefined, total = EXPECTED_PROOF_ITEMS): number | null {
   if (itemCount === undefined) return null
@@ -104,9 +105,10 @@ export function mapPackTableRow(
     valueDateCheck:
       typeof summary.value_date_check === 'boolean' ? summary.value_date_check : null,
     settlementPresent:
-      typeof summary.settlement_leaf_present_flag === 'boolean'
-        ? summary.settlement_leaf_present_flag
-        : null,
+      resolveExplicitSignal(summary, {
+        component: 'settlement_record_available',
+        flag: 'settlement_leaf_present_flag',
+      }) ?? null,
     packCompleteness: completenessFromApi ?? perPackScore ?? null,
   }
 }

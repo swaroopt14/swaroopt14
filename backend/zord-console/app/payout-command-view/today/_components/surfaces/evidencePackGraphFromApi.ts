@@ -85,6 +85,21 @@ function normalizeNodeTypeFromLineage(nodeType: string | undefined): string {
   return upper || 'UNKNOWN'
 }
 
+function resolveSchemaVersions(pack: EvidencePackFull): {
+  intent: string
+  outcome: string
+  contract: string
+  attachment?: string
+} {
+  const schema = pack.schema_versions ?? {}
+  return {
+    intent: schema.intent ?? schema.intent_schema ?? 'v1',
+    outcome: schema.outcome ?? schema.outcome_schema ?? 'v1',
+    contract: schema.contract ?? schema.contract_schema ?? 'v1',
+    attachment: schema.attachment ?? schema.attachment_schema,
+  }
+}
+
 function normalizeItemTypeFromLineageNode(
   label: string | undefined,
   nodeType: string | undefined,
@@ -184,7 +199,6 @@ export function buildEvidencePackGraphFromApi(
     },
   ]
 
-  const schema = pack.schema_versions ?? {}
   return {
     packId: pack.evidence_pack_id,
     intentId: pack.intent_id || '—',
@@ -193,12 +207,7 @@ export function buildEvidencePackGraphFromApi(
     tenantId: pack.tenant_id,
     mode: normalizeMode(pack.mode),
     rulesetVersion: pack.ruleset_version || 'v1',
-    schemaVersions: {
-      intent: schema.intent ?? 'v1',
-      outcome: schema.outcome ?? 'v1',
-      contract: schema.contract ?? 'v1',
-      attachment: schema.attachment,
-    },
+    schemaVersions: resolveSchemaVersions(pack),
     createdAt: pack.created_at,
     defensibilityScore: Math.round(opts.defensibilityScore),
     leaves,
@@ -288,7 +297,6 @@ export function buildEvidencePackGraphFromLineage(
     },
   ]
 
-  const schema = pack.schema_versions ?? {}
   const st = pack.pack_status?.toUpperCase() || ''
   const rootStatus: RootNode['status'] =
     st === 'ACTIVE' || st === 'SEALED' || st === 'VERIFIED' ? 'verified' : st === 'SUPERSEDED' ? 'partial' : 'partial'
@@ -303,12 +311,7 @@ export function buildEvidencePackGraphFromLineage(
     tenantId: apiTrimmedString(lineage.tenant_id) || pack.tenant_id,
     mode: normalizeMode(pack.mode),
     rulesetVersion: pack.ruleset_version || 'v1',
-    schemaVersions: {
-      intent: schema.intent ?? 'v1',
-      outcome: schema.outcome ?? 'v1',
-      contract: schema.contract ?? 'v1',
-      attachment: schema.attachment,
-    },
+    schemaVersions: resolveSchemaVersions(pack),
     createdAt: pack.created_at,
     defensibilityScore: Math.round(opts.defensibilityScore),
     leaves,

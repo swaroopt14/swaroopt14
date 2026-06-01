@@ -4,6 +4,7 @@ import { evidenceCopy } from '../../../today/_components/evidence/copy/evidenceC
 import type { EvidencePackFull } from '@/services/payout-command/prod-api/evidenceTypes'
 import { JOURNAL_DM_SANS } from '../../../today/_components/journal/journalFonts'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
+import { resolveExplicitSignal } from '../../../today/_components/evidence/utils/proofSignals'
 
 type BusinessItemRow = {
   label: string
@@ -29,6 +30,7 @@ const ITEM_LABEL_BY_TYPE: Record<string, string> = {
   VARIANCE_DECISION: 'Difference Check',
   ENVELOPE_HASH: 'Data Security',
   CANONICAL_INTENT: 'Payment Record',
+  CANONICAL_INTENT_HASH: 'Payment Record',
   RAW_INGRESS_ENVELOPE: 'Payment Record',
   GOVERNANCE_DECISION: 'Compliance Check',
   GOVERNANCE_DECISION_AT_CANONICAL: 'Compliance Check',
@@ -47,35 +49,56 @@ export function EvidencePackItemsTab({ pack, loading }: EvidencePackItemsTabProp
 
   const typeSet = new Set((pack.items ?? []).map((it) => (it.type || '').toUpperCase()))
   const hashCoverageOk = (pack.items ?? []).every((it) => Boolean(it.hash || it.leaf_hash))
+  const settlementAvailable =
+    resolveExplicitSignal(pack, {
+      component: 'settlement_record_available',
+      flag: 'settlement_leaf_present_flag',
+    }) ??
+    (typeSet.has('RAW_SETTLEMENT_ENVELOPE') ||
+      typeSet.has('RAW_SETTLEMENT_FILE') ||
+      typeSet.has('CANONICAL_SETTLEMENT_OBSERVATION'))
+  const matchAvailable =
+    resolveExplicitSignal(pack, {
+      component: 'match_decision_available',
+      flag: 'attachment_decision_leaf_present_flag',
+    }) ?? typeSet.has('ATTACHMENT_DECISION')
+  const governanceAvailable =
+    resolveExplicitSignal(pack, {
+      component: 'governance_decision_available',
+    }) ?? (typeSet.has('GOVERNANCE_DECISION_AT_CANONICAL') || typeSet.has('GOVERNANCE_DECISION'))
+  const instructionAvailable =
+    resolveExplicitSignal(pack, {
+      component: 'payment_instruction_available',
+    }) ?? (typeSet.has('RAW_INGRESS_ENVELOPE') || typeSet.has('CANONICAL_INTENT'))
 
   const rows: BusinessItemRow[] = [
     {
       label: 'Bank Record',
       reason: 'Original entry from bank',
       tooltip: 'Original line from bank settlement file',
-      status: typeSet.has('RAW_SETTLEMENT_ENVELOPE') || typeSet.has('RAW_SETTLEMENT_FILE') ? 'Verified' : 'Missing',
-      ok: typeSet.has('RAW_SETTLEMENT_ENVELOPE') || typeSet.has('RAW_SETTLEMENT_FILE'),
+      status: settlementAvailable ? 'Verified' : 'Missing',
+      ok: settlementAvailable,
     },
     {
       label: 'Processed Payment',
       reason: 'Cleaned and structured record',
       tooltip: 'Validated record after standardization',
-      status: typeSet.has('CANONICAL_SETTLEMENT_OBSERVATION') ? 'Verified' : 'Pending',
-      ok: typeSet.has('CANONICAL_SETTLEMENT_OBSERVATION'),
+      status: settlementAvailable ? 'Verified' : 'Pending',
+      ok: settlementAvailable,
     },
     {
       label: 'Payment Match',
       reason: 'Linked to your payment',
       tooltip: 'Match decision linked this record to the payment',
-      status: typeSet.has('ATTACHMENT_DECISION') ? 'Verified' : 'Pending',
-      ok: typeSet.has('ATTACHMENT_DECISION'),
+      status: matchAvailable ? 'Verified' : 'Pending',
+      ok: matchAvailable,
     },
     {
       label: 'Difference Check',
       reason: 'Checked for mismatches',
       tooltip: 'Variance checks passed for this payment',
-      status: typeSet.has('VARIANCE_DECISION') || typeSet.has('ATTACHMENT_DECISION') ? 'No issues' : 'Pending',
-      ok: typeSet.has('VARIANCE_DECISION') || typeSet.has('ATTACHMENT_DECISION'),
+      status: typeSet.has('VARIANCE_DECISION') || matchAvailable ? 'No issues' : 'Pending',
+      ok: typeSet.has('VARIANCE_DECISION') || matchAvailable,
     },
     {
       label: 'Data Security',
@@ -88,22 +111,22 @@ export function EvidencePackItemsTab({ pack, loading }: EvidencePackItemsTabProp
       label: 'Payment Record',
       reason: 'Your original payment request',
       tooltip: 'Original payment instruction from your system',
-      status: typeSet.has('RAW_INGRESS_ENVELOPE') || typeSet.has('CANONICAL_INTENT') ? 'Verified' : 'Missing',
-      ok: typeSet.has('RAW_INGRESS_ENVELOPE') || typeSet.has('CANONICAL_INTENT'),
+      status: instructionAvailable ? 'Verified' : 'Missing',
+      ok: instructionAvailable,
     },
     {
       label: 'Compliance Check',
       reason: 'Passed all required checks',
       tooltip: 'Policy and compliance validations completed',
-      status: typeSet.has('GOVERNANCE_DECISION_AT_CANONICAL') || typeSet.has('GOVERNANCE_DECISION') ? 'Approved' : 'Pending',
-      ok: typeSet.has('GOVERNANCE_DECISION_AT_CANONICAL') || typeSet.has('GOVERNANCE_DECISION'),
+      status: governanceAvailable ? 'Approved' : 'Pending',
+      ok: governanceAvailable,
     },
     {
       label: 'Source File',
       reason: 'Bank file used for settlement',
       tooltip: 'Source settlement file used for this proof pack',
-      status: typeSet.has('RAW_SETTLEMENT_ENVELOPE') || typeSet.has('RAW_SETTLEMENT_FILE') ? 'Verified' : 'Missing',
-      ok: typeSet.has('RAW_SETTLEMENT_ENVELOPE') || typeSet.has('RAW_SETTLEMENT_FILE'),
+      status: settlementAvailable ? 'Verified' : 'Missing',
+      ok: settlementAvailable,
     },
   ]
   const fullyVerified = rows.every((row) => row.ok)

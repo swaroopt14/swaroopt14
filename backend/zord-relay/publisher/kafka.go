@@ -166,7 +166,12 @@ func (p *KafkaPublisher) PublishDLQItem(ctx context.Context, event *model.DLQIte
 		if err := json.Unmarshal(event.IntentContext, &contextMap); err == nil {
 			if amtVal, ok := contextMap["amount"]; ok {
 				if amtStr, isStr := amtVal.(string); isStr {
-					amount = json.RawMessage(amtStr)
+					// Guard: empty string produces json.RawMessage{} (zero bytes)
+					// which fails MarshalJSON with "unexpected end of JSON input".
+					if len(amtStr) > 0 {
+						amount = json.RawMessage(amtStr)
+					}
+					// else: amount stays nil → marshals as null, safe
 				} else {
 					amount = amtVal
 				}

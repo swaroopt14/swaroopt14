@@ -354,8 +354,10 @@ func StartConsumers(ctx context.Context, cfg *config.Config, handler EventHandle
 		})
 
 	// ── Pattern Intelligence: manual review DLQ handler ──────────────────────
-	// payments.intent.dlq is a direct (non-relay-wrapped) event from Service 2.
-	// It does not use the RelayEvent envelope — decoded directly as DLQItemEvent.
+	// payments.intent.dlq is published by zord-relay's PublishDLQItem function
+	// as a DIRECT flat JSON object (NOT a RelayEvent envelope).
+	// The relay maps DLQItemEvent fields directly: event_id, tenant_id, trace_id,
+	// occurred_at, intent_id, batch_id, source_system, amount, reason_code.
 	wireHandler(topicHandlers, cfg.TopicDLQItem,
 		func(msg kafka.Message) error {
 			var e models.DLQItemEvent

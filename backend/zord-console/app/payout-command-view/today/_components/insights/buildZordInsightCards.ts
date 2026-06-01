@@ -2,6 +2,12 @@ import type { DisbursementTrendResponse } from '@/services/payout-command/prod-a
 import type { LeakageKpiResolved, PatternsKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { InsightDelta, ZordInsightCard } from './zordInsightCarouselTypes'
 
+function readMinor(value: string | number | undefined | null): number {
+  if (value == null || value === '') return 0
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
 function bucketDelta(buckets: DisbursementTrendResponse['buckets']): InsightDelta | undefined {
   if (!buckets || buckets.length < 2) return undefined
   const a0 = Number(buckets[buckets.length - 2]?.total_amount) || 0
@@ -23,14 +29,13 @@ export function buildZordInsightCards(params: {
   emptyInsightParagraph: string
   mismatchHeadline: string
   mismatchSubtext: string
+  reviewValueMinor: number | null
   mismatchPendingCount: number
   trendInsight: string
   trendSeries: DisbursementTrendResponse | null | undefined
   trendChartReady: boolean
   leakageData: LeakageKpiResolved | null
   patternsData: PatternsKpiResolved | null
-  unmatchedMinor: number
-  underSettlementMinor: number
 }): ZordInsightCard[] {
   const {
     tenantReady,
@@ -38,14 +43,13 @@ export function buildZordInsightCards(params: {
     emptyInsightParagraph,
     mismatchHeadline,
     mismatchSubtext,
+    reviewValueMinor,
     mismatchPendingCount,
     trendInsight,
     trendSeries,
     trendChartReady,
     leakageData,
     patternsData,
-    unmatchedMinor,
-    underSettlementMinor,
   } = params
 
   if (!tenantReady) return []
@@ -85,15 +89,18 @@ export function buildZordInsightCards(params: {
   })
 
   if (leakageData) {
-    const mismatchMinor = unmatchedMinor + underSettlementMinor
+    const mismatchMinor = reviewValueMinor ?? 0
     cards.push({
       type: 'metric',
       id: 'mismatch-value',
       label: 'Value Needing Review',
       valueRupee: mismatchMinor,
+      valueDisplay: reviewValueMinor == null ? '—' : undefined,
       subtext: patternsData
         ? `${patternsData.pending_count} intents pending in latest batch signal`
-        : 'Payment value in review across connected records',
+        : reviewValueMinor != null
+          ? 'Payment value in review from ambiguity engine'
+          : 'No ambiguity value-at-risk data available',
       count: patternsData?.pending_count ?? 0,
       countLabel: 'transactions pending',
     })
@@ -119,7 +126,9 @@ export function buildZordInsightCards(params: {
   }
 
   if (patternsData && patternsData.total_count > 0) {
-    const exposureMinor = leakageData ? unmatchedMinor + underSettlementMinor : 0
+    const exposureMinor = leakageData
+      ? readMinor(leakageData.unmatched_amount_minor) + readMinor(leakageData.under_settlement_amount_minor)
+      : 0
     cards.push({
       type: 'alert',
       id: 'leakage',

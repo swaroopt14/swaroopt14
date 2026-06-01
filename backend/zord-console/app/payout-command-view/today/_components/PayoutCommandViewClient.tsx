@@ -5,7 +5,6 @@ import { Manrope } from 'next/font/google'
 import {
   DASHBOARD_FONT_STACK,
   dockItems,
-  workspacePromptCopy,
   type DockId,
   type WorkspaceTab,
 } from '@/services/payout-command/model'
@@ -20,6 +19,7 @@ import ConnectorIntelligenceClient from '@/app/payout-command-view/connector-int
 import {
   AmbiguitySurface,
   BillingSurface,
+  BorrowerVerificationSurface,
   EvidenceSurface,
   HomeSurface,
   IntentJournalSurface,
@@ -27,7 +27,9 @@ import {
   LeakageSurface,
   LiveSyncSurface,
   ProofSurface,
+  PostDisbursalMonitoringSurface,
   SandboxConnectorsSurface,
+  SupportSurface,
   WorkspaceSurface,
 } from './surfaces'
 import { ActivateLiveWizard } from './sandbox/ActivateLiveWizard'
@@ -74,11 +76,10 @@ export default function PayoutCommandViewClient({
   // ── Navigation state ───────────────────────────────────────────────────────
   const [activeDock, setActiveDock] = useState<DockId>(initialDock)
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('Today')
-  const [selectedSuggestion, setSelectedSuggestion] = useState<string | null>(null)
   const [activateWizardOpen, setActivateWizardOpen] = useState(false)
   const activeSurface = dockItems.find((item) => item.id === activeDock) ?? dockItems[0]
-  const activePrompt = useMemo(() => workspacePromptCopy[activeTab], [activeTab])
   const sharedBatchId = resolveSharedBatchId(initialJournalBatchId)
+  const onWorkspaceSuggestionSelect = useCallback((_label: string | null) => {}, [])
 
   const pageHeaderMeta = useMemo(() => {
     const label = activeSurface.label
@@ -89,11 +90,11 @@ export default function PayoutCommandViewClient({
       pageTitle: title,
       pageSubtitle: activeSurface.summary,
     }
-  }, [activeSurface, activeDock, activeTab])
+  }, [activeSurface])
 
   // ── Feature hooks ──────────────────────────────────────────────────────────
   const home = useHomeState(activeDock === 'home')
-  const workspace = useWorkspaceState(activeTab, setSelectedSuggestion)
+  const workspace = useWorkspaceState(activeTab, onWorkspaceSuggestionSelect)
   const askZord = useAskZordState(activeSurface.title)
 
   const handleAskZordQuickPrompt = useCallback(
@@ -112,7 +113,6 @@ export default function PayoutCommandViewClient({
   const handleDockChange = useCallback(
     (id: DockId) => {
       setActiveDock(id)
-      setSelectedSuggestion(null)
       if (id === 'workspace') {
         setActiveTab('Today')
         workspace.resetForTab('Today')
@@ -124,7 +124,6 @@ export default function PayoutCommandViewClient({
   const handleTabChange = useCallback(
     (tab: WorkspaceTab) => {
       setActiveTab(tab)
-      setSelectedSuggestion(null)
       workspace.resetForTab(tab)
     },
     [workspace],
@@ -160,8 +159,6 @@ export default function PayoutCommandViewClient({
             activeTab={activeTab}
             setActiveTab={handleTabChange}
             workspace={workspace}
-            selectedPromptLabel={selectedSuggestion}
-            suggestions={activePrompt.suggestions}
             batchId={sharedBatchId}
           />
         </div>
@@ -170,6 +167,8 @@ export default function PayoutCommandViewClient({
 
     if (activeDock === 'leakage') return <LeakageSurface initialBatchId={sharedBatchId} />
     if (activeDock === 'ambiguity') return <AmbiguitySurface initialBatchId={sharedBatchId} />
+    if (activeDock === 'verification') return <BorrowerVerificationSurface />
+    if (activeDock === 'monitoring') return <PostDisbursalMonitoringSurface />
     if (activeDock === 'grid') return <IntentJournalSurface initialBatchId={initialJournalBatchId} />
     if (activeDock === 'settlement') {
       return <SettlementJournalSurface initialClientBatchId={initialSettlementClientBatchId} />
@@ -185,20 +184,23 @@ export default function PayoutCommandViewClient({
     if (activeDock === 'billing') {
       return <BillingSurface onActivateClick={() => setActivateWizardOpen(true)} />
     }
+    if (activeDock === 'support') {
+      return (
+        <div className={manropeHome.className}>
+          <SupportSurface />
+        </div>
+      )
+    }
     return <ProofSurface />
   }, [
     activeDock,
-    activePrompt.suggestions,
     activeTab,
     forceMode,
     initialJournalBatchId,
     initialSettlementClientBatchId,
     sharedBatchId,
     handleTabChange,
-    askZord,
-    handleAskZordQuickPrompt,
     home,
-    selectedSuggestion,
     workspace,
   ])
 

@@ -1,5 +1,6 @@
 import type { EvidencePackFull } from '@/services/payout-command/prod-api/evidenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
+import { normalizeVerificationState } from './proofSignals'
 
 export type VerifyProofResult = {
   ok: boolean
@@ -40,7 +41,8 @@ export function verifyProofIntegrityClient(pack: EvidencePackFull | null): Verif
     }
   }
 
-  if (pack.verification_status?.toUpperCase() === 'FAILED') {
+  const verificationState = normalizeVerificationState(pack.verification_status)
+  if (verificationState === 'failed') {
     return {
       ok: false,
       message:
@@ -50,7 +52,7 @@ export function verifyProofIntegrityClient(pack: EvidencePackFull | null): Verif
     }
   }
 
-  if (pack.verification_status?.toUpperCase() === 'VERIFIED') {
+  if (verificationState === 'verified') {
     return {
       ok: true,
       message: 'Proof verified. No evidence item has changed since this pack was generated.',

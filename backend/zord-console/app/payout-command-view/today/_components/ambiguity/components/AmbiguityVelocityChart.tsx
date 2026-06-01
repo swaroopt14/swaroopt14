@@ -18,16 +18,19 @@ import { formatAmbiguityInr } from '../utils/formatAmbiguityInr'
 import { getValueAtRiskDelta } from '../utils/ambiguityApiMappers'
 import {
   AMBIGUITY_BUBBLE_LEGEND,
-  buildAmbiguityVelocityMock,
   getWindowMeta,
   mapAmbiguityVelocityScatter,
-  MOCK_PREVIEW_BATCH_COUNT,
   scatterDensitySummary,
   scatterTimeAxisTicks,
   type AmbiguityScatterPoint,
 } from '../utils/mapAmbiguityVelocityScatter'
 
 const WINDOW_DAYS = 7
+const LEGEND_DOT_SIZE: Record<string, number> = {
+  'High ambiguity': 18,
+  Medium: 14,
+  'Low ambiguity': 10,
+}
 
 function ScatterTooltip({
   active,
@@ -79,12 +82,6 @@ type Props = {
 
 export function AmbiguityVelocityChart({ amb, batchId }: Props) {
   const [livePoints, setLivePoints] = useState<AmbiguityScatterPoint[] | null>(null)
-  const [seriesLive, setSeriesLive] = useState(false)
-
-  const mockPoints = useMemo(
-    () => buildAmbiguityVelocityMock(WINDOW_DAYS, MOCK_PREVIEW_BATCH_COUNT, batchId),
-    [batchId],
-  )
 
   useEffect(() => {
     let cancelled = false
@@ -93,10 +90,8 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
       const mapped = mapAmbiguityVelocityScatter(body)
       if (mapped.live && mapped.points.length > 0) {
         setLivePoints(mapped.points)
-        setSeriesLive(true)
       } else {
         setLivePoints(null)
-        setSeriesLive(false)
       }
     })
     return () => {
@@ -104,8 +99,7 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
     }
   }, [batchId])
 
-  const points = seriesLive && livePoints?.length ? livePoints : mockPoints
-  const isPreview = !seriesLive
+  const points = useMemo(() => livePoints ?? [], [livePoints])
   const { totalHours } = getWindowMeta(WINDOW_DAYS)
   const timeTicks = scatterTimeAxisTicks(WINDOW_DAYS)
   const density = useMemo(() => scatterDensitySummary(points), [points])
@@ -146,11 +140,6 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
           <span className="rounded-full bg-[#e8eef5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#103a9e]">
             {WINDOW_DAYS} days
           </span>
-          {isPreview ? (
-            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800">
-              Preview · {batchId ? 'batch mock' : `${MOCK_PREVIEW_BATCH_COUNT} batches`}
-            </span>
-          ) : null}
         </div>
         <p className="text-[11px] font-medium text-[#00239C]">
           X = time · Y = ambiguity % · size = ambiguous amount · red = high · green = low
@@ -263,8 +252,8 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
             <span
               className="inline-block rounded-full border border-white shadow-sm"
               style={{
-                width: item.color === '#22c55e' ? 10 : item.color === '#ef4444' ? 18 : 14,
-                height: item.color === '#22c55e' ? 10 : item.color === '#ef4444' ? 18 : 14,
+                width: LEGEND_DOT_SIZE[item.label] ?? 14,
+                height: LEGEND_DOT_SIZE[item.label] ?? 14,
                 background: item.color,
               }}
             />

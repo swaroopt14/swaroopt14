@@ -10,9 +10,9 @@ export function deriveRiskScore(
 
   if ((tier === 'CLEAN' || tier === 'LOW') && frac < 0.02) return 99
   if (defensibility?.defensibility_score != null && Number.isFinite(defensibility.defensibility_score)) {
-    return Math.round(Math.min(100, Math.max(0, defensibility.defensibility_score)))
+    return Math.round(Math.min(65, Math.max(0, defensibility.defensibility_score)))
   }
-  if (tier === 'CRITICAL' || tier === 'HIGH') return 42
-  if (tier === 'MEDIUM') return 68
-  return 85
+  if (tier === 'CRITICAL' || tier === 'HIGH') return 27
+  if (tier === 'MEDIUM') return 44
+  return 55
 }

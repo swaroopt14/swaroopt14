@@ -36,21 +36,18 @@ const STATUS_DISPLAY: Record<DataSourceBadgeStatus, string> = {
   processing: 'Processing',
 }
 
+function parseMinorStrict(value: string | number | undefined | null): number | null {
+  if (value == null || value === '') return null
+  const n = typeof value === 'number' ? value : Number(value)
+  if (!Number.isFinite(n)) return null
+  return parseMinorField(value)
+}
+
 function sourceIssue(status: DataSourceBadgeStatus): string {
   if (status === 'received' || status === 'ready') return 'None'
   if (status === 'partial') return 'Needs confirmation'
   if (status === 'processing') return 'Processing'
   return 'Upload required'
-}
-
-function sumReviewMinor(
-  ambiguousMinor: number,
-  unmatched: number,
-  under: number,
-  reversal: number,
-  orphan: number,
-): number {
-  return Math.max(ambiguousMinor, unmatched + under + reversal + orphan)
 }
 
 export function usePaymentOperationsView(batchId?: string): {
@@ -91,13 +88,7 @@ export function usePaymentOperationsView(batchId?: string): {
     const under = leakageOk ? parseMinorField(leakage.under_settlement_amount_minor) : 0
     const reversal = leakageOk ? parseMinorField(leakage.reversal_exposure_minor) : 0
     const orphan = leakageOk ? parseMinorField(leakage.orphan_amount_minor) : 0
-    const ambiguousMinor = leakageOk
-      ? parseMinorField(leakage.ambiguous_value_at_risk_minor ?? 0)
-      : ambiguityOk
-        ? parseMinorField(ambiguity.value_at_risk_minor)
-        : 0
-
-    const reviewMinor = sumReviewMinor(ambiguousMinor, unmatched, under, reversal, orphan)
+    const reviewMinor = ambiguityOk ? parseMinorStrict(ambiguity.value_at_risk_minor) : null
 
     const lifecycleState = derivePaymentCommandDataState({
       intendedMinor: leakageOk ? intendedMinor : null,
@@ -117,11 +108,7 @@ export function usePaymentOperationsView(batchId?: string): {
     else if (lifecycleState.lifecycle === 'intent_only') hero = WORKSPACE_HERO_COPY.intentOnly
     else if (lifecycleState.lifecycle === 'full_lifecycle') hero = WORKSPACE_HERO_COPY.full
 
-    const inScopeCount = patternsOk
-      ? patterns.total_count
-      : dataSources.intentStatus === 'received'
-        ? 1
-        : 0
+    const inScopeCount = patternsOk ? patterns.total_count : null
 
     const matchConf = ambiguityOk ? ambiguity.avg_attachment_confidence : null
     const refCompleteness = ambiguityOk
@@ -216,16 +203,18 @@ export function usePaymentOperationsView(batchId?: string): {
 
     return {
       summary: {
-        inScope: hasLiveData ? formatCount(inScopeCount) : '—',
+        inScope: hasLiveData && inScopeCount != null ? formatCount(inScopeCount) : '—',
         inScopeSub: patternsOk ? `${patterns.success_count} confirmed` : 'Upload data to populate',
         valueObserved: valueObservedMinor != null ? fmtInrFull(valueObservedMinor) : '—',
         valueObservedSub:
           intendedMinor > 0 ? 'From payment instructions' : settledMinor > 0 ? 'From settlement' : '—',
-        needingReview: hasLiveData ? fmtInrFull(reviewMinor) : '—',
+        needingReview: ambiguityOk && reviewMinor != null ? fmtInrFull(reviewMinor) : '—',
         needingReviewSub:
-          reviewMinor <= 0 && hasLiveData
+          !ambiguityOk || reviewMinor == null
+            ? 'No ambiguity value-at-risk data available'
+            : reviewMinor <= 0
             ? PAYMENT_OPERATIONS.reviewZeroHint
-            : 'Unmatched, short-settled, and ambiguous value',
+            : 'Ambiguity value-at-risk from intelligence engine',
         matchConfidence: matchConf != null ? formatPct(matchConf) : '—',
         matchConfidenceSub: ambiguityOk ? 'Average attachment confidence' : '—',
         proofReadiness: proofRate != null ? formatPct(proofRate) : '—',
@@ -236,7 +225,7 @@ export function usePaymentOperationsView(batchId?: string): {
       },
       hero: {
         label: hero.label,
-        value: hasLiveData ? formatCount(inScopeCount) : '—',
+        value: hasLiveData && inScopeCount != null ? formatCount(inScopeCount) : '—',
         subtitle: hero.subtitle,
         showIntentMissing: intentMissing,
       },
@@ -252,7 +241,7 @@ export function usePaymentOperationsView(batchId?: string): {
             { label: 'Reversal exposure', value: fmtInrFull(reversal, { decimals: 0 }) },
           ]
         : [],
-      clarityHero: fmtInrFull(reviewMinor, { decimals: 0 }),
+      clarityHero: ambiguityOk && reviewMinor != null ? fmtInrFull(reviewMinor, { decimals: 0 }) : '—',
       clarityState,
       healthBrief: {
         cleanCount: patternsOk ? formatCount(patterns.success_count) : '—',

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { evidenceCopy } from '../../../today/_components/evidence/copy/evidenceCopy'
-import { verifyProofIntegrityClient } from '../../../today/_components/evidence/utils/verifyProofIntegrity'
+import { postEvidencePackVerify } from '@/services/payout-command/prod-api/postEvidencePackVerify'
 import type { EvidencePackFull } from '@/services/payout-command/prod-api/evidenceTypes'
 
 type VerifyProofIntegrityButtonProps = {
@@ -10,29 +10,51 @@ type VerifyProofIntegrityButtonProps = {
 }
 
 export function VerifyProofIntegrityButton({ pack }: VerifyProofIntegrityButtonProps) {
-  const [result, setResult] = useState<ReturnType<typeof verifyProofIntegrityClient> | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [ok, setOk] = useState<boolean | null>(null)
+  const [proofRoot, setProofRoot] = useState<string | undefined>()
+  const [verifiedAt, setVerifiedAt] = useState<string | undefined>()
 
   return (
     <div className="space-y-3">
       <button
         type="button"
-        onClick={() => setResult(verifyProofIntegrityClient(pack))}
-        className="rounded-[0.85rem] border border-[#E5E5E5] bg-white px-4 py-2 text-[14px] font-semibold text-[#111111] transition hover:border-[#4ADE80]/30"
+        disabled={!pack || busy}
+        onClick={() => {
+          if (!pack) return
+          setBusy(true)
+          void postEvidencePackVerify(pack.evidence_pack_id).then((res) => {
+            const data = res.data
+            if (data) {
+              const verified = data.status?.toUpperCase() === 'VERIFIED'
+              setOk(verified)
+              setMessage(data.explanation)
+              setProofRoot(data.stored_root || data.computed_root)
+              setVerifiedAt(data.checked_at)
+            } else {
+              setOk(false)
+              setMessage(res.error ?? evidenceCopy.verify.failed)
+            }
+            setBusy(false)
+          })
+        }}
+        className="rounded-[0.85rem] border border-[#E5E5E5] bg-white px-4 py-2 text-[14px] font-semibold text-[#111111] transition hover:border-[#4ADE80]/30 disabled:opacity-50"
       >
-        {evidenceCopy.verify.button}
+        {busy ? evidenceCopy.graph.verifyBusy : evidenceCopy.verify.button}
       </button>
-      {result ? (
+      {message ? (
         <div
           className={`rounded-lg border px-3 py-2 text-[13px] ${
-            result.ok ? 'border-[#4ADE80]/40 bg-[#f0fdf4] text-[#166534]' : 'border-rose-200 bg-rose-50 text-rose-900'
+            ok ? 'border-[#4ADE80]/40 bg-[#f0fdf4] text-[#166534]' : 'border-rose-200 bg-rose-50 text-rose-900'
           }`}
         >
-          <p className="font-medium">{result.message}</p>
-          {result.proofRoot ? (
-            <p className="mt-1 font-mono text-[11px] break-all">Proof root: {result.proofRoot}</p>
+          <p className="font-medium">{message}</p>
+          {proofRoot ? (
+            <p className="mt-1 font-mono text-[11px] break-all">Proof root: {proofRoot}</p>
           ) : null}
-          {result.verifiedAt ? (
-            <p className="mt-1 text-[12px]">Verified at: {new Date(result.verifiedAt).toLocaleString()}</p>
+          {verifiedAt ? (
+            <p className="mt-1 text-[12px]">Verified at: {new Date(verifiedAt).toLocaleString()}</p>
           ) : null}
         </div>
       ) : null}

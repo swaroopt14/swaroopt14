@@ -12,16 +12,24 @@ import {
   pickEvidenceBatchId,
 } from '@/services/payout-command/prod-api/evidenceBatchScope'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
+import { getEvidenceBatchLineageGraph } from '@/services/payout-command/prod-api/getEvidenceBatchLineageGraph'
+import { getEvidencePackLineageGraph } from '@/services/payout-command/prod-api/getEvidencePackLineageGraph'
 import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
 import { getIntentJournalPaymentIntentsForSession } from '@/services/payout-command/prod-api/intentJournalApi'
-import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
+import type {
+  EvidencePackFull,
+  EvidencePackSummaryRow,
+} from '@/services/payout-command/prod-api/evidenceTypes'
 import type { IntentJournalPaymentIntentItem } from '@/services/payout-command/prod-api/intentJournalTypes'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { evidenceCopy } from '../evidence/copy/evidenceCopy'
-import { buildEvidencePackGraphFromApi } from './evidencePackGraphFromApi'
+import {
+  buildEvidencePackGraphFromApi,
+  buildEvidencePackGraphFromLineage,
+} from './evidencePackGraphFromApi'
 import type {
   BatchMeta,
   EvidenceItemType,
@@ -237,6 +245,8 @@ export type MerkleGraphSurfaceProps = {
   intentOptionsSource?: 'table' | 'journal'
   /** Hide batch / intent·pack pickers when parent controls scope. */
   hideScopePickers?: boolean
+  /** Called when the active evidence pack changes (intent · pack picker). */
+  onActivePackIdChange?: (packId: string) => void
 }
 
 export function MerkleGraphSurface({
@@ -247,6 +257,7 @@ export function MerkleGraphSurface({
   controlledPackId,
   intentOptionsSource = 'journal',
   hideScopePickers = false,
+  onActivePackIdChange,
 }: MerkleGraphSurfaceProps = {}) {
   const searchParams = useSearchParams()
   const urlBatchId = searchParams.get('batch_id')?.trim() ?? ''
@@ -278,7 +289,49 @@ export function MerkleGraphSurface({
 
   const { defensibility } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId })
   const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
-  const defensibilityScore = defensibilityResolved?.defensibility_score ?? 88
+  const defensibilityScore = defensibilityResolved?.defensibility_score ?? 55
+
+  const isBatchScopedPack = useCallback(
+    (summary: EvidencePackSummaryRow | null | undefined, full: EvidencePackFull): boolean => {
+      const summaryIntentId = apiTrimmedString(summary?.intent_id)
+      const summaryMode = apiTrimmedString(summary?.mode).toUpperCase()
+      if (!summaryIntentId || summaryMode.includes('BATCH')) return true
+      const fullIntentId = apiTrimmedString(full.intent_id)
+      const fullMode = apiTrimmedString(full.mode).toUpperCase()
+      return !fullIntentId || fullMode.includes('BATCH')
+    },
+    [],
+  )
+
+  const resolvePackGraph = useCallback(
+    async (full: EvidencePackFull, summary?: EvidencePackSummaryRow | null): Promise<EvidencePackGraph> => {
+      const batchId = apiTrimmedString(activeBatchId) || 'batch'
+      const batchCandidate = isBatchScopedPack(summary, full)
+      if (batchId && batchCandidate) {
+        const batchLineage = await getEvidenceBatchLineageGraph(batchId)
+        if (batchLineage.data) {
+          return buildEvidencePackGraphFromLineage(full, batchLineage.data, {
+            batchId,
+            defensibilityScore,
+          })
+        }
+      }
+
+      const lineage = await getEvidencePackLineageGraph(full.evidence_pack_id)
+      if (lineage.data) {
+        return buildEvidencePackGraphFromLineage(full, lineage.data, {
+          batchId,
+          defensibilityScore,
+        })
+      }
+
+      return buildEvidencePackGraphFromApi(full, {
+        batchId,
+        defensibilityScore,
+      })
+    },
+    [activeBatchId, defensibilityScore, isBatchScopedPack],
+  )
 
   useEffect(() => {
     const bid = apiTrimmedString(controlledBatchId)
@@ -296,6 +349,10 @@ export function MerkleGraphSurface({
   }, [controlledPackId])
 
   useEffect(() => {
+    if (activePackId) onActivePackIdChange?.(activePackId)
+  }, [activePackId, onActivePackIdChange])
+
+  useEffect(() => {
     if (!useLive) return
     let cancelled = false
     void getIntelligenceBatches({ limit: 80 }).then((res) => {
@@ -309,7 +366,7 @@ export function MerkleGraphSurface({
     return () => {
       cancelled = true
     }
-  }, [useLive])
+  }, [useLive, urlBatchId])
 
   useEffect(() => {
     if (!useLive || !activeBatchId) {
@@ -352,15 +409,17 @@ export function MerkleGraphSurface({
   useEffect(() => {
     if (!useLive || packSummaries.length === 0) return
     let cancelled = false
-    const ids = packSummaries.map((s) => apiTrimmedString(s.evidence_pack_id)).filter(Boolean).slice(0, 256)
+    const summaryByPackId = new Map<string, EvidencePackSummaryRow>()
+    for (const summary of packSummaries) {
+      const pid = apiTrimmedString(summary.evidence_pack_id)
+      if (pid) summaryByPackId.set(pid, summary)
+    }
+    const ids = [...summaryByPackId.keys()].slice(0, 256)
     void Promise.all(
       ids.map(async (id) => {
         const full = await getEvidencePackFull(id)
         if (!full) return
-        const g = buildEvidencePackGraphFromApi(full, {
-          batchId: activeBatchId,
-          defensibilityScore,
-        })
+        const g = await resolvePackGraph(full, summaryByPackId.get(id))
         return [id, g] as const
       }),
     ).then((pairs) => {
@@ -374,25 +433,26 @@ export function MerkleGraphSurface({
     return () => {
       cancelled = true
     }
-  }, [useLive, packSummaries, activeBatchId, defensibilityScore])
+  }, [useLive, packSummaries, resolvePackGraph])
 
   useEffect(() => {
     const packIdFromUrl = apiTrimmedString(initialPackId)
     if (!useLive || !packIdFromUrl) return
     let cancelled = false
-    void getEvidencePackFull(packIdFromUrl).then((full) => {
+    void getEvidencePackFull(packIdFromUrl).then(async (full) => {
       if (cancelled || !full) return
-      const g = buildEvidencePackGraphFromApi(full, {
-        batchId: activeBatchId || 'batch',
-        defensibilityScore,
-      })
+      const summary = packSummaries.find(
+        (row) => apiTrimmedString(row.evidence_pack_id) === packIdFromUrl,
+      )
+      const g = await resolvePackGraph(full, summary)
+      if (cancelled) return
       setLiveGraphs((prev) => ({ ...prev, [g.packId]: g }))
       setActivePackId(g.packId)
     })
     return () => {
       cancelled = true
     }
-  }, [useLive, initialPackId, activeBatchId, defensibilityScore])
+  }, [useLive, initialPackId, packSummaries, resolvePackGraph])
 
   const demoPack = SAMPLE_PACKS[activePackId] ?? initialPack
   const demoBatchPacks = useMemo(() => packsForBatch(activeBatchId), [activeBatchId])
@@ -540,17 +600,14 @@ export function MerkleGraphSurface({
         )
         const full = await getEvidencePackFull(pid)
         if (!full) return
-        const g = buildEvidencePackGraphFromApi(full, {
-          batchId: activeBatchId || 'batch',
-          defensibilityScore,
-        })
+        const g = await resolvePackGraph(full, summary)
         setLiveGraphs((prev) => ({ ...prev, [pid]: g }))
         setActivePackId(pid)
       } finally {
         setResolvingIntentId((cur) => (cur === iid ? null : cur))
       }
     },
-    [activeBatchId, defensibilityScore, intentIdToPackId],
+    [intentIdToPackId, resolvePackGraph],
   )
 
   const livePack =

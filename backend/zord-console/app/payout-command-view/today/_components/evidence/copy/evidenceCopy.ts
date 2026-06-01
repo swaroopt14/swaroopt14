@@ -51,12 +51,14 @@ export const evidenceCopy = {
   proofTierLabel: 'Proof tier',
   proofReadinessHelper:
     'Overall proof strength based on evidence coverage, governance checks, replay readiness, and missing proof items.',
+  defensibilityScaleNote:
+    'Defensibility score is calibrated on a 65-point model in this mode (amount processing excluded).',
   scoreLowExplanation:
     'Score is low because evidence packs exist, but governance and replay checks are not complete.',
   valueReviewHelper:
     'Payment value affected by unmatched records, missing references, ambiguity, or settlement gaps.',
   kpi: {
-    proofReadinessScore: 'Proof Readiness Score',
+    proofReadinessScore: 'Defensibility',
     evidencePacksGenerated: 'Evidence Packs Generated',
     valueNeedingReview: 'Value Needing Evidence Review',
     missingProofItems: 'Missing Proof Items',
@@ -103,6 +105,12 @@ export const evidenceCopy = {
     title: 'Evidence Pack Lineage',
     subtitle:
       'See how this payment proof was built from the original instruction, settlement signal, matching decision, and final evidence root.',
+    timelineTitle: 'Operational proof timeline',
+    timelineEmpty: 'No timeline events returned for this pack.',
+    verifyTitle: 'Cryptographic verification',
+    verifyBusy: 'Verifying Merkle root…',
+    verified: 'Verified',
+    corrupted: 'Corrupted',
   },
   dispute: {
     title: 'Create Dispute / Evidence Case',
@@ -124,12 +132,12 @@ export const evidenceCopy = {
   export: {
     centerTitle: 'Export Center',
     centerSubtitle: 'Generate evidence exports for finance, audit, bank, and dispute review.',
-    apiPending: 'Export API pending — JSON download uses the loaded evidence pack.',
-    financePdf: 'Export for Finance Review',
-    auditPdf: 'Export for Auditor',
-    bankPack: 'Export for Bank / PSP',
-    disputePack: 'Export for Customer Dispute',
-    rawJson: 'Export Raw Evidence JSON',
+    apiPending: 'Export request failed — verify dispute export service and payload mapping.',
+    financePdf: 'Finance Summary (.pdf)',
+    auditPdf: 'Audit Evidence Pack (.pdf)',
+    bankPack: 'Bank / PSP Dispute Pack (.xlsx)',
+    disputePack: 'Customer Dispute Pack (.pdf)',
+    rawJson: 'Technical Payload (.json)',
   },
   verify: {
     button: 'Verify Proof Integrity',
@@ -173,6 +181,8 @@ export type DisputeReason = (typeof evidenceCopy.dispute.reasons)[number]
 
 export function mapProofTierLabel(tier: string | undefined): string {
   const t = (tier || '').toUpperCase()
+  if (t === 'STRONG') return 'Certified'
+  if (t === 'FRAGILE') return 'Needs Review'
   if (t === 'EXCELLENT' || t === 'SEALED') return 'Certified'
   if (t === 'GOOD') return 'Proof Ready'
   if (t === 'FAIR') return 'Partial'

@@ -1,6 +1,12 @@
 import { evidenceCopy } from '../copy/evidenceCopy'
 import type { ProofBreakdownRow } from '../types/evidenceViewModels'
 import type { DefensibilityKpiResolved, PatternsKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { normalizePercentRatio } from '../utils/evidencePercent'
+
+function clampCompleted(completed: number, total: number): number {
+  if (total <= 0) return 0
+  return Math.max(0, Math.min(total, completed))
+}
 
 export function deriveProofBreakdown(input: {
   defensibility: DefensibilityKpiResolved | null
@@ -9,8 +15,9 @@ export function deriveProofBreakdown(input: {
 }): ProofBreakdownRow[] {
   const { defensibility, patterns, packCount } = input
 
-  const inScope = patterns?.total_count ?? (packCount > 0 ? Math.max(packCount, 1000) : 1000)
-  const useModelled = !patterns?.total_count && defensibility
+  const patternScope = typeof patterns?.total_count === 'number' ? Math.max(0, patterns.total_count) : null
+  const inScope = patternScope != null ? Math.max(patternScope, packCount) : Math.max(0, packCount)
+  const useModelled = patternScope == null && defensibility != null && inScope > 0
 
   if (!defensibility && packCount === 0) {
     return [
@@ -25,13 +32,19 @@ export function deriveProofBreakdown(input: {
   }
 
   if (defensibility) {
-    const evidenced = Math.round(inScope * defensibility.evidence_pack_rate)
-    const governanceDone = Math.round(inScope * defensibility.governance_coverage_pct)
-    const replayDone = Math.round(inScope * defensibility.replayability_pct)
+    const evidenceRate = normalizePercentRatio(defensibility.evidence_pack_rate) ?? 0
+    const governanceRate = normalizePercentRatio(defensibility.governance_coverage_pct) ?? 0
+    const replayRate = normalizePercentRatio(defensibility.replayability_pct) ?? 0
+    const auditRate = normalizePercentRatio(defensibility.audit_ready_pct) ?? 0
+    const disputeRate = normalizePercentRatio(defensibility.dispute_ready_pct) ?? 0
+
+    const evidenced = clampCompleted(Math.round(inScope * evidenceRate), inScope)
+    const governanceDone = clampCompleted(Math.round(inScope * governanceRate), inScope)
+    const replayDone = clampCompleted(Math.round(inScope * replayRate), inScope)
     const missingItems = Math.max(0, inScope - replayDone)
 
     const replayNote =
-      defensibility.replayability_pct === 0
+      replayRate === 0
         ? evidenceCopy.breakdown.replayNotEnabled
         : undefined
 
@@ -46,19 +59,19 @@ export function deriveProofBreakdown(input: {
       {
         id: 'packs',
         label: evidenceCopy.breakdown.packsGenerated,
-        completed: packCount > 0 ? Math.max(evidenced, packCount) : evidenced,
+        completed: clampCompleted(packCount > 0 ? Math.max(evidenced, packCount) : evidenced, inScope),
         total: inScope,
       },
       {
         id: 'audit',
         label: 'Audit-ready',
-        completed: Math.round(inScope * defensibility.audit_ready_pct),
+        completed: clampCompleted(Math.round(inScope * auditRate), inScope),
         total: inScope,
       },
       {
         id: 'dispute',
         label: 'Dispute-ready',
-        completed: Math.round(inScope * defensibility.dispute_ready_pct),
+        completed: clampCompleted(Math.round(inScope * disputeRate), inScope),
         total: inScope,
       },
       {

@@ -25,13 +25,13 @@ export function batchHealthToAmbiguityKpis(health: BatchHealth) {
         : 0
   const missingRefRate = totalCount > 0 ? unresolvedCount / totalCount : 0
 
-  return {
-    ambiguous_intent_count: ambiguousCount,
-    ambiguity_rate: ambiguityRate,
-    provider_ref_missing_rate: missingRefRate,
-    value_at_risk_minor: health.total_variance_minor,
-  }
-}
+  return {
+    ambiguous_intent_count: ambiguousCount,
+    ambiguity_rate: ambiguityRate,
+    provider_ref_missing_rate: missingRefRate,
+    value_at_risk_minor: '',
+  }
+}
 
 /** Batch-scoped money context from batch_health (variance only — not orphan/short-settled/reversal). */
 export function batchHealthToLeakageViewModel(
@@ -54,7 +54,7 @@ export function batchHealthToLeakageViewModel(
     reversalMinor: 0,
     ambiguousRiskMinor,
     riskAdjustedMinor: varianceMinor,
-    valueNeedingReviewMinor: varianceMinor,
+    valueNeedingReviewMinor: null,
     paymentGapRate,
     leakageFraction: paymentGapRate,
     riskTier: String(health.finality_status ?? 'N/A'),
@@ -77,22 +77,15 @@ export function mergeBatchHealthWithTenantLeakage(
   if (!tenantLeakage) return batchVm
 
   const tenantVm = toPortfolioLeakageViewModel(tenantLeakage)
-  const valueNeedingReviewMinor =
-    batchVm.unmatchedMinor +
-    tenantVm.underSettlementMinor +
-    tenantVm.orphanMinor +
-    tenantVm.reversalMinor +
-    Math.max(tenantVm.ambiguousRiskMinor, batchVm.ambiguousRiskMinor)
-
-  return {
-    ...batchVm,
+  return {
+    ...batchVm,
     underSettlementMinor: tenantVm.underSettlementMinor,
     orphanMinor: tenantVm.orphanMinor,
     reversalMinor: tenantVm.reversalMinor,
     ambiguousRiskMinor: Math.max(tenantVm.ambiguousRiskMinor, batchVm.ambiguousRiskMinor),
     riskAdjustedMinor: tenantVm.riskAdjustedMinor || batchVm.riskAdjustedMinor,
-    valueNeedingReviewMinor,
+    valueNeedingReviewMinor: tenantVm.valueNeedingReviewMinor,
     riskTier: tenantVm.riskTier !== 'N/A' ? tenantVm.riskTier : batchVm.riskTier,
   }
 }
-
+

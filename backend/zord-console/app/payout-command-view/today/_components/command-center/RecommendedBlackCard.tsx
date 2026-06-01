@@ -29,7 +29,7 @@ export function HydrationSafeLocaleTime({
 }
 
 /** Cool blue-grey band (replaces warm beige #f4f4f1 family). */
-export const COMMAND_COOL_PAGE_BG = 'bg-[#e8eef5]'
+export const COMMAND_COOL_PAGE_BG = 'bg-[#f4f4f1]'
 export const COMMAND_COOL_PANEL_BG = 'bg-[#f1f5f9]'
 export const COMMAND_COOL_SUBTLE_BG = 'bg-slate-50'
 export const COMMAND_COOL_BORDER = 'border-slate-200/90'

@@ -3,18 +3,21 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
+  getAmbiguityKpis,
   getDefensibilityKpis,
   getIntelligenceBatches,
   getLeakageKpis,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type {
+  AmbiguityKpiResolved,
   DefensibilityKpiResolved,
   IntelligenceBatchRow,
   LeakageKpiResolved,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
-import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
+import { getEvidencePacksForBatchIntents } from '@/services/payout-command/prod-api/getEvidencePacksForBatchIntents'
+import { listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { EvidencePageTabs } from './components/EvidencePageTabs'
@@ -35,6 +38,32 @@ import type { EvidencePageTab } from './types/evidenceViewModels'
 
 const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
 
+function mergePackSummaries(
+  batchScopedPacks: EvidencePackSummaryRow[],
+  intentScopedPacks: EvidencePackSummaryRow[],
+): EvidencePackSummaryRow[] {
+  const byId = new Map<string, EvidencePackSummaryRow>()
+  const upsert = (row: EvidencePackSummaryRow) => {
+    const id = apiTrimmedString(row.evidence_pack_id)
+    if (!id) return
+    const prev = byId.get(id)
+    byId.set(id, prev ? { ...prev, ...row } : row)
+  }
+
+  // Keep batch-level rows first in table/graph flows.
+  for (const row of batchScopedPacks) upsert(row)
+  for (const row of intentScopedPacks) upsert(row)
+
+  const rows = [...byId.values()]
+  rows.sort((a, b) => {
+    const aIsBatch = !apiTrimmedString(a.intent_id) || (a.mode ?? '').toUpperCase().includes('BATCH')
+    const bIsBatch = !apiTrimmedString(b.intent_id) || (b.mode ?? '').toUpperCase().includes('BATCH')
+    if (aIsBatch !== bIsBatch) return aIsBatch ? -1 : 1
+    return (a.created_at ?? '').localeCompare(b.created_at ?? '')
+  })
+  return rows
+}
+
 /**
  * APIs (5 on workspace load):
  * 1. GET /api/prod/intelligence/defensibility
@@ -54,6 +83,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const [packsLoading, setPacksLoading] = useState(false)
   const [defensibility, setDefensibility] = useState<DefensibilityKpiResolved | null>(null)
   const [leakage, setLeakage] = useState<LeakageKpiResolved | null>(null)
+  const [ambiguity, setAmbiguity] = useState<AmbiguityKpiResolved | null>(null)
   const [kpisLoading, setKpisLoading] = useState(false)
 
   const { tenantReady } = useSessionTenant()
@@ -90,15 +120,17 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     if (!tenantReady) {
       setDefensibility(null)
       setLeakage(null)
+      setAmbiguity(null)
       return
     }
     const bid = apiTrimmedString(batchId) || undefined
     let cancelled = false
     setKpisLoading(true)
-    void Promise.all([getDefensibilityKpis(), getLeakageKpis(undefined, bid)]).then(([def, leak]) => {
+    void Promise.all([getDefensibilityKpis(), getLeakageKpis(undefined, bid), getAmbiguityKpis(undefined, bid)]).then(([def, leak, amb]) => {
       if (cancelled) return
       setDefensibility(isDataAvailable(def) ? def : null)
       setLeakage(isDataAvailable(leak) ? leak : null)
+      setAmbiguity(isDataAvailable(amb) ? amb : null)
       setKpisLoading(false)
     })
     return () => {
@@ -118,14 +150,22 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     let cancelled = false
     setPacksLoading(true)
     setPackListError(null)
-    void listEvidencePacksForBatch(bid).then((packs) => {
+    void Promise.all([
+      getEvidencePacksForBatchIntents(bid),
+      listEvidencePacks({ batchId: bid }),
+    ]).then(([intentScoped, batchScoped]) => {
       if (cancelled) return
-      if (!packs.length) {
-        setPackListError('No evidence packs for this batch.')
+      const merged = mergePackSummaries(batchScoped?.packs ?? [], intentScoped.packs)
+
+      if (intentScoped.error && (batchScoped?.packs?.length ?? 0) === 0) {
+        setPackListError(intentScoped.error)
+        setPackSummaries([])
+      } else if (!merged.length) {
+        setPackListError(`No evidence packs for batch ${bid}.`)
         setPackSummaries([])
       } else {
         setPackListError(null)
-        setPackSummaries(packs)
+        setPackSummaries(merged)
       }
       setPacksLoading(false)
     })
@@ -138,7 +178,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     () =>
       packSummaries.map((summary) => ({
         summary,
-        itemCount: summary.artifact_count ?? summary.leaf_count ?? undefined,
+        itemCount: summary.leaf_count ?? summary.artifact_count ?? undefined,
       })),
     [packSummaries],
   )
@@ -177,6 +217,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     return scopedTableRows.filter(
       (row) =>
         row.packId.toLowerCase().includes(q) ||
+        row.batchId.toLowerCase().includes(q) ||
         row.paymentRef.toLowerCase().includes(q) ||
         row.intentId.toLowerCase().includes(q) ||
         row.proofRoot.toLowerCase().includes(q),
@@ -184,8 +225,8 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   }, [scopedTableRows, search])
 
   const kpiCards = useMemo(
-    () => deriveEvidenceKpis({ defensibility, leakage, packRows, batchHealth, batchId }),
-    [defensibility, leakage, packRows, batchHealth, batchId],
+    () => deriveEvidenceKpis({ defensibility, leakage, ambiguity, packRows, batchHealth, batchId }),
+    [defensibility, leakage, ambiguity, packRows, batchHealth, batchId],
   )
 
   const breakdownRows = useMemo(
@@ -235,7 +276,11 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
             batchOptions={batchOptions}
           />
 
-          <EvidenceKpiStrip cards={kpiCards} loading={dataLoading} />
+          <EvidenceKpiStrip
+            cards={kpiCards}
+            loading={dataLoading}
+            defensibilityTier={defensibility?.defensibility_tier}
+          />
 
           <ProofBreakdownSection rows={breakdownRows} />
 

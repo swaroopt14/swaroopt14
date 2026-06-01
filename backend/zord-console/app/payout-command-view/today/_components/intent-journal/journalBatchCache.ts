@@ -16,6 +16,10 @@ import {
   mapIntelligenceRowToBatchRecord,
   type JournalBatchRecord,
 } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
+import { getProdDlqPage } from '@/services/payout-command/prod-api/getProdDlqPage'
+import { getProdDlqManualReview } from '@/services/payout-command/prod-api/getProdDlqManualReview'
+import { dlqItemMatchesBatch, mergeDlqItemsById } from '@/services/payout-command/prod-api/mapDlqContext'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { mapBatchIdItemToBatchRecord } from './mappers/mapIntentBatchSidebar'
 
 const listInflight = new Map<string, Promise<JournalBatchRecord[]>>()
@@ -33,19 +37,77 @@ export async function fetchJournalSidebarBatches(tenantId: string): Promise<Jour
 
   const promise = (async () => {
     const fetchRes = await getIntentJournalBatchIdsForSession()
+
+    const merged = new Map<string, JournalBatchRecord>()
+
     if (fetchRes.ok && fetchRes.data) {
-      let batchRows = (fetchRes.data.items ?? []).map(mapBatchIdItemToBatchRecord)
-      if (batchRows.length === 0 && tenantId.trim()) {
-        try {
-          const batchesRes = await getIntelligenceBatches({ limit: 100 })
-          batchRows = (batchesRes?.batches ?? []).map(mapIntelligenceRowToBatchRecord)
-        } catch {
-          /* optional fallback */
-        }
+      for (const row of (fetchRes.data.items ?? []).map(mapBatchIdItemToBatchRecord)) {
+        const bid = apiTrimmedString(row.batchId)
+        if (!bid) continue
+        merged.set(bid, row)
       }
-      return batchRows
     }
-    return []
+
+    if (tenantId.trim()) {
+      try {
+        const batchesRes = await getIntelligenceBatches({ limit: 100 })
+        for (const row of (batchesRes?.batches ?? []).map(mapIntelligenceRowToBatchRecord)) {
+          const bid = apiTrimmedString(row.batchId)
+          if (!bid) continue
+          const existing = merged.get(bid)
+          if (!existing) {
+            merged.set(bid, row)
+            continue
+          }
+          merged.set(bid, {
+            ...existing,
+            source: existing.source || row.source,
+            intelligenceCounts: row.intelligenceCounts ?? existing.intelligenceCounts,
+          })
+        }
+      } catch {
+        /* optional enrichment */
+      }
+
+      try {
+        const dlqPage = await getProdDlqPage('page=1&page_size=500')
+        const counts = new Map<string, number>()
+        for (const row of dlqPage?.items ?? []) {
+          const bid = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
+          if (!bid) continue
+          counts.set(bid, (counts.get(bid) ?? 0) + 1)
+        }
+
+        for (const [bid, count] of counts.entries()) {
+          const existing = merged.get(bid)
+          if (!existing) {
+            merged.set(bid, {
+              batchId: bid,
+              type: 'Disbursement',
+              apiType: '—',
+              source: 'DLQ',
+              totalValue: 0,
+              transactions: count,
+              confirmedCount: 0,
+              highConfidenceCount: 0,
+              mismatchCount: 0,
+              unresolvedCount: count,
+              engineSidebar: true,
+            })
+            continue
+          }
+          merged.set(bid, {
+            ...existing,
+            transactions: Math.max(existing.transactions, count),
+            unresolvedCount: Math.max(existing.unresolvedCount, count),
+          })
+        }
+      } catch {
+        /* optional enrichment */
+      }
+    }
+
+    return Array.from(merged.values())
   })().finally(() => {
     listInflight.delete(key)
   })
@@ -89,8 +151,89 @@ export async function fetchJournalDlqItems(batchId: string): Promise<IntentJourn
   if (existing) return existing
 
   const promise = (async () => {
-    const res = await getIntentJournalDlqItemsForSession(bid)
-    return res.ok && res.data ? res.data : null
+    const [manualReviewRes, sessionRes] = await Promise.all([
+      getProdDlqManualReview(),
+      getIntentJournalDlqItemsForSession(bid),
+    ])
+
+    const manualForBatch = (manualReviewRes?.items ?? [])
+      .filter((row) => dlqItemMatchesBatch(row, bid))
+      .map((row) => ({
+        dlq_id: row.dlq_id,
+        envelope_id: row.envelope_id,
+        client_batch_ref: row.client_batch_ref,
+        batch_id: row.batch_id,
+        source_row_num: row.source_row_num,
+        stage: row.stage,
+        reason_code: row.reason_code,
+        error_detail: row.error_detail,
+        dlq_status: row.dlq_status,
+        intent_context: row.intent_context,
+        trace_id: row.trace_id,
+        replayable: row.replayable,
+        created_at: row.created_at,
+        tenant_id: row.tenant_id,
+      }))
+
+    const sessionItems = sessionRes.ok && sessionRes.data ? (sessionRes.data.items ?? []) : []
+
+    if (manualForBatch.length > 0 || sessionItems.length > 0) {
+      const merged = mergeDlqItemsById(manualForBatch, sessionItems)
+      return {
+        items: merged,
+        pagination: {
+          page: 1,
+          page_size: merged.length,
+          total: merged.length,
+        },
+      }
+    }
+
+    try {
+      const dlqPage = await getProdDlqPage('page=1&page_size=500')
+      const filteredItems = (dlqPage?.items ?? []).filter((row) => dlqItemMatchesBatch(row, bid))
+
+      if (filteredItems.length > 0) {
+        const merged = mergeDlqItemsById(manualForBatch, filteredItems.map((row) => ({
+          dlq_id: row.dlq_id,
+          envelope_id: row.envelope_id,
+          client_batch_ref: row.client_batch_ref,
+          batch_id: row.batch_id,
+          source_row_num: row.source_row_num,
+          stage: row.stage,
+          reason_code: row.reason_code,
+          error_detail: row.error_detail,
+          dlq_status: row.dlq_status,
+          intent_context: row.intent_context,
+          trace_id: row.trace_id,
+          replayable: row.replayable,
+          created_at: row.created_at,
+        })))
+        return {
+          items: merged,
+          pagination: {
+            page: 1,
+            page_size: merged.length,
+            total: merged.length,
+          },
+        }
+      }
+    } catch {
+      /* optional fallback */
+    }
+
+    if (sessionRes.ok && sessionRes.data) return sessionRes.data
+    if (manualForBatch.length > 0) {
+      return {
+        items: manualForBatch,
+        pagination: {
+          page: 1,
+          page_size: manualForBatch.length,
+          total: manualForBatch.length,
+        },
+      }
+    }
+    return null
   })().finally(() => {
     dlqInflight.delete(bid)
   })

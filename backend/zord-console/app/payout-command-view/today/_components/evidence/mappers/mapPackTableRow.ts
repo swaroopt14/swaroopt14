@@ -4,6 +4,8 @@ import { EXPECTED_PROOF_ITEMS } from '../types/evidenceViewModels'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { mapProofStatusFromPack } from './mapProofStatus'
+import { normalizePercentRatio } from '../utils/evidencePercent'
+import { resolveExplicitSignal } from '../utils/proofSignals'
 
 export function computePackProofScore(itemCount: number | undefined, total = EXPECTED_PROOF_ITEMS): number | null {
   if (itemCount === undefined) return null
@@ -11,9 +13,15 @@ export function computePackProofScore(itemCount: number | undefined, total = EXP
 }
 
 function packPaymentRef(s: EvidencePackSummaryRow): string {
+  const clean = (v: unknown): string => {
+    const out = apiTrimmedString(v)
+    if (!out) return ''
+    const normalized = out.toLowerCase()
+    return normalized === 'null' || normalized === 'undefined' ? '' : out
+  }
   return (
-    apiTrimmedString(s.client_reference) ||
-    apiTrimmedString(s.client_payout_ref) ||
+    clean(s.client_payout_ref) ||
+    clean(s.client_reference) ||
     '—'
   )
 }
@@ -36,46 +44,71 @@ export function mapPackTableRow(
   itemCount?: number,
   batchScoreEstimate?: number | null,
 ): PackTableRowVm {
+  const clean = (v: unknown): string => {
+    const out = apiTrimmedString(v)
+    if (!out) return ''
+    const normalized = out.toLowerCase()
+    return normalized === 'null' || normalized === 'undefined' ? '' : out
+  }
+
+  const coerceCount = (value: unknown): number | null => {
+    if (value == null || value === '') return null
+    const n = Number(value)
+    if (!Number.isFinite(n)) return null
+    return Math.max(0, Math.round(n))
+  }
+
   const status = mapProofStatusFromPack(summary, itemCount)
-  const leafTotal = summary.required_leaf_count ?? EXPECTED_PROOF_ITEMS
-  const leafSeen = summary.leaf_count ?? itemCount ?? summary.artifact_count ?? null
+  const requiredLeafCount = coerceCount(summary.required_leaf_count)
+  const leafSeen = coerceCount(summary.leaf_count) ?? coerceCount(itemCount) ?? coerceCount(summary.artifact_count)
+  // API-first totals with a guard for inconsistent payloads (e.g. leaf_count=9, required_leaf_count=5).
+  const leafTotal = requiredLeafCount ?? leafSeen ?? EXPECTED_PROOF_ITEMS
+  const leafTotalResolved =
+    leafSeen != null && requiredLeafCount != null ? Math.max(leafSeen, requiredLeafCount) : leafTotal
+
+  const completenessRatio = normalizePercentRatio(summary.pack_completeness_score ?? null)
   const completenessFromApi =
-    typeof summary.pack_completeness_score === 'number'
-      ? Math.round(summary.pack_completeness_score * 100)
+    completenessRatio != null
+      ? Math.round(completenessRatio * 100)
       : null
+  const scoreRatio = normalizePercentRatio(summary.proof_score ?? null)
   const perPackScore =
     summary.proof_score != null
-      ? Math.round(Number(summary.proof_score))
-      : completenessFromApi ?? computePackProofScore(leafSeen ?? undefined, leafTotal)
+      ? scoreRatio != null
+        ? Math.round(scoreRatio * 100)
+        : Math.round(Number(summary.proof_score))
+      : completenessFromApi ?? computePackProofScore(leafSeen ?? undefined, leafTotalResolved)
 
   return {
     packId: summary.evidence_pack_id,
+    batchId: clean(summary.batch_id) || '—',
     paymentRef: packPaymentRef(summary),
-    intentId: apiTrimmedString(summary.intent_id) || '—',
+    intentId: clean(summary.intent_id) || '—',
     proofRoot: summary.merkle_root || '—',
     proofScore: perPackScore ?? batchScoreEstimate ?? null,
     proofScoreIsEstimate: perPackScore == null && batchScoreEstimate != null,
     itemCount: leafSeen,
-    totalItems: leafTotal,
+    totalItems: leafTotalResolved,
     proofStatus: status.label,
     proofStatusKey: status.key,
     generatedAt: summary.created_at,
     modeLabel: humanizePackMode(summary.mode),
     summaryLine: summaryLabel(summary),
     scope: packScopeFromMode(summary.mode, summary.intent_id),
-    contractId: apiTrimmedString(summary.contract_id) || '—',
-    governanceDecision: apiTrimmedString(summary.governance_decision) || '—',
-    attachmentDecision: apiTrimmedString(summary.attachment_decision) || '—',
+    contractId: clean(summary.contract_id) || '—',
+    governanceDecision: clean(summary.governance_decision) || '—',
+    attachmentDecision: clean(summary.attachment_decision) || '—',
     matchConfidence:
       typeof summary.match_confidence === 'number' ? summary.match_confidence : null,
-    bankReference: apiTrimmedString(summary.bank_reference) || '—',
+    bankReference: clean(summary.bank_reference) || '—',
     amountMatch: typeof summary.amount_match === 'boolean' ? summary.amount_match : null,
     valueDateCheck:
       typeof summary.value_date_check === 'boolean' ? summary.value_date_check : null,
     settlementPresent:
-      typeof summary.settlement_leaf_present_flag === 'boolean'
-        ? summary.settlement_leaf_present_flag
-        : null,
+      resolveExplicitSignal(summary, {
+        component: 'settlement_record_available',
+        flag: 'settlement_leaf_present_flag',
+      }) ?? null,
     packCompleteness: completenessFromApi ?? perPackScore ?? null,
   }
 }

@@ -4,10 +4,11 @@ import type { ReactNode, TouchEvent } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Line, LineChart, ResponsiveContainer } from 'recharts'
 import type { InsightDelta, ZordInsightCard } from './zordInsightCarouselTypes'
+import { INTELLIGENCE_BLUE_GRADIENT } from '../command-center/homeCommandCenterTokens'
 
 /** Home insight carousel — imperial blue glass; body copy is white for contrast on the gradient. */
 const G = {
-  grad: 'linear-gradient(140deg,#4a6fe6 0%,#103a9e 28%,#00239c 52%,#5c7ec9 100%)',
+  grad: INTELLIGENCE_BLUE_GRADIENT,
   glow0: 'radial-gradient(ellipse at 72% 18%,rgba(255,255,255,0.52) 0%,transparent 62%)',
   glow1: 'radial-gradient(ellipse at 28% 75%,rgba(255,255,255,0.44) 0%,transparent 58%)',
   /** Primary type + chart stroke */

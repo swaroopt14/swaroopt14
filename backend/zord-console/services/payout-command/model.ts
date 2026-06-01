@@ -27,12 +27,15 @@ export type GlyphName =
   | 'lock'
   | 'settlement'
   | 'billing'
+  | 'support'
 
 export type DockId =
   | 'home'
   | 'workspace'
   | 'leakage'
   | 'ambiguity'
+  | 'verification'
+  | 'monitoring'
   | 'grid'
   | 'settlement'
   | 'connectors'
@@ -40,6 +43,7 @@ export type DockId =
   | 'proof'
   | 'sandbox'
   | 'billing'
+  | 'support'
 
 /** Dock IDs in sandbox top nav: Today → Intent → Settlement → Billing. */
 export const SANDBOX_DOCK_IDS: DockId[] = ['home', 'grid', 'settlement', 'billing']
@@ -235,6 +239,26 @@ export const dockItems = [
     icon: 'chart',
   },
   {
+    id: 'verification',
+    label: 'Verification',
+    navLabel: 'Verification',
+    title: 'Borrower Verification',
+    breadcrumbLabel: 'Borrower Verification',
+    summary:
+      'Track borrower KYC, bank checks, fraud risk, and proof readiness before disbursal.',
+    icon: 'users',
+  },
+  {
+    id: 'monitoring',
+    label: 'Monitoring',
+    navLabel: 'Monitoring',
+    title: 'Post-Disbursal Monitoring',
+    breadcrumbLabel: 'Post-Disbursal Monitoring',
+    summary:
+      'Monitor confirmation, repayment health, suspicious behavior, and evidence readiness after disbursal.',
+    icon: 'chart',
+  },
+  {
     id: 'grid',
     label: 'Intent Journal',
     navLabel: 'Intent Journal',
@@ -258,9 +282,10 @@ export const dockItems = [
     id: 'connectors',
     label: 'Connectors',
     navLabel: 'Connectors',
-    title: 'Connector Intelligence',
+    title: 'Routing & Network Intelligence',
     breadcrumbLabel: 'Connectors',
-    summary: 'Per-connector ambiguity, latency, and defensibility exposure — walk into a QBR with the exact ₹ exposure each connector creates per month.',
+    summary:
+      'Executive routing view for connector health, leakage exposure, and top route actions to reduce preventable loss.',
     icon: 'shield',
   },
   {
@@ -291,6 +316,16 @@ export const dockItems = [
     summary: 'Plan, payment method, and invoice history. Sandbox uses test billing — no real charges.',
     icon: 'billing',
   },
+  {
+    id: 'support',
+    label: 'Support',
+    navLabel: 'Support',
+    title: 'Support requests',
+    breadcrumbLabel: 'Support',
+    summary:
+      'Raise and track production support tickets with Zord. Attach batch context from Intent or Settlement Journal when reporting issues.',
+    icon: 'support',
+  },
 ] as const
 
 /** Base URLs for payout console + settings (use for links and docs). */
@@ -304,6 +339,7 @@ export const PAYOUT_VIEW_URLS = {
   settingsAccount: '/payout-command-view/settings/account',
   settingsApiKeys: '/payout-command-view/settings/api-keys',
   connectorIntelligence: '/payout-command-view/connector-intelligence',
+  support: '/payout-command-view/today?dock=support',
 } as const
 
 /** One row per dock icon: tooltip label + full page name (matches `dockItems`). */

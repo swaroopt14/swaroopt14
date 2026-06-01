@@ -2,6 +2,7 @@ import { evidenceCopy } from '../copy/evidenceCopy'
 import type { EvidenceKpiCard } from '../types/evidenceViewModels'
 import { EXPECTED_PROOF_ITEMS } from '../types/evidenceViewModels'
 import type {
+  AmbiguityKpiResolved,
   DefensibilityKpiResolved,
   LeakageKpiResolved,
   BatchHealth,
@@ -9,6 +10,7 @@ import type {
 import { fmtInrFull } from '../../command-center/commandCenterFormat'
 import { isExportReadyStatus, mapProofStatusFromPack } from '../mappers/mapProofStatus'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
+import { formatPercentLabel, normalizePercentRatio } from '../utils/evidencePercent'
 
 type PackRowInput = { summary: EvidencePackSummaryRow; itemCount?: number }
 
@@ -19,16 +21,15 @@ function formatMinorInrLabel(minor: string | number | undefined | null): string 
   return fmtInrFull(n, { decimals: 0 })
 }
 
-type PackRowInput = { summary: EvidencePackSummaryRow; itemCount?: number }
-
 export function deriveEvidenceKpis(input: {
   defensibility: DefensibilityKpiResolved | null
   leakage: LeakageKpiResolved | null
+  ambiguity: AmbiguityKpiResolved | null
   packRows: PackRowInput[]
   batchHealth?: BatchHealth | null
   batchId?: string
 }): EvidenceKpiCard[] {
-  const { defensibility, leakage, packRows, batchHealth, batchId } = input
+  const { defensibility, ambiguity, packRows } = input
   const packCount = packRows.length
 
   let readyCount = 0
@@ -48,39 +49,31 @@ export function deriveEvidenceKpis(input: {
     }
   }
 
-  const defScore = defensibility ? `${defensibility.defensibility_score.toFixed(0)}%` : '—'
-  const evidencePct = defensibility ? `${(defensibility.evidence_pack_rate * 100).toFixed(0)}%` : '—'
-  const govPct = defensibility ? `${(defensibility.governance_coverage_pct * 100).toFixed(0)}%` : '—'
-  const replayPct = defensibility ? `${(defensibility.replayability_pct * 100).toFixed(0)}%` : '—'
-
-  const disputePct = defensibility ? `${(defensibility.dispute_ready_pct * 100).toFixed(0)}%` : '—'
+  const defScore = defensibility ? defensibility.defensibility_score.toFixed(1) : '—'
+  const evidencePct = defensibility ? formatPercentLabel(defensibility.evidence_pack_rate) : '—'
+  const govPct = defensibility ? formatPercentLabel(defensibility.governance_coverage_pct) : '—'
+  const replayPct = defensibility ? formatPercentLabel(defensibility.replayability_pct) : '—'
+  const disputePct = defensibility ? formatPercentLabel(defensibility.dispute_ready_pct) : '—'
   let readinessSub = defensibility
     ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct} · Dispute-ready: ${disputePct}`
     : '—'
+  if (defensibility) readinessSub += ` · ${evidenceCopy.defensibilityScaleNote}`
 
   if (defensibility?.weak_evidence_count != null && defensibility.weak_evidence_count > 0) {
     readinessSub += ` · ${defensibility.weak_evidence_count} weak evidence items`
   }
 
   let readinessExplanation: string | undefined
-  if (
-    defensibility &&
-    defensibility.evidence_pack_rate >= 0.99 &&
-    defensibility.defensibility_score < 50
-  ) {
+  if (defensibility && (normalizePercentRatio(defensibility.evidence_pack_rate) ?? 0) >= 0.99 && defensibility.defensibility_score < 50) {
     readinessExplanation = evidenceCopy.scoreLowExplanation
   }
 
-  let exposureValue = '—'
-  let exposureSub = evidenceCopy.valueReviewHelper
-  if (leakage) {
-    exposureValue = formatMinorInrLabel(leakage.unmatched_amount_minor)
-    exposureSub = `Unmatched value · tier ${leakage.risk_tier}`
-  } else if (batchHealth && batchId) {
-    const variance = batchHealth.total_variance_minor
-    exposureValue = formatMinorInrLabel(variance)
-    exposureSub = `Batch variance · ${batchHealth.finality_status ?? 'N/A'}`
-  }
+  const exposureValue = ambiguity
+    ? formatMinorInrLabel(ambiguity.value_at_risk_minor)
+    : '—'
+  const exposureSub: string = ambiguity
+    ? `Ambiguity value-at-risk · tier ${ambiguity.risk_tier ?? 'N/A'}`
+    : evidenceCopy.valueReviewHelper
 
   const packsSub =
     packCount > 0
@@ -112,7 +105,7 @@ export function deriveEvidenceKpis(input: {
       label: evidenceCopy.kpi.governanceChecks,
       value: govPct,
       sub: defensibility
-        ? `Settlement coverage ${((defensibility.settlement_evidence_coverage ?? 0) * 100).toFixed(0)}% · Attachment ${((defensibility.attachment_evidence_coverage ?? 0) * 100).toFixed(0)}%`
+        ? `Settlement coverage ${formatPercentLabel(defensibility.settlement_evidence_coverage)} · Attachment ${formatPercentLabel(defensibility.attachment_evidence_coverage)}`
         : '—',
     },
     {

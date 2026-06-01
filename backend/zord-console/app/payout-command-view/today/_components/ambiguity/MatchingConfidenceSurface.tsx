@@ -61,7 +61,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         ambiguous_intent_count: kpis.ambiguous_intent_count,
         ambiguity_rate: kpis.ambiguity_rate,
         provider_ref_missing_rate: kpis.provider_ref_missing_rate,
-        value_at_risk_minor: String(kpis.value_at_risk_minor ?? ''),
+        value_at_risk_minor: amb?.value_at_risk_minor ?? '',
         avg_attachment_confidence: amb?.avg_attachment_confidence ?? 0,
         risk_tier: amb?.risk_tier ?? 'LOW',
       } as AmbiguityKpiResolved
@@ -108,7 +108,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
   }, [loadBatches])
 
   return (
-    <div className="min-h-screen space-y-4 bg-[#e8eef5] p-4 text-slate-900 sm:p-6">
+    <div className="min-h-screen space-y-4 bg-[#f4f4f1] p-4 text-slate-900 sm:p-6">
 
       {/* ── Page header ─────────────────────────────────────────────────────── */}
       <header className="flex flex-wrap items-center justify-between gap-3">

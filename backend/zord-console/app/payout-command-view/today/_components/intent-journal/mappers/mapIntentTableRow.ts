@@ -1,7 +1,6 @@
 import type { IntentJournalPaymentIntentItem } from '@/services/payout-command/prod-api/intentJournalTypes'
 import type { JournalIntentRow, JournalIntentStatus } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
-import { tenantZordIdSuffix } from '@/services/payout-command/prod-api/tenantDisplay'
 
 export const READINESS_REVIEW_THRESHOLD = 0.7
 
@@ -25,8 +24,11 @@ function formatConfidenceLabel(score: number | undefined): string {
   return `${pct.toFixed(0)}%`
 }
 
-function resolveProviderHint(hint: string | undefined): string {
-  const h = apiTrimmedString(hint)
+function resolveProviderHint(item: IntentJournalPaymentIntentItem): string {
+  const h =
+    apiTrimmedString(item.provider_hint) ||
+    apiTrimmedString(item.beneficiary_type) ||
+    apiTrimmedString(item.rail_hint)
   if (!h) return '—'
   return h.charAt(0).toUpperCase() + h.slice(1)
 }
@@ -44,8 +46,68 @@ function parseAmount(raw: string | number | undefined): number {
   return Number.isFinite(n) ? n : 0
 }
 
+function parseSourceRowNum(raw: unknown): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return Math.max(1, Math.round(raw))
+  if (typeof raw === 'string' && raw.trim()) {
+    const n = Number.parseInt(raw.trim(), 10)
+    if (Number.isFinite(n) && n > 0) return n
+  }
+  return null
+}
+
+function resolveRailHint(item: IntentJournalPaymentIntentItem): string {
+  const beneficiary = item.beneficiary as { instrument?: unknown } | undefined
+  const instrumentKind =
+    typeof beneficiary?.instrument === 'object' &&
+    beneficiary?.instrument &&
+    typeof (beneficiary.instrument as { kind?: unknown }).kind === 'string'
+      ? String((beneficiary.instrument as { kind?: string }).kind || '')
+      : ''
+
+  const candidates = [
+    apiTrimmedString(item.rail_hint),
+    apiTrimmedString(item.beneficiary_type),
+    apiTrimmedString(instrumentKind),
+    apiTrimmedString(item.provider_hint),
+  ]
+    .filter(Boolean)
+    .map((v) => String(v).toUpperCase())
+
+  for (const value of candidates) {
+    if (value.includes('RTGS')) return 'RTGS'
+    if (value.includes('NEFT')) return 'NEFT'
+    if (value.includes('NACH')) return 'NACH'
+    if (value.includes('IMPS')) return 'IMPS'
+    if (value.includes('UPI')) return 'UPI'
+    if (value.includes('LSM') || value.includes('INSTA')) return 'LSM'
+  }
+  return '—'
+}
+
+function methodFromRail(rail: string): JournalIntentRow['method'] {
+  const r = rail.toUpperCase()
+  if (r.includes('NACH')) return 'NACH'
+  if (r.includes('IMPS') || r.includes('UPI') || r.includes('LSM')) return 'LSM'
+  return 'Bank Transfer'
+}
+
+function beneficiaryNameHint(item: IntentJournalPaymentIntentItem): string | null {
+  const raw = (item.beneficiary as { name?: unknown } | undefined)?.name
+  if (typeof raw === 'string' && raw.trim()) return raw.trim()
+  return null
+}
+
+function buildZordId(requestId: string, batchId: string, index: number): string {
+  const source = apiTrimmedString(requestId) || `${batchId}-row-${index + 1}`
+  const normalized = source.replace(/[^a-zA-Z0-9]/g, '')
+  if (!normalized) return `ZRD-${String(index + 1).padStart(4, '0')}`
+  return `ZRD-${normalized.slice(-8).toUpperCase()}`
+}
+
 function syntheticRequestId(batchId: string, index: number, item: IntentJournalPaymentIntentItem): string {
   if (apiTrimmedString(item.intent_id)) return apiTrimmedString(item.intent_id)!
+  const sourceRowNum = parseSourceRowNum(item.source_row_num)
+  if (sourceRowNum != null) return `${batchId}-src-${sourceRowNum}`
   if (apiTrimmedString(item.envelope_id)) return apiTrimmedString(item.envelope_id)!
   return `${batchId}-row-${index + 1}`
 }
@@ -58,37 +120,46 @@ export function mapPaymentIntentListItemToRow(
   sessionTenantId: string,
 ): JournalIntentRow {
   const amount = parseAmount(item.amount)
+  const sourceRowNum = parseSourceRowNum(item.source_row_num)
   const qualityScore =
     typeof item.intent_quality_score === 'number' && Number.isFinite(item.intent_quality_score)
       ? item.intent_quality_score
       : null
   const status = resolveLifecycleStatus(qualityScore ?? undefined)
-  const provider = resolveProviderHint(item.provider_hint)
+  const provider = resolveProviderHint(item)
+  const rail = resolveRailHint(item)
   const requestId = syntheticRequestId(batchId, index, item)
-  const zordId = tenantZordIdSuffix(sessionTenantId || apiTrimmedString(item.tenant_id))
+  const zordId = buildZordId(requestId, batchId, index)
   const paymentRef = apiTrimmedString(item.client_payout_ref)
+  const clientBatchRef = apiTrimmedString(item.client_batch_ref) || apiTrimmedString(item.batch_id) || batchId
+  const referenceFallback =
+    sourceRowNum != null ? `SRC-${sourceRowNum}` : apiTrimmedString(item.envelope_id) || requestId
 
   return {
     batchId,
     zordId,
     requestId,
-    reference: paymentRef || '—',
+    reference: paymentRef || referenceFallback,
     amount,
-    method: 'Bank Transfer',
+    method: methodFromRail(rail),
     status,
     match: 'Awaiting',
     lastUpdated: formatJournalExecutionAt(item.intended_execution_at),
     paymentPartner: provider,
     bank: provider,
-    paymentMethodDetail: provider,
+    paymentMethodDetail: rail !== '—' ? rail : provider,
     engineStatus: undefined,
     currency: apiTrimmedString(item.currency ?? 'INR') || 'INR',
-    tenantId: apiTrimmedString(item.tenant_id) || '—',
+    tenantId: apiTrimmedString(item.tenant_id) || apiTrimmedString(sessionTenantId) || '—',
     intendedExecutionAt: formatJournalExecutionAt(item.intended_execution_at),
     provider,
     confidenceScore: qualityScore,
     confidenceLabel: formatConfidenceLabel(qualityScore ?? undefined),
     infoSummary: status === 'Needs Review' ? 'Low intent readiness' : 'Awaiting bank confirmation',
+    rail,
+    sourceRowNum,
+    clientBatchRef,
+    beneficiaryName: beneficiaryNameHint(item),
   }
 }
 

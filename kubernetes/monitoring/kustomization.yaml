@@ -5,6 +5,7 @@ resources:
   - namespace.yaml
   - prometheus/rbac.yaml
   - prometheus/configmap.yaml
+  - prometheus/alerting-rules.yaml
   - prometheus/deployment.yaml
   - prometheus/service.yaml
   - node-exporter/daemonset.yaml

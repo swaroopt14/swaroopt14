@@ -1,0 +1,65 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kibana-init
+  namespace: logging
+spec:
+  backoffLimit: 10
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: kibana-init
+          image: curlimages/curl:8.7.1
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Waiting for Kibana to be ready..."
+              until curl -s http://kibana.logging.svc.cluster.local:5601/api/status | grep -q '"overall":{"level":"available"'; do
+                echo "Kibana not ready yet, waiting..."
+                sleep 10
+              done
+              echo "Kibana is ready. Creating data views..."
+
+              # Create zord-logs data view
+              curl -s -X POST "http://kibana.logging.svc.cluster.local:5601/api/data_views/data_view" \
+                -H "kbn-xsrf: true" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "data_view": {
+                    "title": "zord-logs-*",
+                    "name": "Zord Application Logs",
+                    "timeFieldName": "@timestamp"
+                  }
+                }' && echo " -> zord-logs data view created"
+
+              # Create kong-access data view
+              curl -s -X POST "http://kibana.logging.svc.cluster.local:5601/api/data_views/data_view" \
+                -H "kbn-xsrf: true" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "data_view": {
+                    "title": "kong-access-*",
+                    "name": "Kong Access Logs",
+                    "timeFieldName": "@timestamp"
+                  }
+                }' && echo " -> kong-access data view created"
+
+              # Set zord-logs as default
+              curl -s -X POST "http://kibana.logging.svc.cluster.local:5601/api/data_views/default" \
+                -H "kbn-xsrf: true" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "data_view_id": "zord-logs-*",
+                  "force": true
+                }' && echo " -> default data view set"
+
+              echo "Kibana initialization complete!"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi

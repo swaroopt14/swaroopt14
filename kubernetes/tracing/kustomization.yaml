@@ -6,8 +6,6 @@ resources:
   - otel-collector/configmap.yaml
   - otel-collector/deployment.yaml
   - otel-collector/service.yaml
-  - jaeger/secret.yaml
-  - jaeger/auth-config.yaml
   - jaeger/deployment.yaml
   - jaeger/service.yaml
   - ingress.yaml

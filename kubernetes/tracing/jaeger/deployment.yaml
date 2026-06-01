@@ -18,30 +18,6 @@ spec:
         runAsUser: 10001
         runAsNonRoot: true
       containers:
-        # Nginx sidecar for basic auth protection
-        - name: auth-proxy
-          image: nginx:1.25-alpine
-          securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
-          ports:
-            - containerPort: 8080
-              name: auth-proxy
-          volumeMounts:
-            - name: nginx-config
-              mountPath: /etc/nginx/nginx.conf
-              subPath: nginx.conf
-            - name: auth-secret
-              mountPath: /etc/nginx/auth/.htpasswd
-              subPath: .htpasswd
-          resources:
-            requests:
-              cpu: 10m
-              memory: 16Mi
-            limits:
-              cpu: 50m
-              memory: 32Mi
-        # Jaeger all-in-one
         - name: jaeger
           image: jaegertracing/all-in-one:1.55
           ports:
@@ -78,12 +54,6 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: jaeger-data
-        - name: nginx-config
-          configMap:
-            name: jaeger-nginx-config
-        - name: auth-secret
-          secret:
-            secretName: jaeger-auth-credentials
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

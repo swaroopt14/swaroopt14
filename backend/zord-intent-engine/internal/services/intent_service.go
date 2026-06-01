@@ -1374,17 +1374,18 @@ func (s *IntentService) ProcessIncomingIntent(
 		}
 
 		dlqEntry := models.DLQEntry{
-			TenantID:      in.TenantID.String(),
-			EnvelopeID:    in.EnvelopeID.String(),
-			Stage:         "POLICY_DLQ",
-			ReasonCode:    "SEMANTIC_INVALID",
-			ErrorDetail:   errorDetail,
-			DLQStatus:     policyDLQStatus,
-			BatchID:       batchIDStr,
+			TenantID:       in.TenantID.String(),
+			EnvelopeID:     in.EnvelopeID.String(),
+			Stage:          "POLICY_DLQ",
+			ReasonCode:     "SEMANTIC_INVALID",
+			ErrorDetail:    errorDetail,
+			DLQStatus:      policyDLQStatus,
+			BatchID:        batchIDStr,
 			ClientBatchRef: batchIDStr,
-			IntentContext: models.BuildIntentContext(policyDLQStatus, parsed),
-			TraceID:       in.TraceID.String(),
-			CreatedAt:     time.Now().UTC(),
+			SourceRowNum:   sourceRowNumFromRef(parsed.SourceRowRef),
+			IntentContext:  models.BuildIntentContext(policyDLQStatus, parsed),
+			TraceID:        in.TraceID.String(),
+			CreatedAt:      time.Now().UTC(),
 		}
 		// Save to the repository so the database row is created
 		savedDLQ, err := s.validator.DLQRepo().Save(ctx, dlqEntry)

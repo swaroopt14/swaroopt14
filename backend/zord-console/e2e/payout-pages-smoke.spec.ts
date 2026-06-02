@@ -226,6 +226,7 @@ function emptyProdBody(path: string): unknown {
     return {
       data_available: true,
       tenant_id: SESSION_TENANT,
+      computed_at: '2026-06-02T07:00:00Z',
       total_intended_amount_minor: 5_000_000,
       unmatched_amount_minor: 120_000,
       under_settlement_amount_minor: 80_000,
@@ -240,9 +241,123 @@ function emptyProdBody(path: string): unknown {
     return {
       data_available: true,
       tenant_id: SESSION_TENANT,
+      computed_at: '2026-06-02T07:00:00Z',
       value_at_risk_minor: 250_000,
       avg_attachment_confidence: 0.82,
+      provider_ref_missing_rate: 0.16,
       ambiguous_intent_count: 12,
+    }
+  }
+  if (path.endsWith('/intelligence/ambiguity/heatmap')) {
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      batches: [
+        {
+          batch_id: 'route-batch-a',
+          total_count: 100,
+          exact_match_count: 62,
+          high_confidence_count: 26,
+          ambiguous_count: 8,
+          unresolved_count: 3,
+          conflicted_count: 1,
+          aggregate_score: 0.88,
+        },
+        {
+          batch_id: 'route-batch-b',
+          total_count: 100,
+          exact_match_count: 68,
+          high_confidence_count: 22,
+          ambiguous_count: 6,
+          unresolved_count: 3,
+          conflicted_count: 1,
+          aggregate_score: 0.9,
+        },
+      ],
+    }
+  }
+  if (path.endsWith('/intelligence/recommendations')) {
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      computed_at: '2026-06-02T07:00:00Z',
+      total_actions: 3,
+      accepted_actions: 1,
+      resolved_actions: 1,
+      action_acceptance_rate: 0.33,
+      action_resolution_rate: 0.33,
+      recommendation_impact_estimate_minor: 300_000,
+    }
+  }
+  if (path.endsWith('/intelligence/pattern')) {
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      computed_at: '2026-06-02T07:00:00Z',
+      data: {
+        computed_at: '2026-06-02T07:00:00Z',
+        weakest_source_system: 'manual_excel',
+        weakest_source_missing_ref_rate: 0.42,
+        weakest_provider_id: 'cashfree',
+        settlement_delay_p95_days: 2,
+        duplicate_risk_exposure_minor: 420_000,
+        unexplained_variance_amount_minor: 75_000,
+        source_quality_patterns: [
+          {
+            severity: 'HIGH',
+            source_system: 'manual_excel',
+            manual_review_rate: 0.31,
+            missing_client_ref_rate: 0.42,
+            low_matchability_rate: 0.4,
+            duplicate_risk_rate: 0.12,
+            manual_review_amount_minor: 500_000,
+          },
+        ],
+        provider_quality_patterns: [
+          {
+            severity: 'CRITICAL',
+            provider_id: 'cashfree',
+            orphan_rate: 0.24,
+            ambiguity_rate: 0.05,
+            avg_carrier_richness: 0.42,
+            avg_parse_confidence: 0.59,
+            settlement_delay_p95_days: 2,
+          },
+        ],
+      },
+    }
+  }
+  if (path.endsWith('/intelligence/pattern/history')) {
+    return {
+      count: 1,
+      intelligence_mode: 'GRADE_A',
+      snapshot_type: 'PATTERN',
+      snapshots: [
+        {
+          created_at: '2026-06-02T07:00:00Z',
+          snapshot_json: {
+            weakest_source_system: 'manual_excel',
+            weakest_source_missing_ref_rate: 0.42,
+            weakest_provider_id: 'cashfree',
+          },
+        },
+      ],
+    }
+  }
+  if (path.endsWith('/intelligence/patterns')) {
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      computed_at: '2026-06-02T07:00:00Z',
+      batch_anomaly_score: 0.31,
+      anomaly_level: 'MEDIUM',
+      batch_risk_score: 0.39,
+      risk_tier: 'MEDIUM',
+      finality_status: 'FULLY_SETTLED',
+      total_count: 100,
+      success_count: 82,
+      failed_count: 4,
+      pending_count: 14,
     }
   }
   if (path.endsWith('/intelligence/timeseries/leakage')) {
@@ -694,20 +809,31 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
   })
 
   test('connectors renders routing wireframe sections and drawer drill-down', async ({ page }) => {
+    test.setTimeout(45_000)
+    const captures: ProdCapture[] = []
+    page.on('request', (req) => {
+      if (req.method() !== 'GET') return
+      const cap = captureProdGet(req.url())
+      if (cap) captures.push(cap)
+    })
+
     await page.goto('/payout-command-view/today?dock=connectors')
     await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
     await expect(page.getByTestId('routing-kpi-bar')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('routing-kpi-bar')).toContainText('₹50,000')
     await expect(page.getByTestId('network-health-chart')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId('leakage-composition-chart')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId('recommended-routes')).toContainText('Razorpay → UPI → HDFC')
-    await expect(page.getByTestId('connector-grid')).toContainText('Recommended Action')
-    await page.getByText('ICICI Bank').first().click()
+    await expect(page.getByTestId('connector-grid')).toContainText('Strengthen provider contract')
+    await page.getByTestId('connector-grid').locator('tbody tr', { hasText: 'ICICI Bank' }).click()
     await expect(page.getByTestId('connector-drawer')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId('connector-drawer')).toContainText('Top failures')
-    await page.getByRole('button', { name: 'Close' }).click()
-    await expect(page.getByTestId('connector-drawer')).toHaveCount(0)
+    expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/leakage'))).toBe(true)
+    expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/pattern'))).toBe(true)
+    expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/pattern/history'))).toBe(true)
+    expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/recommendations'))).toBe(true)
   })
 
   test('evidence charts show Preview when packs empty', async ({ page }) => {

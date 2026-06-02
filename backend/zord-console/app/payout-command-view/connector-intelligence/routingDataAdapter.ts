@@ -1,4 +1,5 @@
 import { getSeededRoutingSnapshot } from './seededRoutingData'
+import { getLiveRoutingSnapshot } from './liveRoutingDataAdapter'
 import type { RoutingKpiSnapshot, RoutingTimeWindow } from './types'
 
 export type RoutingIntelligenceAdapter = {
@@ -7,12 +8,15 @@ export type RoutingIntelligenceAdapter = {
 
 const seededAdapter: RoutingIntelligenceAdapter = {
   async getSnapshot(window) {
-    return getSeededRoutingSnapshot(window)
+    try {
+      const liveSnapshot = await getLiveRoutingSnapshot(window)
+      return liveSnapshot ?? getSeededRoutingSnapshot(window)
+    } catch {
+      return getSeededRoutingSnapshot(window)
+    }
   },
 }
 
 export function getRoutingIntelligenceAdapter(): RoutingIntelligenceAdapter {
-  // Future API boundary:
-  // swap to `/api/prod/intelligence/routing-*` adapter without changing UI.
   return seededAdapter
 }

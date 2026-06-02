@@ -209,9 +209,7 @@ export default function ConnectorIntelligenceClient() {
         </section>
       ) : null}
 
-      <section
-        data-testid="routing-kpi-bar"
-      >
+      <section>
         <JournalIntelligenceKpiHero
           eyebrow="Routing intelligence overview"
           value={formatCompactInr(kpis.totalVolumeMinor)}

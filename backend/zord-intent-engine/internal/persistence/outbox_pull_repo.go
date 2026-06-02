@@ -91,7 +91,8 @@ leased AS (
 		o.tokenization_status,
 		o.governance_decision,
 		o.payment_instruction_received,
-		o.canonical_intent_created
+		o.canonical_intent_created,
+		COALESCE(o.client_payout_ref, '') as client_payout_ref
 )
 SELECT
 	event_id,
@@ -122,7 +123,8 @@ SELECT
 	tokenization_status,
 	governance_decision,
 	payment_instruction_received,
-	canonical_intent_created
+	canonical_intent_created,
+	client_payout_ref
 FROM leased
 ORDER BY created_at ASC;
 `
@@ -175,6 +177,7 @@ ORDER BY created_at ASC;
 			&evt.GovernanceDecision,
 			&evt.PaymentInstructionReceived,
 			&evt.CanonicalIntentCreated,
+			&evt.ClientPayoutRef,
 		); err != nil {
 			return "", nil, nil, err
 		}

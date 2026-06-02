@@ -33,9 +33,9 @@ INSERT INTO pending_leaf_candidates (
 	required_fields_status, tokenization_status, governance_decision,
 	settlement_record_received, canonical_settlement_created, bank_reference,
 	client_reference, attachment_decision, match_confidence,
-	value_date_check, amount_match,
+	value_date_check, amount_match, client_payout_ref, amount, currency,
 	created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW())
 ON CONFLICT (tenant_id, intent_id, leaf_type) WHERE intent_id IS NOT NULL 
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
@@ -57,6 +57,9 @@ DO UPDATE SET
 	match_confidence = COALESCE(EXCLUDED.match_confidence, pending_leaf_candidates.match_confidence),
 	value_date_check = COALESCE(EXCLUDED.value_date_check, pending_leaf_candidates.value_date_check),
 	amount_match = COALESCE(EXCLUDED.amount_match, pending_leaf_candidates.amount_match),
+	client_payout_ref = COALESCE(EXCLUDED.client_payout_ref, pending_leaf_candidates.client_payout_ref),
+	amount = COALESCE(EXCLUDED.amount, pending_leaf_candidates.amount),
+	currency = COALESCE(EXCLUDED.currency, pending_leaf_candidates.currency),
 	updated_at = NOW()
 `
 	// Handle the envelope-only conflict separately because PostgreSQL doesn't support multiple partial unique indexes in a single ON CONFLICT easily if they differ in the WHERE clause significantly.
@@ -71,9 +74,9 @@ INSERT INTO pending_leaf_candidates (
 	required_fields_status, tokenization_status, governance_decision,
 	settlement_record_received, canonical_settlement_created, bank_reference,
 	client_reference, attachment_decision, match_confidence,
-	value_date_check, amount_match,
+	value_date_check, amount_match, client_payout_ref, amount, currency,
 	created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW())
 ON CONFLICT (tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL AND batch_id IS NULL
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
@@ -95,6 +98,9 @@ DO UPDATE SET
 	match_confidence = COALESCE(EXCLUDED.match_confidence, pending_leaf_candidates.match_confidence),
 	value_date_check = COALESCE(EXCLUDED.value_date_check, pending_leaf_candidates.value_date_check),
 	amount_match = COALESCE(EXCLUDED.amount_match, pending_leaf_candidates.amount_match),
+	client_payout_ref = COALESCE(EXCLUDED.client_payout_ref, pending_leaf_candidates.client_payout_ref),
+	amount = COALESCE(EXCLUDED.amount, pending_leaf_candidates.amount),
+	currency = COALESCE(EXCLUDED.currency, pending_leaf_candidates.currency),
 	updated_at = NOW()
 `
 	} else if leaf.IntentID == nil && leaf.ClientBatchID != nil {
@@ -105,9 +111,9 @@ INSERT INTO pending_leaf_candidates (
 	required_fields_status, tokenization_status, governance_decision,
 	settlement_record_received, canonical_settlement_created, bank_reference,
 	client_reference, attachment_decision, match_confidence,
-	value_date_check, amount_match,
+	value_date_check, amount_match, client_payout_ref, amount, currency,
 	created_at, updated_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, NOW(), NOW())
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW())
 ON CONFLICT (tenant_id, batch_id, leaf_type) WHERE batch_id IS NOT NULL AND intent_id IS NULL
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
@@ -129,6 +135,9 @@ DO UPDATE SET
 	match_confidence = COALESCE(EXCLUDED.match_confidence, pending_leaf_candidates.match_confidence),
 	value_date_check = COALESCE(EXCLUDED.value_date_check, pending_leaf_candidates.value_date_check),
 	amount_match = COALESCE(EXCLUDED.amount_match, pending_leaf_candidates.amount_match),
+	client_payout_ref = COALESCE(EXCLUDED.client_payout_ref, pending_leaf_candidates.client_payout_ref),
+	amount = COALESCE(EXCLUDED.amount, pending_leaf_candidates.amount),
+	currency = COALESCE(EXCLUDED.currency, pending_leaf_candidates.currency),
 	updated_at = NOW()
 `
 	}
@@ -158,6 +167,9 @@ DO UPDATE SET
 		leaf.MatchConfidence,
 		leaf.ValueDateCheck,
 		leaf.AmountMatch,
+		leaf.ClientPayoutRef,
+		leaf.Amount,
+		leaf.Currency,
 	)
 	if err != nil {
 		return fmt.Errorf("upsert leaf candidate: %w", err)
@@ -186,7 +198,7 @@ SELECT id, tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, 
        required_fields_status, tokenization_status, governance_decision,
        settlement_record_received, canonical_settlement_created, bank_reference,
        client_reference, attachment_decision, match_confidence,
-       value_date_check, amount_match,
+       value_date_check, amount_match, client_payout_ref, amount, currency,
        created_at, updated_at
 FROM pending_leaf_candidates
 WHERE tenant_id = $1 AND intent_id = $2
@@ -207,6 +219,7 @@ WHERE tenant_id = $1 AND intent_id = $2
 			&l.SettlementRecordReceived, &l.CanonicalSettlementCreated, &l.BankReference,
 			&l.ClientReference, &l.AttachmentDecision, &l.MatchConfidence,
 			&l.ValueDateCheck, &l.AmountMatch,
+			&l.ClientPayoutRef, &l.Amount, &l.Currency,
 			&l.CreatedAt, &l.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -223,7 +236,7 @@ SELECT id, tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, 
        required_fields_status, tokenization_status, governance_decision,
        settlement_record_received, canonical_settlement_created, bank_reference,
        client_reference, attachment_decision, match_confidence,
-       value_date_check, amount_match,
+       value_date_check, amount_match, client_payout_ref, amount, currency,
        created_at, updated_at
 FROM pending_leaf_candidates
 WHERE tenant_id = $1 AND batch_id = $2 AND intent_id IS NULL
@@ -244,6 +257,7 @@ WHERE tenant_id = $1 AND batch_id = $2 AND intent_id IS NULL
 			&l.SettlementRecordReceived, &l.CanonicalSettlementCreated, &l.BankReference,
 			&l.ClientReference, &l.AttachmentDecision, &l.MatchConfidence,
 			&l.ValueDateCheck, &l.AmountMatch,
+			&l.ClientPayoutRef, &l.Amount, &l.Currency,
 			&l.CreatedAt, &l.UpdatedAt,
 		); err != nil {
 			return nil, err

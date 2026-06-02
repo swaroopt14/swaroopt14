@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 	"zord-evidence/config"
@@ -38,7 +39,11 @@ func main() {
 		log.Fatalf("ensure tables failed: %v", err)
 	}
 
-	signer, err := services.NewSigner(cfg.SigningPrivateKey)
+	signingKeyPath := os.Getenv("SIGNING_KEY_PATH")
+	if signingKeyPath == "" {
+		signingKeyPath = "signing_key.pem"
+	}
+	signer, err := services.NewSigner(signingKeyPath)
 	if err != nil {
 		log.Fatalf("signer init failed: %v", err)
 	}

@@ -3,6 +3,8 @@ package model
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/shopspring/decimal"
 )
 
 // OutboxEvent is the normalized event model that works across all upstream
@@ -70,6 +72,10 @@ type OutboxEvent struct {
 
 	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`
 	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
+
+	ClientPayoutRef *string `json:"client_payout_ref,omitempty"`
+	Amount	decimal.Decimal `json:"amount,omitempty"`
+	Currency string `json:"currency,omitempty"`
 
 	// 🆕 Settlement Metadata
 	SettlementRecordReceived   *time.Time `json:"settlement_record_received,omitempty"`

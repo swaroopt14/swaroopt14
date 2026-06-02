@@ -40,6 +40,9 @@ type FinanceSummaryView struct {
 
 	// Explanation is a single human-readable sentence summarising the payment status.
 	Explanation string `json:"explanation"`
+
+	// ZordSignature is the cryptographic seal over the pack generated using the service's private key.
+	ZordSignature string `json:"zord_signature,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -113,6 +116,9 @@ type AuditDetailedView struct {
 	// Section 7 — Proof components checklist
 	ProofComponentsChecklist ProofComponentsChecklist `json:"proof_components_checklist"`
 	ProofScore               int                      `json:"proof_score"`
+
+	// ZordSignature is the cryptographic seal over the pack generated using the service's private key.
+	ZordSignature string `json:"zord_signature,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +150,9 @@ type BankPSPPackView struct {
 	// IssueStatement is a clear one-line statement of the dispute context.
 	// Format: "<dispute_reason> — <attachment_decision> — UTR:<masked_utr>"
 	IssueStatement string `json:"issue_statement"`
+
+	// ZordSignature is the cryptographic seal over the pack generated using the service's private key.
+	ZordSignature string `json:"zord_signature,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

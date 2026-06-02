@@ -171,6 +171,7 @@ type EvidencePack struct {
 	RequiredLeafCount                 int               `json:"required_leaf_count"`
 	SettlementLeafPresentFlag         bool              `json:"settlement_leaf_present_flag"`
 	AttachmentDecisionLeafPresentFlag bool              `json:"attachment_decision_leaf_present_flag"`
+	ZordSignature                     string            `json:"zord_signature,omitempty" db:"zord_signature"`
 
 	// 🆕 Traceability & Status Fields
 	PaymentInstructionReceived *time.Time `json:"payment_instruction_received,omitempty"`

@@ -169,6 +169,7 @@ func buildFinanceSummaryView(pack *models.EvidencePack, req models.DisputeExport
 		VarianceLabel:    varianceLabel,
 		ProofScore:       score.Score,
 		Explanation:      deriveFinanceExplanation(pack, score),
+		ZordSignature:    pack.ZordSignature,
 	}
 }
 
@@ -248,6 +249,8 @@ footer{margin-top:3rem;font-size:0.75rem;color:#888;border-top:1px solid #eee;pa
 
 	sb.WriteString(fmt.Sprintf(`<tr><td class="label">Proof Score</td><td><span class="score-badge">%d / 100</span></td></tr>`,
 		view.ProofScore))
+
+	sb.WriteString(fmt.Sprintf(`<tr><td class="label">Zord Signature</td><td style="word-break: break-all; font-family: monospace;">%s</td></tr>`, htmlEscape(view.ZordSignature)))
 
 	sb.WriteString(`</table>`)
 
@@ -406,6 +409,7 @@ func buildAuditDetailedView(pack *models.EvidencePack) models.AuditDetailedView 
 
 		ProofComponentsChecklist: checklist,
 		ProofScore:               score.Score,
+		ZordSignature:            pack.ZordSignature,
 	}
 }
 
@@ -530,12 +534,18 @@ footer{margin-top:3rem;font-size:0.72rem;color:#666;border-top:1px solid #ccc;pa
 	// ── Section 5: Merkle Root ──
 	sb.WriteString(`<h2>⑤ Merkle Root &amp; Cryptographic Seal</h2>`)
 	sb.WriteString(fmt.Sprintf(`<p><strong>Merkle Root:</strong> <span class="hash">%s</span></p>`, view.MerkleRoot))
+
+	sb.WriteString(`<div class="section">
+        <h2>7. Cryptographic Endorsement</h2>
+        <div class="content">
+            <p><strong>Zord Signature:</strong> <span style="word-break: break-all; font-family: monospace;">` + htmlEscape(view.ZordSignature) + `</span></p>`)
 	if view.Signature != nil {
-		sb.WriteString(fmt.Sprintf(`<p><strong>Algorithm:</strong> %s &nbsp;|&nbsp; <strong>Signer:</strong> %s</p>`,
-			htmlEscape(view.Signature.Alg), htmlEscape(view.Signature.Signer)))
-		sb.WriteString(fmt.Sprintf(`<p><strong>Signature:</strong> <span class="hash">%s</span></p>`, view.Signature.Sig))
+		sb.WriteString(fmt.Sprintf(`<p><strong>Signer:</strong> %s</p>`, htmlEscape(view.Signature.Signer)))
+		sb.WriteString(fmt.Sprintf(`<p><strong>Algorithm:</strong> %s</p>`, htmlEscape(view.Signature.Alg)))
+		sb.WriteString(fmt.Sprintf(`<p><strong>Signature:</strong> <span style="word-break: break-all; font-family: monospace;">%s</span></p>`, htmlEscape(view.Signature.Sig)))
 		sb.WriteString(fmt.Sprintf(`<p><strong>Signed At:</strong> %s</p>`, view.Signature.SignedAt.UTC().Format(time.RFC3339Nano)))
 	}
+	sb.WriteString(`</div></div>`)
 
 	// ── Section 6: Verification Status ──
 	sb.WriteString(`<h2>⑥ Verification Status</h2>`)
@@ -604,6 +614,7 @@ func buildBankPSPPackView(pack *models.EvidencePack, req models.DisputeExportReq
 		VarianceReason:   varianceReason,
 		SettlementRecord: settlementRecord,
 		IssueStatement:   issueStatement,
+		ZordSignature:    pack.ZordSignature,
 	}
 }
 
@@ -637,7 +648,7 @@ func buildBankPSPPack(pack *models.EvidencePack, req models.DisputeExportRequest
 	sb.WriteString("payment_reference,intent_id,contract_id,batch_id,utr_number,client_reference_id,value_date," +
 		"attachment_status,match_confidence,variance_flag,value_date_check,amount_match,merkle_root,pack_status," +
 		"dispute_reason,export_timestamp," +
-		"amount,currency,variance_reason,settlement_record_ref,issue_statement\n")
+		"amount,currency,variance_reason,settlement_record_ref,issue_statement,zord_signature\n")
 
 	attachStatus := "UNKNOWN"
 	if pack.AttachmentDecision != nil && *pack.AttachmentDecision != "" {
@@ -646,7 +657,7 @@ func buildBankPSPPack(pack *models.EvidencePack, req models.DisputeExportRequest
 		attachStatus = "MATCHED"
 	}
 
-	sb.WriteString(fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
+	sb.WriteString(fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
 		// original columns
 		csvEscape(req.PaymentReference),
 		csvEscape(pack.IntentID),
@@ -670,6 +681,7 @@ func buildBankPSPPack(pack *models.EvidencePack, req models.DisputeExportRequest
 		csvEscape(view.VarianceReason),
 		csvEscape(view.SettlementRecord),
 		csvEscape(view.IssueStatement),
+		csvEscape(view.ZordSignature),
 	))
 
 	return []byte(sb.String()), nil

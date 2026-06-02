@@ -131,6 +131,7 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			proof_components_json         JSONB,
 			cryptographic_signatures_json JSONB,
 			proof_score_breakdown_json    JSONB,
+			zord_signature                TEXT,
 
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

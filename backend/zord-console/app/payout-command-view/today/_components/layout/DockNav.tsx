@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { ZordLogo } from '@/components/ZordLogo'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
@@ -15,6 +15,7 @@ import { AlertsDropdownPanel } from '../command-center/AlertsDropdownPanel'
 import { InsightAlertListRow } from '../command-center/InsightAlertListRow'
 import type { OpsInsightAlert } from '../command-center/types'
 import { ModeTogglePill } from '../sandbox/ModeTogglePill'
+import { AccountMenuButton } from './AccountMenuButton'
 import { Glyph } from '../shared'
 
 const DESK_ROLES = ['Ops supervisor', 'Payout desk'] as const
@@ -29,6 +30,7 @@ type DockNavProps = {
 export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: DockNavProps) {
   const { mode } = useEnvironment()
   const searchRef = useRef<HTMLInputElement>(null)
+  const searchContainerRef = useRef<HTMLDivElement>(null)
 
   const visibleDockItems = useMemo(() => {
     if (mode === 'sandbox') {
@@ -41,6 +43,7 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
   }, [mode])
 
   const [search, setSearch] = useState('')
+  const [searchOpen, setSearchOpen] = useState(false)
   const [desk, setDesk] = useState<(typeof DESK_ROLES)[number]>(DESK_ROLES[0])
   const [alertsOpen, setAlertsOpen] = useState(false)
   const [dismissed, setDismissed] = useState<Set<string>>(() => new Set())
@@ -51,16 +54,39 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
   )
   const alertCount = visibleAlerts.length
 
+  const openSearch = useCallback(() => {
+    setSearchOpen(true)
+  }, [])
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    searchRef.current?.blur()
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault()
-        searchRef.current?.focus()
+        openSearch()
+      }
+      if (e.key === 'Escape' && searchOpen) {
+        e.preventDefault()
+        closeSearch()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [closeSearch, openSearch, searchOpen])
+
+  useEffect(() => {
+    if (!searchOpen) return
+    const timer = window.setTimeout(() => {
+      searchRef.current?.focus()
+      searchRef.current?.select()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [searchOpen])
 
   return (
     <header className="payout-command-nav relative z-40 !bg-white">
@@ -189,29 +215,50 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
             ) : null}
           </div>
 
-          <div className="hidden h-10 w-[11rem] shrink-0 items-center gap-2 rounded-full border border-neutral-200/80 bg-neutral-100/90 px-3 shadow-inner transition focus-within:border-neutral-300 focus-within:bg-white focus-within:shadow-md sm:flex sm:h-11 sm:w-[13rem] lg:w-[16rem] xl:w-[18rem]">
-            <Glyph name="search" className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden />
-            <label htmlFor="dock-nav-search" className="sr-only">
-              Search client or payout ID
-            </label>
-            <input
-              ref={searchRef}
-              id="dock-nav-search"
-              type="search"
-              name="dock-nav-search"
-              autoComplete="off"
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-medium leading-normal text-neutral-900 outline-none placeholder:text-neutral-400 placeholder:font-normal sm:text-[15px]"
-            />
-            <kbd
-              className="hidden shrink-0 rounded-md border border-neutral-200/90 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-400 shadow-sm xl:inline-block"
-              title="Focus search"
+          {searchOpen ? (
+            <div
+              ref={searchContainerRef}
+              className="hidden h-10 w-[11rem] shrink-0 items-center gap-2 rounded-full border border-neutral-200/80 bg-white px-3 shadow-md transition sm:flex sm:h-11 sm:w-[13rem] lg:w-[16rem] xl:w-[18rem]"
             >
-              ⌘K
-            </kbd>
-          </div>
+              <Glyph name="search" className="h-4 w-4 shrink-0 text-neutral-400" aria-hidden />
+              <label htmlFor="dock-nav-search" className="sr-only">
+                Search client or payout ID
+              </label>
+              <input
+                ref={searchRef}
+                id="dock-nav-search"
+                type="search"
+                name="dock-nav-search"
+                autoComplete="off"
+                placeholder="Search…"
+                value={search}
+                onBlur={(e) => {
+                  const nextFocus = e.relatedTarget instanceof Node ? e.relatedTarget : null
+                  if (!searchContainerRef.current?.contains(nextFocus)) {
+                    closeSearch()
+                  }
+                }}
+                onChange={(e) => setSearch(e.target.value)}
+                className="min-w-0 flex-1 border-0 bg-transparent text-[14px] font-medium leading-normal text-neutral-900 outline-none placeholder:font-normal placeholder:text-neutral-400 sm:text-[15px]"
+              />
+              <kbd
+                className="hidden shrink-0 rounded-md border border-neutral-200/90 bg-white px-1.5 py-0.5 font-mono text-[10px] font-semibold text-neutral-400 shadow-sm xl:inline-block"
+                title="Focus search"
+              >
+                ⌘K
+              </kbd>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={openSearch}
+              className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-neutral-200/80 bg-white text-neutral-700 shadow-sm transition hover:bg-neutral-50 hover:ring-neutral-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 sm:flex sm:h-11 sm:w-11"
+              aria-label="Open search"
+              title="Search"
+            >
+              <Glyph name="search" className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+            </button>
+          )}
 
           <label htmlFor="dock-nav-desk" className="sr-only">
             Desk role
@@ -233,11 +280,7 @@ export function DockNav({ activeDock, onDockChange, alerts, onActivateClick }: D
             <span className="text-[12px] font-semibold text-neutral-900">Workspace</span>
             <span className="mt-0.5 max-w-[7rem] truncate text-[11px] font-medium text-neutral-500">{desk}</span>
           </div>
-          <div
-            className="hidden h-10 w-10 shrink-0 rounded-full bg-gradient-to-br from-violet-200 via-sky-100 to-amber-100 shadow-sm ring-2 ring-white sm:block sm:h-11 sm:w-11"
-            aria-hidden
-            title="Profile"
-          />
+          <AccountMenuButton deskRole={desk} />
         </div>
       </div>
     </header>

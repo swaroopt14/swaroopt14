@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Manrope } from 'next/font/google'
 import {
   DASHBOARD_FONT_STACK,
@@ -59,6 +59,8 @@ type PayoutCommandViewClientProps = {
   initialJournalBatchId?: string
   /** Deep-link → Settlement Journal (`?client_batch_id=`). */
   initialSettlementClientBatchId?: string
+  /** Deep-link support/account tab (e.g. `?accountTab=Profile`). */
+  initialAccountTab?: string
 }
 
 /** Shared URL batch scope for journal, evidence, and patterns KPIs. */
@@ -72,6 +74,7 @@ export default function PayoutCommandViewClient({
   initialDock = 'home',
   initialJournalBatchId,
   initialSettlementClientBatchId,
+  initialAccountTab,
 }: PayoutCommandViewClientProps) {
   // ── Navigation state ───────────────────────────────────────────────────────
   const [activeDock, setActiveDock] = useState<DockId>(initialDock)
@@ -108,6 +111,10 @@ export default function PayoutCommandViewClient({
   const handleAskZordToggle = useCallback(() => {
     askZord.toggle()
   }, [askZord])
+
+  useEffect(() => {
+    setActiveDock((currentDock) => (currentDock === initialDock ? currentDock : initialDock))
+  }, [initialDock])
 
   // ── Navigation handlers ────────────────────────────────────────────────────
   const handleDockChange = useCallback(
@@ -187,7 +194,7 @@ export default function PayoutCommandViewClient({
     if (activeDock === 'support') {
       return (
         <div className={manropeHome.className}>
-          <SupportSurface />
+          <SupportSurface initialAccountTab={initialAccountTab} />
         </div>
       )
     }
@@ -198,6 +205,7 @@ export default function PayoutCommandViewClient({
     forceMode,
     initialJournalBatchId,
     initialSettlementClientBatchId,
+    initialAccountTab,
     sharedBatchId,
     handleTabChange,
     home,

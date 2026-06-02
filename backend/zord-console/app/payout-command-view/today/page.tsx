@@ -21,6 +21,7 @@ export default function PayoutCommandViewTodayPage({
     dock?: string | string[]
     batch_id?: string | string[]
     client_batch_id?: string | string[]
+    accountTab?: string | string[]
   }
 }) {
   return (
@@ -29,6 +30,7 @@ export default function PayoutCommandViewTodayPage({
       initialDock={resolveInitialDock(searchParams.dock)}
       initialJournalBatchId={readBatchIdParam(searchParams.batch_id)}
       initialSettlementClientBatchId={readBatchIdParam(searchParams.client_batch_id)}
+      initialAccountTab={readBatchIdParam(searchParams.accountTab)}
     />
   )
 }

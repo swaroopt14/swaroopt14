@@ -29,7 +29,8 @@ export function AccountMenuButton({ deskRole }: AccountMenuButtonProps) {
   const user = typeof window !== 'undefined' ? getCurrentUser() : null
   const initials = userInitials(user?.email, user?.name)
   const displayEmail = user?.email?.trim() || 'Signed in'
-  const displayTenant = user?.tenant_name?.trim() || user?.tenant_id?.trim() || ''
+  const displayTenant =
+    user?.tenantName?.trim() || user?.workspaceCode?.trim() || user?.tenantId?.trim() || user?.tenant?.trim() || ''
 
   useEffect(() => {
     if (!open) return
@@ -97,6 +98,15 @@ export function AccountMenuButton({ deskRole }: AccountMenuButtonProps) {
 
             <div className="p-1.5">
               <Link
+                href="/payout-command-view/today?dock=support&accountTab=Profile"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[14px] font-medium text-neutral-800 transition hover:bg-neutral-50"
+              >
+                <Glyph name="users" className="h-4 w-4 text-neutral-500" />
+                Profile
+              </Link>
+              <Link
                 href="/payout-command-view/settings/account"
                 role="menuitem"
                 onClick={() => setOpen(false)}
@@ -111,7 +121,7 @@ export function AccountMenuButton({ deskRole }: AccountMenuButtonProps) {
                 onClick={() => setOpen(false)}
                 className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-[14px] font-medium text-neutral-800 transition hover:bg-neutral-50"
               >
-                <Glyph name="grid" className="h-4 w-4 text-neutral-500" />
+                <Glyph name="key" className="h-4 w-4 text-neutral-500" />
                 API keys
               </Link>
             </div>

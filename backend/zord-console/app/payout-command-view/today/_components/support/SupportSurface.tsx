@@ -1,6 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  useSessionAccountProfile,
+  type SessionAccountProfile,
+} from '@/app/payout-command-view/_components/account/useSessionAccountProfile'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
   appendEmailMessage,
@@ -36,15 +40,11 @@ import {
 
 const VISIBLE_MESSAGES = 4
 const ACCOUNT_TABS = ['Profile', 'Credits', 'Processing Overview', 'Manage team', 'Zord Support'] as const
+const DEFAULT_ACCOUNT_TAB: AccountTab = 'Zord Support'
 
 type AccountTab = (typeof ACCOUNT_TABS)[number]
 
-type ProfileInfo = {
-  name: string
-  email: string
-  role: string
-  tenantId: string
-}
+type ProfileInfo = SessionAccountProfile
 
 type ProcessingOverview = {
   totalIntents: number
@@ -132,6 +132,10 @@ function statusTone(status: string) {
 
 function copyLabel(copied: boolean, fallback: string) {
   return copied ? 'Copied' : fallback
+}
+
+function resolveAccountTab(raw?: string | null): AccountTab {
+  return ACCOUNT_TABS.includes(raw as AccountTab) ? (raw as AccountTab) : DEFAULT_ACCOUNT_TAB
 }
 
 function StatusBadge({ ticket, compact }: { ticket: SupportTicket; compact?: boolean }) {
@@ -310,7 +314,7 @@ function ProfileTab({ profile, tenantApiKey }: { profile: ProfileInfo | null; te
   return (
     <div className="space-y-4">
       <FieldCard title="My Profile" subtitle="Mapped from /api/auth/me">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Name</p>
             <p className={`mt-1 text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>{profile?.name || '—'}</p>
@@ -326,6 +330,16 @@ function ProfileTab({ profile, tenantApiKey }: { profile: ProfileInfo | null; te
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Tenant</p>
             <p className={`mt-1 font-mono text-[14px] ${HOME_TITLE_BLACK}`}>{profile?.tenantId || '—'}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Workspace</p>
+            <p className={`mt-1 text-[15px] ${HOME_TITLE_BLACK}`}>
+              {profile?.tenantName || profile?.workspaceCode
+                ? [profile?.tenantName, profile?.workspaceCode ? `(${profile.workspaceCode})` : null]
+                    .filter(Boolean)
+                    .join(' ')
+                : '—'}
+            </p>
           </div>
         </div>
       </FieldCard>
@@ -758,10 +772,15 @@ function SupportRequestsTab({
   )
 }
 
-export function SupportSurface() {
-  const { tenantId, tenantReady } = useSessionTenant()
+type SupportSurfaceProps = {
+  initialAccountTab?: string
+}
 
-  const [accountTab, setAccountTab] = useState<AccountTab>('Zord Support')
+export function SupportSurface({ initialAccountTab }: SupportSurfaceProps) {
+  const { tenantId, tenantReady } = useSessionTenant()
+  const { profile } = useSessionAccountProfile(tenantId)
+
+  const [accountTab, setAccountTab] = useState<AccountTab>(() => resolveAccountTab(initialAccountTab))
   const [tab, setTab] = useState<SupportTicketStatus>('open')
   const [tickets, setTickets] = useState<SupportTicket[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -773,10 +792,13 @@ export function SupportSurface() {
   const [emailCopied, setEmailCopied] = useState(false)
   const [hydrated, setHydrated] = useState(false)
 
-  const [profile, setProfile] = useState<ProfileInfo | null>(null)
   const [tenantApiKey, setTenantApiKey] = useState<string | null>(null)
   const [processingLoading, setProcessingLoading] = useState(false)
   const [processingOverview, setProcessingOverview] = useState<ProcessingOverview | null>(null)
+
+  useEffect(() => {
+    setAccountTab(resolveAccountTab(initialAccountTab))
+  }, [initialAccountTab])
 
   useEffect(() => {
     if (!tenantReady) return
@@ -785,28 +807,6 @@ export function SupportSurface() {
     const firstOpen = loaded.find((t) => t.status === 'open')
     setSelectedId(firstOpen?.id ?? loaded[0]?.id ?? null)
     setHydrated(true)
-  }, [tenantId, tenantReady])
-
-  useEffect(() => {
-    if (!tenantReady) return
-    void (async () => {
-      try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' })
-        if (!res.ok) return
-        const data = (await res.json()) as {
-          user?: { name?: string; email?: string; role?: string; tenant_id?: string }
-          session?: { role?: string; tenant_id?: string; workspace_code?: string }
-        }
-        setProfile({
-          name: data.user?.name || '—',
-          email: data.user?.email || '—',
-          role: data.session?.role || data.user?.role || '—',
-          tenantId: data.session?.tenant_id || data.user?.tenant_id || tenantId,
-        })
-      } catch {
-        // ignore
-      }
-    })()
   }, [tenantId, tenantReady])
 
   useEffect(() => {

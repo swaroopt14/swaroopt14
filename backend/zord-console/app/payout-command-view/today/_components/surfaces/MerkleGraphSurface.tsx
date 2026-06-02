@@ -20,6 +20,10 @@ import {
   downloadEvidencePackPdf,
   downloadEvidencePackJson,
 } from '@/services/payout-command/prod-api/exportEvidencePack'
+import {
+  downloadEvidenceBatchIntentsJson,
+  downloadEvidenceBatchIntentsPdf,
+} from '@/services/payout-command/prod-api/exportEvidenceBatchIntents'
 import { getIntentJournalPaymentIntentsForSession } from '@/services/payout-command/prod-api/intentJournalApi'
 import type {
   EvidencePackFull,
@@ -722,14 +726,18 @@ export function MerkleGraphSurface({
 
   const handleExport = useCallback(
     async (kind: 'pdf' | 'json') => {
-      const pid = apiTrimmedString(pack.packId)
+      const pid = apiTrimmedString(activePackId) || apiTrimmedString(controlledPackId) || apiTrimmedString(initialPackId) || apiTrimmedString(pack.packId)
+      const bid = apiTrimmedString(activeBatchId) || apiTrimmedString(controlledBatchId) || apiTrimmedString(initialPack.batchId) || apiTrimmedString(pack.batchId)
       if (!pid || pid === EMPTY_LIVE_PACK.packId) return
 
       setExporting(kind)
       setLiveListError(null)
       try {
-        const result =
-          kind === 'json'
+        const result = bid
+          ? kind === 'json'
+            ? await downloadEvidenceBatchIntentsJson(bid)
+            : await downloadEvidenceBatchIntentsPdf(bid)
+          : kind === 'json'
             ? await downloadEvidencePackJson(pid)
             : await downloadEvidencePackPdf(pid)
         if (!result.ok) {
@@ -744,7 +752,7 @@ export function MerkleGraphSurface({
         setExporting(null)
       }
     },
-    [pack.packId],
+    [activePackId, activeBatchId, controlledBatchId, controlledPackId, initialPack.batchId, initialPackId, pack.batchId, pack.packId],
   )
 
   useEffect(() => {

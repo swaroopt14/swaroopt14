@@ -22,7 +22,6 @@ const DOCK_CASES: { dock: string; title: string }[] = [
   { dock: 'grid', title: 'Intent Journal' },
   { dock: 'settlement', title: 'Settlement Journal' },
   { dock: 'connectors', title: 'Routing & Network Intelligence' },
-  { dock: 'sync', title: 'Connected Systems' },
   { dock: 'proof', title: 'Evidence & Dispute Resolution' },
   { dock: 'billing', title: 'Billing' },
 ]
@@ -59,6 +58,7 @@ async function installPayoutSessionCookies(context: BrowserContext) {
     { name: 'zord_access_token', value: 'e2e-playwright-access', url },
     { name: 'zord_refresh_token', value: 'e2e-playwright-refresh', url },
     { name: 'zord_role', value: 'CUSTOMER_USER', url },
+    { name: 'zord_session_present', value: '1', url },
   ]))
   await context.addCookies(cookies)
 }
@@ -472,6 +472,8 @@ function installAuthRoutes(page: Page) {
 function installEmptyProdMocks(page: Page) {
   return page.route('**/api/prod/**', async (route) => {
     const method = route.request().method()
+    const url = new URL(route.request().url())
+    const path = url.pathname
     if (method === 'POST' && /\/evidence\/packs\/[^/]+\/verify$/.test(new URL(route.request().url()).pathname)) {
       await route.fulfill({
         status: 200,
@@ -491,8 +493,22 @@ function installEmptyProdMocks(page: Page) {
       await route.continue()
       return
     }
-    const url = new URL(route.request().url())
-    const path = url.pathname
+    if (/\/evidence\/packs\/[^/]+\/export$/.test(path)) {
+      const packId = path.split('/').slice(-2, -1)[0] ?? PACK_BATCH
+      const format = (url.searchParams.get('format') || 'json').toLowerCase()
+      await route.fulfill({
+        status: 200,
+        contentType: format === 'pdf' ? 'application/pdf' : 'application/json',
+        headers: {
+          'content-disposition': `attachment; filename="evidence_pack_${packId}.${format === 'pdf' ? 'pdf' : 'json'}"`,
+        },
+        body:
+          format === 'pdf'
+            ? '%PDF-1.4\n%mock evidence export\n'
+            : JSON.stringify({ evidence_pack_id: packId, export: 'mock' }),
+      })
+      return
+    }
     let body: unknown = emptyProdBody(path)
     if (/\/evidence\/packs\/[^/]+\/timeline$/.test(path)) {
       body = {
@@ -540,6 +556,23 @@ function installEvidenceFixtureMocks(page: Page) {
 
     if (method !== 'GET') {
       await route.continue()
+      return
+    }
+
+    if (/\/evidence\/packs\/[^/]+\/export$/.test(path)) {
+      const packId = path.split('/').slice(-2, -1)[0] ?? PACK_BATCH
+      const format = (url.searchParams.get('format') || 'json').toLowerCase()
+      await route.fulfill({
+        status: 200,
+        contentType: format === 'pdf' ? 'application/pdf' : 'application/json',
+        headers: {
+          'content-disposition': `attachment; filename="evidence_pack_${packId}.${format === 'pdf' ? 'pdf' : 'json'}"`,
+        },
+        body:
+          format === 'pdf'
+            ? '%PDF-1.4\n%mock evidence export\n'
+            : JSON.stringify({ evidence_pack_id: packId, export: 'fixture' }),
+      })
       return
     }
 
@@ -775,5 +808,33 @@ test.describe('evidence batch → intent → pack wiring', () => {
     await expect(page.getByText('Fail')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText('To complete this proof:')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText('Confirm match decision')).toBeVisible({ timeout: 20_000 })
+  })
+
+  test('evidence graph export buttons request the wired export endpoints', async ({ page }) => {
+    await installPayoutSessionCookies(page.context())
+    await page.goto(
+      `${BASE_URL}/payout-command-view/evidence-pack/${encodeURIComponent(PACK_BATCH)}?tab=graph&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`,
+    )
+    await expect(page.getByRole('button', { name: 'Export PDF' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('button', { name: /Export JSON/i })).toBeVisible({ timeout: 20_000 })
+
+    const requests: string[] = []
+    page.on('request', (req) => {
+      if (req.url().includes('/api/prod/evidence/batch/')) requests.push(req.url())
+    })
+
+    const [pdfDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Export PDF' }).click(),
+    ])
+    expect(pdfDownload.suggestedFilename()).toBe('evidence_batch_e2e-evidence-batch_intents.pdf')
+    await expect(page.getByRole('button', { name: /Export JSON/i })).toBeEnabled({ timeout: 20_000 })
+
+    const [jsonDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: /Export JSON/i }).click(),
+    ])
+    expect(jsonDownload.suggestedFilename()).toBe('evidence_batch_e2e-evidence-batch_intents.json')
+    expect(requests.some((url) => url.includes('/api/prod/evidence/batch/e2e-evidence-batch/intents'))).toBe(true)
   })
 })

@@ -25,7 +25,6 @@ import {
   IntentJournalSurface,
   SettlementJournalSurface,
   LeakageSurface,
-  LiveSyncSurface,
   ProofSurface,
   PostDisbursalMonitoringSurface,
   SandboxConnectorsSurface,
@@ -183,7 +182,6 @@ export default function PayoutCommandViewClient({
     if (activeDock === 'connectors') {
       return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
     }
-    if (activeDock === 'sync') return <LiveSyncSurface />
     if (activeDock === 'proof')
       return (
         <EvidenceSurface initialBatchId={sharedBatchId} />

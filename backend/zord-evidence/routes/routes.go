@@ -24,6 +24,9 @@ func RegisterProofRoutes(r *gin.Engine, ph *handlers.ProofHandler) {
 	}
 	// Spec §6: dispute export (separate path prefix as per spec)
 	r.POST("/v1/dispute/export", ph.DisputeExport)
+	// Spec §6 preview: structured JSON view, no file download
+	// GET /v1/dispute/export/preview?export_type=FINANCE_SUMMARY&tenant_id=...&evidence_pack_id=...
+	r.GET("/v1/dispute/export/preview", ph.ExportPreview)
 }
 
 func Register(r *gin.Engine, h *handlers.EvidenceHandler, outboxHandler *handlers.OutboxHandler) {

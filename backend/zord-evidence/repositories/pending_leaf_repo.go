@@ -66,7 +66,7 @@ DO UPDATE SET
 	// Actually, I can use two separate statements or a more complex one.
 	// For simplicity and correctness with the specific indexes I created:
 	
-	if leaf.IntentID == nil && leaf.EnvelopeID != nil {
+	if leaf.IntentID == nil && leaf.ClientBatchID != nil {
 		query = `
 INSERT INTO pending_leaf_candidates (
 	tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, item_ref, hash, schema_version, source_topic,
@@ -77,7 +77,7 @@ INSERT INTO pending_leaf_candidates (
 	value_date_check, amount_match, client_payout_ref, amount, currency,
 	created_at, updated_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW())
-ON CONFLICT (tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL AND batch_id IS NULL
+ON CONFLICT (tenant_id, batch_id, leaf_type) WHERE batch_id IS NOT NULL AND intent_id IS NULL
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
 	hash = EXCLUDED.hash,
@@ -103,7 +103,7 @@ DO UPDATE SET
 	currency = COALESCE(EXCLUDED.currency, pending_leaf_candidates.currency),
 	updated_at = NOW()
 `
-	} else if leaf.IntentID == nil && leaf.ClientBatchID != nil {
+	} else if leaf.IntentID == nil && leaf.EnvelopeID != nil {
 		query = `
 INSERT INTO pending_leaf_candidates (
 	tenant_id, intent_id, envelope_id, contract_id, batch_id, leaf_type, item_ref, hash, schema_version, source_topic,
@@ -114,7 +114,7 @@ INSERT INTO pending_leaf_candidates (
 	value_date_check, amount_match, client_payout_ref, amount, currency,
 	created_at, updated_at
 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW(), NOW())
-ON CONFLICT (tenant_id, batch_id, leaf_type) WHERE batch_id IS NOT NULL AND intent_id IS NULL
+ON CONFLICT (tenant_id, envelope_id, leaf_type) WHERE intent_id IS NULL AND batch_id IS NULL
 DO UPDATE SET 
 	item_ref = EXCLUDED.item_ref,
 	hash = EXCLUDED.hash,

@@ -147,7 +147,7 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 
 		`CREATE UNIQUE INDEX IF NOT EXISTS evidence_packs_batch_unique_idx
 			ON evidence_packs(tenant_id, batch_id)
-			WHERE intent_id IS NULL AND batch_id IS NOT NULL;`,
+			WHERE intent_id IS NULL AND batch_id IS NOT NULL AND pack_status = 'ACTIVE';`,
 
 		`CREATE INDEX IF NOT EXISTS evidence_packs_proof_status_idx
 			ON evidence_packs(proof_status)`,

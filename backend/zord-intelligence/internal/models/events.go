@@ -361,18 +361,18 @@ type CanonicalSettlementCreatedEvent struct {
 
 	MappingConfidence float64 `json:"mapping_confidence"`
 
-	// ── Pattern Intelligence fields (added per upstream contract — Service 5B) ──
-	// ProviderID: logical PSP/intermediary that processed this settlement.
-	// Service 5B sends this under the key "source_system".
-	// e.g. "razorpay", "payu", "cashfree"
-	ProviderID string `json:"source_system"`
-	// BankID: destination bank or financial institution code.
-	// e.g. "HDFC", "ICICI", "SBI"
-	BankID string `json:"bank_id"`
-	// PaymentRail: the transfer rail used.
-	// Service 5B sends this under the key "corridor_id".
-	// e.g. "NEFT", "RTGS", "IMPS", "UPI"
-	PaymentRail string `json:"corridor_id"`
+	// // ── Pattern Intelligence fields (added per upstream contract — Service 5B) ──
+	// // ProviderID: logical PSP/intermediary that processed this settlement.
+	// // Service 5B sends this under the key "source_system".
+	// // e.g. "razorpay", "payu", "cashfree"
+	// ProviderID string `json:"source_system"`
+	// // BankID: destination bank or financial institution code.
+	// // e.g. "HDFC", "ICICI", "SBI"
+	// BankID string `json:"bank_id"`
+	// // PaymentRail: the transfer rail used.
+	// // Service 5B sends this under the key "corridor_id".
+	// // e.g. "NEFT", "RTGS", "IMPS", "UPI"
+	// PaymentRail string `json:"corridor_id"`
 }
 
 // ── NEW EVENT B: from Service 5C ─────────────────────────────────────────────
@@ -674,7 +674,9 @@ type GovernanceDecisionCreatedEvent struct {
 // KEY RULE: amount_minor must follow the same minor-unit convention as all
 // other monetary fields in ZPI (paise for INR, cents for USD). Never float64.
 //
-// Kafka topic: payments.intent.dlq  ← Service 2
+// Kafka topic: payments.intent.dlq
+// Published by: zord-relay (pulls/leases rows from zord-intent-engine's DLQ table
+//               and publishes as a standard RelayEvent envelope to Kafka)
 // =============================================================================
 
 // DLQItemEvent represents a single payment intent row that was routed to
@@ -697,8 +699,8 @@ type DLQItemEvent struct {
 
 	// ── Financial impact ──────────────────────────────────────────────────────
 	// AmountMinor: the intended payment amount for this row in minor currency units.
-	// Accumulated by ZPI to compute manual_review_amount_minor_by_source.
-	AmountMinor decimal.Decimal `json:"amount_minor"`
+	// Relay publishes this under key "amount" (extracted from IntentContext).
+	AmountMinor decimal.Decimal `json:"amount"`
 
 	// ── Failure reason ────────────────────────────────────────────────────────
 	// ReasonCode: the primary reason this row was routed to manual review.

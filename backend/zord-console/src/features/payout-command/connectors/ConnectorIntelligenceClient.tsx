@@ -21,6 +21,7 @@ import { COMMAND_CENTER_KPI_CARD, COMMAND_CENTER_LABEL_GREEN } from '@/features/
 import { JournalIntelligenceKpiHero } from '@/features/payout-command/command-center/JournalIntelligenceKpiHero'
 import { EntityLogo } from '@/features/payout-command/entity-logo'
 import { getRoutingIntelligenceAdapter } from './routingDataAdapter'
+import { PatternIntelligencePanel } from './PatternIntelligencePanel'
 import { rankRoutes } from './scoring'
 import type {
   ConnectorHealthRow,
@@ -207,6 +208,10 @@ export default function ConnectorIntelligenceClient() {
         <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900" data-testid="routing-stale-banner">
           Metrics are stale. Refresh connector telemetry before making routing decisions.
         </section>
+      ) : null}
+
+      {snapshot.patternIntelligence?.hasLiveData ? (
+        <PatternIntelligencePanel view={snapshot.patternIntelligence} />
       ) : null}
 
       <section>

@@ -293,15 +293,57 @@ function emptyProdBody(path: string): unknown {
     return {
       data_available: true,
       tenant_id: SESSION_TENANT,
+      snapshot_type: 'PATTERN',
+      snapshot_id: 'snap-pattern-e2e',
+      scope_type: 'BATCH',
+      scope_ref: BATCH_ID,
+      window_start: '2026-06-01T00:00:00Z',
+      window_end: '2026-06-02T07:00:00Z',
       computed_at: '2026-06-02T07:00:00Z',
+      model_version: 'deterministic-v1',
+      intelligence_mode: 'GRADE_A',
       data: {
+        batch_id: BATCH_ID,
+        risk_tier: 'HIGH',
+        anomaly_level: 'ELEVATED',
+        finality_status: 'PARTIALLY_SETTLED',
+        batch_anomaly_score: 0.71,
+        batch_quality_score: 0.62,
+        batch_risk_score: 0.68,
+        total_count: 120,
+        success_count: 88,
+        failed_count: 6,
+        pending_count: 26,
+        ambiguity_score: 0.24,
+        ambiguous_count: 14,
+        unresolved_count: 9,
+        conflicted_count: 3,
+        exact_match_count: 52,
+        high_confidence_count: 36,
+        prepare_and_sign_recommended: true,
+        recommended_action: 'Review ambiguous batch before dispatch',
+        duplicate_risk_rate: 0.12,
+        duplicate_risk_exposure_minor: 420_000,
+        unexplained_variance_amount_minor: 75_000,
+        whitelisted_deduction_amount_minor: 12_000,
+        over_settlement_amount_minor: 8_000,
+        missing_leaf_rate: 0.09,
+        weak_evidence_rate: 0.11,
+        evidence_pack_coverage: 0.81,
+        tenant_manual_review_rate: 0.22,
+        settlement_delay_p50_days: 1.2,
+        settlement_delay_p95_days: 2,
         computed_at: '2026-06-02T07:00:00Z',
         weakest_source_system: 'manual_excel',
         weakest_source_missing_ref_rate: 0.42,
+        weakest_source_manual_review_rate: 0.31,
         weakest_provider_id: 'cashfree',
-        settlement_delay_p95_days: 2,
-        duplicate_risk_exposure_minor: 420_000,
-        unexplained_variance_amount_minor: 75_000,
+        risk_signals: [
+          { signal: 'missing_client_ref_rate', severity: 'HIGH', value: 0.42, threshold: 0.2, contribution: 0.35 },
+        ],
+        top_manual_review_reasons: [
+          { reason_code: 'MISSING_CLIENT_REF', count: 12, rate: 0.18 },
+        ],
         source_quality_patterns: [
           {
             severity: 'HIGH',
@@ -822,7 +864,11 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
       timeout: 25_000,
     })
     await expect(page.getByTestId('routing-kpi-bar')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByTestId('routing-kpi-bar')).toContainText('₹50,000')
+    await expect(page.getByTestId('pattern-intelligence-panel')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('pattern-meta-strip')).toContainText('PATTERN')
+    await expect(page.getByTestId('pattern-action-catalog')).toContainText('Pattern action catalog')
+    await expect(page.getByTestId('pattern-category-tables')).toContainText('Source quality')
+    await expect(page.getByTestId('pattern-history-table')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId('network-health-chart')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId('leakage-composition-chart')).toBeVisible({ timeout: 20_000 })
     await expect(page.getByTestId('recommended-routes')).toContainText('Razorpay → UPI → HDFC')

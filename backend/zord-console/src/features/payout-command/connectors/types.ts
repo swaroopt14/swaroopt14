@@ -78,6 +78,8 @@ export type LeakageCompositionSlice = {
   amountMinor: number
 }
 
+import type { PatternIntelligenceView } from '@/services/payout-command/prod-api/intelligencePatternTypes'
+
 export type RoutingKpiSnapshot = {
   generatedAtIso: string
   staleAfterMinutes: number
@@ -88,4 +90,5 @@ export type RoutingKpiSnapshot = {
   leakageComposition: LeakageCompositionSlice[]
   networkHealthTrend: Array<{ label: string; successPct: number; latencyIndex: number }>
   drilldowns: ConnectorDrilldown[]
+  patternIntelligence: PatternIntelligenceView | null
 }

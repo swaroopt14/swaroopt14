@@ -15,6 +15,8 @@ const WIRED_ROUTES = [
   ['Home · intelligence', 'intelligence/ambiguity/route.ts'],
   ['Home · intelligence', 'intelligence/defensibility/route.ts'],
   ['Home · intelligence', 'intelligence/patterns/route.ts'],
+  ['Connectors · pattern detail', 'intelligence/pattern/route.ts'],
+  ['Connectors · pattern history', 'intelligence/pattern/history/route.ts'],
   ['Home · intelligence', 'intelligence/recommendations/route.ts'],
   ['Home · trend', 'home/disbursement-trend/route.ts'],
   ['Payment Gaps', 'intelligence/leakage/route.ts'],

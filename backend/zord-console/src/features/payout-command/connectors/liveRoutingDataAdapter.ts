@@ -7,7 +7,13 @@ import {
   getRecommendationsKpis,
   type IntelligenceDateQuery,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
-import { fetchProdJsonGet } from '@/services/payout-command/prod-api/fetchProdJsonGet'
+import { getPatternDetail, getPatternHistory, patternDataFrom } from '@/services/payout-command/prod-api/getPatternIntelligence'
+import type { PatternSnapshotData } from '@/services/payout-command/prod-api/intelligencePatternTypes'
+import {
+  mapPatternToConnectorView,
+  patternActionsFromView,
+  patternInsightsFromView,
+} from '@/services/payout-command/prod-api/mapPatternToConnectorView'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type {
   AmbiguityHeatmapResponse,
@@ -31,84 +37,8 @@ import type {
 
 type PatternSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string
 
-type SourceQualityPattern = {
-  severity?: PatternSeverity
-  source_system?: string
-  manual_review_rate?: number
-  total_intent_count?: number
-  duplicate_risk_rate?: number
-  low_matchability_rate?: number
-  missing_client_ref_rate?: number
-  manual_review_amount_minor?: MinorAmountField
-}
-
-type ProviderQualityPattern = {
-  severity?: PatternSeverity
-  provider_id?: string
-  orphan_rate?: number
-  ambiguity_rate?: number
-  avg_carrier_richness?: number
-  avg_parse_confidence?: number
-  settlement_delay_p95_days?: number
-}
-
-type PatternDetailData = {
-  batch_id?: string
-  risk_tier?: string
-  computed_at?: string
-  total_count?: number
-  anomaly_type?: string
-  risk_signals?: Array<{
-    signal?: string
-    severity?: PatternSeverity
-    value?: number
-    threshold?: number
-    contribution?: number
-  }> | null
-  anomaly_level?: string
-  batch_risk_score?: number
-  recommended_action?: string
-  batch_anomaly_score?: number
-  batch_quality_score?: number
-  duplicate_risk_rate?: number
-  duplicate_risk_exposure_minor?: MinorAmountField
-  missing_leaf_rate?: number
-  weak_evidence_rate?: number
-  evidence_pack_coverage?: number
-  source_quality_patterns?: SourceQualityPattern[]
-  provider_quality_patterns?: ProviderQualityPattern[]
-  tenant_manual_review_rate?: number
-  top_manual_review_reasons?: Array<{
-    reason_code?: string
-    count?: number
-    rate?: number
-    amount_minor?: MinorAmountField
-  }>
-  settlement_delay_p50_days?: number
-  settlement_delay_p95_days?: number
-  whitelisted_deduction_amount_minor?: MinorAmountField
-  unexplained_variance_amount_minor?: MinorAmountField
-  over_settlement_amount_minor?: MinorAmountField
-  weakest_source_system?: string
-  weakest_source_missing_ref_rate?: number
-  weakest_source_manual_review_rate?: number
-  weakest_provider_id?: string
-}
-
-type PatternDetailResponse = {
-  data_available?: boolean
-  computed_at?: string
-  window_start?: string
-  window_end?: string
-  data?: PatternDetailData
-}
-
-type PatternHistoryResponse = {
-  snapshots?: Array<{
-    created_at?: string
-    snapshot_json?: PatternDetailData
-  }>
-}
+type SourceQualityPattern = NonNullable<PatternSnapshotData['source_quality_patterns']>[number]
+type ProviderQualityPattern = NonNullable<PatternSnapshotData['provider_quality_patterns']>[number]
 
 function readMinor(value: MinorAmountField | undefined | null): number {
   if (value == null || value === '') return 0
@@ -155,11 +85,6 @@ function providerLabel(providerId: string): string {
     .filter(Boolean)
     .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
     .join(' ')
-}
-
-function patternDataFrom(detail: PatternDetailResponse | null, history: PatternHistoryResponse | null): PatternDetailData | null {
-  if (detail?.data_available === true && detail.data) return detail.data
-  return history?.snapshots?.find((snapshot) => snapshot.snapshot_json)?.snapshot_json ?? null
 }
 
 function generatedAtFrom(inputs: Array<string | undefined | null>): string {
@@ -270,15 +195,16 @@ function buildLeakageComposition(seed: RoutingKpiSnapshot, leakage: LeakageKpiRe
 
 function buildInsights(
   seed: RoutingKpiSnapshot,
-  pattern: PatternDetailData | null,
+  pattern: PatternSnapshotData | null,
+  patternViewInsights: CorrelationInsight[],
   leakage: LeakageKpiResponse | null,
   ambiguity: AmbiguityKpiResponse | null,
   rca: RcaKpiResponse | null,
 ): CorrelationInsight[] {
-  const insights: CorrelationInsight[] = []
+  const insights: CorrelationInsight[] = [...patternViewInsights]
   const weakestSource = pattern?.weakest_source_system
   const missingRefRate = pct(pattern?.weakest_source_missing_ref_rate)
-  if (weakestSource && missingRefRate != null) {
+  if (weakestSource && missingRefRate != null && !insights.some((item) => item.id === 'pattern-weakest-source')) {
     insights.push({
       id: 'pattern-weakest-source',
       text: `${weakestSource} has ${missingRefRate.toFixed(1)}% missing references.`,
@@ -286,7 +212,7 @@ function buildInsights(
   }
 
   const weakestProvider = pattern?.weakest_provider_id
-  if (weakestProvider) {
+  if (weakestProvider && !insights.some((item) => item.id === 'pattern-weakest-provider')) {
     insights.push({
       id: 'pattern-weakest-provider',
       text: `${providerLabel(weakestProvider)} is the weakest provider signal in the latest pattern snapshot.`,
@@ -294,7 +220,7 @@ function buildInsights(
   }
 
   const delayP95 = pattern?.settlement_delay_p95_days
-  if (delayP95 && delayP95 > 1) {
+  if (delayP95 && delayP95 > 1 && !insights.some((item) => item.id === 'pattern-settlement-delay')) {
     insights.push({
       id: 'pattern-settlement-delay',
       text: `Settlement delay P95 is ${delayP95.toFixed(1)} days.`,
@@ -322,17 +248,19 @@ function buildInsights(
     })
   }
 
-  return insights.length ? insights.slice(0, 5) : seed.correlationInsights
+  return insights.length ? insights.slice(0, 8) : seed.correlationInsights
 }
 
 function buildActions(
   seed: RoutingKpiSnapshot,
-  pattern: PatternDetailData | null,
+  pattern: PatternSnapshotData | null,
+  patternViewActions: ActionRecommendation[],
   recommendations: RecommendationsKpiResponse | null,
 ): ActionRecommendation[] {
-  const actions: ActionRecommendation[] = []
-  const source = pattern?.source_quality_patterns?.[0]
-  if (source?.source_system) {
+  const actions: ActionRecommendation[] = [...patternViewActions]
+  const source = pattern?.source_quality_patterns?.[0] as SourceQualityPattern | undefined
+
+  if (!actions.length && source?.source_system) {
     actions.push({
       id: 'action-source-patch',
       title: `Patch ${source.source_system} references`,
@@ -341,22 +269,12 @@ function buildActions(
     })
   }
 
-  const provider = pattern?.provider_quality_patterns?.find((item) => (item.severity || '').toUpperCase() !== 'LOW')
-  if (provider?.provider_id) {
-    actions.push({
-      id: 'action-provider-contract',
-      title: `Request stronger ${providerLabel(provider.provider_id)} carrier contract`,
-      impactMinor: readMinor(pattern?.duplicate_risk_exposure_minor),
-      impactLabel: `Orphan rate ${((provider.orphan_rate ?? 0) * 100).toFixed(1)}%`,
-    })
-  }
-
-  if ((pattern?.settlement_delay_p95_days ?? 0) > 1) {
-    actions.push({
-      id: 'action-sla-delay',
-      title: 'Review settlement SLA delay',
-      impactMinor: readMinor(pattern?.unexplained_variance_amount_minor),
-      impactLabel: `P95 ${pattern?.settlement_delay_p95_days?.toFixed(1)} days`,
+  if (pattern?.recommended_action?.trim()) {
+    actions.unshift({
+      id: 'action-api-recommended',
+      title: pattern.recommended_action.trim(),
+      impactMinor: readMinor(pattern.unexplained_variance_amount_minor),
+      impactLabel: pattern.risk_tier ? `Risk tier ${pattern.risk_tier}` : 'API recommended action',
     })
   }
 
@@ -369,7 +287,7 @@ function buildActions(
     })
   }
 
-  const filtered = actions.filter((action) => action.impactMinor > 0 || action.impactLabel).slice(0, 5)
+  const filtered = actions.filter((action) => action.title).slice(0, 8)
   return filtered.length ? filtered : seed.actionRecommendations
 }
 
@@ -425,11 +343,12 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     getRecommendationsKpis(dateQuery),
     getRcaKpis(dateQuery),
     getAmbiguityHeatmap(),
-    fetchProdJsonGet<PatternDetailResponse>('/api/prod/intelligence/pattern'),
-    fetchProdJsonGet<PatternHistoryResponse>('/api/prod/intelligence/pattern/history?limit=5'),
+    getPatternDetail(dateQuery),
+    getPatternHistory(dateQuery, 5),
   ])
 
   const pattern = patternDataFrom(patternDetail, patternHistory)
+  const patternIntelligence = mapPatternToConnectorView(patternDetail, patternHistory)
   const hasLiveSignal =
     isDataAvailable(leakage) ||
     isDataAvailable(ambiguity) ||
@@ -437,7 +356,8 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     isDataAvailable(recommendations) ||
     isDataAvailable(rca) ||
     isDataAvailable(heatmap) ||
-    Boolean(pattern)
+    Boolean(pattern) ||
+    Boolean(patternIntelligence?.hasLiveData)
   if (!hasLiveSignal) return null
 
   const providerPatterns = pattern?.provider_quality_patterns ?? []
@@ -446,6 +366,11 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     providerPatterns,
   )
   const leakageComposition = buildLeakageComposition(seed, leakage)
+  const patternInsights = patternInsightsFromView(patternIntelligence).map((item) => ({
+    id: item.id,
+    text: item.text,
+  }))
+  const patternActions = patternActionsFromView(patternIntelligence)
 
   return {
     ...seed,
@@ -461,9 +386,10 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     ]),
     connectors,
     routeCandidates: rebuildRoutes(seed, connectors),
-    correlationInsights: buildInsights(seed, pattern, leakage, ambiguity, rca),
-    actionRecommendations: buildActions(seed, pattern, recommendations),
+    correlationInsights: buildInsights(seed, pattern, patternInsights, leakage, ambiguity, rca),
+    actionRecommendations: buildActions(seed, pattern, patternActions, recommendations),
     leakageComposition: leakageComposition.length ? leakageComposition : seed.leakageComposition,
     networkHealthTrend: buildTrend(seed, heatmap),
+    patternIntelligence,
   }
 }

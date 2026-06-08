@@ -410,6 +410,7 @@ export function getSeededRoutingSnapshot(window: RoutingTimeWindow): RoutingKpiS
       leakageComposition: LEAKAGE_COMPOSITION,
       networkHealthTrend: NETWORK_HEALTH_TREND,
       drilldowns: DRILLDOWNS,
+      patternIntelligence: null,
     }
   }
 
@@ -432,5 +433,6 @@ export function getSeededRoutingSnapshot(window: RoutingTimeWindow): RoutingKpiS
     })),
     networkHealthTrend: NETWORK_HEALTH_TREND,
     drilldowns: DRILLDOWNS,
+    patternIntelligence: null,
   }
 }

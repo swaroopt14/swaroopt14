@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build && node scripts/prepare-standalone-assets.mjs",
-    "start": "next start",
+    "start": "node .next/standalone/server.js",
+    "start:next": "next start",
     "start:standalone": "node .next/standalone/server.js",
     "lint": "next lint",
     "test:e2e": "playwright test",

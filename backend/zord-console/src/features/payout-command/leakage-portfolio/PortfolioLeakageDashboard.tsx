@@ -61,16 +61,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     )
   }, [batchHealth, selectedBatchId, leak])
 
-  const displayDataBase = batchScopedData ?? viewModel
-  const ambiguityReviewMinor =
-    ambiguity && ambiguity.value_at_risk_minor != null && ambiguity.value_at_risk_minor !== ''
-      ? Number.isFinite(Number(ambiguity.value_at_risk_minor))
-        ? Number(ambiguity.value_at_risk_minor)
-        : null
-      : null
-  const displayData = displayDataBase
-    ? { ...displayDataBase, valueNeedingReviewMinor: ambiguityReviewMinor }
-    : null
+  const displayData = batchScopedData ?? viewModel
   const kpiLoading = (loading && !viewModel && !batchScopedData) || (Boolean(selectedBatchId) && batchHealthLoading)
   const showLiveHint = Boolean(batchScopedData) || hasData
 

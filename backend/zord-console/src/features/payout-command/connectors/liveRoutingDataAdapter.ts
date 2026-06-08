@@ -107,13 +107,7 @@ function applyLiveExposure(
 
   const totalSeedVolume = connectors.reduce((sum, connector) => sum + connector.volumeMinor, 0)
   const liveVolume = isDataAvailable(leakage) ? readMinor(leakage.total_intended_amount_minor) : 0
-  const valueAtRisk =
-    (isDataAvailable(leakage)
-      ? readMinor(leakage.unmatched_amount_minor) +
-        readMinor(leakage.under_settlement_amount_minor) +
-        readMinor(leakage.orphan_amount_minor) +
-        readMinor(leakage.reversal_exposure_minor)
-      : 0) + (isDataAvailable(ambiguity) ? readMinor(ambiguity.value_at_risk_minor) : 0)
+  const valueAtRisk = isDataAvailable(leakage) ? readMinor(leakage.unmatched_amount_minor) : 0
   const recommendationImpact = isDataAvailable(recommendations)
     ? readMinor(recommendations.recommendation_impact_estimate_minor)
     : 0

@@ -5,7 +5,7 @@ import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntel
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { commandPeriodToDateRange } from '../command-center/commandCenterPeriod'
-import { fmtInrFull, parseMinorField } from '../command-center/commandCenterFormat'
+import { fmtInrFromMinor, fmtInrFull, parseMinorField } from '../command-center/commandCenterFormat'
 import { derivePaymentCommandDataState } from '../command-center/paymentCommandDataState'
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import type { DataSourceBadgeStatus } from '../command-center/usePaymentCommandDataSources'
@@ -88,9 +88,8 @@ export function usePaymentOperationsView(batchId?: string): {
     const under = leakageOk ? parseMinorField(leakage.under_settlement_amount_minor) : 0
     const reversal = leakageOk ? parseMinorField(leakage.reversal_exposure_minor) : 0
     const orphan = leakageOk ? parseMinorField(leakage.orphan_amount_minor) : 0
-    const unlinkedSettlement = orphan > 0 ? orphan : unmatched
-    const ambiguityReviewMinor = ambiguityOk ? parseMinorStrict(ambiguity.value_at_risk_minor) : null
-    const reviewMinor = unmatched > 0 ? unmatched : ambiguityReviewMinor
+    const unlinkedSettlement = orphan
+    const reviewMinor = leakageOk ? unmatched : null
 
     const lifecycleState = derivePaymentCommandDataState({
       intendedMinor: leakageOk ? intendedMinor : null,
@@ -211,15 +210,13 @@ export function usePaymentOperationsView(batchId?: string): {
         valueObserved: valueObservedMinor != null ? fmtInrFull(valueObservedMinor) : '—',
         valueObservedSub:
           intendedMinor > 0 ? 'From payment instructions' : settledMinor > 0 ? 'From settlement' : '—',
-        needingReview: reviewMinor != null ? fmtInrFull(reviewMinor) : '—',
+        needingReview: reviewMinor != null ? fmtInrFromMinor(reviewMinor) : '—',
         needingReviewSub:
           reviewMinor == null
             ? 'No review value data available'
             : reviewMinor <= 0
-            ? PAYMENT_OPERATIONS.reviewZeroHint
-            : unmatched > 0
-              ? 'Unmatched settlement/payment value from leakage engine'
-              : 'Ambiguity value-at-risk from intelligence engine',
+              ? PAYMENT_OPERATIONS.reviewZeroHint
+              : 'Unmatched payment value from leakage dashboard',
         matchConfidence: matchConf != null ? formatPct(matchConf) : '—',
         matchConfidenceSub: ambiguityOk ? 'Average attachment confidence' : '—',
         proofReadiness: proofRate != null ? formatPct(proofRate) : '—',
@@ -238,15 +235,15 @@ export function usePaymentOperationsView(batchId?: string): {
       sourceRows,
       clarityRows: leakageOk
         ? [
-            { label: 'Intended value', value: fmtInrFull(intendedMinor, { decimals: 0 }) },
-            { label: 'Settled value observed', value: fmtInrFull(settledMinor, { decimals: 0 }) },
-            { label: 'Unmatched value', value: fmtInrFull(unmatched, { decimals: 0 }) },
+            { label: 'Intended value', value: fmtInrFromMinor(intendedMinor, { decimals: 0 }) },
+            { label: 'Settled value observed', value: fmtInrFromMinor(settledMinor, { decimals: 0 }) },
+            { label: 'Unmatched value', value: fmtInrFromMinor(unmatched, { decimals: 0 }) },
             { label: 'Short-settled value', value: fmtInrFull(under, { decimals: 0 }) },
             { label: 'Unlinked settlement', value: fmtInrFull(unlinkedSettlement, { decimals: 0 }) },
             { label: 'Reversal exposure', value: fmtInrFull(reversal, { decimals: 0 }) },
           ]
         : [],
-      clarityHero: reviewMinor != null ? fmtInrFull(reviewMinor, { decimals: 0 }) : '—',
+      clarityHero: reviewMinor != null ? fmtInrFromMinor(reviewMinor, { decimals: 0 }) : '—',
       clarityState,
       healthBrief: {
         cleanCount: patternsOk ? formatCount(patterns.success_count) : '—',

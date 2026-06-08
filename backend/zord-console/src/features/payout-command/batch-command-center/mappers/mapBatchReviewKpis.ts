@@ -69,8 +69,8 @@ export function mapBatchReviewKpis(args: {
       : null
 
   const valueNeedingReviewMinor =
-    args.ambiguityKpi && isDataAvailable(args.ambiguityKpi)
-      ? coerceMinor(args.ambiguityKpi.value_at_risk_minor)
+    args.leakageKpi && isDataAvailable(args.leakageKpi)
+      ? coerceMinor(args.leakageKpi.unmatched_amount_minor)
       : null
 
   const processedPct = formatBatchMetricPercent(processed, total)
@@ -127,7 +127,7 @@ export function mapBatchReviewKpis(args: {
       id: 'value-needing-review',
       title: BATCH_REVIEW_COPY.kpis.valueNeedingReview.title,
       value: formatMinorDisplay(valueNeedingReviewMinor),
-      subtitle: 'Ambiguity engine value at risk',
+      subtitle: 'Unmatched payment value from leakage dashboard',
       empty: valueNeedingReviewMinor == null,
     },
   ]

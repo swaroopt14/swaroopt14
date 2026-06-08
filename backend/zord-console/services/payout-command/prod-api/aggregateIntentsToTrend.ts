@@ -81,10 +81,8 @@ function addIntentToBucket(b: DisbursementTrendBucket, minor: number, confirmed:
   }
 }
 
-function finalizeBucketReviewAmounts(buckets: DisbursementTrendBucket[]) {
-  for (const b of buckets) {
-    b.review_amount = Math.max(0, b.total_amount - b.confirmed_amount)
-  }
+function finalizeBucketReviewAmounts(_buckets: DisbursementTrendBucket[]) {
+  // review_amount is not derived from intent aggregates — use leakage unmatched only.
 }
 
 /**

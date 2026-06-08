@@ -18,13 +18,13 @@ export function deriveWhatZordFound(data: PortfolioLeakageViewModel): WhatZordFo
   }
 
   if (data.underSettlementMinor > 0) {
-    parts.push(`${formatMinorInr(data.underSettlementMinor)} in short-settlement value needs review.`)
+    parts.push(`${formatMinorInr(data.underSettlementMinor)} in short-settlement value was detected.`)
   } else {
     parts.push('No short-settlement value was detected.')
   }
 
   if (data.orphanMinor > 0) {
-    parts.push(`${formatMinorInr(data.orphanMinor)} in unlinked settlement value needs review.`)
+    parts.push(`${formatMinorInr(data.orphanMinor)} in unlinked settlement value was detected.`)
   } else {
     parts.push('No orphan settlement value was detected.')
   }

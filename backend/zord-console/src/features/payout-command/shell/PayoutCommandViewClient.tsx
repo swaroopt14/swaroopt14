@@ -133,19 +133,10 @@ export default function PayoutCommandViewClient({
       return (
         <div>
           <HomeSurface
-          batchId={sharedBatchId}
-          scenario={home.scenario}
-          snapshot={home.snapshot}
-          timeframe={home.timeframe}
-          onTimeframeChange={home.setTimeframe}
-          onYearChange={home.setYear}
-          onQuarterChange={(qi) => {
-            home.setQuarterIndex(qi)
-            if (home.timeframe !== 'Quarter') home.setTimeframe('Quarter')
-          }}
-          activeChartPoint={home.activeChartPoint}
-          onActiveChartPointChange={home.setActiveChartPoint}
-        />
+            batchId={sharedBatchId}
+            timeframe={home.timeframe}
+            onTimeframeChange={home.setTimeframe}
+          />
         </div>
       )
     }

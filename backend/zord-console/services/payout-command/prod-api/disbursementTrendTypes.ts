@@ -1,4 +1,4 @@
-/** Query param for `GET /api/prod/home/disbursement-trend` (and future dedicated service). */
+/** Query param for `GET /api/prod/home/disbursement-trend` (BFF over intelligence leakage windows). */
 export type DisbursementTrendRange = 'week' | 'month' | 'quarter' | 'year'
 
 export type DisbursementTrendBucket = {
@@ -23,7 +23,7 @@ export type DisbursementTrendResponse = {
   currency: string
   buckets: DisbursementTrendBucket[]
   /** How this payload was produced — for debugging / migration. */
-  source: 'intent_engine_aggregate' | 'analytics_service'
+  source: 'intelligence_leakage_windows' | 'intent_engine_aggregate' | 'analytics_service'
   /** When aggregating from paginated intents, caps applied. */
   note?: string
 }

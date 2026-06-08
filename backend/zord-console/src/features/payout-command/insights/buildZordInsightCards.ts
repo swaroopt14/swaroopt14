@@ -127,9 +127,7 @@ export function buildZordInsightCards(params: {
   }
 
   if (patternsData && patternsData.total_count > 0) {
-    const exposureMinor = leakageData
-      ? readMinor(leakageData.unmatched_amount_minor) + readMinor(leakageData.under_settlement_amount_minor)
-      : 0
+    const exposureMinor = leakageData ? readMinor(leakageData.unmatched_amount_minor) : 0
     cards.push({
       type: 'alert',
       id: 'leakage',

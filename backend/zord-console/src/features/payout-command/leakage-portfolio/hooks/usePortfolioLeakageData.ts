@@ -15,17 +15,8 @@ export function usePortfolioLeakageData(tenantReady: boolean, batchId?: string) 
 
   const viewModel: PortfolioLeakageViewModel | null = useMemo(() => {
     if (!leak) return null
-    const base = toPortfolioLeakageViewModel(leak)
-    return {
-      ...base,
-      valueNeedingReviewMinor:
-        amb && amb.value_at_risk_minor != null && amb.value_at_risk_minor !== ''
-          ? Number.isFinite(Number(amb.value_at_risk_minor))
-            ? Number(amb.value_at_risk_minor)
-            : null
-          : null,
-    }
-  }, [leak, amb])
+    return toPortfolioLeakageViewModel(leak)
+  }, [leak])
 
   return {
     viewModel,

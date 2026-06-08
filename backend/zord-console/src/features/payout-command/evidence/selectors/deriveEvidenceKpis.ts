@@ -29,7 +29,7 @@ export function deriveEvidenceKpis(input: {
   batchHealth?: BatchHealth | null
   batchId?: string
 }): EvidenceKpiCard[] {
-  const { defensibility, ambiguity, packRows } = input
+  const { defensibility, leakage, packRows } = input
   const packCount = packRows.length
 
   let readyCount = 0
@@ -68,11 +68,9 @@ export function deriveEvidenceKpis(input: {
     readinessExplanation = evidenceCopy.scoreLowExplanation
   }
 
-  const exposureValue = ambiguity
-    ? formatMinorInrLabel(ambiguity.value_at_risk_minor)
-    : '—'
-  const exposureSub: string = ambiguity
-    ? `Ambiguity value-at-risk · tier ${ambiguity.risk_tier ?? 'N/A'}`
+  const exposureValue = leakage ? formatMinorInrLabel(leakage.unmatched_amount_minor) : '—'
+  const exposureSub: string = leakage
+    ? 'Unmatched payment value from leakage dashboard'
     : evidenceCopy.valueReviewHelper
 
   const packsSub =

@@ -48,7 +48,7 @@ function installAuthIntelligenceAndPromptMocks(page: Page) {
           buckets: [
             { key: '1', label: 'W1', total_amount: 10000, confirmed_amount: 8000, review_amount: 2000, intent_count: 10, confirmed_count: 8 },
           ],
-          source: 'intent_engine_aggregate',
+          source: 'intelligence_leakage_windows',
         }),
       })
     }),

@@ -288,7 +288,7 @@ function SkeletonBody() {
 
 function EmptyBody() {
   const text =
-    'No live trend or intelligence KPI payload yet for this tenant — numbers appear when leakage, patterns, or disbursement-trend APIs return data.'
+    'No live trend or intelligence KPI payload yet for this tenant — numbers appear when leakage or patterns APIs return data.'
   return (
     <div className="text-[20px] font-normal leading-[1.45] tracking-[0]" style={{ color: G.muted }}>
       {boldNumbersAppear(text)}
@@ -299,7 +299,7 @@ function EmptyBody() {
 function EmptyNoTenantBody() {
   return (
     <div className="text-[20px] font-normal leading-[1.45] tracking-[0]" style={{ color: G.muted }}>
-      Sign in and select a tenant to populate intelligence cards from leakage, patterns, and disbursement-trend APIs.
+      Sign in and select a tenant to populate intelligence cards from leakage and patterns APIs.
     </div>
   )
 }

@@ -1,16 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Bar, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import {
-  clamp,
-  HOME_CHART_DOMAIN_MAX,
-  HOME_QUARTERS,
-  HOME_YEAR_OPTIONS,
-  type HomeOverviewSnapshot,
-  type HomeSimulation,
-  type HomeTimeframe,
-} from '@/services/payout-command/model'
+import { clamp, HOME_CHART_DOMAIN_MAX, type HomeTimeframe } from '@/services/payout-command/model'
 import { buildZordInsightCards } from '../insights/buildZordInsightCards'
 import { ZordInsightCarousel } from '../insights/ZordInsightCarousel'
 import { PaymentCommandCenterBand } from '../command-center/PaymentCommandCenterBand'
@@ -22,12 +14,7 @@ import {
   carouselPeriodToTrendRange,
   COMMAND_CENTER_PERIOD_OPTIONS,
 } from '../command-center/commandCenterPeriod'
-import {
-  chartThousandsFromMinor,
-  fmtInrFromMinor,
-  fmtInrFull,
-  parseMinorField,
-} from '../command-center/commandCenterFormat'
+import { chartThousandsFromMinor, fmtInrFromMinor, parseMinorField } from '../command-center/commandCenterFormat'
 import { PAYMENT_COMMAND_CENTER } from '../command-center/paymentCommandCopy'
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import {
@@ -57,25 +44,13 @@ function parseMinorStrict(value: string | number | undefined | null): number | n
 
 export function HomeSurface({
   batchId,
-  scenario,
-  snapshot,
   timeframe,
   onTimeframeChange,
-  onYearChange,
-  onQuarterChange,
-  activeChartPoint: _activeChartPoint,
-  onActiveChartPointChange: _onActiveChartPointChange,
 }: {
   /** Optional URL `batch_id` — scopes patterns KPI only. */
   batchId?: string
-  scenario: HomeSimulation
-  snapshot: HomeOverviewSnapshot
   timeframe: HomeTimeframe
   onTimeframeChange: (timeframe: HomeTimeframe) => void
-  onYearChange: (year: 2026 | 2027 | 2028) => void
-  onQuarterChange: (quarterIndex: number) => void
-  activeChartPoint: number
-  onActiveChartPointChange: (point: number) => void
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [trendAnchorIdx, setTrendAnchorIdx] = useState(0)
@@ -206,14 +181,6 @@ export function HomeSurface({
     ? ([0, Math.max(0, chartData.length - 1)] as const)
     : ([0, 0] as const)
   const [selectedRangeStart, selectedRangeEnd] = selectedRange
-  const activeChartDatum = chartData[safePoint] ?? {
-    point: 0,
-    barValue: 0,
-    lineValue: 0,
-    reviewLineValue: 0,
-    selected: false,
-    isHoliday: false,
-  }
   const activeBucket = trendSeries?.buckets?.[safePoint]
   const totalChartBars = chartData.length
   const rangeLeftPercent = totalChartBars > 0 ? (selectedRangeStart / totalChartBars) * 100 : 0
@@ -227,21 +194,9 @@ export function HomeSurface({
     axisLabelsForChart[safePoint] ??
     axisLabelsForChart[Math.min(safePoint, axisLabelsForChart.length - 1)] ??
     '—'
-  const fmtTrendTooltipInr = (valueThousands: number) =>
-    fmtInrFull(Math.round(valueThousands * 1000))
-
-  const tooltipIntended = activeBucket
-    ? fmtInrFromMinor(activeBucket.total_amount)
-    : fmtTrendTooltipInr(activeChartDatum.barValue)
-  const tooltipConfirmed = activeBucket
-    ? fmtInrFromMinor(activeBucket.confirmed_amount)
-    : fmtTrendTooltipInr(activeChartDatum.lineValue)
-  const tooltipReviewFallbackMinor = parseMinorStrict(leakageData?.unmatched_amount_minor)
-  const tooltipReview = activeBucket
-    ? fmtInrFromMinor(
-        Number(activeBucket.review_amount) > 0 ? activeBucket.review_amount : tooltipReviewFallbackMinor,
-      )
-    : fmtTrendTooltipInr(activeChartDatum.reviewLineValue)
+  const tooltipIntended = activeBucket ? fmtInrFromMinor(activeBucket.total_amount) : '—'
+  const tooltipConfirmed = activeBucket ? fmtInrFromMinor(activeBucket.confirmed_amount) : '—'
+  const tooltipReview = activeBucket ? fmtInrFromMinor(activeBucket.review_amount) : '—'
 
   const chartTags = useMemo(() => {
     const data = chartData
@@ -250,6 +205,8 @@ export function HomeSurface({
     let maxBarI = 0
     let maxGap = 0
     let maxGapI = 0
+    let maxReview = 0
+    let maxReviewI = 0
     for (let i = 0; i < data.length; i++) {
       if (data[i].barValue > maxBar) {
         maxBar = data[i].barValue
@@ -260,14 +217,24 @@ export function HomeSurface({
         maxGap = gap
         maxGapI = i
       }
+      if (data[i].reviewLineValue > maxReview) {
+        maxReview = data[i].reviewLineValue
+        maxReviewI = i
+      }
     }
-    const delayI = Math.floor(data.length * 0.68)
     const denom = Math.max(data.length - 1, 1)
-    return [
+    const tags: Array<{ key: string; leftPct: number; label: string }> = [
       { key: 'high', leftPct: clamp((maxBarI / denom) * 100, 10, 86), label: PAYMENT_COMMAND_CENTER.chipHighValue },
       { key: 'spike', leftPct: clamp((maxGapI / denom) * 100, 10, 86), label: PAYMENT_COMMAND_CENTER.chipConfirmationGap },
-      { key: 'delay', leftPct: clamp((delayI / denom) * 100, 10, 86), label: PAYMENT_COMMAND_CENTER.chipReviewNeeded },
     ]
+    if (maxReview > 0) {
+      tags.push({
+        key: 'review',
+        leftPct: clamp((maxReviewI / denom) * 100, 10, 86),
+        label: PAYMENT_COMMAND_CENTER.chipReviewNeeded,
+      })
+    }
+    return tags
   }, [chartData])
 
   const dataSources = usePaymentCommandDataSources({
@@ -284,14 +251,13 @@ export function HomeSurface({
   const unmatchedMinor = parseMinorStrict(leakageData?.unmatched_amount_minor)
   const underSettlementMinor = parseMinorStrict(leakageData?.under_settlement_amount_minor)
   const orphanMinor = parseMinorStrict(leakageData?.orphan_amount_minor)
-  const unlinkedSettlementMinor = (orphanMinor ?? 0) > 0 ? orphanMinor : unmatchedMinor
+  const unlinkedSettlementMinor = orphanMinor
   const reversalMinor = parseMinorStrict(leakageData?.reversal_exposure_minor)
   const observedMinor = parseMinorStrict(leakageData?.total_observed_settled_amount_minor)
 
   const bankConfirmedMinor = observedMinor
 
-  const exposureMinor = ambData ? parseMinorStrict(ambData.value_at_risk_minor) : null
-  const reviewMinor = (unmatchedMinor ?? 0) > 0 ? unmatchedMinor : exposureMinor
+  const reviewMinor = leakageData != null ? parseMinorField(leakageData.unmatched_amount_minor) : null
 
   const intentCountLabel =
     trendTotalsMinor && trendTotalsMinor.intentCount > 0
@@ -329,11 +295,9 @@ export function HomeSurface({
         emptyInsightParagraph: TENANT_KPI_EMPTY_CAROUSEL_INSIGHT,
         mismatchHeadline: reviewDisplay,
         mismatchSubtext:
-          (unmatchedMinor ?? 0) > 0
-            ? 'Payment value from unmatched settlement or payment records needing review.'
-            : exposureMinor !== null
-              ? 'Payment value affected by ambiguity and uncertain matching outcomes.'
-              : 'No review value data available for this period.',
+          leakageData != null
+            ? 'Unmatched payment value from the leakage dashboard.'
+            : 'No leakage data available for this period.',
         reviewValueMinor: reviewMinor,
         mismatchPendingCount: patternsData?.pending_count ?? ambData?.ambiguous_intent_count ?? 0,
         trendInsight,
@@ -354,8 +318,7 @@ export function HomeSurface({
       patternsData,
       reviewDisplay,
       reviewMinor,
-      unmatchedMinor,
-      exposureMinor,
+      leakageData,
       ambData?.ambiguous_intent_count,
     ],
   )
@@ -513,21 +476,7 @@ export function HomeSurface({
               >
                 <option value="Week">Week</option>
                 <option value="Month">Month</option>
-                <option value="Quarter">Quarter</option>
                 <option value="Year">Year</option>
-                <option value="Custom">Custom</option>
-              </select>
-
-              <select
-                value={snapshot.selectedYear}
-                onChange={(e) => onYearChange(Number(e.target.value) as 2026 | 2027 | 2028)}
-                className="rounded-md border border-[#E5E5E5] bg-white px-3 py-1.5 text-[13px] font-medium text-neutral-800 focus:border-[#39E07E] focus:outline-none focus:ring-1 focus:ring-[#39E07E]/40"
-              >
-                {HOME_YEAR_OPTIONS.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
               </select>
             </div>
             {trendLoading ? <span className="text-[12px] text-neutral-500">Updating…</span> : null}
@@ -600,8 +549,8 @@ export function HomeSurface({
                   {chartData.map((entry) => (
                     <Cell
                       key={`home-bar-${entry.point}`}
-                      fill={entry.selected ? '#16a34a' : entry.isHoliday ? '#94a3b8' : '#4ade80'}
-                      opacity={entry.point === activeChartDatum.point ? 1 : 0.78}
+                      fill="#4ade80"
+                      opacity={entry.point === safePoint ? 1 : 0.78}
                     />
                   ))}
                 </Bar>
@@ -711,32 +660,6 @@ export function HomeSurface({
           <div className="px-4 pt-2 text-center sm:px-6 lg:px-8">{disbursementHeroInner}</div>
         )}
 
-        {timeframe === 'Custom' ? (
-          <div className="mt-3 px-4 sm:px-6 lg:px-8">
-        <div className="overflow-hidden rounded-[1rem] border border-[#E5E5E5] bg-white text-[13px] font-normal tracking-[0]">
-          <div className={`grid grid-cols-[1.1fr_2fr_0.8fr] bg-[#f8f8f7] px-3 py-2 text-[14px] font-medium ${HOME_TITLE_BLACK}`}>
-            <div>Range</div>
-            <div className={HOME_BODY_IMPERIAL_SM}>Months included</div>
-            <div>Months</div>
-          </div>
-          {HOME_QUARTERS.map((quarter, index) => (
-            <button
-              key={quarter.name}
-              type="button"
-              onClick={() => onQuarterChange(index)}
-              className={`grid w-full grid-cols-[1.1fr_2fr_0.8fr] px-3 py-2 text-left text-[13px] transition ${
-                quarter.name === snapshot.quarterName ? `bg-[#eef2f7]` : 'hover:bg-[#fafafa]'
-              }`}
-            >
-              <span className={HOME_TITLE_BLACK}>{quarter.name}</span>
-              <span className={HOME_BODY_IMPERIAL_SM}>{quarter.months.join(', ')}</span>
-              <span className={HOME_TITLE_BLACK}>{quarter.months.length}</span>
-            </button>
-          ))}
-        </div>
-          </div>
-        ) : null}
-
         <div className="mt-6">
           {/* DataSourceStatusBar removed per user request */}
         </div>
@@ -757,11 +680,9 @@ export function HomeSurface({
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={
-              (unmatchedMinor ?? 0) > 0
-                ? 'Payment value from unmatched settlement or payment records.'
-                : exposureMinor !== null
-                  ? 'Payment value from ambiguity engine needing review.'
-                  : 'No review value data available for this period.'
+              leakageData != null
+                ? 'Unmatched payment value from bank/settlement matching.'
+                : 'No leakage data available for this period.'
             }
             unmatchedDisplay={leakageData ? fmtInrFromMinor(unmatchedMinor) : '—'}
             shortSettledDisplay={leakageData ? fmtInrFromMinor(underSettlementMinor) : '—'}

@@ -1,5 +1,5 @@
 import type { PaymentCommandLifecycleState } from '../command-center/paymentCommandDataState'
-import { fmtInrFull } from '../command-center/commandCenterFormat'
+import { fmtInrFromMinor } from '../command-center/commandCenterFormat'
 import { PAYMENT_OPERATIONS } from './paymentOperationsCopy'
 
 export type GroundedAnswerInput = {
@@ -36,7 +36,7 @@ export function buildGroundedAnswerSnapshot(input: GroundedAnswerInput): string 
     )
   }
 
-  const reviewValue = fmtInrFull(reviewMinor, { decimals: 0 })
+  const reviewValue = fmtInrFromMinor(reviewMinor, { decimals: 0 })
   const hasReview = (reviewMinor != null && reviewMinor > 0) || ambiguousCount > 0
 
   if (!hasReview && matchConfidencePct != null && matchConfidencePct >= 85) {

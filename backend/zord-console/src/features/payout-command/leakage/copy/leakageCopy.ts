@@ -13,8 +13,7 @@ export const leakageCopy = {
     bankObserved: 'Bank / Settlement Value Observed',
     bankObservedHelper: 'Total value found in bank, PSP, or settlement records.',
     valueNeedingReview: 'Value Needing Review',
-    valueNeedingReviewHelper:
-      'Payment value affected by missing match, short settlement, reversal, or unclear outcome.',
+    valueNeedingReviewHelper: 'Unmatched payment value from the leakage dashboard.',
     paymentGapRate: 'Payment Gap Rate',
     paymentGapRateHelper: 'Share of intended value that is not fully matched or confirmed.',
     reviewPriority: 'Review Priority',

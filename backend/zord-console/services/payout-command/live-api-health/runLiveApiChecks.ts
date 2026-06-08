@@ -174,7 +174,7 @@ export async function runLiveApiChecks(options: RunLiveApiChecksOptions = {}): P
     },
     {
       id: 'disbursement-trend',
-      label: 'Home · disbursement trend',
+      label: 'Home · payment trend (leakage windows)',
       url: '/api/prod/home/disbursement-trend?range=month',
       summarize: (d) => {
         const trend = d as DisbursementTrendResponse | null

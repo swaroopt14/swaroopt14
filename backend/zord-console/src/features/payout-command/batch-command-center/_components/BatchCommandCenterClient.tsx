@@ -11,7 +11,7 @@ import {
   type IntentIngestSuccessPayload,
   type SettlementIngestSuccessPayload,
 } from './BatchIntakePanel'
-import { HydrationSafeLocaleTime } from '../../command-center/RecommendedBlackCard'
+import { HydrationSafeLocaleTime } from '../../command-center/HydrationSafeLocaleTime'
 import {
   type BatchSummary,
 } from '@/services/payout-command/batch-model'

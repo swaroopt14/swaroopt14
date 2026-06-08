@@ -358,7 +358,7 @@ function StagePanel({ panel }: { panel: (typeof stageDetails)[number]['panel'] }
           ['Settlement update', '09:43:02', false],
         ].map(([label, time, active], index) => (
           <motion.div
-            key={label}
+            key={String(label)}
             className="flex gap-3"
             initial={{ opacity: 0, x: 18 }}
             whileInView={{ opacity: 1, x: 0 }}

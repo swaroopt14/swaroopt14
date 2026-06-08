@@ -29,7 +29,7 @@ export const COMMAND_CENTER_LABEL_GREEN =
 export const INTELLIGENCE_BLUE_GRADIENT =
   'linear-gradient(140deg,#4a6fe6 0%,#103a9e 28%,#00239c 52%,#5c7ec9 100%)'
 
-/** White KPI card shell — matches `HomeCommandCenterLightBand` CARD_SHELL. */
+/** White KPI card shell for journal and routing KPI sections. */
 export const COMMAND_CENTER_KPI_CARD =
   'relative flex flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white p-5 shadow-[0_10px_44px_rgba(15,23,42,0.07)] ring-1 ring-black/[0.03]'
 

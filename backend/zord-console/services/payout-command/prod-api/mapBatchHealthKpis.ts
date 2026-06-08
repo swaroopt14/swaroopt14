@@ -1,7 +1,7 @@
 import type { BatchHealth, LeakageKpiResolved } from './intelligenceTypes'
-import type { PortfolioLeakageViewModel } from '@/app/payout-command-view/today/_components/leakage-portfolio/normalizeLeakagePayload'
-import { toPortfolioLeakageViewModel } from '@/app/payout-command-view/today/_components/leakage-portfolio/normalizeLeakagePayload'
-import { coerceMinor } from '@/app/payout-command-view/today/_components/leakage-portfolio/utils/formatMinorInr'
+import type { PortfolioLeakageViewModel } from '@/features/payout-command/leakage-portfolio/normalizeLeakagePayload'
+import { toPortfolioLeakageViewModel } from '@/features/payout-command/leakage-portfolio/normalizeLeakagePayload'
+import { coerceMinor } from '@/features/payout-command/leakage-portfolio/utils/formatMinorInr'
 
 function parseCount(raw: number | string | undefined | null): number {
   if (typeof raw === 'number' && Number.isFinite(raw)) return raw

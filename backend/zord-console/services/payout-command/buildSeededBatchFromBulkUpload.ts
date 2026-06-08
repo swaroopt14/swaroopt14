@@ -113,6 +113,44 @@ function batchRowToIntentDetail(row: BatchRow, batchId: string, index: number): 
     attachment: minimalAttachment(connector),
     variance: minimalVariance(status, row.reason),
     evidence: minimalEvidence(status, intentId, dispatchedAt),
+    mode: 'FULL_CONTROL',
+    intentKind: 'PAYOUT',
+    clientPayoutRef: row.refId?.trim() || null,
+    clientBatchRef: batchId,
+    beneficiaryFingerprint: `ben:${beneficiaryToken}`,
+    canonicalHash: `bulk:${batchId}:${intentId}`,
+    ingestedAt: dispatchedAt,
+    intendedExecutionAt: null,
+    mapping: {
+      nirId: `bulk-${batchId}`,
+      mappingProfileId: 'bulk-upload-default',
+      mappingProfileVersion: '1',
+      mappingConfidenceScore: 82,
+      mappingUncertainFlag: status === 'failed',
+      fieldConfidence: {
+        averageConfidence: 0.82,
+        minimumConfidence: status === 'failed' ? 0.55 : 0.74,
+        lowConfidenceFieldCount: status === 'failed' ? 1 : 0,
+        requiredFieldUncertaintyCount: 0,
+        unmappedExtrasCount: 0,
+      },
+    },
+    idempotency: {
+      businessIdempotencyKey: `${batchId}:${intentId}`,
+      duplicateRiskFlag: false,
+      duplicateReasonCode: null,
+      strictDuplicateFlag: false,
+      possibleDuplicateClusterId: null,
+    },
+    scores: {
+      proofReadinessScore: status === 'confirmed' ? 82 : status === 'failed' ? 45 : 64,
+      matchabilityScore: status === 'confirmed' ? 86 : status === 'failed' ? 48 : 68,
+      intentQualityScore: status === 'failed' ? 58 : 78,
+    },
+    governance: {
+      state: status === 'failed' ? 'REQUIRES_REVIEW' : 'READY_FOR_DISPATCH',
+      reasonCodes: status === 'failed' ? ['BULK_ROW_FAILED'] : ['BULK_ROW_ACCEPTED'],
+    },
   }
 }
 

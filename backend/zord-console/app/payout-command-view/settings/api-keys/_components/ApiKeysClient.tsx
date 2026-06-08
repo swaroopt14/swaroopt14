@@ -9,8 +9,8 @@ import {
   SANDBOX_RECENT_REQUESTS,
   type SandboxApiKey,
 } from '@/services/payout-command/sandbox-data'
-import { ActivateLiveWizard } from '../../../today/_components/sandbox/ActivateLiveWizard'
-import { Glyph } from '../../../today/_components/shared'
+import { ActivateLiveWizard } from '@/features/payout-command/sandbox/ActivateLiveWizard'
+import { Glyph } from '@/features/payout-command/shared'
 import { useSessionTenantId } from '@/services/auth/useSessionTenantId'
 
 /**
@@ -377,7 +377,7 @@ function RotateConfirmModal({ keyType, onClose }: { keyType: 'publishable' | 'se
             </header>
             <div className="px-5 py-4 text-[16px] leading-relaxed">
               <p className="text-[#475569]">
-                Save this key somewhere safe — you won't see it again.
+                Save this key somewhere safe — you won&apos;t see it again.
               </p>
               <code className="mt-3 block break-all rounded-[8px] border border-[#E5E5E5] bg-[#fafafa] p-3 font-mono text-[16px] text-[#0f172a]">
                 {newKey}
@@ -389,7 +389,7 @@ function RotateConfirmModal({ keyType, onClose }: { keyType: 'publishable' | 'se
                 onClick={onClose}
                 className="rounded-[8px] bg-[#0f172a] px-3 py-1.5 text-[16px] font-semibold text-white transition hover:bg-black"
               >
-                I've saved it
+                I&apos;ve saved it
               </button>
             </footer>
           </>

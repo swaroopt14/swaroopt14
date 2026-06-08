@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import ConnectorIntelligenceClient from './ConnectorIntelligenceClient'
+import ConnectorIntelligenceClient from '@/features/payout-command/connectors/ConnectorIntelligenceClient'
 
 export const metadata: Metadata = {
   title: 'Routing & Network Intelligence | Zord',

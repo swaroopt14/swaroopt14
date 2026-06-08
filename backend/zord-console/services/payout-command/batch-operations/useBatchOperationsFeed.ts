@@ -249,7 +249,7 @@ export function useBatchOperationsFeed(options: {
               mapPaymentIntentToIntentRow(it, id, tenantId),
             ),
           )
-          setFailureRows((batchDetails.dlqItems?.items ?? []).map(mapDlqToFailureRow))
+          setFailureRows((batchDetails.dlqItems?.items ?? []).map((row) => mapDlqToFailureRow(row)))
         } else {
           setIntentRows([])
           setFailureRows([])

@@ -9,7 +9,7 @@ export type EmptyKpiResponse = {
   reason?: string
 }
 
-type Resolved<T> = T & {
+export type Resolved<T> = T & {
   data_available: true
   tenant_id: string
   snapshot_id?: string

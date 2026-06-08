@@ -18,6 +18,8 @@ export const BACKEND_SERVICES = {
       AUTH_LOGOUT: '/v1/auth/logout',
       AUTH_ME: '/v1/auth/me',
       AUTH_PRINCIPAL: '/v1/auth/principal',
+      AUTH_ADMIN_USERS: '/v1/auth/admin/users',
+      AUTH_ADMIN_USER_STATUS: (id: string) => `/v1/auth/admin/users/${encodeURIComponent(id)}/status`,
     },
   },
 

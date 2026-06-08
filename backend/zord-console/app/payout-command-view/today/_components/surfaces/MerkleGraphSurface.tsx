@@ -13,8 +13,17 @@ import {
 } from '@/services/payout-command/prod-api/evidenceBatchScope'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import { getEvidenceBatchLineageGraph } from '@/services/payout-command/prod-api/getEvidenceBatchLineageGraph'
+import { isBatchEvidencePack } from '@/services/payout-command/prod-api/resolveBatchEvidencePack'
 import { getEvidencePackLineageGraph } from '@/services/payout-command/prod-api/getEvidencePackLineageGraph'
 import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
+import {
+  downloadEvidencePackPdf,
+  downloadEvidencePackJson,
+} from '@/services/payout-command/prod-api/exportEvidencePack'
+import {
+  downloadEvidenceBatchIntentsJson,
+  downloadEvidenceBatchIntentsPdf,
+} from '@/services/payout-command/prod-api/exportEvidenceBatchIntents'
 import { getIntentJournalPaymentIntentsForSession } from '@/services/payout-command/prod-api/intentJournalApi'
 import type {
   EvidencePackFull,
@@ -281,24 +290,28 @@ export function MerkleGraphSurface({
   const [packSummaries, setPackSummaries] = useState<EvidencePackSummaryRow[]>([])
   const [liveGraphs, setLiveGraphs] = useState<Record<string, EvidencePackGraph>>({})
   const [liveListError, setLiveListError] = useState<string | null>(null)
+  const [manualRefreshing, setManualRefreshing] = useState(false)
+  const [exporting, setExporting] = useState<'pdf' | 'json' | null>(null)
   // Every payment intent in the active batch — drives the Intent · pack picker.
   // Sourced from intent-engine so we don't depend on the per-intent evidence
   // fan-out (which is capped) and the dropdown always lists the whole batch.
   const [batchIntents, setBatchIntents] = useState<IntentJournalPaymentIntentItem[]>([])
   const [resolvingIntentId, setResolvingIntentId] = useState<string | null>(null)
+  const lastNotifiedPackIdRef = useRef('')
 
-  const { defensibility } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId })
+  const {
+    defensibility,
+    refresh: refreshKpis,
+  } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId, intervalMs: 0 })
   const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
   const defensibilityScore = defensibilityResolved?.defensibility_score ?? 55
 
   const isBatchScopedPack = useCallback(
     (summary: EvidencePackSummaryRow | null | undefined, full: EvidencePackFull): boolean => {
-      const summaryIntentId = apiTrimmedString(summary?.intent_id)
-      const summaryMode = apiTrimmedString(summary?.mode).toUpperCase()
-      if (!summaryIntentId || summaryMode.includes('BATCH')) return true
+      if (summary && isBatchEvidencePack(summary)) return true
       const fullIntentId = apiTrimmedString(full.intent_id)
       const fullMode = apiTrimmedString(full.mode).toUpperCase()
-      return !fullIntentId || fullMode.includes('BATCH')
+      return !fullIntentId && (fullMode.includes('BATCH') || fullMode === '')
     },
     [],
   )
@@ -349,7 +362,9 @@ export function MerkleGraphSurface({
   }, [controlledPackId])
 
   useEffect(() => {
-    if (activePackId) onActivePackIdChange?.(activePackId)
+    if (!activePackId || lastNotifiedPackIdRef.current === activePackId) return
+    lastNotifiedPackIdRef.current = activePackId
+    onActivePackIdChange?.(activePackId)
   }, [activePackId, onActivePackIdChange])
 
   useEffect(() => {
@@ -620,6 +635,125 @@ export function MerkleGraphSurface({
   const pack = (useLive ? livePack : demoPack) ?? EMPTY_LIVE_PACK
   const batchPacks = useLive ? liveBatchPacks : demoBatchPacks
   const showGraph = !useLive || (tenantReady && !livePackMissing)
+
+  const handleManualRefresh = useCallback(async () => {
+    if (!useLive) return
+
+    const bid = apiTrimmedString(activeBatchId)
+    const targetPackId =
+      apiTrimmedString(activePackId) ||
+      apiTrimmedString(controlledPackId) ||
+      apiTrimmedString(initialPackId)
+
+    if (!bid && !targetPackId) return
+
+    setManualRefreshing(true)
+    setLiveListError(null)
+    try {
+      await refreshKpis()
+
+      let nextSummaries = packSummaries
+      if (bid) {
+        nextSummaries = await listEvidencePacksForBatch(bid)
+        if (nextSummaries.length) {
+          setPackSummaries(nextSummaries)
+        } else {
+          setLiveListError('Evidence list unavailable. Confirm zord-evidence is up and list filters match your deployment.')
+          setPackSummaries([])
+          return
+        }
+      }
+
+      const summary =
+        nextSummaries.find((row) => apiTrimmedString(row.evidence_pack_id) === targetPackId) ??
+        packSummaries.find((row) => apiTrimmedString(row.evidence_pack_id) === targetPackId) ??
+        nextSummaries[0]
+
+      const pid = apiTrimmedString(summary?.evidence_pack_id) || targetPackId
+      if (!pid) return
+
+      const full = await getEvidencePackFull(pid)
+      if (full) {
+        const graph = await resolvePackGraph(full, summary)
+        setLiveGraphs((prev) => ({ ...prev, [graph.packId]: graph }))
+        setActivePackId(graph.packId)
+        return
+      }
+
+      if (bid && summary && isBatchEvidencePack(summary)) {
+        const lineage = await getEvidenceBatchLineageGraph(bid)
+        if (lineage.data) {
+          const fallbackFull: EvidencePackFull = {
+            evidence_pack_id: apiTrimmedString(lineage.data.evidence_pack_id) || pid,
+            tenant_id: apiTrimmedString(lineage.data.tenant_id) || apiTrimmedString(summary.tenant_id),
+            intent_id: apiTrimmedString(lineage.data.intent_id),
+            batch_id: bid,
+            contract_id: apiTrimmedString(summary.contract_id) || '-',
+            mode: apiTrimmedString(summary.mode) || 'BATCH_PROOF',
+            pack_status: apiTrimmedString(summary.pack_status) || 'ACTIVE',
+            items: [],
+            merkle_root: apiTrimmedString(lineage.data.merkle_root) || apiTrimmedString(summary.merkle_root),
+            ruleset_version: apiTrimmedString(summary.ruleset_version) || 'v1',
+            created_at: apiTrimmedString(summary.created_at) || new Date().toISOString(),
+          }
+          const graph = buildEvidencePackGraphFromLineage(fallbackFull, lineage.data, {
+            batchId: bid,
+            defensibilityScore,
+          })
+          setLiveGraphs((prev) => ({ ...prev, [graph.packId]: graph }))
+          setActivePackId(graph.packId)
+          return
+        }
+      }
+
+      setLiveListError(`Could not refresh evidence pack ${pid}.`)
+    } catch {
+      setLiveListError('Could not refresh evidence graph. Please try again.')
+    } finally {
+      setManualRefreshing(false)
+    }
+  }, [
+    activeBatchId,
+    activePackId,
+    controlledPackId,
+    defensibilityScore,
+    initialPackId,
+    packSummaries,
+    refreshKpis,
+    resolvePackGraph,
+    useLive,
+  ])
+
+  const handleExport = useCallback(
+    async (kind: 'pdf' | 'json') => {
+      const pid = apiTrimmedString(activePackId) || apiTrimmedString(controlledPackId) || apiTrimmedString(initialPackId) || apiTrimmedString(pack.packId)
+      const bid = apiTrimmedString(activeBatchId) || apiTrimmedString(controlledBatchId) || apiTrimmedString(initialPack.batchId) || apiTrimmedString(pack.batchId)
+      if (!pid || pid === EMPTY_LIVE_PACK.packId) return
+
+      setExporting(kind)
+      setLiveListError(null)
+      try {
+        const result = bid
+          ? kind === 'json'
+            ? await downloadEvidenceBatchIntentsJson(bid)
+            : await downloadEvidenceBatchIntentsPdf(bid)
+          : kind === 'json'
+            ? await downloadEvidencePackJson(pid)
+            : await downloadEvidencePackPdf(pid)
+        if (!result.ok) {
+          setLiveListError(
+            result.errorText?.slice(0, 240) ||
+              `Could not export evidence pack ${pid} (${result.status}).`,
+          )
+        }
+      } catch {
+        setLiveListError(`Could not export evidence pack ${pid}.`)
+      } finally {
+        setExporting(null)
+      }
+    },
+    [activePackId, activeBatchId, controlledBatchId, controlledPackId, initialPack.batchId, initialPackId, pack.batchId, pack.packId],
+  )
 
   useEffect(() => {
     if (!useLive) return
@@ -919,11 +1053,31 @@ export function MerkleGraphSurface({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          <button type="button" className="inline-flex items-center gap-1.5 rounded-[8px] border border-[#E5E5E5] bg-white px-2.5 py-1.5 text-[15px] font-medium text-[#111111] transition hover:bg-[#fafafa]">
-            Export PDF
+          <button
+            type="button"
+            onClick={() => void handleManualRefresh()}
+            disabled={!useLive || manualRefreshing}
+            title="Refresh evidence graph"
+            className="inline-flex items-center gap-1.5 rounded-[8px] border border-[#E5E5E5] bg-white px-2.5 py-1.5 text-[15px] font-medium text-[#111111] transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Glyph name="refresh" className={`h-3.5 w-3.5 ${manualRefreshing ? 'animate-spin' : ''}`} />
+            {manualRefreshing ? 'Refreshing...' : 'Refresh'}
           </button>
-          <button type="button" className="inline-flex items-center gap-1.5 rounded-[8px] border border-[#E5E5E5] bg-white px-2.5 py-1.5 text-[15px] font-medium text-[#111111] transition hover:bg-[#fafafa]">
-            Export JSON
+          <button
+            type="button"
+            onClick={() => void handleExport('pdf')}
+            disabled={Boolean(exporting) || !showGraph}
+            className="inline-flex items-center gap-1.5 rounded-[8px] border border-[#E5E5E5] bg-white px-2.5 py-1.5 text-[15px] font-medium text-[#111111] transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exporting === 'pdf' ? 'Exporting...' : 'Export PDF'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleExport('json')}
+            disabled={Boolean(exporting) || !showGraph}
+            className="inline-flex items-center gap-1.5 rounded-[8px] border border-[#E5E5E5] bg-white px-2.5 py-1.5 text-[15px] font-medium text-[#111111] transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {exporting === 'json' ? 'Exporting...' : 'Export JSON'}
           </button>
         </div>
       </section>

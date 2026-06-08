@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { MerkleGraphSurface } from '../../../today/_components/surfaces/MerkleGraphSurface'
 import { EvidencePackVerifyCard } from '../../../today/_components/evidence/components/EvidencePackVerifyCard'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
+import { isBatchEvidencePack } from '@/services/payout-command/prod-api/resolveBatchEvidencePack'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 
 type EvidencePackGraphTabProps = {
@@ -16,7 +17,7 @@ type EvidencePackGraphTabProps = {
 type GraphScope = 'batch' | 'intent'
 
 function isBatchPack(summary: EvidencePackSummaryRow): boolean {
-  return !apiTrimmedString(summary.intent_id) || apiTrimmedString(summary.mode).toUpperCase().includes('BATCH')
+  return isBatchEvidencePack(summary)
 }
 
 function optionLabel(summary: EvidencePackSummaryRow): string {
@@ -78,7 +79,15 @@ export function EvidencePackGraphTab({ packId, batchId, intentId }: EvidencePack
 
       const opened = rows.find((row) => apiTrimmedString(row.evidence_pack_id) === apiTrimmedString(packId))
       const openedIsBatch = opened ? isBatchPack(opened) : false
-      setScope(openedIsBatch ? 'batch' : 'intent')
+      setScope(
+        batches.length === 0
+          ? 'intent'
+          : openedIsBatch
+            ? 'batch'
+            : opened
+              ? 'intent'
+              : 'batch',
+      )
 
       const nextBatchPack =
         (openedIsBatch ? apiTrimmedString(opened?.evidence_pack_id) : '') ||
@@ -107,6 +116,20 @@ export function EvidencePackGraphTab({ packId, batchId, intentId }: EvidencePack
   useEffect(() => {
     setViewPackId(activePackId || packId)
   }, [activePackId, packId])
+
+  const handleActivePackIdChange = useCallback(
+    (nextPackId: string) => {
+      const next = apiTrimmedString(nextPackId)
+      if (!next) return
+      setViewPackId((prev) => (prev === next ? prev : next))
+      if (scope === 'batch') {
+        setSelectedBatchPackId((prev) => (prev === next ? prev : next))
+      } else {
+        setSelectedIntentPackId((prev) => (prev === next ? prev : next))
+      }
+    },
+    [scope],
+  )
 
   const batchUnavailable = scope === 'batch' && !activePackId
 
@@ -219,11 +242,7 @@ export function EvidencePackGraphTab({ packId, batchId, intentId }: EvidencePack
               controlledPackId={viewPackId}
               intentOptionsSource="table"
               hideScopePickers
-              onActivePackIdChange={(nextPackId) => {
-                setViewPackId(nextPackId)
-                if (scope === 'batch') setSelectedBatchPackId(nextPackId)
-                else setSelectedIntentPackId(nextPackId)
-              }}
+              onActivePackIdChange={handleActivePackIdChange}
             />
           ) : null}
         </div>

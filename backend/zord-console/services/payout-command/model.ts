@@ -39,7 +39,6 @@ export type DockId =
   | 'grid'
   | 'settlement'
   | 'connectors'
-  | 'sync'
   | 'proof'
   | 'sandbox'
   | 'billing'
@@ -287,15 +286,6 @@ export const dockItems = [
     summary:
       'Executive routing view for connector health, leakage exposure, and top route actions to reduce preventable loss.',
     icon: 'shield',
-  },
-  {
-    id: 'sync',
-    label: 'Systems',
-    navLabel: 'Connections',
-    title: 'Connected Systems',
-    breadcrumbLabel: 'Systems',
-    summary: 'Real-time view of loan system, payment partner, bank, and mandate connections in one place.',
-    icon: 'refresh',
   },
   {
     id: 'proof',

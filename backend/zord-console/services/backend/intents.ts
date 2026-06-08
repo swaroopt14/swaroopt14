@@ -8,7 +8,7 @@ export interface BackendIntent {
   intent_type: string
   canonical_version: string
   schema_version?: string
-  amount: string
+  amount: string | number
   currency: string
   /** Optional ingest / intelligence batch correlation when engine exposes it. */
   batch_id?: string

@@ -19,6 +19,28 @@ export function fmtInrFull(
   }).format(amount)
 }
 
+/** Paise/minor → whole rupees for display. */
+export function minorToRupees(minor: number | null | undefined): number | null {
+  if (minor === null || minor === undefined || !Number.isFinite(minor)) return null
+  return minor / 100
+}
+
+/** Format intelligence / trend minor-unit fields as INR. */
+export function fmtInrFromMinor(
+  minor: number | null | undefined,
+  options: FmtInrFullOptions = {},
+): string {
+  const rupees = minorToRupees(minor)
+  if (rupees === null) return '—'
+  return fmtInrFull(rupees, options)
+}
+
+/** Chart Y-axis: minor units → thousands of rupees (₹50k → 50). */
+export function chartThousandsFromMinor(minor: number): number {
+  if (!Number.isFinite(minor) || minor <= 0) return 0
+  return minor / 100_000
+}
+
 /** @deprecated Use fmtInrFull — kept as alias to prevent L/Cr regressions. */
 export function fmtInrCompact(minor: number | null): string {
   return fmtInrFull(minor, { decimals: 0 })

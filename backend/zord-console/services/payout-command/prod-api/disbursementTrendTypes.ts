@@ -6,11 +6,11 @@ export type DisbursementTrendBucket = {
   key: string
   /** Short label for X axis (e.g. "Mon 5", "Jan"). */
   label: string
-  /** Sum of intent amounts in window (currency units from backend, typically INR). */
+  /** Sum of intent amounts in window — minor units (paise). */
   total_amount: number
-  /** Sum of amounts for intents considered bank-confirmed / settled. */
+  /** Sum of amounts for intents considered bank-confirmed / settled — minor units (paise). */
   confirmed_amount: number
-  /** Payment value needing review in this bucket (v1: total − confirmed when not settled). */
+  /** Payment value needing review in this bucket — minor units (paise). */
   review_amount: number
   intent_count: number
   confirmed_count: number

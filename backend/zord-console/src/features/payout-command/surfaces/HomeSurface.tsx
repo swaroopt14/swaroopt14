@@ -22,7 +22,12 @@ import {
   carouselPeriodToTrendRange,
   COMMAND_CENTER_PERIOD_OPTIONS,
 } from '../command-center/commandCenterPeriod'
-import { fmtInrFull, parseMinorField } from '../command-center/commandCenterFormat'
+import {
+  chartThousandsFromMinor,
+  fmtInrFromMinor,
+  fmtInrFull,
+  parseMinorField,
+} from '../command-center/commandCenterFormat'
 import { PAYMENT_COMMAND_CENTER } from '../command-center/paymentCommandCopy'
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import {
@@ -151,22 +156,19 @@ export function HomeSurface({
   const liveTrendChart = useMemo(() => {
     if (!tenantReady || !trendSeries?.data_available || trendSeries.buckets.length < 1) return null
     const rows = trendSeries.buckets.map((b, i) => {
-      const rupeesT = Number(b.total_amount)
-      const rupeesC = Number(b.confirmed_amount)
-      const rupeesR = Number(b.review_amount)
-      if (
-        !Number.isFinite(rupeesT) ||
-        !Number.isFinite(rupeesC) ||
-        !Number.isFinite(rupeesR) ||
-        !b.label
-      ) {
+      const minorT = Number(b.total_amount)
+      const minorC = Number(b.confirmed_amount)
+      const minorR = Number(b.review_amount)
+      if (!Number.isFinite(minorT) || !Number.isFinite(minorC) || !Number.isFinite(minorR) || !b.label) {
         return null
       }
+      const hasSignal = minorT > 0 || minorC > 0 || minorR > 0 || b.intent_count > 0
+      if (!hasSignal) return null
       return {
         point: i,
-        barValue: Math.max(0.001, rupeesT / 1000),
-        lineValue: Math.max(0.001, rupeesC / 1000),
-        reviewLineValue: Math.max(0.001, rupeesR / 1000),
+        barValue: Math.max(0.001, chartThousandsFromMinor(minorT)),
+        lineValue: Math.max(0.001, chartThousandsFromMinor(minorC)),
+        reviewLineValue: Math.max(0.001, chartThousandsFromMinor(minorR)),
         selected: false,
         isHoliday: false,
       }
@@ -229,14 +231,16 @@ export function HomeSurface({
     fmtInrFull(Math.round(valueThousands * 1000))
 
   const tooltipIntended = activeBucket
-    ? fmtInrFull(activeBucket.total_amount)
+    ? fmtInrFromMinor(activeBucket.total_amount)
     : fmtTrendTooltipInr(activeChartDatum.barValue)
   const tooltipConfirmed = activeBucket
-    ? fmtInrFull(activeBucket.confirmed_amount)
+    ? fmtInrFromMinor(activeBucket.confirmed_amount)
     : fmtTrendTooltipInr(activeChartDatum.lineValue)
   const tooltipReviewFallbackMinor = parseMinorStrict(leakageData?.unmatched_amount_minor)
   const tooltipReview = activeBucket
-    ? fmtInrFull(Number(activeBucket.review_amount) > 0 ? activeBucket.review_amount : tooltipReviewFallbackMinor)
+    ? fmtInrFromMinor(
+        Number(activeBucket.review_amount) > 0 ? activeBucket.review_amount : tooltipReviewFallbackMinor,
+      )
     : fmtTrendTooltipInr(activeChartDatum.reviewLineValue)
 
   const chartTags = useMemo(() => {
@@ -312,7 +316,7 @@ export function HomeSurface({
 
   const reviewDisplay =
     reviewMinor !== null
-      ? fmtInrFull(reviewMinor)
+      ? fmtInrFromMinor(reviewMinor)
       : loading
         ? '…'
         : '—'
@@ -446,7 +450,7 @@ export function HomeSurface({
         {heroMetric === 'intended' ? (
           <>
             <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
-              {intendedMinor !== null ? fmtInrFull(intendedMinor) : loading || trendLoading ? '₹…' : '—'}
+              {intendedMinor !== null ? fmtInrFromMinor(intendedMinor) : loading || trendLoading ? '₹…' : '—'}
             </div>
             <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Intended Payment Value</div>
             {intentCountLabel > 0 ? (
@@ -458,7 +462,7 @@ export function HomeSurface({
         ) : (
           <>
             <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
-              {bankConfirmedMinor != null ? fmtInrFull(bankConfirmedMinor) : '—'}
+              {bankConfirmedMinor != null ? fmtInrFromMinor(bankConfirmedMinor) : '—'}
             </div>
             <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Bank-Confirmed Value</div>
             {bankConfirmedMinor != null ? (
@@ -748,7 +752,7 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            cleanlyMatchedValue={observedMinor !== null ? fmtInrFull(observedMinor) : loading ? '…' : '—'}
+            cleanlyMatchedValue={observedMinor !== null ? fmtInrFromMinor(observedMinor) : loading ? '…' : '—'}
             cleanlyMatchedSub="Payment value matched between instruction and confirmation."
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
@@ -759,10 +763,10 @@ export function HomeSurface({
                   ? 'Payment value from ambiguity engine needing review.'
                   : 'No review value data available for this period.'
             }
-            unmatchedDisplay={leakageData ? fmtInrFull(unmatchedMinor) : '—'}
-            shortSettledDisplay={leakageData ? fmtInrFull(underSettlementMinor) : '—'}
-            unlinkedDisplay={leakageData ? fmtInrFull(unlinkedSettlementMinor) : '—'}
-            reversalDisplay={leakageData ? fmtInrFull(reversalMinor) : '—'}
+            unmatchedDisplay={leakageData ? fmtInrFromMinor(unmatchedMinor) : '—'}
+            shortSettledDisplay={leakageData ? fmtInrFromMinor(underSettlementMinor) : '—'}
+            unlinkedDisplay={leakageData ? fmtInrFromMinor(unlinkedSettlementMinor) : '—'}
+            reversalDisplay={leakageData ? fmtInrFromMinor(reversalMinor) : '—'}
             reviewHref="/payout-command-view/today?dock=leakage"
             matchConfidencePct={matchConfidencePct}
             matchConfidenceSub="Average match confidence"

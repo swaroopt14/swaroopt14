@@ -1,9 +1,10 @@
 import type { BackendIntent } from '@/services/backend/intents'
 import type { DisbursementTrendBucket, DisbursementTrendRange } from './disbursementTrendTypes'
 
-function parseAmountMinor(amount: string): number {
-  const n = Number.parseFloat(amount)
-  if (!Number.isFinite(n)) return 0
+function parseAmountMinor(amount: string | number | null | undefined): number {
+  if (amount == null || amount === '') return 0
+  const n = typeof amount === 'number' ? amount : Number.parseFloat(String(amount))
+  if (!Number.isFinite(n) || n <= 0) return 0
   return Math.round(n * 100)
 }
 

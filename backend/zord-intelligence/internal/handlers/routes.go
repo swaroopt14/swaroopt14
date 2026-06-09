@@ -79,6 +79,7 @@ func NewRouter(
 	dashPatternH        *DashboardPatternHandler,
 	dashRecommendationH *DashboardRecommendationHandler,
 	dashRCAH            *DashboardRCAHandler,
+	dashBubbleMapH      *DashboardBubbleMapHandler,
 ) http.Handler {
 
 	r := chi.NewRouter()
@@ -192,6 +193,7 @@ func NewRouter(
 			r.Get("/patterns", dashPatternH.GetPatternKPIs)
 			r.Get("/recommendations", dashRecommendationH.GetRecommendationKPIs)
 			r.Get("/rca", dashRCAH.GetRCAKPIs)
+			r.Get("/bubble-map", dashBubbleMapH.GetBubbleMap)
 		})
 
 		// ── Policy endpoints ───────────────────────────────────────────────

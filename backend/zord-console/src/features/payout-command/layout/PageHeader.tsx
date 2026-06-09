@@ -3,13 +3,13 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
-import type { GlyphName } from '@/services/payout-command/model'
+import { PAYOUT_VIEW_URLS, type GlyphName } from '@/services/payout-command/model'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { ApiKeysPopoverButton } from './ApiKeysPopoverButton'
 import { HOME_BODY_IMPERIAL_SM } from '../command-center/homeCommandCenterTokens'
 import { Glyph } from '../shared'
 
-const ICON_BUTTONS: GlyphName[] = ['refresh', 'eye', 'menu-dots']
+const ICON_BUTTONS: GlyphName[] = ['refresh', 'eye']
 
 const TEAM_AVATARS = [
   { initial: 'A', bg: '#d8e6ff' },
@@ -106,8 +106,9 @@ export function PageHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 xl:shrink-0">
-        {showUtilityIconButtons
-          ? ICON_BUTTONS.map((icon) => (
+        {showUtilityIconButtons ? (
+          <>
+            {ICON_BUTTONS.map((icon) => (
               <button
                 key={icon}
                 type="button"
@@ -116,8 +117,17 @@ export function PageHeader({
               >
                 <Glyph name={icon} className="h-4 w-4" />
               </button>
-            ))
-          : null}
+            ))}
+            <Link
+              href={PAYOUT_VIEW_URLS.settingsAccount}
+              className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-black/10 bg-white text-[#111111] hover:bg-[#fafafa]"
+              title="Account settings"
+              aria-label="Settings"
+            >
+              <Glyph name="menu-dots" className="h-4 w-4" />
+            </Link>
+          </>
+        ) : null}
 
         {homeCommandFilters ? (
           <button

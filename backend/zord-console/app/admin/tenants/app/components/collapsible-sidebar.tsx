@@ -3,9 +3,10 @@
 import { useState } from "react"
 import React from 'react'
 import Link from 'next/link'
-import { ChevronDown, Menu, X, Home, BookOpen, LogOut, Settings, BarChart3, Search, MoreVertical, Zap, FileText, GitBranch, MessageSquare, AlertCircle } from 'lucide-react'
+import { ChevronDown, Menu, X, Home, BookOpen, LogOut, Settings, BarChart3, Search, MoreVertical, FileText, GitBranch, MessageSquare, AlertCircle, Landmark } from 'lucide-react'
 import clsx from 'clsx'
 import { useSidebar } from '@/app/context/sidebar-context'
+import { PAYOUT_VIEW_URLS } from '@/services/payout-command/model'
 
 interface NavItem {
   id: string
@@ -32,7 +33,18 @@ const navSections: NavSection[] = [
   {
     title: 'Core Operations',
     items: [
-      { id: 'intent-journal', label: 'Intent Journal', icon: <BookOpen className="w-4 h-4" />, href: '/intent-journal' },
+      {
+        id: 'intent-journal',
+        label: 'Intent Journal',
+        icon: <BookOpen className="w-4 h-4" />,
+        href: `${PAYOUT_VIEW_URLS.liveConsole}?dock=grid`,
+      },
+      {
+        id: 'settlement-journal',
+        label: 'Settlement Journal',
+        icon: <Landmark className="w-4 h-4" />,
+        href: `${PAYOUT_VIEW_URLS.liveConsole}?dock=settlement`,
+      },
       { id: 'dlq', label: 'Dead Letter Queue', icon: <AlertCircle className="w-4 h-4" />, href: '/dlq' },
       { id: 'schema-contracts', label: 'Schema & Contracts', icon: <FileText className="w-4 h-4" />, href: '/schema' },
       { id: 'replay-evidence', label: 'Replay & Evidence', icon: <GitBranch className="w-4 h-4" />, href: '/replay' },
@@ -49,7 +61,12 @@ const navSections: NavSection[] = [
   {
     title: 'Admin',
     items: [
-      { id: 'settings', label: 'Settings & Audit Logs', icon: <Settings className="w-4 h-4" />, href: '/settings' },
+      {
+        id: 'settings',
+        label: 'Settings & Audit Logs',
+        icon: <Settings className="w-4 h-4" />,
+        href: PAYOUT_VIEW_URLS.settingsAccount,
+      },
       { id: 'logout', label: 'Log out', icon: <LogOut className="w-4 h-4" />, href: '/' },
     ],
   },

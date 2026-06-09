@@ -204,6 +204,7 @@ func main() {
 	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo, projRepo, intelligenceMode)
 	dashRecommendationH := handlers.NewDashboardRecommendationHandler(actionRepo, snapshotRepo, intelligenceMode)
 	dashRCAH := handlers.NewDashboardRCAHandler(snapshotRepo, intelligenceMode)
+	dashBubbleMapH := handlers.NewDashboardBubbleMapHandler(batchRepo, intelligenceMode)
 
 	// ── Step 9: Build the HTTP router ─────────────────────────────────────
 	router := handlers.NewRouter(
@@ -227,6 +228,7 @@ func main() {
 		dashPatternH,
 		dashRecommendationH,
 		dashRCAH,
+		dashBubbleMapH,
 	)
 
 	// ── Step 10: Create the HTTP server ───────────────────────────────────

@@ -28,6 +28,7 @@ type IntentFilter struct {
 	TenantID   string
 	Status     string
 	IntentType string
+	BatchID    string
 	Page       int
 	PageSize   int
 }
@@ -70,6 +71,12 @@ func (r *IntentQueryRepo) ListIntents(
 	if filter.IntentType != "" {
 		conditions = append(conditions, fmt.Sprintf("intent_type = $%d", argPosition))
 		args = append(args, filter.IntentType)
+		argPosition++
+	}
+
+	if filter.BatchID != "" {
+		conditions = append(conditions, fmt.Sprintf("batchid = $%d", argPosition))
+		args = append(args, filter.BatchID)
 		argPosition++
 	}
 

@@ -42,7 +42,7 @@ function lastDayOfUtcMonth(d: Date): Date {
 function readMinor(value: MinorAmountField | undefined | null): number {
   if (value == null || value === '') return 0
   const n = typeof value === 'number' ? value : Number(value)
-  return Number.isFinite(n) ? Math.round(n) : 0
+  return Number.isFinite(n) ? n : 0
 }
 
 function emptyTrendBucket(spec: LeakageTrendBucketSpec): DisbursementTrendBucket {

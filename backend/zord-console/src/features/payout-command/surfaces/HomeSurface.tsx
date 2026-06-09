@@ -20,7 +20,7 @@ import {
   commandPeriodToTrendRange,
   carouselPeriodToTrendRange,
 } from '../command-center/commandCenterPeriod'
-import { chartThousandsFromMinor, fmtInrFromMinor, parseMinorField } from '../command-center/commandCenterFormat'
+import { chartThousandsFromMinor, fmtInrFromMinorExact, parseMinorField } from '../command-center/commandCenterFormat'
 import { PAYMENT_COMMAND_CENTER } from '../command-center/paymentCommandCopy'
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import {
@@ -156,6 +156,10 @@ export function HomeSurface({
         barValue: Math.max(0.001, chartThousandsFromMinor(minorT)),
         lineValue: Math.max(0.001, chartThousandsFromMinor(minorC)),
         reviewLineValue: Math.max(0.001, chartThousandsFromMinor(minorR)),
+        intendedMinor: minorT,
+        confirmedMinor: minorC,
+        reviewMinor: minorR,
+        label: b.label || '—',
         selected: false,
         isHoliday: false,
       }
@@ -167,7 +171,7 @@ export function HomeSurface({
     const ticks = [0, yMax * 0.25, yMax * 0.5, yMax * 0.75, yMax].map((x) => Math.round(x * 1000) / 1000)
     return {
       chartData: validRows,
-      axisLabels: trendSeries.buckets.map((b) => b.label || '—'),
+      axisLabels: validRows.map((r) => r.label),
       yMax,
       ticks,
     }
@@ -181,11 +185,11 @@ export function HomeSurface({
   const trendChartReady = Boolean(liveTrendChart && chartData.length > 0)
 
   useEffect(() => {
-    const n = trendSeries?.buckets?.length ?? 0
-    if (!tenantReady || !trendSeries?.data_available || n < 1) return
+    const n = chartData.length
+    if (!tenantReady || !trendChartReady || n < 1) return
     setTrendAnchorIdx(clamp(Math.floor(n / 2), 0, Math.max(0, n - 1)))
     setHoverIndex(null)
-  }, [tenantReady, commandPeriod, trendSeries?.data_available, trendSeries?.buckets?.length])
+  }, [tenantReady, commandPeriod, trendChartReady, chartData.length])
 
   const displayPoint = hoverIndex ?? trendAnchorIdx
   const safePoint = clamp(displayPoint, 0, Math.max(0, chartData.length - 1))
@@ -193,7 +197,7 @@ export function HomeSurface({
     ? ([0, Math.max(0, chartData.length - 1)] as const)
     : ([0, 0] as const)
   const [selectedRangeStart, selectedRangeEnd] = selectedRange
-  const activeBucket = trendSeries?.buckets?.[safePoint]
+  const activeRow = chartData[safePoint]
   const totalChartBars = chartData.length
   const rangeLeftPercent = totalChartBars > 0 ? (selectedRangeStart / totalChartBars) * 100 : 0
   const rangeWidthPercent =
@@ -202,13 +206,10 @@ export function HomeSurface({
     totalChartBars <= 1
       ? 50
       : clamp((safePoint / Math.max(totalChartBars - 1, 1)) * 100 - 8, 3, 74)
-  const monthLabel =
-    axisLabelsForChart[safePoint] ??
-    axisLabelsForChart[Math.min(safePoint, axisLabelsForChart.length - 1)] ??
-    '—'
-  const tooltipIntended = activeBucket ? fmtInrFromMinor(activeBucket.total_amount) : '—'
-  const tooltipConfirmed = activeBucket ? fmtInrFromMinor(activeBucket.confirmed_amount) : '—'
-  const tooltipReview = activeBucket ? fmtInrFromMinor(activeBucket.review_amount) : '—'
+  const monthLabel = activeRow?.label ?? '—'
+  const tooltipIntended = activeRow ? fmtInrFromMinorExact(activeRow.intendedMinor) : '—'
+  const tooltipConfirmed = activeRow ? fmtInrFromMinorExact(activeRow.confirmedMinor) : '—'
+  const tooltipReview = activeRow ? fmtInrFromMinorExact(activeRow.reviewMinor) : '—'
 
   const chartTags = useMemo(() => {
     const data = chartData
@@ -299,7 +300,7 @@ export function HomeSurface({
 
   const reviewDisplay =
     reviewMinor !== null
-      ? fmtInrFromMinor(reviewMinor)
+      ? fmtInrFromMinorExact(reviewMinor)
       : loading
         ? '…'
         : '—'
@@ -430,7 +431,7 @@ export function HomeSurface({
         {heroMetric === 'intended' ? (
           <>
             <div className={`text-[64px] font-extrabold leading-none tabular-nums text-[#000000] sm:text-[72px]`}>
-              {intendedMinor !== null ? fmtInrFromMinor(intendedMinor) : loading || trendLoading ? '₹…' : '—'}
+              {intendedMinor !== null ? fmtInrFromMinorExact(intendedMinor) : loading || trendLoading ? '₹…' : '—'}
             </div>
             <div className="mt-3 text-[18px] font-bold text-[#000000]">Intended Payment Value</div>
             <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
@@ -443,7 +444,7 @@ export function HomeSurface({
           <>
             <div className={`text-[64px] font-extrabold leading-none tabular-nums text-[#000000] sm:text-[72px]`}>
               {bankConfirmedMinor != null && bankConfirmedMinor > 0
-                ? fmtInrFromMinor(bankConfirmedMinor)
+                ? fmtInrFromMinorExact(bankConfirmedMinor)
                 : 'Not connected yet'}
             </div>
             <div className="mt-3 text-[18px] font-bold text-[#000000]">Bank-Confirmed Value</div>
@@ -745,7 +746,7 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            cleanlyMatchedValue={observedMinor !== null ? fmtInrFromMinor(observedMinor) : loading ? '…' : '—'}
+            cleanlyMatchedValue={observedMinor !== null ? fmtInrFromMinorExact(observedMinor) : loading ? '…' : '—'}
             cleanlyMatchedSub="Payment value matched between instruction and confirmation."
             cleanlyMatchedFooter="Cleanly matched means Zord can link the original payment instruction to a bank or settlement outcome."
             awaitingConfirmation={bankConfirmedMinor == null}
@@ -756,10 +757,10 @@ export function HomeSurface({
                 : 'No leakage data available for this period.'
             }
             reviewFooter="This shows payment value affected by missing matches, short settlement, reversals, or unclear status."
-            unmatchedDisplay={leakageData ? fmtInrFromMinor(unmatchedMinor) : '—'}
-            shortSettledDisplay={leakageData ? fmtInrFromMinor(underSettlementMinor) : '—'}
-            unlinkedDisplay={leakageData ? fmtInrFromMinor(unlinkedSettlementMinor) : '—'}
-            reversalDisplay={leakageData ? fmtInrFromMinor(reversalMinor) : '—'}
+            unmatchedDisplay={leakageData ? fmtInrFromMinorExact(unmatchedMinor) : '—'}
+            shortSettledDisplay={leakageData ? fmtInrFromMinorExact(underSettlementMinor) : '—'}
+            unlinkedDisplay={leakageData ? fmtInrFromMinorExact(unlinkedSettlementMinor) : '—'}
+            reversalDisplay={leakageData ? fmtInrFromMinorExact(reversalMinor) : '—'}
             reviewHref="/payout-command-view/today?dock=leakage"
             matchConfidencePct={matchConfidencePct}
             matchConfidenceSub="Average match confidence"

@@ -35,6 +35,25 @@ export function fmtInrFromMinor(
   return fmtInrFull(rupees, options)
 }
 
+/**
+ * Displays the amount EXACTLY as returned by the backend — NO calculation.
+ * The value is shown as-is (no ÷100 paise→rupee conversion, no rounding); we
+ * only add the ₹ symbol and Indian digit grouping for readability and keep
+ * the decimals exactly as the API sent them.
+ *
+ * Example: backend `527228.11` → "₹5,27,228.11" (value untouched).
+ *
+ * Float-safe: we read the digits from `String(value)`, which round-trips the
+ * parsed number exactly, instead of doing any arithmetic.
+ */
+export function fmtInrFromMinorExact(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—'
+  const neg = value < 0
+  const [intRaw, fracRaw = ''] = String(Math.abs(value)).split('.')
+  const grouped = Number(intRaw).toLocaleString('en-IN')
+  return `${neg ? '-' : ''}₹${grouped}${fracRaw ? `.${fracRaw}` : ''}`
+}
+
 /** Chart Y-axis: minor units → thousands of rupees (₹50k → 50). */
 export function chartThousandsFromMinor(minor: number): number {
   if (!Number.isFinite(minor) || minor <= 0) return 0

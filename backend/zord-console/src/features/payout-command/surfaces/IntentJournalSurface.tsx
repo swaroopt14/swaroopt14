@@ -967,7 +967,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   }
                 />
 
-                <IntentJournalActivityPanel vm={activityVm} />
+                <IntentJournalActivityPanel vm={activityVm} isSandboxRoute={mode === 'sandbox'} />
               </>
             ) : (
               <section className={`relative mb-4 ${COMMAND_CENTER_KPI_CARD} ${JOURNAL_DM_SANS} px-6 py-8 text-center`}>

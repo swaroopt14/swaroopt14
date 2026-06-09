@@ -8,6 +8,7 @@ import { Glyph, LiveDataHint } from '../../shared'
 import {
   BatchIntakePanel,
   type BatchIntakeSnapshot,
+  type BatchUploadStatus,
   type IntentIngestSuccessPayload,
   type SettlementIngestSuccessPayload,
 } from './BatchIntakePanel'
@@ -17,7 +18,6 @@ import {
 } from '@/services/payout-command/batch-model'
 import { useBatchOperationsFeed } from '@/services/payout-command/batch-operations/useBatchOperationsFeed'
 import { BATCH_REVIEW_COPY } from '../copy/batchCommandCenterCopy'
-import { BatchWorkspaceBar } from './BatchWorkspaceBar'
 import { BatchAdvancedDetails } from './BatchAdvancedDetails'
 import { BatchIngestSuccessDialog } from './BatchIngestSuccessDialog'
 import { PaymentStatusBreakdown } from './PaymentStatusBreakdown'
@@ -67,6 +67,7 @@ export default function BatchCommandCenterClient() {
     settlementBatchId: null,
   })
   const [ingestDialog, setIngestDialog] = useState<IngestDialogState>(null)
+  const [uploadStatus, setUploadStatus] = useState<BatchUploadStatus>({ state: 'idle', message: null })
   const [toolbarNotice, setToolbarNotice] = useState<string | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
   const batchReferenceRef = useRef<HTMLInputElement | null>(null)
@@ -168,7 +169,7 @@ export default function BatchCommandCenterClient() {
   const failuresTabHref = useMemo(() => `${intentJournalHref}&tab=failures`, [intentJournalHref])
 
   const settlementJournalHref = useMemo(() => {
-    if (!activeBatchId || activeBatchId.startsWith('LOCAL-')) return null
+    if (!activeBatchId) return null
     const base = isSandboxRoute
       ? '/sandbox?dock=settlement'
       : '/payout-command-view/today?dock=settlement'
@@ -305,16 +306,6 @@ export default function BatchCommandCenterClient() {
           </div>
         ) : null}
 
-        <BatchWorkspaceBar
-          tenantId={tenantId}
-          tenantReady={tenantReady}
-          isSandbox={isSandboxRoute}
-          activeBatchId={activeBatchId}
-          onSelectBatch={focusBatchReference}
-          onRefresh={() => void feed.refreshBatchFeed()}
-          refreshing={feed.detailLoading}
-        />
-
         <BatchAdvancedDetails
           batchId={batchIdInput}
           onBatchIdChange={handleBatchIdChange}
@@ -329,7 +320,24 @@ export default function BatchCommandCenterClient() {
           onIntentIngestSuccess={onIntentIngestSuccess}
           onSettlementIngestSuccess={onSettlementIngestSuccess}
           onSnapshotChange={setIntakeSnapshot}
+          onUploadStatusChange={setUploadStatus}
+          onIntentUploadFailed={() => void feed.refreshBatchFeed()}
         />
+
+        {uploadStatus.message ? (
+          <div
+            role="status"
+            className={`rounded-xl border px-4 py-2.5 text-[13px] font-medium ${
+              uploadStatus.state === 'failed'
+                ? 'border-red-200 bg-red-50 text-red-900'
+                : uploadStatus.state === 'synced'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  : 'border-slate-200 bg-slate-50 text-slate-800'
+            }`}
+          >
+            {uploadStatus.message}
+          </div>
+        ) : null}
 
         <PaymentStatusBreakdown slices={pieSlices} hasBatch={Boolean(activeBatchId) || statCardsSummary.totalRows > 0} />
 

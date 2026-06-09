@@ -18,8 +18,7 @@ import {
 } from '../../command-center/homeCommandCenterTokens'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
 import { intentRowCustomerStatus } from '../mappers/mapIntentTableRow'
-import { useDlqManualReviewQueue } from '../hooks/useDlqManualReviewQueue'
-import { parseDlqIntentContext } from '@/services/payout-command/prod-api/mapDlqContext'
+import { ManualReviewEscalationModal } from './ManualReviewEscalationModal'
 import type {
   JournalFailureRow,
   JournalIntentRow,
@@ -197,9 +196,10 @@ export type IntentJournalActivityViewModel = {
 
 type IntentJournalActivityPanelProps = {
   vm: IntentJournalActivityViewModel
+  isSandboxRoute?: boolean
 }
 
-export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelProps) {
+export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: IntentJournalActivityPanelProps) {
   const {
     activeTab, setActiveTab, tableSearch, setTableSearch, dateRange, setDateRange,
     filterBatchId, setFilterBatchId, connectorFilter, setConnectorFilter,
@@ -215,37 +215,7 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
     clearTableFilters, failures, batches,
   } = vm
   const journalEnabled = Boolean(journalUsesBackendFeed)
-  const { items: manualReviewQueue, loading: manualReviewQueueLoading } = useDlqManualReviewQueue(journalEnabled)
-  const [manualReviewLoadingId, setManualReviewLoadingId] = useState<string | null>(null)
-  const [manualReviewMessage, setManualReviewMessage] = useState<string | null>(null)
-
-  const handleManualReviewCheck = (row: FailureRow) => {
-    if (!row.requestId) return
-    setManualReviewLoadingId(row.requestId)
-    setManualReviewMessage(null)
-    try {
-      if (manualReviewQueueLoading && manualReviewQueue.length === 0) {
-        setManualReviewMessage('Loading manual-review queue…')
-        return
-      }
-      const found = manualReviewQueue.find((it) => String(it.dlq_id || '').trim() === row.requestId)
-      if (found) {
-        const ctx = parseDlqIntentContext(found.intent_context)
-        const beneficiary = ctx.beneficiaryName ?? row.beneficiaryName ?? '—'
-        setManualReviewMessage(
-          `DLQ ${row.requestId} is in manual-review queue (batch ${found.batch_id || found.client_batch_ref || row.batchId}, row ${found.source_row_num ?? row.sourceRowNum ?? '—'}, beneficiary ${beneficiary}).`,
-        )
-      } else if (row.inManualReviewQueue || row.dlqStatus === 'NEEDS_MANUAL_REVIEW') {
-        setManualReviewMessage(
-          `DLQ ${row.requestId} is flagged for manual review in this batch (batch ${row.batchId}, row ${row.sourceRowNum ?? '—'}).`,
-        )
-      } else {
-        setManualReviewMessage(`DLQ ${row.requestId} is not currently in manual-review queue.`)
-      }
-    } finally {
-      setManualReviewLoadingId(null)
-    }
-  }
+  const [manualReviewRow, setManualReviewRow] = useState<FailureRow | null>(null)
 
   return (
     <>
@@ -332,7 +302,6 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                     <select value={intentStatusFilter} onChange={(e) => setIntentStatusFilter(e.target.value as 'All' | IntentStatus)} className={filterSelectClass}>
                       <option value="All">All statuses</option>
                       <option value="Ready to Process">Ready to process</option>
-                      <option value="Needs Review">Needs review</option>
                     </select>
                   ) : (
                     <select
@@ -616,38 +585,28 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                     </button>
                   </div>
                 </div>
-                    {failureReviewId || manualReviewMessage ? (
+                    {failureReviewId ? (
                   <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[14px] text-amber-950">
                         <p className="font-semibold">Review — DLQ row</p>
-                        {failureReviewId ? (
-                          <>
-                            <p className="mt-1 text-[13px] leading-relaxed">
-                              {failures.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
+                        <p className="mt-1 text-[13px] leading-relaxed">
+                          {failures.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
+                        </p>
+                        {(() => {
+                          const active = failures.find((r) => r.requestId === failureReviewId)
+                          if (!active) return null
+                          return (
+                            <p className="mt-1 text-[12px] leading-relaxed text-amber-900/80">
+                              {active.dlqStatusLabel ?? 'Need to review'}
+                              {active.beneficiaryName ? ` · ${active.beneficiaryName}` : ''}
+                              {active.sourceRowNum != null ? ` · row ${active.sourceRowNum}` : ''}
+                              {active.idempotencyKey ? ` · idempotency ${active.idempotencyKey}` : ''}
                             </p>
-                            {(() => {
-                              const active = failures.find((r) => r.requestId === failureReviewId)
-                              if (!active) return null
-                              return (
-                                <p className="mt-1 text-[12px] leading-relaxed text-amber-900/80">
-                                  {active.dlqStatusLabel ?? 'Need to review'}
-                                  {active.beneficiaryName ? ` · ${active.beneficiaryName}` : ''}
-                                  {active.sourceRowNum != null ? ` · row ${active.sourceRowNum}` : ''}
-                                  {active.idempotencyKey ? ` · idempotency ${active.idempotencyKey}` : ''}
-                                </p>
-                              )
-                            })()}
-                          </>
-                        ) : null}
-                        {manualReviewMessage ? (
-                          <p className="mt-1 text-[13px] leading-relaxed">{manualReviewMessage}</p>
-                        ) : null}
+                          )
+                        })()}
                         <button
                           type="button"
                           className="mt-2 text-[12px] font-semibold underline"
-                          onClick={() => {
-                            setFailureReviewId(null)
-                            setManualReviewMessage(null)
-                          }}
+                          onClick={() => setFailureReviewId(null)}
                         >
                           Close
                         </button>
@@ -732,13 +691,10 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleManualReviewCheck(row)}
-                                disabled={manualReviewLoadingId === row.requestId || manualReviewQueueLoading}
-                                className="inline-flex h-8 items-center rounded-lg border border-[#2563eb] bg-[#eff6ff] px-3 text-[12px] font-medium text-[#1d4ed8] transition hover:bg-[#dbeafe] disabled:cursor-not-allowed disabled:opacity-60"
+                                onClick={() => setManualReviewRow(row)}
+                                className="inline-flex h-8 items-center rounded-lg border border-[#2563eb] bg-[#eff6ff] px-3 text-[12px] font-medium text-[#1d4ed8] transition hover:bg-[#dbeafe]"
                               >
-                                {manualReviewLoadingId === row.requestId || manualReviewQueueLoading
-                                  ? 'Checking…'
-                                  : 'Manual review'}
+                                Manual review
                               </button>
                             </div>
                           </td>
@@ -816,6 +772,14 @@ export function IntentJournalActivityPanel({ vm }: IntentJournalActivityPanelPro
                 </div>
               </section>
             ) : null}
+
+      {manualReviewRow ? (
+        <ManualReviewEscalationModal
+          row={manualReviewRow}
+          isSandboxRoute={isSandboxRoute}
+          onClose={() => setManualReviewRow(null)}
+        />
+      ) : null}
     </>
   )
 }

@@ -23,16 +23,18 @@ export function IntentJournalHeroBanner({
   const { selectedBatchId, journalEnabled } = useJournalBatchSelection()
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, journalEnabled)
   const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, journalEnabled)
-  const { count: terminalDlqCount } = useDlqTerminalCount(journalEnabled)
+  const { count: terminalDlqCount, loading: terminalLoading } = useDlqTerminalCount(journalEnabled)
 
   const valueLabel = fmtInrFull(metrics?.intendedValue ?? batch?.totalValue ?? 0, { decimals: 0 })
   const instructionCount = metrics?.instructionCount ?? batch?.transactions ?? 0
   const readinessPct = metrics?.avgReadinessPct != null ? `${metrics.avgReadinessPct.toFixed(0)}%` : '—'
-  const needsReview = metrics?.needsReviewCount ?? batch?.unresolvedCount ?? 0
-  const manualReviewCount = metrics?.manualReviewCount ?? metrics?.dlqCount ?? 0
-  const terminalLine =
+  const needsReview =
+    terminalDlqCount != null ? terminalDlqCount : terminalLoading ? null : 0
+  const needsReviewDisplay =
+    needsReview != null ? needsReview.toLocaleString('en-IN') : '—'
+  const needsReviewSub =
     terminalDlqCount != null
-      ? `${terminalDlqCount.toLocaleString('en-IN')} terminal DLQ (tenant)`
+      ? 'Terminal DLQ items (tenant-wide)'
       : 'Terminal DLQ count loading…'
   const finalityLabel = intelDetail?.batch?.finality_status
     ? intelDetail.batch.finality_status.replace(/_/g, ' ')
@@ -64,11 +66,8 @@ export function IntentJournalHeroBanner({
     },
     {
       label: intentJournalCopy.kpi.needsReview,
-      value: needsReview.toLocaleString('en-IN'),
-      sub:
-        needsReview > 0
-          ? `${manualReviewCount.toLocaleString('en-IN')} manual review · ${metrics?.lowReadinessCount ?? 0} low readiness · ${terminalLine}`
-          : `No batch review items · ${terminalLine}`,
+      value: needsReviewDisplay,
+      sub: needsReviewSub,
     },
   ] as const
 

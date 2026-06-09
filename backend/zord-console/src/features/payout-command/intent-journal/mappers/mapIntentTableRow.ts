@@ -33,13 +33,6 @@ function resolveProviderHint(item: IntentJournalPaymentIntentItem): string {
   return h.charAt(0).toUpperCase() + h.slice(1)
 }
 
-function resolveLifecycleStatus(qualityScore: number | undefined): JournalIntentStatus {
-  if (typeof qualityScore === 'number' && qualityScore < READINESS_REVIEW_THRESHOLD) {
-    return 'Needs Review'
-  }
-  return 'Pending'
-}
-
 function parseAmount(raw: string | number | undefined): number {
   if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0
   const n = Number.parseFloat(String(raw ?? '').replace(/,/g, ''))
@@ -125,7 +118,7 @@ export function mapPaymentIntentListItemToRow(
     typeof item.intent_quality_score === 'number' && Number.isFinite(item.intent_quality_score)
       ? item.intent_quality_score
       : null
-  const status = resolveLifecycleStatus(qualityScore ?? undefined)
+  const status: JournalIntentStatus = 'Ready to Process'
   const provider = resolveProviderHint(item)
   const rail = resolveRailHint(item)
   const requestId = syntheticRequestId(batchId, index, item)
@@ -155,7 +148,7 @@ export function mapPaymentIntentListItemToRow(
     provider,
     confidenceScore: qualityScore,
     confidenceLabel: formatConfidenceLabel(qualityScore ?? undefined),
-    infoSummary: status === 'Needs Review' ? 'Low intent readiness' : 'Awaiting bank confirmation',
+    infoSummary: 'Ready for dispatch',
     rail,
     sourceRowNum,
     clientBatchRef,

@@ -55,6 +55,11 @@ export type SettlementIngestSuccessPayload = {
   fileName: string
 }
 
+export type BatchUploadStatus = {
+  state: 'idle' | 'syncing' | 'synced' | 'failed'
+  message: string | null
+}
+
 type BatchIntakePanelProps = {
   batchIdInput: string
   batchReferenceRef?: Ref<HTMLInputElement>
@@ -63,6 +68,8 @@ type BatchIntakePanelProps = {
   onIntentIngestSuccess: (payload: IntentIngestSuccessPayload) => void
   onSettlementIngestSuccess: (payload: SettlementIngestSuccessPayload) => void
   onSnapshotChange: (snapshot: BatchIntakeSnapshot) => void
+  onUploadStatusChange?: (status: BatchUploadStatus) => void
+  onIntentUploadFailed?: (batchId: string) => void
 }
 
 export function BatchIntakePanel({
@@ -73,11 +80,12 @@ export function BatchIntakePanel({
   onIntentIngestSuccess,
   onSettlementIngestSuccess,
   onSnapshotChange,
+  onUploadStatusChange,
+  onIntentUploadFailed,
 }: BatchIntakePanelProps) {
   const { tenantId, tenantReady, refreshTenant } = useSessionTenant()
   const [sourceType, setSourceType] = useState<SourceTypeOption>(BATCH_REVIEW_COPY.fields.sourceTypeOptions[0])
   const [sourceSystem, setSourceSystem] = useState('')
-  const [apiKey, setApiKey] = useState('')
   const [psp, setPsp] = useState(() => process.env.NEXT_PUBLIC_ZORD_SETTLEMENT_PSP ?? 'razorpay')
   const [bulkForceReprocess, setBulkForceReprocess] = useState(false)
   const [selectedIntentFile, setSelectedIntentFile] = useState<File | null>(null)
@@ -90,8 +98,13 @@ export function BatchIntakePanel({
   const [settlementBatchId, setSettlementBatchId] = useState<string | null>(null)
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null)
   const [uploadState, setUploadState] = useState<'idle' | 'uploading' | 'ready'>('idle')
-  const [uploadRelayState, setUploadRelayState] = useState<'idle' | 'syncing' | 'synced' | 'failed'>('idle')
-  const [uploadRelayMessage, setUploadRelayMessage] = useState<string | null>(null)
+
+  const reportUploadStatus = useCallback(
+    (state: BatchUploadStatus['state'], message: string | null) => {
+      onUploadStatusChange?.({ state, message })
+    },
+    [onUploadStatusChange],
+  )
 
   useEffect(() => {
     setSourceSystem(sourceTypeToSystemLabel(sourceType))
@@ -102,11 +115,7 @@ export function BatchIntakePanel({
     [batchIdInput, settlementBatchId],
   )
 
-  const hasManualOrServerBatchId = useMemo(() => {
-    if (batchIdInput.trim()) return true
-    if (settlementBatchId && !settlementBatchId.startsWith('LOCAL-')) return true
-    return false
-  }, [batchIdInput, settlementBatchId])
+  const hasManualOrServerBatchId = useMemo(() => batchIdInput.trim().length > 0, [batchIdInput])
 
   const settlementCredentialsReady = useMemo(
     () =>
@@ -175,36 +184,39 @@ export function BatchIntakePanel({
     setSettlementFileName(null)
     setSettlementIngestOk(false)
     setIntakeStep('idle')
-    setUploadRelayState('idle')
-    setUploadRelayMessage(null)
-  }, [])
+    reportUploadStatus('idle', null)
+  }, [reportUploadStatus])
 
   const onIntentBatchUpload = useCallback(async () => {
     const file = selectedIntentFile
     if (!file) return
+    const userBatchId = batchIdInput.trim()
     setIntentFileName(file.name)
     setIntentIngestOk(false)
-    setSettlementBatchId(null)
     setSettlementFileName(null)
     setIntakeStep('intent_uploading')
-    setUploadRelayState('syncing')
-    setUploadRelayMessage(BATCH_REVIEW_COPY.intake.uploadIntentBusy)
+    reportUploadStatus('syncing', BATCH_REVIEW_COPY.intake.uploadIntentBusy)
     setUploadState('uploading')
+    if (userBatchId) setSettlementBatchId(userBatchId)
     try {
       const parsed = await parseUploadedSheet(file)
-      const bid = batchIdInput.trim()
-      if (bulkForceReprocess && !bid) {
+      if (bulkForceReprocess && !userBatchId) {
         throw new Error('Reprocess requires a batch reference in the field above.')
       }
       const result = await postIntentBulkIngest({
         file,
-        apiKeyRaw: apiKey.trim() || undefined,
         sourceType: bulkIngestSourceTypeFromFilename(file.name),
         sourceSystem: sourceSystem.trim() || undefined,
-        optionalBatchId: bid || undefined,
+        optionalBatchId: userBatchId || undefined,
         forceReprocess: bulkForceReprocess,
       })
       if (!result.ok) {
+        const batchToKeep = userBatchId || result.batchIdFromBody
+        if (batchToKeep) {
+          setSettlementBatchId(batchToKeep)
+          if (batchToKeep !== batchIdInput.trim()) onBatchIdChange(batchToKeep)
+          onIntentUploadFailed?.(batchToKeep)
+        }
         const detail = result.errorMessage?.trim() || `HTTP ${result.httpStatus}`
         const extra = result.responseText.trim().slice(0, 280)
         throw new Error(extra && !detail.includes(extra) ? `${detail} — ${extra}` : detail)
@@ -214,46 +226,42 @@ export function BatchIntakePanel({
         const firstFailure = ingestAckParsed.rows.find((row) => row.error?.trim())
         throw new Error(firstFailure?.error?.trim() || 'The file was received, but none of its rows entered the processing pipeline.')
       }
-      const effectiveBatch = result.batchIdFromBody || bid || null
-      const journalBatchId = effectiveBatch ?? `LOCAL-${Date.now()}`
-      setSettlementBatchId(journalBatchId)
-      if (effectiveBatch) onBatchIdChange(effectiveBatch)
-      else if (!batchIdInput.trim()) onBatchIdChange(journalBatchId)
+      const effectiveBatch = result.batchIdFromBody || userBatchId
+      if (!effectiveBatch) {
+        throw new Error('Upload succeeded but the server did not return a batch reference.')
+      }
+      setSettlementBatchId(effectiveBatch)
+      if (effectiveBatch !== batchIdInput.trim()) onBatchIdChange(effectiveBatch)
       setIntentIngestOk(true)
       void refreshTenant()
       markSandboxSetupStep('intent-ingest')
-      setUploadRelayState('synced')
-      setUploadRelayMessage(
-        effectiveBatch
-          ? `Payment file accepted. Batch reference: ${effectiveBatch}.`
-          : `Payment file accepted. Batch reference: ${journalBatchId}.`,
-      )
+      reportUploadStatus('synced', `Payment file accepted. Batch reference: ${effectiveBatch}.`)
       setUploadState('ready')
       setUploadedFileName(file.name)
       setIntakeStep('intent_ready')
       onIntentIngestSuccess({
-        batchId: journalBatchId,
+        batchId: effectiveBatch,
         effectiveBatch,
         parsedRows: parsed,
         fileName: file.name,
       })
     } catch (error) {
       setIntentIngestOk(false)
-      setSettlementBatchId(null)
-      setUploadRelayState('failed')
-      setUploadRelayMessage(
+      reportUploadStatus(
+        'failed',
         `Payment file upload failed (${error instanceof Error ? error.message : 'unknown error'}). Step 2 stays locked until upload succeeds.`,
       )
       setIntakeStep('idle')
       setUploadState('idle')
     }
   }, [
-    apiKey,
     batchIdInput,
     bulkForceReprocess,
     onBatchIdChange,
     onIntentIngestSuccess,
+    onIntentUploadFailed,
     refreshTenant,
+    reportUploadStatus,
     selectedIntentFile,
     sourceSystem,
   ])
@@ -263,11 +271,10 @@ export function BatchIntakePanel({
       if (!file) return
       setSelectedSettlementFile(file)
       setSettlementIngestOk(false)
-      setUploadRelayState('idle')
-      setUploadRelayMessage(null)
+      reportUploadStatus('idle', null)
       if (intakeStep === 'closed') setIntakeStep('intent_ready')
     },
-    [intakeStep],
+    [intakeStep, reportUploadStatus],
   )
 
   const onSettlementBatchUpload = useCallback(async () => {
@@ -276,8 +283,8 @@ export function BatchIntakePanel({
     const pspVal = psp.trim().toLowerCase()
     const bid = (settlementBatchId ?? batchIdInput.trim()).trim()
     if (!tenantReady || !pspVal || !bid) {
-      setUploadRelayState('failed')
-      setUploadRelayMessage(
+      reportUploadStatus(
+        'failed',
         settlementBlockedReason ??
           'Confirmation upload needs an active session, payment partner, and batch reference.',
       )
@@ -285,12 +292,10 @@ export function BatchIntakePanel({
     }
     setSettlementFileName(file.name)
     setIntakeStep('settlement_uploading')
-    setUploadRelayState('syncing')
-    setUploadRelayMessage(BATCH_REVIEW_COPY.intake.uploadSettlementBusy)
+    reportUploadStatus('syncing', BATCH_REVIEW_COPY.intake.uploadSettlementBusy)
     try {
       const result = await postSettlementFileUpload({
         file,
-        apiKeyRaw: apiKey.trim() || undefined,
         psp: pspVal,
         batchId: bid,
       })
@@ -303,24 +308,25 @@ export function BatchIntakePanel({
         throw new Error(parts.join(' — '))
       }
       setSettlementIngestOk(true)
-      setUploadRelayState('synced')
-      setUploadRelayMessage(BATCH_REVIEW_COPY.dialogs.settlementBody(bid))
+      reportUploadStatus('synced', BATCH_REVIEW_COPY.dialogs.settlementBody(bid))
       markSandboxSetupStep('settlement')
       setIntakeStep('closed')
       onSettlementIngestSuccess({ batchId: bid, fileName: file.name })
     } catch (error) {
-      setUploadRelayState('failed')
-      const detail = error instanceof Error ? error.message.trim() : ''
-      setUploadRelayMessage(
-        detail ? `Confirmation upload failed: ${detail}` : 'Confirmation upload failed. Check your session and retry.',
+      reportUploadStatus(
+        'failed',
+        (() => {
+          const detail = error instanceof Error ? error.message.trim() : ''
+          return detail ? `Confirmation upload failed: ${detail}` : 'Confirmation upload failed. Check your session and retry.'
+        })(),
       )
       setIntakeStep('intent_ready')
     }
   }, [
-    apiKey,
     batchIdInput,
     onSettlementIngestSuccess,
     psp,
+    reportUploadStatus,
     selectedSettlementFile,
     settlementBatchId,
     settlementBlockedReason,
@@ -331,21 +337,6 @@ export function BatchIntakePanel({
 
   return (
     <div className="space-y-4">
-      {uploadRelayMessage ? (
-        <div
-          role="status"
-          className={`rounded-xl border px-4 py-2.5 text-[13px] font-medium ${
-            uploadRelayState === 'failed'
-              ? 'border-red-200 bg-red-50 text-red-900'
-              : uploadRelayState === 'synced'
-                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
-                : 'border-slate-200 bg-slate-50 text-slate-800'
-          }`}
-        >
-          {uploadRelayMessage}
-        </div>
-      ) : null}
-
       <Card className="p-5">
         <div className="flex items-baseline justify-between gap-2">
           <SectionLabel>{c.intake.title}</SectionLabel>
@@ -409,17 +400,6 @@ export function BatchIntakePanel({
               </span>
               <span className="text-[11px] text-[#64748b]">{c.fields.reprocessHelper}</span>
             </span>
-          </label>
-          <label className="flex flex-col gap-1 sm:col-span-2 lg:col-span-1">
-            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]">
-              {c.fields.apiKey}
-            </span>
-            <input
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder={c.fields.apiKeyPlaceholder}
-              className="h-9 rounded-lg border border-[#E5E5E5] bg-white px-2.5 text-[13px] text-[#0A0A0A] outline-none focus:border-[#6366f1]/50"
-            />
           </label>
         </div>
         {settlementBatchIdResolved ? (
@@ -498,9 +478,7 @@ export function BatchIntakePanel({
                 {intakeStep === 'settlement_uploading' ? c.intake.uploadSettlementBusy : c.intake.uploadSettlement}
               </button>
             ) : null}
-            {settlementIngestOk &&
-            settlementBatchIdResolved &&
-            !settlementBatchIdResolved.startsWith('LOCAL-') ? (
+            {settlementIngestOk && settlementBatchIdResolved ? (
               <Link
                 href={
                   isSandboxRoute

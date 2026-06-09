@@ -260,11 +260,16 @@ export function HomeSurface({
   const reviewMinor = leakageData != null ? parseMinorField(leakageData.unmatched_amount_minor) : null
 
   const intentCountLabel =
-    trendTotalsMinor && trendTotalsMinor.intentCount > 0
-      ? trendTotalsMinor.intentCount
-      : patternsData?.total_count ?? 0
+    patternsData?.total_count != null && patternsData.total_count > 0
+      ? patternsData.total_count
+      : trendTotalsMinor?.intentCount ?? 0
 
   const trendInsight = useMemo(() => {
+    if (patternsData?.total_count != null && patternsData.total_count > 0) {
+      const success = patternsData.success_count ?? 0
+      const share = Math.round((success / patternsData.total_count) * 100)
+      return `${patternsData.total_count} payment instructions in view; ${success} bank-confirmed (${share}% by count) for the ${carouselPeriod} window.`
+    }
     if (carouselTrendSeries?.data_available && carouselTrendSeries.buckets.length >= 2) {
       const intents = carouselTrendSeries.buckets.reduce((s, b) => s + b.intent_count, 0)
       const confirmed = carouselTrendSeries.buckets.reduce((s, b) => s + b.confirmed_count, 0)

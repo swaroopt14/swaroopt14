@@ -64,8 +64,11 @@ export function WorkspaceIntelligencePanel({
   }, [workspace.conversation])
 
   const displayPrompt = hasUserTurn ? lastUserMessage : question
-  const answerBody = latestAnswer?.body ?? groundedAnswer
-  const showLatestAnswer = answerBody.trim().length > 0
+  const initialAnswerBody =
+    workspace.initialAnswer.status === 'done' ? workspace.initialAnswer.body : ''
+  const answerBody = latestAnswer?.body ?? initialAnswerBody ?? groundedAnswer
+  const showLatestAnswer =
+    workspace.initialAnswer.status === 'loading' || answerBody.trim().length > 0
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -159,7 +162,11 @@ export function WorkspaceIntelligencePanel({
             <div className="mt-5" data-testid="workspace-latest-answer">
               <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#8a8a86]">Latest answer</div>
               <div className={`mt-3 text-[14px] leading-relaxed ${WORKSPACE_TEXT_PRIMARY}`}>
-                <MarkdownMessage body={answerBody} />
+                {workspace.initialAnswer.status === 'loading' && !latestAnswer ? (
+                  <p className="text-[#8a8a86]">Querying prompt-layer for your session tenant…</p>
+                ) : (
+                  <MarkdownMessage body={answerBody} />
+                )}
               </div>
             </div>
           ) : null}

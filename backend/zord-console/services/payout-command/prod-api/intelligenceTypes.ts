@@ -243,6 +243,9 @@ export type IntelligenceBatchRow = {
   /** When batches list includes ambiguity projections. */
   match_confidence_pct?: number
   value_at_risk_minor?: MinorAmountField
+  unmatched_amount_minor?: MinorAmountField
+  unexplained_variance_minor?: MinorAmountField
+  total_variance_minor?: MinorAmountField
   status_label?: string
 }
 export type BatchesListResponse = {

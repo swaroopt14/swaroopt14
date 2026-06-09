@@ -105,6 +105,11 @@ function mapLiveAnswer(raw: unknown): WorkspaceLiveAnswer | null {
   }
 }
 
+export type WorkspaceInitialAnswer = {
+  body: string
+  status: 'idle' | 'loading' | 'done' | 'error'
+}
+
 export type WorkspaceState = {
   promptInput: string
   setPromptInput: (value: string) => void
@@ -113,6 +118,7 @@ export type WorkspaceState = {
   conversation: WorkspaceConversationMessage[]
   threads: WorkspaceChatThread[]
   activeThreadId: string | null
+  initialAnswer: WorkspaceInitialAnswer
   startNewChat: () => void
   selectThread: (threadId: string) => void
   deleteThread: (threadId: string) => void
@@ -136,9 +142,15 @@ export function useWorkspaceState(
   const [promptInput, setPromptInput] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [connectionState, setConnectionState] = useState<'idle' | 'connected' | 'error'>('idle')
+  const [initialAnswer, setInitialAnswer] = useState<WorkspaceInitialAnswer>({ body: '', status: 'idle' })
+  const [initialAnswerNonce, setInitialAnswerNonce] = useState(0)
 
   const requestIdRef = useRef(0)
+  const initialAnswerRequestRef = useRef(0)
+  const initialSessionIdRef = useRef(newSessionId())
   const phaseTimerRef = useRef<number | null>(null)
+  const conversationRef = useRef(conversation)
+  conversationRef.current = conversation
 
   useEffect(() => {
     setThreads(loadThreads(storageKey))
@@ -195,6 +207,9 @@ export function useWorkspaceState(
     setPromptInput('')
     setIsSubmitting(false)
     setConnectionState('idle')
+    setInitialAnswer({ body: '', status: 'idle' })
+    initialSessionIdRef.current = newSessionId()
+    setInitialAnswerNonce((n) => n + 1)
     setSelectedSuggestion(null)
   }, [activeTab, setSelectedSuggestion])
 
@@ -414,6 +429,57 @@ export function useWorkspaceState(
     }
   }, [])
 
+  useEffect(() => {
+    const hasUserTurn = conversationRef.current.some((m) => m.role === 'user')
+    if (hasUserTurn || activeThreadId) return
+
+    const tenantGate = sessionTenantForPromptLayer(tenantId, tenantReady)
+    if (!tenantGate.ok || authLoading) return
+
+    const userId = user?.id?.trim()
+    if (!userId) return
+
+    const requestId = ++initialAnswerRequestRef.current
+    const tabQuestion = workspacePromptCopy[activeTab].question
+
+    setInitialAnswer({ body: '', status: 'loading' })
+
+    void (async () => {
+      try {
+        const result = await postPromptLayerQuery(
+          { query: tabQuestion, top_k: 6 },
+          {
+            tenantId: tenantGate.tenantId,
+            sessionId: initialSessionIdRef.current,
+            userId,
+          },
+        )
+
+        if (initialAnswerRequestRef.current !== requestId) return
+
+        if (!result.ok) {
+          setInitialAnswer({ body: '', status: 'error' })
+          return
+        }
+
+        const mapped = mapLiveAnswer(result.payload)
+        if (!mapped?.body.trim()) {
+          setInitialAnswer({ body: '', status: 'error' })
+          return
+        }
+
+        setInitialAnswer({ body: mapped.body, status: 'done' })
+      } catch {
+        if (initialAnswerRequestRef.current !== requestId) return
+        setInitialAnswer({ body: '', status: 'error' })
+      }
+    })()
+
+    return () => {
+      initialAnswerRequestRef.current += 1
+    }
+  }, [activeTab, activeThreadId, authLoading, initialAnswerNonce, tenantId, tenantReady, user?.id])
+
   return {
     promptInput,
     setPromptInput,
@@ -422,6 +488,7 @@ export function useWorkspaceState(
     conversation,
     threads: threads.filter((t) => t.tab === activeTab),
     activeThreadId,
+    initialAnswer,
     startNewChat,
     selectThread,
     deleteThread,

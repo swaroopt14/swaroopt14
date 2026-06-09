@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { formatMinorInr } from '../../leakage-portfolio/utils/formatMinorInr'
+import { batchReviewAmountMinor } from '../../leakage-portfolio/utils/batchReviewAmountMinor'
 
 type ReviewWatchlistProps = {
   tenantReady: boolean
@@ -102,7 +103,7 @@ export function ReviewWatchlist({
                   {b.batch_id.length > 12 ? `${b.batch_id.slice(0, 12)}…` : b.batch_id}
                 </span>
                 <span className={`ml-2 shrink-0 text-[11px] font-medium tabular-nums ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
-                  {formatMinorInr(b.value_at_risk_minor || 0)}
+                  {formatMinorInr(batchReviewAmountMinor(b))}
                 </span>
               </button>
             )

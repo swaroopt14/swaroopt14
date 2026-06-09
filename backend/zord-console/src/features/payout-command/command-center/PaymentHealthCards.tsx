@@ -22,7 +22,7 @@ export function CommandCenterCardGlow() {
 function BreakdownRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-2 border-b border-slate-100/80 py-2 last:border-0">
-      <span className="text-[13px] text-neutral-600">{label}</span>
+      <span className={`text-[13px] ${HOME_BODY_IMPERIAL_SM}`}>{label}</span>
       <span className={`text-[14px] font-semibold tabular-nums ${HOME_TITLE_BLACK}`}>{value}</span>
     </div>
   )
@@ -106,7 +106,7 @@ export function PaymentHealthCards({
               <p className="mt-4 text-center text-[36px] leading-none">
                 <HeroMetricWithSuperPercent text={cleanlyMatchedValue} />
               </p>
-              <p className={`mt-2 text-center text-[14px] font-medium ${HOME_TITLE_BLACK}`}>{cleanlyMatchedSub}</p>
+              <p className={`mt-2 text-center text-[14px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>{cleanlyMatchedSub}</p>
             </>
           )}
         </div>
@@ -125,7 +125,7 @@ export function PaymentHealthCards({
           <p className="mt-4 text-center text-[36px] leading-none">
             <HeroMetricWithSuperPercent text={reviewValue} />
           </p>
-          <p className={`mt-2 text-center text-[14px] font-medium text-[#000000]`}>{reviewSub}</p>
+          <p className={`mt-2 text-center text-[14px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>{reviewSub}</p>
           <div className="mt-4">
             <BreakdownRow label="Unmatched payments" value={unmatchedDisplay} />
             <BreakdownRow label="Short-settled value" value={shortSettledDisplay} />
@@ -145,7 +145,7 @@ export function PaymentHealthCards({
           <p className="mt-4 text-center text-[36px] leading-none">
             <HeroMetricWithSuperPercent text={matchConfidencePct} />
           </p>
-          <p className={`mt-2 text-center text-[14px] font-medium ${HOME_TITLE_BLACK}`}>{matchConfidenceSub}</p>
+          <p className={`mt-2 text-center text-[14px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>{matchConfidenceSub}</p>
           <div className="mt-4">
             <BreakdownRow label="Payments needing review" value={paymentsNeedingReview} />
             <BreakdownRow label="Missing reference rate" value={missingRefRate} />
@@ -168,7 +168,7 @@ export function PaymentHealthCards({
           <p className="mt-4 text-center text-[36px] leading-none">
             <HeroMetricWithSuperPercent text={proofCoverageDisplay} />
           </p>
-          <p className={`mt-2 text-center text-[14px] font-medium ${HOME_TITLE_BLACK}`}>{proofSub}</p>
+          <p className={`mt-2 text-center text-[14px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>{proofSub}</p>
           <div className="mt-4">
             <BreakdownRow label="Proof-ready payments" value={proofReadyRow} />
             <BreakdownRow label="Incomplete proof" value={incompleteProofRow} />

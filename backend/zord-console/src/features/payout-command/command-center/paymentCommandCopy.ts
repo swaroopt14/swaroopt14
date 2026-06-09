@@ -7,6 +7,8 @@ export const PAYMENT_COMMAND_CENTER = {
   sectionTitle: "Today's payment health",
   sectionSubtitle:
     'Current status of payment value, confirmation, and review items across connected systems.',
+  intendedHelper:
+    'This is the value your system intended to pay. Confirmation depends on bank/settlement data.',
   bankPending:
     'Bank confirmation data is not connected yet. Upload a bank statement or settlement file to verify outcomes.',
   chartTitle: 'Payment Value: Intended vs Bank-Confirmed',

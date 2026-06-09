@@ -3,7 +3,8 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getCurrentUser, logout } from '@/services/auth'
+import { useAuth } from '@/app/hooks'
+import { logout } from '@/services/auth'
 import { Glyph } from '../shared'
 
 type AccountMenuButtonProps = {
@@ -22,11 +23,11 @@ function userInitials(email: string | undefined, name: string | undefined): stri
 
 export function AccountMenuButton({ deskRole }: AccountMenuButtonProps) {
   const router = useRouter()
+  const { user } = useAuth()
   const [open, setOpen] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  const user = typeof window !== 'undefined' ? getCurrentUser() : null
   const initials = userInitials(user?.email, user?.name)
   const displayEmail = user?.email?.trim() || 'Signed in'
   const displayTenant =

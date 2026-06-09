@@ -1,59 +1,96 @@
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type { AmbiguityVelocityScatterResponse } from '@/services/payout-command/prod-api/ambiguityVelocityTypes'
+import type {
+  AmbiguityBubbleMapBatch,
+  AmbiguityBubbleMapResolved,
+  AmbiguityVelocityScatterResponse,
+  AmbiguityVelocityScatterResolved,
+} from '@/services/payout-command/prod-api/ambiguityVelocityTypes'
 import { coerceMinor } from '../../leakage-portfolio/utils/formatMinorInr'
 
-export type AmbiguityScatterPoint = {
+export type AmbiguityRiskTier = 'clean' | 'safe' | 'watch' | 'alert' | 'critical'
+
+export type AmbiguityBubblePoint = {
   batchId: string
-  date: string
-  observedAt: string
-  /** Hours since window start (0 … windowDays×24). X-axis. */
-  timeHours: number
-  timeLabel: string
-  dayLabel: string
-  dayIndex: number
-  /** 0–100 ambiguity level (Y-axis). */
-  ambiguityLevelPct: number
-  totalAmountMinor: number
-  ambiguousAmountMinor: number
-  /** Red = high ambiguity, green = low (bubble color). */
+  amountValueMinor: number
+  amountAtRiskMinor: number
+  /** (amount_at_risk / amount_value) × 100 */
+  riskRatioPct: number
+  /** Normalized batch size 0–100 for X axis. */
+  sizePct: number
+  /** sqrt(amount / max) × 100 for bubble area scaling via Z axis. */
+  bubbleSizePct: number
   bubbleColor: string
+  riskTier: AmbiguityRiskTier
+  riskTierLabel: string
 }
 
-/** Soft pastel palette tuned for overlapping translucent bubbles. */
-const COLOR_HIGH = '#f87171' // coral red — high ambiguity
-const COLOR_MID = '#fbbf24' // amber — medium
-const COLOR_LOW = '#4ade80' // mint green — low
+export const BUBBLE_MAP_MAX_Z = 100
 
-/** Map ambiguity % → bubble color (high red, low green). */
-export function bubbleColorForAmbiguity(pct: number): string {
-  if (pct >= 35) return COLOR_HIGH
-  if (pct <= 18) return COLOR_LOW
-  return COLOR_MID
+const COLOR_CLEAN = '#94a3b8'
+const COLOR_SAFE = '#4ade80'
+const COLOR_WATCH = '#facc15'
+const COLOR_ALERT = '#fb923c'
+const COLOR_CRITICAL = '#ef4444'
+
+export function riskTierFromRatio(ratio: number): {
+  tier: AmbiguityRiskTier
+  color: string
+  label: string
+} {
+  if (!Number.isFinite(ratio) || ratio <= 0) {
+    return { tier: 'clean', color: COLOR_CLEAN, label: 'Clean (0%)' }
+  }
+  if (ratio <= 2) return { tier: 'safe', color: COLOR_SAFE, label: 'Safe (≤2%)' }
+  if (ratio <= 5) return { tier: 'watch', color: COLOR_WATCH, label: 'Watch (2–5%)' }
+  if (ratio <= 10) return { tier: 'alert', color: COLOR_ALERT, label: 'Alert (5–10%)' }
+  return { tier: 'critical', color: COLOR_CRITICAL, label: 'Critical (>10%)' }
 }
 
 export const AMBIGUITY_BUBBLE_LEGEND = [
-  { label: 'High ambiguity', color: COLOR_HIGH, hint: 'Large bubble' },
-  { label: 'Medium', color: COLOR_MID, hint: '' },
-  { label: 'Low ambiguity', color: COLOR_LOW, hint: 'Small bubble' },
+  { label: 'Critical (>10%)', color: COLOR_CRITICAL, hint: 'Investigate now' },
+  { label: 'Alert (5–10%)', color: COLOR_ALERT, hint: '' },
+  { label: 'Watch (2–5%)', color: COLOR_WATCH, hint: '' },
+  { label: 'Safe (≤2%)', color: COLOR_SAFE, hint: '' },
+  { label: 'Clean (0%)', color: COLOR_CLEAN, hint: 'No at-risk value' },
+] as const
+
+export const BUBBLE_MAP_QUADRANTS = [
+  { position: 'top-left', title: 'Contained risk', subtitle: 'Small batch · high risk · monitor' },
+  { position: 'top-right', title: 'Critical', subtitle: 'Big batch · high risk · investigate now' },
+  { position: 'bottom-left', title: 'Ignore', subtitle: 'Small batch · low risk' },
+  { position: 'bottom-right', title: 'Healthy large batch', subtitle: 'Big batch · low risk' },
 ] as const
 
 export const MOCK_PREVIEW_BATCH_COUNT = 60
-export const HOURS_PER_DAY = 24
 
-/** Preview: 200 batches spread randomly across 7 days × 24h. */
-export function getWindowMeta(days = 7): { start: Date; end: Date; totalHours: number } {
-  const end = new Date()
-  end.setMinutes(0, 0, 0)
-  const start = new Date(end)
-  start.setDate(start.getDate() - (days - 1))
-  start.setHours(0, 0, 0, 0)
-  return { start, end, totalHours: days * HOURS_PER_DAY }
+function riskRatioPct(totalMinor: number, atRiskMinor: number): number {
+  if (totalMinor <= 0) return 0
+  return Math.min(100, Math.round((atRiskMinor / totalMinor) * 1000) / 10)
 }
 
-/**
- * Mulberry32 — proper seeded PRNG.
- * Returns a fresh stream per `seed` so we can produce independent X/Y/etc.
- */
+function bubblePointFromAmounts(
+  batchId: string,
+  amountValueMinor: number,
+  amountAtRiskMinor: number,
+  maxAmountMinor: number,
+): AmbiguityBubblePoint {
+  const safeMax = Math.max(maxAmountMinor, 1)
+  const ratio = riskRatioPct(amountValueMinor, amountAtRiskMinor)
+  const tier = riskTierFromRatio(ratio)
+  const sizeRatio = amountValueMinor / safeMax
+  return {
+    batchId,
+    amountValueMinor,
+    amountAtRiskMinor,
+    riskRatioPct: ratio,
+    sizePct: Math.min(100, Math.max(0, sizeRatio * 100)),
+    bubbleSizePct: Math.sqrt(Math.max(0, sizeRatio)) * BUBBLE_MAP_MAX_Z,
+    bubbleColor: tier.color,
+    riskTier: tier.tier,
+    riskTierLabel: tier.label,
+  }
+}
+
 function rng(seed: number): () => number {
   let state = (seed >>> 0) || 1
   return () => {
@@ -65,199 +102,149 @@ function rng(seed: number): () => number {
   }
 }
 
-function ambiguityLevelPct(
-  total: number,
-  ambiguous: number,
-  fromApi?: number,
-): number {
-  if (fromApi != null && Number.isFinite(fromApi)) {
-    return Math.min(100, Math.max(0, fromApi))
-  }
-  if (total <= 0) return 0
-  return Math.min(100, Math.round((ambiguous / total) * 1000) / 10)
-}
-
-function formatTimeLabel(d: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(d)
-}
-
-function hoursSinceWindow(observed: Date, windowStart: Date): number {
-  const ms = observed.getTime() - windowStart.getTime()
-  return Math.min(Math.max(ms / 3_600_000, 0), 7 * HOURS_PER_DAY)
-}
-
-function rowToPoint(
-  row: {
-    batch_id: string
-    date: string
-    observed_at?: string
-    total_amount_minor: number | string
-    ambiguous_amount_minor: number | string
-    ambiguity_level_pct?: number
-  },
-  windowStart: Date,
-): AmbiguityScatterPoint {
-  const batchId = row.batch_id?.trim() || '—'
-
-  const iso = row.observed_at?.trim() || `${row.date}T12:00:00.000Z`
-  const observed = new Date(iso)
-  const safeObserved = Number.isNaN(observed.getTime())
-    ? new Date(`${row.date}T12:00:00`)
-    : observed
-
-  const timeHours = hoursSinceWindow(safeObserved, windowStart)
-  const dayIndex = Math.floor(timeHours / HOURS_PER_DAY)
-  const total = coerceMinor(row.total_amount_minor)
-  const ambiguous = coerceMinor(row.ambiguous_amount_minor)
-  const level = ambiguityLevelPct(total, ambiguous, row.ambiguity_level_pct)
-
-  return {
-    batchId,
-    date: row.date,
-    observedAt: safeObserved.toISOString(),
-    timeHours,
-    timeLabel: formatTimeLabel(safeObserved),
-    dayLabel: new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(safeObserved),
-    dayIndex,
-    ambiguityLevelPct: level,
-    totalAmountMinor: total,
-    ambiguousAmountMinor: ambiguous,
-    bubbleColor: bubbleColorForAmbiguity(level),
-  }
-}
-
-/**
- * Mock: each batch lands at a pseudo-random time in the 7-day window.
- * X and Y use independent hashes so points do not form diagonal stripes.
- */
+/** Preview batches spread across risk tiers and batch sizes. */
 export function buildAmbiguityVelocityMock(
-  days = 7,
   batchCount = MOCK_PREVIEW_BATCH_COUNT,
   focusBatchId?: string,
-): AmbiguityScatterPoint[] {
-  const { start, totalHours } = getWindowMeta(days)
-  const points: AmbiguityScatterPoint[] = []
-
+): AmbiguityBubblePoint[] {
   const focused = focusBatchId?.trim()
-  const count = focused ? days * 4 : batchCount
-
-  // Each axis gets its own seeded stream so X/Y/size are independent.
-  const rngTime = rng(focused ? 9001 : 11)
-  const rngLevel = rng(focused ? 7777 : 4242)
-  const rngAmount = rng(focused ? 5050 : 8181)
-
-  for (let b = 0; b < count; b++) {
-    const batchId = focused ? focused : `BCH-2026-${String(b + 1).padStart(5, '0')}`
-
-    const timeHours = focused
-      ? Math.floor(b / 4) * HOURS_PER_DAY + (b % 4) * 5 + rngTime() * 4
-      : rngTime() * totalHours
-
-    const observed = new Date(start.getTime() + timeHours * 3_600_000)
-    const total = 200_000 + Math.round(rngAmount() * 4_800_000)
-
-    // Skewed distribution: most batches are low/medium ambiguity, a few are high.
-    const noise = rngLevel()
-    const level = Math.round(
-      noise < 0.55 ? 4 + noise * 26 : noise < 0.85 ? 18 + (noise - 0.55) * 60 : 40 + (noise - 0.85) * 280,
-    )
-    const safeLevel = Math.min(85, Math.max(2, level))
-
-    points.push(
-      rowToPoint(
-        {
-          batch_id: batchId,
-          date: observed.toISOString().slice(0, 10),
-          observed_at: observed.toISOString(),
-          total_amount_minor: total,
-          ambiguous_amount_minor: Math.round((total * safeLevel) / 100),
-          ambiguity_level_pct: safeLevel,
-        },
-        start,
-      ),
-    )
+  if (focused) {
+    return [
+      bubblePointFromAmounts(focused, 2_000_000, 245_000, 2_000_000),
+    ]
   }
 
-  return points
+  const seedRows: Array<[string, number, number]> = [
+    ['batch_live_001', 2_000_000, 245_000],
+    ['batch_002', 750_000, 12_000],
+    ['batch_003', 5_000_000, 115_000],
+  ]
+
+  const rand = rng(4242)
+  const generated: Array<[string, number, number]> = []
+  for (let i = 0; i < batchCount; i++) {
+    const amount = 150_000 + Math.round(rand() * 6_500_000)
+    const ratio = rand() < 0.12 ? 8 + rand() * 8 : rand() < 0.35 ? 2 + rand() * 3 : rand() * 2
+    generated.push([`BCH-2026-${String(i + 1).padStart(5, '0')}`, amount, Math.round((amount * ratio) / 100)])
+  }
+
+  const rows = [...seedRows, ...generated]
+  const maxAmount = Math.max(...rows.map(([, amount]) => amount), 1)
+  return rows.map(([batchId, amount, atRisk]) => bubblePointFromAmounts(batchId, amount, atRisk, maxAmount))
+}
+
+function isBubbleMapResponse(res: AmbiguityVelocityScatterResponse): res is AmbiguityBubbleMapResolved {
+  return (
+    isDataAvailable(res) &&
+    'batches' in res &&
+    Array.isArray((res as AmbiguityBubbleMapResolved).batches)
+  )
+}
+
+function isTimeseriesResponse(res: AmbiguityVelocityScatterResponse): res is AmbiguityVelocityScatterResolved {
+  return (
+    isDataAvailable(res) &&
+    'points' in res &&
+    Array.isArray((res as AmbiguityVelocityScatterResolved).points)
+  )
+}
+
+function mapBubbleMapBatches(
+  batches: AmbiguityBubbleMapBatch[],
+  focusBatchId?: string,
+): AmbiguityBubblePoint[] {
+  const rows = focusBatchId?.trim()
+    ? batches.filter((row) => row.batch_id?.trim() === focusBatchId.trim())
+    : batches
+  if (rows.length === 0) return []
+
+  const maxAmount = Math.max(...rows.map((row) => coerceMinor(row.amount_value)), 1)
+  return rows.map((row) =>
+    bubblePointFromAmounts(
+      row.batch_id?.trim() || '—',
+      coerceMinor(row.amount_value),
+      coerceMinor(row.amount_at_risk),
+      maxAmount,
+    ),
+  )
+}
+
+function mapLegacyTimeseriesPoints(
+  res: AmbiguityVelocityScatterResolved,
+  focusBatchId?: string,
+): AmbiguityBubblePoint[] {
+  const rows = res.points.filter((row) => !focusBatchId || row.batch_id?.trim() === focusBatchId.trim())
+  if (rows.length === 0) return []
+
+  const maxAmount = Math.max(
+    ...rows.map((row) => coerceMinor(row.total_amount_minor)),
+    1,
+  )
+
+  return rows.map((row) =>
+    bubblePointFromAmounts(
+      row.batch_id?.trim() || '—',
+      coerceMinor(row.total_amount_minor),
+      coerceMinor(row.ambiguous_amount_minor),
+      maxAmount,
+    ),
+  )
 }
 
 export function mapAmbiguityVelocityScatter(
   res: AmbiguityVelocityScatterResponse | null,
-): { points: AmbiguityScatterPoint[]; live: boolean } {
-  if (!isDataAvailable(res) || !Array.isArray(res.points) || res.points.length === 0) {
-    return { points: [], live: false }
+  options: { batchId?: string } = {},
+): { points: AmbiguityBubblePoint[]; live: boolean; maxAmountMinor: number } {
+  const focusBatchId = options.batchId?.trim()
+
+  if (!res || !isDataAvailable(res)) {
+    return { points: [], live: false, maxAmountMinor: 0 }
   }
 
-  const days = res.window_days ?? 7
-  const start = res.window_start ? new Date(res.window_start) : getWindowMeta(days).start
-  const points = res.points.map((row) =>
-    rowToPoint(
-      {
-        batch_id: row.batch_id,
-        date: row.date,
-        observed_at: row.observed_at,
-        total_amount_minor: row.total_amount_minor,
-        ambiguous_amount_minor: row.ambiguous_amount_minor,
-        ambiguity_level_pct: row.ambiguity_level_pct,
-      },
-      start,
-    ),
-  )
-
-  return { points, live: true }
-}
-
-/** Day labels at noon; 6h marks show time only. */
-export function scatterTimeAxisTicks(days = 7): { hours: number; label: string }[] {
-  const { start } = getWindowMeta(days)
-  const ticks: { hours: number; label: string }[] = []
-  for (let h = 0; h <= days * HOURS_PER_DAY; h += 6) {
-    const d = new Date(start.getTime() + h * 3_600_000)
-    const isDayStart = h % HOURS_PER_DAY === 0
-    ticks.push({
-      hours: h,
-      label: isDayStart
-        ? new Intl.DateTimeFormat('en-US', { weekday: 'short' }).format(d)
-        : new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: true }).format(d),
-    })
+  if (isBubbleMapResponse(res)) {
+    const points = mapBubbleMapBatches(res.batches, focusBatchId)
+    const maxAmountMinor = Math.max(...points.map((p) => p.amountValueMinor), 0)
+    return points.length > 0 ? { points, live: true, maxAmountMinor } : { points: [], live: false, maxAmountMinor: 0 }
   }
-  return ticks
+
+  if (isTimeseriesResponse(res)) {
+    const points = mapLegacyTimeseriesPoints(res, focusBatchId)
+    const maxAmountMinor = Math.max(...points.map((p) => p.amountValueMinor), 0)
+    return points.length > 0 ? { points, live: true, maxAmountMinor } : { points: [], live: false, maxAmountMinor: 0 }
+  }
+
+  return { points: [], live: false, maxAmountMinor: 0 }
 }
 
-export function scatterDensitySummary(points: AmbiguityScatterPoint[]): {
+export function batchSizeAxisTicks(maxAmountMinor: number): { value: number; label: string }[] {
+  const safeMax = Math.max(maxAmountMinor, 1)
+  return [0, 25, 50, 75, 100].map((pct) => ({
+    value: pct,
+    label: formatInrTick(Math.round((safeMax * pct) / 100)),
+  }))
+}
+
+function formatInrTick(minor: number): string {
+  if (minor >= 10_000_000) return `₹${(minor / 10_000_000).toFixed(1)}Cr`
+  if (minor >= 100_000) return `₹${Math.round(minor / 100_000)}L`
+  if (minor >= 1_000) return `₹${Math.round(minor / 100)}`
+  return minor === 0 ? '₹0' : `₹${(minor / 100).toFixed(0)}`
+}
+
+export function bubbleMapSummary(points: AmbiguityBubblePoint[]): {
   batchCount: number
-  pointCount: number
-  perDay: { label: string; count: number }[]
+  maxAmountMinor: number
+  byTier: { tier: AmbiguityRiskTier; count: number }[]
 } {
-  const batchIds = new Set(points.map((p) => p.batchId))
-  const dayCounts = new Map<string, number>()
-  for (const p of points) {
-    const key = p.dayLabel
-    dayCounts.set(key, (dayCounts.get(key) ?? 0) + 1)
+  const tiers: AmbiguityRiskTier[] = ['critical', 'alert', 'watch', 'safe', 'clean']
+  const counts = new Map<AmbiguityRiskTier, number>()
+  for (const tier of tiers) counts.set(tier, 0)
+  for (const point of points) {
+    counts.set(point.riskTier, (counts.get(point.riskTier) ?? 0) + 1)
   }
   return {
-    batchCount: batchIds.size,
-    pointCount: points.length,
-    perDay: [...dayCounts.entries()].map(([label, count]) => ({ label, count })),
+    batchCount: points.length,
+    maxAmountMinor: Math.max(...points.map((p) => p.amountValueMinor), 0),
+    byTier: tiers.map((tier) => ({ tier, count: counts.get(tier) ?? 0 })),
   }
-}
-
-export function fullDayLabel(isoDate: string): string {
-  const d = new Date(isoDate)
-  if (Number.isNaN(d.getTime())) return isoDate
-  return new Intl.DateTimeFormat('en-US', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(d)
 }

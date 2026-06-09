@@ -23,7 +23,7 @@ export const HOME_NEON_RING = 'rgba(61,255,130,0.22)'
 
 /** Green micro-labels for KPI / exception categories (batch + command center). */
 export const COMMAND_CENTER_LABEL_GREEN =
-  'text-[11px] font-semibold uppercase tracking-[0.08em] text-[#0f172a]'
+  'text-[11px] font-semibold uppercase tracking-[0.08em] text-[#16a34a]'
 
 /** Canonical intelligence blue gradient (Home insights + Leakage hero). */
 export const INTELLIGENCE_BLUE_GRADIENT =
@@ -62,10 +62,10 @@ export const JOURNAL_INSIGHT_DARK_LEGEND = 'text-[13px] font-medium text-white/8
 export const COMMAND_CENTER_INSIGHT_GREEN_TEXT =
   'text-[13px] font-medium leading-relaxed text-white'
 
-/** Outer wash behind console surfaces (Home, Leakage, Ambiguity, Evidence, etc.). */
-export const PAYOUT_PAGE_BG_CLASS = 'bg-[#f4f4f1]'
+/** Outer wash behind the white console card (Home + Batch + Sandbox). */
+export const PAYOUT_PAGE_BG_CLASS = 'bg-[#e8eef5]'
 /** Carousel / command cool blue — same token used on Leakage & Ambiguity pages. */
-export const COMMAND_COOL_PAGE_BG = 'bg-[#f4f4f1]'
+export const COMMAND_COOL_PAGE_BG = 'bg-[#e8eef5]'
 /** Whitish minimal warm beige — Home command band + Batch body. */
 export const PAYOUT_WARM_SURFACE_BG_CLASS = 'bg-[#f4f4f1]'
 /** White elevated console card (nav + surfaces). */

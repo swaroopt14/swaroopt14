@@ -6,6 +6,7 @@ import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCom
 import type { GlyphName } from '@/services/payout-command/model'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { ApiKeysPopoverButton } from './ApiKeysPopoverButton'
+import { HOME_BODY_IMPERIAL_SM } from '../command-center/homeCommandCenterTokens'
 import { Glyph } from '../shared'
 
 const ICON_BUTTONS: GlyphName[] = ['refresh', 'eye', 'menu-dots']
@@ -77,7 +78,7 @@ export function PageHeader({
               {pageTitle}
             </h1>
             {pageSubtitle ? (
-              <p className="mt-1.5 text-[14px] font-medium text-neutral-600">{pageSubtitle}</p>
+              <p className={`mt-1.5 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>{pageSubtitle}</p>
             ) : null}
           </div>
         ) : null}

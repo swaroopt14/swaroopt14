@@ -12,6 +12,7 @@ import { useHomeState } from '../hooks/useHomeState'
 import { useWorkspaceState } from '../hooks/useWorkspaceState'
 import { useAskZordState } from '../hooks/useAskZordState'
 import { AskZordPanel } from '../layout/AskZordPanel'
+import { HomeCommandFiltersForm } from '../layout/HomeCommandFiltersForm'
 import { PayoutConsoleNavStack } from '../layout/PayoutConsoleNavStack'
 import { PageHeader } from '../layout/PageHeader'
 import ConnectorIntelligenceClient from '../connectors/ConnectorIntelligenceClient'
@@ -71,6 +72,7 @@ export default function PayoutCommandViewClient({
   const [activeDock, setActiveDock] = useState<DockId>(initialDock)
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('Today')
   const [activateWizardOpen, setActivateWizardOpen] = useState(false)
+  const [homeFiltersOpen, setHomeFiltersOpen] = useState(false)
   const activeSurface = dockItems.find((item) => item.id === activeDock) ?? dockItems[0]
   const sharedBatchId = resolveSharedBatchId(scope.batchId)
   const onWorkspaceSuggestionSelect = useCallback((_label: string | null) => {}, [])
@@ -134,8 +136,16 @@ export default function PayoutCommandViewClient({
         <div>
           <HomeSurface
             batchId={sharedBatchId}
+            snapshot={home.snapshot}
             timeframe={home.timeframe}
             onTimeframeChange={home.setTimeframe}
+            onYearChange={home.setYear}
+            onQuarterChange={(qi) => {
+              home.setQuarterIndex(qi)
+              if (home.timeframe !== 'Quarter' && home.timeframe !== 'Custom') {
+                home.setTimeframe('Quarter')
+              }
+            }}
           />
         </div>
       )
@@ -218,6 +228,22 @@ export default function PayoutCommandViewClient({
               onAskZordToggle={handleAskZordToggle}
               hideAskZordButton={activeDock === 'workspace'}
               showUtilityIconButtons={false}
+              homeCommandFilters={
+                activeDock === 'home'
+                  ? {
+                      open: homeFiltersOpen,
+                      onToggle: () => setHomeFiltersOpen((open) => !open),
+                      panel: (
+                        <HomeCommandFiltersForm
+                          timeframe={home.timeframe}
+                          onTimeframeChange={home.setTimeframe}
+                          commandFilters={home.commandFilters}
+                          setCommandFilters={home.setCommandFilters}
+                        />
+                      ),
+                    }
+                  : undefined
+              }
             />
 
             {surfaceBody}

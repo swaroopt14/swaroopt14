@@ -1,37 +1,33 @@
 /**
- * Backend contract — Ambiguity Velocity scatter (7-day window).
+ * Backend contract — Ambiguity Velocity bubble map.
  * Separate from GET /api/prod/intelligence/ambiguity KPIs.
  */
 
 export const AMBIGUITY_VELOCITY_SCATTER_API = {
   bffPath: '/api/prod/ambiguity/velocity',
-  upstreamPath: '/v1/intelligence/timeseries/ambiguity-velocity',
+  upstreamPath: '/v1/intelligence/dashboard/bubble-map',
   method: 'GET' as const,
   queryParams: {
-    days: 'number — default 7',
     batch_id: 'optional — filter to one batch',
+    tenant_id: 'injected by BFF from signed-in session',
   },
   responseWhenLive: {
     data_available: true,
     tenant_id: 'string',
-    window_days: 7,
-    window_start: 'ISO-8601 — start of chart window',
-    window_end: 'ISO-8601 — end of chart window',
-    points: [
+    intelligence_mode: 'GRADE_A | …',
+    count: 'number of batches returned',
+    batches: [
       {
-        date: 'YYYY-MM-DD',
-        observed_at: 'ISO-8601 — exact time on X-axis (required for sub-day scatter)',
         batch_id: 'string',
-        total_amount_minor: 'paise — bubble size',
-        ambiguous_amount_minor: 'paise',
-        ambiguity_level_pct: 'optional 0–100 — Y-axis; else UI computes ambiguous ÷ total × 100',
+        amount_value: 'minor units (paise) — total batch value',
+        amount_at_risk: 'minor units (paise) — ambiguous / at-risk value',
       },
     ],
   },
   chartMapping: {
-    xAxis: 'observed_at → hours since window_start',
-    yAxis: 'ambiguity_level_pct (or derived)',
-    bubbleSize: 'total_amount_minor',
-    color: 'batch_id',
+    xAxis: '(amount_value / max_amount_value) × 100 — batch size left to right',
+    yAxis: '(amount_at_risk / amount_value) × 100 — risk ratio bottom to top',
+    bubbleSize: 'sqrt(amount_value / max_amount_value) × MAX_RADIUS — area proportional to money',
+    color: 'risk tier from risk ratio: grey 0%, green ≤2%, yellow ≤5%, orange ≤10%, red >10%',
   },
 } as const

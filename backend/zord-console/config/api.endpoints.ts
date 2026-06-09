@@ -85,6 +85,7 @@ export const BACKEND_SERVICES = {
       LEAKAGE: '/v1/intelligence/dashboard/leakage',
       AMBIGUITY: '/v1/intelligence/dashboard/ambiguity',
       AMBIGUITY_HEATMAP: '/v1/intelligence/dashboard/ambiguity/heatmap',
+      BUBBLE_MAP: '/v1/intelligence/dashboard/bubble-map',
       DEFENSIBILITY: '/v1/intelligence/dashboard/defensibility',
       PATTERNS: '/v1/intelligence/dashboard/patterns',
       PATTERN: '/v1/intelligence/pattern',

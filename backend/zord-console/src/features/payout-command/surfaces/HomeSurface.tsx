@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Bar, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { clamp, HOME_CHART_DOMAIN_MAX, type HomeTimeframe } from '@/services/payout-command/model'
+import {
+  clamp,
+  HOME_CHART_DOMAIN_MAX,
+  HOME_QUARTERS,
+  HOME_YEAR_OPTIONS,
+  type HomeOverviewSnapshot,
+  type HomeTimeframe,
+} from '@/services/payout-command/model'
 import { buildZordInsightCards } from '../insights/buildZordInsightCards'
 import { ZordInsightCarousel } from '../insights/ZordInsightCarousel'
 import { PaymentCommandCenterBand } from '../command-center/PaymentCommandCenterBand'
@@ -12,7 +19,6 @@ import {
   commandPeriodToDateRange,
   commandPeriodToTrendRange,
   carouselPeriodToTrendRange,
-  COMMAND_CENTER_PERIOD_OPTIONS,
 } from '../command-center/commandCenterPeriod'
 import { chartThousandsFromMinor, fmtInrFromMinor, parseMinorField } from '../command-center/commandCenterFormat'
 import { PAYMENT_COMMAND_CENTER } from '../command-center/paymentCommandCopy'
@@ -44,13 +50,19 @@ function parseMinorStrict(value: string | number | undefined | null): number | n
 
 export function HomeSurface({
   batchId,
+  snapshot,
   timeframe,
   onTimeframeChange,
+  onYearChange,
+  onQuarterChange,
 }: {
   /** Optional URL `batch_id` — scopes patterns KPI only. */
   batchId?: string
+  snapshot: HomeOverviewSnapshot
   timeframe: HomeTimeframe
   onTimeframeChange: (timeframe: HomeTimeframe) => void
+  onYearChange: (year: 2026 | 2027 | 2028) => void
+  onQuarterChange: (quarterIndex: number) => void
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
   const [trendAnchorIdx, setTrendAnchorIdx] = useState(0)
@@ -414,36 +426,37 @@ export function HomeSurface({
         </button>
       </div>
 
-      <div className="text-center min-h-[110px]">
+      <div className="min-h-[110px] text-center">
         {heroMetric === 'intended' ? (
           <>
-            <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
+            <div className={`text-[64px] font-extrabold leading-none tabular-nums text-[#000000] sm:text-[72px]`}>
               {intendedMinor !== null ? fmtInrFromMinor(intendedMinor) : loading || trendLoading ? '₹…' : '—'}
             </div>
-            <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Intended Payment Value</div>
-            {intentCountLabel > 0 ? (
-              <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
-                {intentCountLabel} payment instructions received in this period.
-              </p>
-            ) : null}
+            <div className="mt-3 text-[18px] font-bold text-[#000000]">Intended Payment Value</div>
+            <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
+              {intentCountLabel > 0
+                ? `${intentCountLabel} payment instructions received in this period.`
+                : 'Payment instructions will appear when your first batch is processed.'}
+            </p>
           </>
         ) : (
           <>
-            <div className={`text-[64px] font-extrabold leading-none tabular-nums sm:text-[72px] text-[#000000]`}>
-              {bankConfirmedMinor != null ? fmtInrFromMinor(bankConfirmedMinor) : '—'}
+            <div className={`text-[64px] font-extrabold leading-none tabular-nums text-[#000000] sm:text-[72px]`}>
+              {bankConfirmedMinor != null && bankConfirmedMinor > 0
+                ? fmtInrFromMinor(bankConfirmedMinor)
+                : 'Not connected yet'}
             </div>
-            <div className={`mt-3 text-[18px] font-bold text-[#000000]`}>Bank-Confirmed Value</div>
-            {bankConfirmedMinor != null ? (
-              <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
-                Confirmed from bank/settlement records in this period.
-              </p>
-            ) : null}
+            <div className="mt-3 text-[18px] font-bold text-[#000000]">Bank-Confirmed Value</div>
+            <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
+              {bankConfirmedMinor != null && bankConfirmedMinor > 0
+                ? 'Confirmed from bank/settlement records in this period.'
+                : PAYMENT_COMMAND_CENTER.bankPending}
+            </p>
           </>
         )}
+        <p className={`mt-4 ${HOME_BODY_IMPERIAL_CENTERED}`}>{PAYMENT_COMMAND_CENTER.intendedHelper}</p>
         {lastUpdatedDisplay ? (
-          <p className="mt-4 text-[13px] font-medium text-slate-500">
-            Last updated: {lastUpdatedDisplay}
-          </p>
+          <p className="mt-2 text-[13px] font-medium text-neutral-600">Last updated: {lastUpdatedDisplay}</p>
         ) : null}
       </div>
     </div>
@@ -471,9 +484,7 @@ export function HomeSurface({
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="flex flex-wrap items-center gap-2">
-              <span className={`text-[14px] font-medium tracking-[0] ${HOME_TITLE_BLACK} mr-1`}>
-                Timeframe
-              </span>
+              <span className={`mr-1 text-[14px] font-medium tracking-[0] ${HOME_TITLE_BLACK}`}>Timeframe</span>
               <select
                 value={timeframe}
                 onChange={(e) => onTimeframeChange(e.target.value as HomeTimeframe)}
@@ -481,7 +492,9 @@ export function HomeSurface({
               >
                 <option value="Week">Week</option>
                 <option value="Month">Month</option>
+                <option value="Quarter">Quarter</option>
                 <option value="Year">Year</option>
+                <option value="Custom">Custom</option>
               </select>
             </div>
             {trendLoading ? <span className="text-[12px] text-neutral-500">Updating…</span> : null}
@@ -665,9 +678,61 @@ export function HomeSurface({
           <div className="px-4 pt-2 text-center sm:px-6 lg:px-8">{disbursementHeroInner}</div>
         )}
 
-        <div className="mt-6">
-          {/* DataSourceStatusBar removed per user request */}
+        <div className="mt-6 flex w-full min-h-[48px] items-stretch border-y border-[#e8e8e5] bg-white">
+          <div className={`flex w-1/2 min-w-0 items-center border-r border-[#ecece9] px-4 py-3 text-left text-[14px] font-medium tracking-[0] sm:px-6 lg:px-8 ${HOME_TITLE_BLACK}`}>
+            <span className="truncate">{snapshot.timeframeLabel}</span>
+          </div>
+          <div className="flex w-1/2 min-w-0 items-center justify-end gap-2 px-4 py-3 sm:px-6 lg:px-8">
+            {HOME_YEAR_OPTIONS.map((year) => (
+              <button
+                key={year}
+                type="button"
+                onClick={() => onYearChange(year)}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-[14px] font-medium tracking-[0] transition ${
+                  snapshot.selectedYear === year
+                    ? 'bg-[#39E07E] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/35'
+                    : `border border-[#E5E5E5] bg-white hover:bg-[#f5f5f5] ${HOME_TITLE_BLACK}`
+                }`}
+              >
+                {year}
+              </button>
+            ))}
+          </div>
         </div>
+
+        {timeframe === 'Week' && snapshot.holidayLabels.length > 0 ? (
+          <div className="mt-3 px-4 sm:px-6 lg:px-8">
+            <div className={`rounded-[0.95rem] border border-[#E5E5E5] bg-white px-3 py-2 ${HOME_BODY_IMPERIAL}`}>
+              Holidays included: {snapshot.holidayLabels.join(' • ')}
+            </div>
+          </div>
+        ) : null}
+
+        {timeframe === 'Custom' || timeframe === 'Quarter' ? (
+          <div className="mt-3 px-4 sm:px-6 lg:px-8">
+            <div className="overflow-hidden rounded-[1rem] border border-[#E5E5E5] bg-white text-[13px] font-normal tracking-[0]">
+              <div className={`grid grid-cols-[1.1fr_2fr_0.8fr] bg-[#f8f8f7] px-3 py-2 text-[14px] font-medium ${HOME_TITLE_BLACK}`}>
+                <div>Range</div>
+                <div className={HOME_BODY_IMPERIAL_SM}>Months included</div>
+                <div>Months</div>
+              </div>
+              {HOME_QUARTERS.map((quarter, index) => (
+                <button
+                  key={quarter.name}
+                  type="button"
+                  onClick={() => onQuarterChange(index)}
+                  className={`grid w-full grid-cols-[1.1fr_2fr_0.8fr] px-3 py-2 text-left text-[13px] transition ${
+                    quarter.name === snapshot.quarterName ? 'bg-[#eef2f7]' : 'hover:bg-[#fafafa]'
+                  }`}
+                >
+                  <span className={HOME_TITLE_BLACK}>{quarter.name}</span>
+                  <span className={HOME_BODY_IMPERIAL_SM}>{quarter.months.join(', ')}</span>
+                  <span className={HOME_TITLE_BLACK}>{quarter.months.length}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         <div className="relative mt-6 w-full border-b border-[#e5e5e5] bg-white px-4 py-6 sm:px-6 lg:px-8">
           {trendPanelInner}
@@ -682,6 +747,7 @@ export function HomeSurface({
             onCarouselPeriodChange={setCarouselPeriod}
             cleanlyMatchedValue={observedMinor !== null ? fmtInrFromMinor(observedMinor) : loading ? '…' : '—'}
             cleanlyMatchedSub="Payment value matched between instruction and confirmation."
+            cleanlyMatchedFooter="Cleanly matched means Zord can link the original payment instruction to a bank or settlement outcome."
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={
@@ -689,6 +755,7 @@ export function HomeSurface({
                 ? 'Unmatched payment value from bank/settlement matching.'
                 : 'No leakage data available for this period.'
             }
+            reviewFooter="This shows payment value affected by missing matches, short settlement, reversals, or unclear status."
             unmatchedDisplay={leakageData ? fmtInrFromMinor(unmatchedMinor) : '—'}
             shortSettledDisplay={leakageData ? fmtInrFromMinor(underSettlementMinor) : '—'}
             unlinkedDisplay={leakageData ? fmtInrFromMinor(unlinkedSettlementMinor) : '—'}
@@ -712,6 +779,7 @@ export function HomeSurface({
             }
             proofCoverageDisplay={proofCoveragePct}
             proofSub="Evidence coverage for audit or export"
+            proofFooter="Proof-ready payments have enough linked evidence to support audit or dispute export."
             proofReadyRow={defData ? `${Math.round((defData.audit_ready_pct ?? 0) * 100)}% audit-ready` : '—'}
             incompleteProofRow={
               defData

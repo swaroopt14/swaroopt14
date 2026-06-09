@@ -405,8 +405,18 @@ function emptyProdBody(path: string): unknown {
   if (path.endsWith('/intelligence/timeseries/leakage')) {
     return { data_available: false, points: [], granularity: 'day' }
   }
-  if (path.endsWith('/ambiguity/velocity')) {
-    return { data_available: false, points: [] }
+  if (path.endsWith('/ambiguity/velocity') || path.endsWith('/dashboard/bubble-map')) {
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      intelligence_mode: 'GRADE_A',
+      count: 3,
+      batches: [
+        { batch_id: 'batch_live_001', amount_value: 2_000_000, amount_at_risk: 245_000 },
+        { batch_id: 'batch_002', amount_value: 750_000, amount_at_risk: 12_000 },
+        { batch_id: 'batch_003', amount_value: 5_000_000, amount_at_risk: 115_000 },
+      ],
+    }
   }
   if (path.endsWith('/settlement/observations/batches')) {
     return { items: [], client_batch_ids: [BATCH_ID] }
@@ -847,7 +857,9 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
   test('ambiguity shows Preview on velocity scatter', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=ambiguity')
     await expect(page.getByText('Ambiguity Velocity')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText(/60 batches|batch mock/).first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText(/Preview ·|batch batch_live_001|60 batches/).first()).toBeVisible({
+      timeout: 20_000,
+    })
   })
 
   test('connectors renders routing wireframe sections and drawer drill-down', async ({ page }) => {

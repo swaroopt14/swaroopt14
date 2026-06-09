@@ -18,23 +18,24 @@ import { formatAmbiguityInr } from '../utils/formatAmbiguityInr'
 import { getValueAtRiskDelta } from '../utils/ambiguityApiMappers'
 import {
   AMBIGUITY_BUBBLE_LEGEND,
+  BUBBLE_MAP_MAX_Z,
+  BUBBLE_MAP_QUADRANTS,
+  batchSizeAxisTicks,
   buildAmbiguityVelocityMock,
-  getWindowMeta,
+  bubbleMapSummary,
   mapAmbiguityVelocityScatter,
   MOCK_PREVIEW_BATCH_COUNT,
-  scatterDensitySummary,
-  scatterTimeAxisTicks,
-  type AmbiguityScatterPoint,
+  type AmbiguityBubblePoint,
 } from '../utils/mapAmbiguityVelocityScatter'
 
-const WINDOW_DAYS = 7
+const Z_AXIS_RANGE: [number, number] = [420, 4200]
 
 function ScatterTooltip({
   active,
   payload,
 }: {
   active?: boolean
-  payload?: Array<{ payload: AmbiguityScatterPoint & { x: number; y: number; z: number } }>
+  payload?: Array<{ payload: AmbiguityBubblePoint & { x: number; y: number; z: number } }>
 }) {
   if (!active || !payload?.length) return null
   const p = payload[0]?.payload
@@ -44,27 +45,26 @@ function ScatterTooltip({
     <div className="min-w-[260px] rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-xl">
       <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Batch</p>
       <p className="mt-0.5 font-mono text-[13px] font-semibold text-slate-900">{p.batchId}</p>
-      <p className="mt-1 text-[11px] text-slate-500">{p.timeLabel}</p>
+      <p className="mt-1 text-[11px] font-medium" style={{ color: p.bubbleColor }}>
+        {p.riskTierLabel}
+      </p>
       <dl className="mt-2.5 space-y-2 border-t border-slate-100 pt-2.5 text-[12px]">
         <div className="flex justify-between gap-6">
-          <dt className="text-slate-500">Ambiguous amount</dt>
+          <dt className="text-slate-500">Batch value</dt>
           <dd className="font-semibold tabular-nums text-slate-900">
-            {formatAmbiguityInr(p.ambiguousAmountMinor)}
+            {formatAmbiguityInr(p.amountValueMinor)}
           </dd>
         </div>
         <div className="flex justify-between gap-6">
-          <dt className="text-slate-500">Total amount</dt>
+          <dt className="text-slate-500">Value at risk</dt>
           <dd className="font-semibold tabular-nums text-slate-900">
-            {formatAmbiguityInr(p.totalAmountMinor)}
+            {formatAmbiguityInr(p.amountAtRiskMinor)}
           </dd>
         </div>
         <div className="flex justify-between gap-6">
-          <dt className="text-slate-500">Ambiguity level</dt>
-          <dd
-            className="font-semibold tabular-nums"
-            style={{ color: p.bubbleColor }}
-          >
-            {p.ambiguityLevelPct.toFixed(1)}%
+          <dt className="text-slate-500">Risk ratio</dt>
+          <dd className="font-semibold tabular-nums" style={{ color: p.bubbleColor }}>
+            {p.riskRatioPct.toFixed(1)}%
           </dd>
         </div>
       </dl>
@@ -78,24 +78,27 @@ type Props = {
 }
 
 export function AmbiguityVelocityChart({ amb, batchId }: Props) {
-  const [livePoints, setLivePoints] = useState<AmbiguityScatterPoint[] | null>(null)
+  const [livePoints, setLivePoints] = useState<AmbiguityBubblePoint[] | null>(null)
+  const [liveMaxAmountMinor, setLiveMaxAmountMinor] = useState(0)
   const [seriesLive, setSeriesLive] = useState(false)
 
   const mockPoints = useMemo(
-    () => buildAmbiguityVelocityMock(WINDOW_DAYS, MOCK_PREVIEW_BATCH_COUNT, batchId),
+    () => buildAmbiguityVelocityMock(MOCK_PREVIEW_BATCH_COUNT, batchId),
     [batchId],
   )
 
   useEffect(() => {
     let cancelled = false
-    void getAmbiguityVelocityScatter({ batchId, days: WINDOW_DAYS }).then((body) => {
+    void getAmbiguityVelocityScatter({ batchId }).then((body) => {
       if (cancelled) return
-      const mapped = mapAmbiguityVelocityScatter(body)
+      const mapped = mapAmbiguityVelocityScatter(body, { batchId })
       if (mapped.live && mapped.points.length > 0) {
         setLivePoints(mapped.points)
+        setLiveMaxAmountMinor(mapped.maxAmountMinor)
         setSeriesLive(true)
       } else {
         setLivePoints(null)
+        setLiveMaxAmountMinor(0)
         setSeriesLive(false)
       }
     })
@@ -106,26 +109,25 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
 
   const points = seriesLive && livePoints?.length ? livePoints : mockPoints
   const isPreview = !seriesLive
-  const { totalHours } = getWindowMeta(WINDOW_DAYS)
-  const timeTicks = scatterTimeAxisTicks(WINDOW_DAYS)
-  const density = useMemo(() => scatterDensitySummary(points), [points])
+  const maxAmountMinor = seriesLive ? liveMaxAmountMinor : Math.max(...mockPoints.map((p) => p.amountValueMinor), 1)
+  const sizeTicks = useMemo(() => batchSizeAxisTicks(maxAmountMinor), [maxAmountMinor])
+  const summary = useMemo(() => bubbleMapSummary(points), [points])
+
   const chartData = useMemo(
     () =>
       points.map((p) => ({
         ...p,
-        x: p.timeHours,
-        y: p.ambiguityLevelPct,
-        z: p.ambiguousAmountMinor,
+        x: p.sizePct,
+        y: p.riskRatioPct,
+        z: p.bubbleSizePct,
       })),
     [points],
   )
 
   const yDomain = useMemo((): [number, number] => {
-    const vals = points.map((p) => p.ambiguityLevelPct)
-    const min = Math.min(...vals)
-    const max = Math.max(...vals)
-    const pad = Math.max(4, (max - min) * 0.1)
-    return [Math.max(0, min - pad), Math.min(100, max + pad)]
+    const vals = points.map((p) => p.riskRatioPct)
+    const max = Math.max(...vals, 10)
+    return [0, Math.min(100, Math.ceil(max * 1.15))]
   }, [points])
 
   const totalAtRisk = formatAmbiguityInr(amb?.value_at_risk_minor)
@@ -144,16 +146,16 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
             Ambiguity Velocity
           </span>
           <span className="rounded-full bg-[#e8eef5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#103a9e]">
-            {WINDOW_DAYS} days
+            Bubble map
           </span>
           {isPreview ? (
             <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800">
-              Preview · {batchId ? 'batch mock' : `${MOCK_PREVIEW_BATCH_COUNT} batches`}
+              Preview · {batchId ? `batch ${batchId}` : `${MOCK_PREVIEW_BATCH_COUNT} batches`}
             </span>
           ) : null}
         </div>
         <p className="text-[11px] font-medium text-[#00239C]">
-          X = time · Y = ambiguity % · size = ambiguous amount · red = high · green = low
+          X = batch size · Y = risk % · size = √batch value · color = risk tier
         </p>
       </div>
 
@@ -180,93 +182,102 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
         </div>
       </div>
 
-      <div className="relative mt-6 h-[320px] w-full min-h-[320px]">
+      <div className="relative mt-6 h-[360px] w-full min-h-[360px]">
         {chartData.length > 0 ? (
-          <ResponsiveContainer width="100%" height={320}>
-            <ScatterChart margin={{ top: 16, right: 20, left: 4, bottom: 28 }}>
-              <CartesianGrid
-                vertical
-                horizontal
-                stroke="#e2e8f0"
-                strokeOpacity={0.5}
-                strokeWidth={1}
-              />
-              <XAxis
-                type="number"
-                dataKey="x"
-                domain={[0, totalHours]}
-                ticks={timeTicks.map((t) => t.hours)}
-                tickFormatter={(h) => timeTicks.find((t) => t.hours === h)?.label ?? ''}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#64748b', fontSize: 10 }}
-                label={{
-                  value: 'Time (7 days)',
-                  position: 'insideBottom',
-                  offset: -18,
-                  fill: '#94a3b8',
-                  fontSize: 10,
-                }}
-              />
-              <YAxis
-                type="number"
-                dataKey="y"
-                domain={yDomain}
-                unit="%"
-                axisLine={false}
-                tickLine={false}
-                tick={{ fill: '#94a3b8', fontSize: 10 }}
-                width={44}
-                label={{
-                  value: 'Ambiguity level',
-                  angle: -90,
-                  position: 'insideLeft',
-                  fill: '#94a3b8',
-                  fontSize: 10,
-                }}
-              />
-              <ZAxis type="number" dataKey="z" range={[80, 3200]} name="Ambiguous amount" />
-              <Tooltip
-                content={<ScatterTooltip />}
-                cursor={{ strokeDasharray: '4 4', stroke: '#94a3b8' }}
-              />
-              <Scatter
-                name="Batches"
-                data={chartData}
-                fill="#4a6fe6"
-                fillOpacity={0.45}
-                stroke="transparent"
-                strokeWidth={0}
-                isAnimationActive={false}
-              >
-                {chartData.map((p) => (
-                  <Cell
-                    key={`${p.batchId}-${p.observedAt}`}
-                    fill={p.bubbleColor}
-                    stroke={p.bubbleColor}
-                    fillOpacity={0.45}
-                  />
-                ))}
-              </Scatter>
-            </ScatterChart>
-          </ResponsiveContainer>
+          <>
+            <ResponsiveContainer width="100%" height={360}>
+              <ScatterChart margin={{ top: 28, right: 24, left: 8, bottom: 32 }}>
+                <CartesianGrid vertical horizontal stroke="#e2e8f0" strokeOpacity={0.55} strokeWidth={1} />
+                <XAxis
+                  type="number"
+                  dataKey="x"
+                  domain={[0, 100]}
+                  ticks={sizeTicks.map((t) => t.value)}
+                  tickFormatter={(pct) => sizeTicks.find((t) => t.value === pct)?.label ?? ''}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#64748b', fontSize: 10 }}
+                  label={{
+                    value: 'Batch size (payment value)',
+                    position: 'insideBottom',
+                    offset: -18,
+                    fill: '#94a3b8',
+                    fontSize: 10,
+                  }}
+                />
+                <YAxis
+                  type="number"
+                  dataKey="y"
+                  domain={yDomain}
+                  unit="%"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#94a3b8', fontSize: 10 }}
+                  width={44}
+                  label={{
+                    value: 'Risk ratio',
+                    angle: -90,
+                    position: 'insideLeft',
+                    fill: '#94a3b8',
+                    fontSize: 10,
+                  }}
+                />
+                <ZAxis type="number" dataKey="z" range={Z_AXIS_RANGE} domain={[0, BUBBLE_MAP_MAX_Z]} />
+                <Tooltip content={<ScatterTooltip />} cursor={{ strokeDasharray: '4 4', stroke: '#94a3b8' }} />
+                <Scatter
+                  name="Batches"
+                  data={chartData}
+                  fill="#4a6fe6"
+                  fillOpacity={0.55}
+                  stroke="transparent"
+                  strokeWidth={0}
+                  isAnimationActive={false}
+                >
+                  {chartData.map((p) => (
+                    <Cell
+                      key={`${p.batchId}-${p.amountValueMinor}`}
+                      fill={p.bubbleColor}
+                      stroke={p.bubbleColor}
+                      fillOpacity={0.55}
+                    />
+                  ))}
+                </Scatter>
+              </ScatterChart>
+            </ResponsiveContainer>
+
+            <div className="pointer-events-none absolute inset-x-4 top-8 bottom-12">
+              {BUBBLE_MAP_QUADRANTS.map((q) => (
+                <div
+                  key={q.position}
+                  className={`absolute max-w-[9rem] text-[10px] leading-snug text-slate-500 ${
+                    q.position === 'top-left'
+                      ? 'left-0 top-0'
+                      : q.position === 'top-right'
+                        ? 'right-0 top-0 text-right'
+                        : q.position === 'bottom-left'
+                          ? 'bottom-0 left-0'
+                          : 'bottom-0 right-0 text-right'
+                  }`}
+                >
+                  <span className="font-semibold text-slate-700">{q.title}</span>
+                  <span className="mt-0.5 block">{q.subtitle}</span>
+                </div>
+              ))}
+            </div>
+          </>
         ) : (
           <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50">
-            <p className="text-[13px] font-medium text-[#00239C]">No points to display.</p>
+            <p className="text-[13px] font-medium text-[#00239C]">No batches to display.</p>
           </div>
         )}
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-center gap-6 border-t border-slate-100 pt-3">
+      <div className="mt-4 flex flex-wrap items-center justify-center gap-4 border-t border-slate-100 pt-3 sm:gap-6">
         {AMBIGUITY_BUBBLE_LEGEND.map((item) => (
           <div key={item.label} className="flex items-center gap-2">
             <span
-              className="inline-block rounded-full border border-white shadow-sm"
-              style={{
-                width: item.label === 'Low ambiguity' ? 10 : item.label === 'High ambiguity' ? 18 : 14,
-                height: item.label === 'Low ambiguity' ? 10 : item.label === 'High ambiguity' ? 18 : 14,
-                background: item.color,
-              }}
+              className="inline-block h-3.5 w-3.5 rounded-full border border-white shadow-sm"
+              style={{ background: item.color }}
             />
             <span className="text-[11px] font-medium text-slate-600">
               {item.label}
@@ -278,18 +289,25 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
 
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <p className="text-[11px] font-medium text-slate-600">
-          <span className="font-semibold text-slate-900">{density.batchCount}</span> batches ·{' '}
-          <span className="font-semibold text-slate-900">{density.pointCount}</span> points
+          <span className="font-semibold text-slate-900">{summary.batchCount}</span> batches
+          {batchId ? (
+            <>
+              {' '}
+              · filtered to <span className="font-semibold text-slate-900">{batchId}</span>
+            </>
+          ) : null}
         </p>
         <div className="flex flex-wrap gap-2">
-          {density.perDay.map((d) => (
-            <span
-              key={`${d.label}-${d.count}`}
-              className="rounded-md bg-slate-50 px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-600"
-            >
-              {d.label} · {d.count}
-            </span>
-          ))}
+          {summary.byTier
+            .filter((entry) => entry.count > 0)
+            .map((entry) => (
+              <span
+                key={entry.tier}
+                className="rounded-md bg-slate-50 px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-600"
+              >
+                {entry.tier} · {entry.count}
+              </span>
+            ))}
         </div>
       </div>
     </article>

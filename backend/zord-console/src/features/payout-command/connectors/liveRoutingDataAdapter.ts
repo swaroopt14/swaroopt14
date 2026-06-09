@@ -20,11 +20,9 @@ import type {
   AmbiguityKpiResponse,
   LeakageKpiResponse,
   MinorAmountField,
-  PatternsKpiResponse,
   RcaKpiResponse,
   RecommendationsKpiResponse,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { getSeededRoutingSnapshot } from './seededRoutingData'
 import type {
   ActionRecommendation,
   ConnectorHealthRow,
@@ -34,6 +32,8 @@ import type {
   RoutingKpiSnapshot,
   RoutingTimeWindow,
 } from './types'
+
+const STALE_AFTER_MINUTES = 15
 
 type PatternSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string
 
@@ -95,26 +95,35 @@ function generatedAtFrom(inputs: Array<string | undefined | null>): string {
   return new Date(Math.max(...times)).toISOString()
 }
 
+function exposureWeight(connector: ConnectorHealthRow): number {
+  return Math.max(connector.failurePct, 1)
+}
+
 function applyLiveExposure(
   connectors: ConnectorHealthRow[],
   leakage: LeakageKpiResponse | null,
   ambiguity: AmbiguityKpiResponse | null,
   recommendations: RecommendationsKpiResponse | null,
 ): ConnectorHealthRow[] {
+  if (!connectors.length) return []
   if (!isDataAvailable(leakage) && !isDataAvailable(ambiguity) && !isDataAvailable(recommendations)) {
     return connectors
   }
 
-  const totalSeedVolume = connectors.reduce((sum, connector) => sum + connector.volumeMinor, 0)
+  const totalWeight = connectors.reduce((sum, connector) => sum + exposureWeight(connector), 0)
   const liveVolume = isDataAvailable(leakage) ? readMinor(leakage.total_intended_amount_minor) : 0
-  const valueAtRisk = isDataAvailable(leakage) ? readMinor(leakage.unmatched_amount_minor) : 0
+  const valueAtRisk = isDataAvailable(leakage)
+    ? readMinor(leakage.unmatched_amount_minor)
+    : isDataAvailable(ambiguity)
+      ? readMinor(ambiguity.value_at_risk_minor)
+      : 0
   const recommendationImpact = isDataAvailable(recommendations)
     ? readMinor(recommendations.recommendation_impact_estimate_minor)
     : 0
   const preventable = recommendationImpact || Math.round(valueAtRisk * 0.65)
 
   return connectors.map((connector) => {
-    const share = totalSeedVolume > 0 ? connector.volumeMinor / totalSeedVolume : 1 / connectors.length
+    const share = totalWeight > 0 ? exposureWeight(connector) / totalWeight : 1 / connectors.length
     return {
       ...connector,
       volumeMinor: liveVolume > 0 ? Math.max(1, Math.round(liveVolume * share)) : connector.volumeMinor,
@@ -163,11 +172,16 @@ function applyProviderPatterns(connectors: ConnectorHealthRow[], providers: Prov
         connector: providerLabel(provider.provider_id || 'Provider'),
         type: 'PSP',
         successPct,
-        avgTimeSec: 3,
+        avgTimeSec: provider.settlement_delay_p95_days ?? 0,
         failurePct,
         status: severityToStatus(provider.severity),
         trend: failurePct > 10 ? 'down' : 'flat',
-        recommendedAction: failurePct > 15 ? 'Request stronger carrier refs' : 'Monitor provider quality',
+        recommendedAction:
+          (provider.severity || '').toUpperCase() === 'CRITICAL'
+            ? 'Strengthen provider contract'
+            : failurePct > 15
+              ? 'Request stronger carrier refs'
+              : 'Monitor provider quality',
         volumeMinor: 0,
         moneyAtRiskMinor: 0,
         preventableLeakageMinor: 0,
@@ -177,8 +191,8 @@ function applyProviderPatterns(connectors: ConnectorHealthRow[], providers: Prov
   return [...updated, ...additions]
 }
 
-function buildLeakageComposition(seed: RoutingKpiSnapshot, leakage: LeakageKpiResponse | null): LeakageCompositionSlice[] {
-  if (!isDataAvailable(leakage)) return seed.leakageComposition
+function buildLeakageComposition(leakage: LeakageKpiResponse | null): LeakageCompositionSlice[] {
+  if (!isDataAvailable(leakage)) return []
   return [
     { key: 'unmatched', label: 'Unmatched', amountMinor: readMinor(leakage.unmatched_amount_minor) },
     { key: 'short_settled', label: 'Short settled', amountMinor: readMinor(leakage.under_settlement_amount_minor) },
@@ -188,7 +202,6 @@ function buildLeakageComposition(seed: RoutingKpiSnapshot, leakage: LeakageKpiRe
 }
 
 function buildInsights(
-  seed: RoutingKpiSnapshot,
   pattern: PatternSnapshotData | null,
   patternViewInsights: CorrelationInsight[],
   leakage: LeakageKpiResponse | null,
@@ -242,11 +255,10 @@ function buildInsights(
     })
   }
 
-  return insights.length ? insights.slice(0, 8) : seed.correlationInsights
+  return insights.slice(0, 8)
 }
 
 function buildActions(
-  seed: RoutingKpiSnapshot,
   pattern: PatternSnapshotData | null,
   patternViewActions: ActionRecommendation[],
   recommendations: RecommendationsKpiResponse | null,
@@ -281,15 +293,14 @@ function buildActions(
     })
   }
 
-  const filtered = actions.filter((action) => action.title).slice(0, 8)
-  return filtered.length ? filtered : seed.actionRecommendations
+  return actions.filter((action) => action.title).slice(0, 8)
 }
 
-function buildTrend(seed: RoutingKpiSnapshot, heatmap: AmbiguityHeatmapResponse | null): RoutingKpiSnapshot['networkHealthTrend'] {
-  if (!isDataAvailable(heatmap) || !heatmap.batches?.length) return seed.networkHealthTrend
+function buildTrend(heatmap: AmbiguityHeatmapResponse | null): RoutingKpiSnapshot['networkHealthTrend'] {
+  if (!isDataAvailable(heatmap) || !heatmap.batches?.length) return []
   return heatmap.batches.slice(-7).map((batch, index) => {
     const total = Math.max(1, batch.total_count || 1)
-    const successPct = clamp(((batch.exact_match_count + batch.high_confidence_count) / total) * 100, 80, 100)
+    const successPct = clamp(((batch.exact_match_count + batch.high_confidence_count) / total) * 100, 0, 100)
     const latencyIndex = clamp(80 - (batch.unresolved_count + batch.conflicted_count + batch.ambiguous_count) * 3, 40, 90)
     return {
       label: batch.batch_id?.slice(-6) || `B-${index + 1}`,
@@ -299,35 +310,7 @@ function buildTrend(seed: RoutingKpiSnapshot, heatmap: AmbiguityHeatmapResponse 
   })
 }
 
-function rebuildRoutes(seed: RoutingKpiSnapshot, connectors: ConnectorHealthRow[]): RoutingKpiSnapshot['routeCandidates'] {
-  const byName = new Map(connectors.map((connector) => [connectorKey(connector.connector), connector]))
-  return seed.routeCandidates.map((route) => {
-    const psp = byName.get(connectorKey(route.psp))
-    const rail = byName.get(connectorKey(route.rail))
-    const bank = byName.get(connectorKey(route.bank))
-    const rows = [psp, rail, bank].filter(Boolean) as ConnectorHealthRow[]
-    if (!rows.length) return route
-    const successRatePct = rows.reduce((sum, row) => sum + row.successPct, 0) / rows.length
-    const avgTimeSec = rows.reduce((sum, row) => sum + row.avgTimeSec, 0) / rows.length
-    const failureTrendPenalty = rows.some((row) => row.trend === 'down')
-      ? Math.max(route.failureTrendPenalty, 20)
-      : route.failureTrendPenalty
-    return {
-      ...route,
-      successRatePct,
-      avgTimeSec,
-      failureTrendPenalty,
-      risk: rows.some((row) => row.status === 'Risk' || row.failurePct > 15)
-        ? 'High'
-        : rows.some((row) => row.status === 'Degraded' || row.failurePct > 8)
-          ? 'Medium'
-          : 'Low',
-    }
-  })
-}
-
 export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise<RoutingKpiSnapshot | null> {
-  const seed = getSeededRoutingSnapshot(window)
   const dateQuery = windowToDateQuery(window)
 
   const [leakage, ambiguity, patterns, recommendations, rca, heatmap, patternDetail, patternHistory] = await Promise.all([
@@ -355,11 +338,13 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
   if (!hasLiveSignal) return null
 
   const providerPatterns = pattern?.provider_quality_patterns ?? []
-  const connectors = applyProviderPatterns(
-    applyLiveExposure(seed.connectors, leakage, ambiguity, recommendations),
-    providerPatterns,
+  const connectors = applyLiveExposure(
+    applyProviderPatterns([], providerPatterns),
+    leakage,
+    ambiguity,
+    recommendations,
   )
-  const leakageComposition = buildLeakageComposition(seed, leakage)
+  const leakageComposition = buildLeakageComposition(leakage)
   const patternInsights = patternInsightsFromView(patternIntelligence).map((item) => ({
     id: item.id,
     text: item.text,
@@ -367,7 +352,6 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
   const patternActions = patternActionsFromView(patternIntelligence)
 
   return {
-    ...seed,
     generatedAtIso: generatedAtFrom([
       isDataAvailable(leakage) ? leakage.computed_at : null,
       isDataAvailable(ambiguity) ? ambiguity.computed_at : null,
@@ -378,12 +362,14 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
       pattern?.computed_at,
       patternHistory?.snapshots?.[0]?.created_at,
     ]),
+    staleAfterMinutes: STALE_AFTER_MINUTES,
     connectors,
-    routeCandidates: rebuildRoutes(seed, connectors),
-    correlationInsights: buildInsights(seed, pattern, patternInsights, leakage, ambiguity, rca),
-    actionRecommendations: buildActions(seed, pattern, patternActions, recommendations),
-    leakageComposition: leakageComposition.length ? leakageComposition : seed.leakageComposition,
-    networkHealthTrend: buildTrend(seed, heatmap),
+    routeCandidates: [],
+    correlationInsights: buildInsights(pattern, patternInsights, leakage, ambiguity, rca),
+    actionRecommendations: buildActions(pattern, patternActions, recommendations),
+    leakageComposition,
+    networkHealthTrend: buildTrend(heatmap),
+    drilldowns: [],
     patternIntelligence,
   }
 }

@@ -1,22 +1,20 @@
-import { getSeededRoutingSnapshot } from './seededRoutingData'
 import { getLiveRoutingSnapshot } from './liveRoutingDataAdapter'
 import type { RoutingKpiSnapshot, RoutingTimeWindow } from './types'
 
 export type RoutingIntelligenceAdapter = {
-  getSnapshot: (window: RoutingTimeWindow) => Promise<RoutingKpiSnapshot>
+  getSnapshot: (window: RoutingTimeWindow) => Promise<RoutingKpiSnapshot | null>
 }
 
-const seededAdapter: RoutingIntelligenceAdapter = {
+const liveAdapter: RoutingIntelligenceAdapter = {
   async getSnapshot(window) {
     try {
-      const liveSnapshot = await getLiveRoutingSnapshot(window)
-      return liveSnapshot ?? getSeededRoutingSnapshot(window)
+      return await getLiveRoutingSnapshot(window)
     } catch {
-      return getSeededRoutingSnapshot(window)
+      return null
     }
   },
 }
 
 export function getRoutingIntelligenceAdapter(): RoutingIntelligenceAdapter {
-  return seededAdapter
+  return liveAdapter
 }

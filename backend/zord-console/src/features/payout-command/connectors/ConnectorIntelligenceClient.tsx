@@ -133,22 +133,69 @@ export default function ConnectorIntelligenceClient() {
   const [selectedConnectorId, setSelectedConnectorId] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<RoutingKpiSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    void adapter.getSnapshot(window).then((data) => {
-      if (cancelled) return
-      setSnapshot(data)
-      setLoading(false)
-    })
+    setFetchError(false)
+    void adapter
+      .getSnapshot(window)
+      .then((data) => {
+        if (cancelled) return
+        setSnapshot(data)
+        setLoading(false)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setSnapshot(null)
+        setFetchError(true)
+        setLoading(false)
+      })
     return () => {
       cancelled = true
     }
-  }, [adapter, window])
+  }, [adapter, window, reloadKey])
 
-  if (loading || !snapshot) {
+  if (loading) {
     return <div className="h-[360px] animate-pulse rounded-2xl bg-slate-100" />
+  }
+
+  if (fetchError) {
+    return (
+      <section
+        className="rounded-2xl border border-rose-200 bg-rose-50 px-6 py-10 text-center"
+        data-testid="routing-error-state"
+      >
+        <p className="text-[16px] font-semibold text-rose-900">Could not load routing intelligence</p>
+        <p className="mx-auto mt-2 max-w-md text-[14px] text-rose-800">
+          The intelligence APIs did not respond. Check your connection and try again.
+        </p>
+        <button
+          type="button"
+          onClick={() => setReloadKey((key) => key + 1)}
+          className="mt-4 rounded-full border border-rose-300 bg-white px-4 py-2 text-[13px] font-semibold text-rose-900"
+        >
+          Retry
+        </button>
+      </section>
+    )
+  }
+
+  if (!snapshot) {
+    return (
+      <section
+        className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center"
+        data-testid="routing-empty-state"
+      >
+        <p className="text-[18px] font-semibold text-slate-900">No routing intelligence yet</p>
+        <p className="mx-auto mt-2 max-w-lg text-[14px] leading-relaxed text-slate-600">
+          Ingest payment events and run intelligence snapshots to see connector health, leakage composition, and
+          provider quality signals here.
+        </p>
+      </section>
+    )
   }
 
   const rankedRoutes = rankRoutes(snapshot.routeCandidates)
@@ -156,6 +203,14 @@ export default function ConnectorIntelligenceClient() {
   const lowConfidenceExists = topRoutes.some((route) => route.confidence === 'Low')
   const kpis = buildKpis(snapshot)
   const windowLabel = TIME_WINDOWS.find((item) => item.value === window)?.label ?? 'Last 24h'
+  const showNetworkTrend = snapshot.networkHealthTrend.length > 0
+  const showLeakageComposition = snapshot.leakageComposition.length > 0
+  const showRecommendedRoutes = snapshot.routeCandidates.length > 0
+  const showCorrelationInsights = snapshot.correlationInsights.length > 0
+  const impactSeries = buildImpactSeries(snapshot)
+  const showImpactChart = impactSeries.length > 0
+  const showActionEngine = snapshot.actionRecommendations.length > 0
+  const showConnectorGrid = snapshot.connectors.length > 0
   const routingBuckets = [
     {
       label: 'Total volume routed',
@@ -189,7 +244,6 @@ export default function ConnectorIntelligenceClient() {
     },
   ] as const
   const isStale = Date.now() - new Date(snapshot.generatedAtIso).getTime() > snapshot.staleAfterMinutes * 60 * 1000
-  const impactSeries = buildImpactSeries(snapshot)
 
   const connectors = filter === 'All'
     ? snapshot.connectors
@@ -226,6 +280,7 @@ export default function ConnectorIntelligenceClient() {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {showNetworkTrend ? (
         <section className={COMMAND_CENTER_KPI_CARD} data-testid="network-health-chart">
           <CommandCenterCardGlow />
           <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Network Health Trend</p>
@@ -234,8 +289,8 @@ export default function ConnectorIntelligenceClient() {
               <LineChart data={snapshot.networkHealthTrend}>
                 <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
                 <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 12 }} />
-                <YAxis yAxisId="left" domain={[94, 99]} tick={{ fill: '#64748b', fontSize: 12 }} />
-                <YAxis yAxisId="right" orientation="right" domain={[60, 80]} tick={{ fill: '#64748b', fontSize: 12 }} />
+                <YAxis yAxisId="left" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
+                <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
                 <Tooltip formatter={(value: number, name: string) => (name === 'successPct' ? `${value.toFixed(1)}%` : String(value))} />
                 <Legend />
                 <Line yAxisId="left" type="monotone" dataKey="successPct" stroke="#1d4ed8" strokeWidth={2.5} name="Success %" />
@@ -244,7 +299,9 @@ export default function ConnectorIntelligenceClient() {
             </ResponsiveContainer>
           </div>
         </section>
+        ) : null}
 
+        {showLeakageComposition ? (
         <section className={COMMAND_CENTER_KPI_CARD} data-testid="leakage-composition-chart">
           <CommandCenterCardGlow />
           <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Leakage Composition</p>
@@ -281,8 +338,10 @@ export default function ConnectorIntelligenceClient() {
             </div>
           </div>
         </section>
+        ) : null}
       </div>
 
+      {showRecommendedRoutes ? (
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="recommended-routes">
         <CommandCenterCardGlow />
         <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Recommended Routes (Top 3)</p>
@@ -311,7 +370,9 @@ export default function ConnectorIntelligenceClient() {
           </p>
         ) : null}
       </section>
+      ) : null}
 
+      {showConnectorGrid ? (
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="connector-grid">
         <CommandCenterCardGlow />
         <div className="relative flex flex-wrap items-center justify-between gap-3">
@@ -379,7 +440,9 @@ export default function ConnectorIntelligenceClient() {
           </table>
         </div>
       </section>
+      ) : null}
 
+      {showCorrelationInsights ? (
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="correlation-insights">
         <CommandCenterCardGlow />
         <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Detected Patterns</p>
@@ -389,7 +452,9 @@ export default function ConnectorIntelligenceClient() {
           ))}
         </ul>
       </section>
+      ) : null}
 
+      {showImpactChart ? (
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="preventable-leakage-impact">
         <CommandCenterCardGlow />
         <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Preventable Leakage Impact</p>
@@ -407,7 +472,9 @@ export default function ConnectorIntelligenceClient() {
           </ResponsiveContainer>
         </div>
       </section>
+      ) : null}
 
+      {showActionEngine ? (
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="action-engine">
         <CommandCenterCardGlow />
         <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Recommended Actions</p>
@@ -422,6 +489,7 @@ export default function ConnectorIntelligenceClient() {
           ))}
         </ol>
       </section>
+      ) : null}
 
       {selectedConnector && selectedDrilldown ? (
         <aside className="fixed inset-y-0 right-0 z-50 w-full max-w-md border-l border-slate-200 bg-white shadow-2xl" data-testid="connector-drawer">

@@ -1,0 +1,21 @@
+---
+description: Git commit standards for this repo — no Cursor co-author trailers
+alwaysApply: true
+---
+
+# Git commits
+
+- Never add `Co-authored-by: Cursor <cursoragent@cursor.com>` (or any Cursor co-author trailer) to commit messages.
+- Use plain commit messages only: subject line + optional body.
+- If `git commit` re-injects the trailer, rewrite with plumbing instead:
+
+```bash
+git add <paths>
+printf '%s\n' 'subject line' '' 'optional body' > /tmp/clean-commit-msg.txt
+TREE=$(git write-tree)
+NEW=$(git commit-tree "$TREE" -p "$(git rev-parse HEAD)" -F /tmp/clean-commit-msg.txt)
+git update-ref refs/heads/"$(git branch --show-current)" "$NEW"
+git reset --hard "$NEW"
+```
+
+- Only create commits when the user asks; do not commit unrelated files.

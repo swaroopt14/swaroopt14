@@ -23,16 +23,18 @@ type LiveSQLRetriever struct {
 	relayDB        *sql.DB
 	intelligenceDB *sql.DB
 	evidenceDB     *sql.DB
+	outcomeDB      *sql.DB
 	timeout        time.Duration
 }
 
-func NewLiveSQLRetriever(edgeDB, intentDB, relayDB, intelligenceDB, evidenceDB *sql.DB) *LiveSQLRetriever {
+func NewLiveSQLRetriever(edgeDB, intentDB, relayDB, intelligenceDB, evidenceDB, outcomeDB *sql.DB) *LiveSQLRetriever {
 	return &LiveSQLRetriever{
 		edgeDB:         edgeDB,
 		intentDB:       intentDB,
 		relayDB:        relayDB,
 		intelligenceDB: intelligenceDB,
 		evidenceDB:     evidenceDB,
+		outcomeDB:      outcomeDB,
 		timeout:        4 * time.Second,
 	}
 }
@@ -68,6 +70,38 @@ func isDuplicateProtectionQuery(q string) bool {
 	return false
 }
 
+type retrievalPolicy struct {
+	WantsIntentAggregate bool
+	WantsDLQAggregate    bool
+	WantsSettlementETA   bool
+	WantsFollowup        bool
+}
+
+func classifyRetrievalPolicy(q string) retrievalPolicy {
+	s := strings.ToLower(strings.TrimSpace(q))
+
+	hasAny := func(words ...string) bool {
+		for _, w := range words {
+			if strings.Contains(s, w) {
+				return true
+			}
+		}
+		return false
+	}
+
+	countLike := hasAny("count", "total", "how many", "number of", "breakdown", "till now", "so far", "overall")
+	intentLike := hasAny("intent", "intents", "payment instruction", "payment instructions", "payments")
+	dlqLike := hasAny("dlq", "failed", "failure", "not processed", "error", "rejected")
+	settlementLike := hasAny("settlement", "settlement file", "settle", "arrival", "arrive")
+	followupLike := hasAny("those", "that", "these", "same ones", "them", "why are those", "why is that")
+
+	return retrievalPolicy{
+		WantsIntentAggregate: countLike && intentLike,
+		WantsDLQAggregate:    (countLike && dlqLike) || hasAny("failed intents", "failed payments", "dlq count"),
+		WantsSettlementETA:   settlementLike && hasAny("when", "arrive", "arrival", "expected", "eta"),
+		WantsFollowup:        followupLike,
+	}
+}
 func extractBatchHint(q string) string {
 	m := batchHintRe.FindStringSubmatch(q)
 	if len(m) < 2 {
@@ -98,6 +132,7 @@ func (r *LiveSQLRetriever) Retrieve(req dto.QueryRequest, intentID, traceID stri
 
 	failureOnly := isFailureQuery(req.Query)
 	includeDuplicateSignals := isDuplicateProtectionQuery(req.Query)
+	policy := classifyRetrievalPolicy(req.Query)
 	chunks := make([]model.RetrievedChunk, 0, effectiveTopK*4)
 
 	if r.edgeDB != nil {
@@ -110,10 +145,10 @@ func (r *LiveSQLRetriever) Retrieve(req dto.QueryRequest, intentID, traceID stri
 		if c, err := r.fetchFromIntent(tenantID, intentID, traceID, effectiveTopK, failureOnly, scope); err == nil {
 			chunks = append(chunks, c...)
 		}
-		if d, err := r.fetchFromIntentDLQ(tenantID, effectiveTopK, scope); err == nil {
+		if d, err := r.fetchFromIntentDLQ(tenantID, effectiveTopK, scope, policy); err == nil {
 			chunks = append(chunks, d...)
 		}
-		if b, err := r.fetchBatchIntentSummary(tenantID, req.Query, scope); err == nil {
+		if b, err := r.fetchBatchIntentSummary(tenantID, req.Query, scope, policy); err == nil {
 			chunks = append(chunks, b...)
 		}
 	}
@@ -649,9 +684,13 @@ func (r *LiveSQLRetriever) fetchFromIntent(tenantID, intentID, traceID string, t
 	}
 	return out, rows2.Err()
 }
-func (r *LiveSQLRetriever) fetchBatchIntentSummary(tenantID, userQuery string, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
+func (r *LiveSQLRetriever) fetchBatchIntentSummary(tenantID, userQuery string, scope utils.QueryScope, policy retrievalPolicy) ([]model.RetrievedChunk, error) {
 	batchID := extractBatchHint(userQuery)
 	if tenantID == "" {
+		return []model.RetrievedChunk{}, nil
+	}
+
+	if !isBatchQuery(userQuery) && !policy.WantsIntentAggregate && !policy.WantsSettlementETA {
 		return []model.RetrievedChunk{}, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
@@ -785,7 +824,57 @@ func (r *LiveSQLRetriever) fetchBatchIntentSummary(tenantID, userQuery string, s
 			}
 		}
 	}
+	if policy.WantsSettlementETA {
+		ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
+		defer cancel()
 
+		args := []any{tenantID}
+		q := `
+			SELECT MAX(created_at)::text
+			FROM payment_intents
+			WHERE tenant_id::text = $1
+		`
+		if scope.HasExplicitTime {
+			q += " AND created_at >= $2 AND created_at < $3"
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+
+		var latestCreatedAt sql.NullString
+		if err := r.intentDB.QueryRowContext(ctx, q, args...).Scan(&latestCreatedAt); err == nil && latestCreatedAt.Valid {
+			settlementAvailable := false
+			settlementLatestAt := ""
+
+			if r.outcomeDB != nil {
+				outcomeArgs := []any{tenantID}
+				outcomeQ := `
+					SELECT MAX(created_at)::text
+					FROM canonical_settlement_observations
+					WHERE tenant_id::text = $1
+				`
+				if scope.HasExplicitTime {
+					outcomeQ += " AND created_at >= $2 AND created_at < $3"
+					outcomeArgs = append(outcomeArgs, scope.StartUTC, scope.EndUTC)
+				}
+
+				var latestSettlementAt sql.NullString
+				if err := r.outcomeDB.QueryRowContext(ctx, outcomeQ, outcomeArgs...).Scan(&latestSettlementAt); err == nil && latestSettlementAt.Valid {
+					settlementAvailable = true
+					settlementLatestAt = nullText(latestSettlementAt)
+				}
+			}
+
+			out = append(out, model.RetrievedChunk{
+				SourceType: "intent_payment_intents",
+				Score:      1.0,
+				Text: fmt.Sprintf(
+					"Settlement ETA policy: normal_settlement_window=T+1_day latest_payment_instruction_created_at=%s settlement_evidence_available=%t latest_settlement_evidence_at=%s estimate_basis=latest_payment_instruction_timestamp",
+					nullText(latestCreatedAt),
+					settlementAvailable,
+					settlementLatestAt,
+				),
+			})
+		}
+	}
 	return out, nil
 }
 
@@ -795,7 +884,7 @@ func nullableTS(t time.Time, enabled bool) any {
 	}
 	return t
 }
-func (r *LiveSQLRetriever) fetchFromIntentDLQ(tenantID string, topK int, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
+func (r *LiveSQLRetriever) fetchFromIntentDLQ(tenantID string, topK int, scope utils.QueryScope, policy retrievalPolicy) ([]model.RetrievedChunk, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 	defer cancel()
 
@@ -824,6 +913,36 @@ func (r *LiveSQLRetriever) fetchFromIntentDLQ(tenantID string, topK int, scope u
 	defer rows.Close()
 
 	out := make([]model.RetrievedChunk, 0, topK)
+	if policy.WantsDLQAggregate && tenantID != "" {
+		args := []any{tenantID}
+		q := `
+			SELECT
+				COUNT(*)::bigint AS dlq_entries,
+				COUNT(DISTINCT COALESCE(NULLIF(trace_id::text, ''), envelope_id::text))::bigint AS unique_payment_instructions_affected
+			FROM dlq_items
+			WHERE tenant_id::text = $1
+		`
+		if scope.HasExplicitTime {
+			q += " AND created_at >= $2 AND created_at < $3"
+			args = append(args, scope.StartUTC, scope.EndUTC)
+		}
+
+		var dlqEntries int64
+		var uniqueAffected int64
+		if err := r.intentDB.QueryRowContext(ctx, q, args...).Scan(&dlqEntries, &uniqueAffected); err == nil {
+			out = append(out, model.RetrievedChunk{
+				SourceType: "intent_dlq_items",
+				Score:      0.99,
+				Text: fmt.Sprintf(
+					"DLQ aggregate summary: dlq_entries=%d unique_payment_instructions_affected=%d time_scope=%s",
+					dlqEntries,
+					uniqueAffected,
+					scopeLabel(scope),
+				),
+			})
+		}
+	}
+
 	for rows.Next() {
 		var dlqID, tID, envelopeID, stage, reasonCode, errorDetail, replayable, createdAt sql.NullString
 		if err := rows.Scan(&dlqID, &tID, &envelopeID, &stage, &reasonCode, &errorDetail, &replayable, &createdAt); err != nil {
@@ -1235,7 +1354,15 @@ func rankAndTrimBalanced(chunks []model.RetrievedChunk, topK int) []model.Retrie
 	}
 	return out
 }
-
+func scopeLabel(scope utils.QueryScope) string {
+	if strings.TrimSpace(scope.TimePhrase) != "" {
+		return strings.TrimSpace(scope.TimePhrase)
+	}
+	if scope.HasExplicitTime {
+		return scope.StartUTC.UTC().Format(time.RFC3339) + "_to_" + scope.EndUTC.UTC().Format(time.RFC3339)
+	}
+	return "all_available_records"
+}
 func sourceServiceBucket(sourceType string) string {
 	s := strings.ToLower(strings.TrimSpace(sourceType))
 	switch {

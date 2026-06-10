@@ -235,8 +235,34 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	}
 
 	scope := utils.NormalizeScope(rawScope, time.Now(), time.Local)
+	resolvedQuery := req.Query
+	historyContext := ""
+	if s.memory != nil {
+		history, memErr := s.memory.GetRecent(ctx, req.TenantID, req.UserID, req.SessionID)
+		if memErr != nil {
+			log.Printf("[prompt-layer][memory] read failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, memErr)
+		} else if len(history) > 0 {
+			var hb strings.Builder
+			for i, t := range history {
+				hb.WriteString(fmt.Sprintf("[%d] at=%s user=%s assistant=%s\n",
+					i+1,
+					t.Timestamp.UTC().Format(time.RFC3339),
+					utils.SanitizeAnswerText(t.UserMessage),
+					utils.SanitizeAnswerText(t.AssistantSummary),
+				))
+			}
+			historyContext = hb.String()
+			resolvedQuery = resolveFollowupQuery(req.Query, history)
+		}
+	}
+	if !strings.EqualFold(strings.TrimSpace(resolvedQuery), strings.TrimSpace(req.Query)) {
+		log.Printf("[prompt-layer][memory] followup resolved tenant=%s user=%s session=%s", req.TenantID, req.UserID, req.SessionID)
+	}
 
-	chunks, err := s.retriever.Retrieve(req, intentID, traceID, topK, scope)
+	retrievalReq := req
+	retrievalReq.Query = resolvedQuery
+
+	chunks, err := s.retriever.Retrieve(retrievalReq, intentID, traceID, topK, scope)
 	if err != nil {
 		return dto.QueryResponse{}, fmt.Errorf("retrieval failed: %w", err)
 	}
@@ -252,7 +278,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		if strings.TrimSpace(fallbackRaw.TimePhrase) != "" {
 			fallbackScope := utils.NormalizeScope(fallbackRaw, time.Now(), time.Local)
 			if fallbackScope.HasExplicitTime {
-				retryChunks, retryErr := s.retriever.Retrieve(req, intentID, traceID, topK, fallbackScope)
+				retryChunks, retryErr := s.retriever.Retrieve(retrievalReq, intentID, traceID, topK, fallbackScope)
 				if retryErr == nil && len(retryChunks) > 0 {
 					chunks = retryChunks
 					scope = fallbackScope
@@ -308,28 +334,15 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 			rcaContext = strings.Join(parts, "\n")
 		}
 	}
-	historyContext := ""
-	if s.memory != nil {
-		history, memErr := s.memory.GetRecent(ctx, req.TenantID, req.UserID, req.SessionID)
-		if memErr != nil {
-			log.Printf("[prompt-layer][memory] read failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, memErr)
-		} else if len(history) > 0 {
-			var hb strings.Builder
-			for i, t := range history {
-				hb.WriteString(fmt.Sprintf("[%d] at=%s user=%s assistant=%s\n",
-					i+1,
-					t.Timestamp.UTC().Format(time.RFC3339),
-					utils.SanitizeAnswerText(t.UserMessage),
-					utils.SanitizeAnswerText(t.AssistantSummary),
-				))
-			}
-			historyContext = hb.String()
-		}
-	}
 	context := ""
 
 	if strings.TrimSpace(historyContext) != "" {
 		context += "[CHAT_HISTORY_CONTEXT]\n" + historyContext + "\n"
+	}
+	if !strings.EqualFold(strings.TrimSpace(resolvedQuery), strings.TrimSpace(req.Query)) {
+		context += "[RESOLVED_QUERY_CONTEXT]\n"
+		context += "Original user query: " + utils.SanitizeAnswerText(req.Query) + "\n"
+		context += "Resolved business query: " + utils.SanitizeAnswerText(resolvedQuery) + "\n"
 	}
 	context += buildBusinessContext(chunks)
 	if strings.TrimSpace(rcaContext) != "" {
@@ -453,7 +466,33 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	}, nil
 
 }
+func resolveFollowupQuery(query string, history []ChatTurn) string {
+	q := strings.TrimSpace(query)
+	if q == "" || len(history) == 0 {
+		return q
+	}
 
+	lower := strings.ToLower(q)
+	isFollowup := strings.Contains(lower, "those") ||
+		strings.Contains(lower, "that") ||
+		strings.Contains(lower, "these") ||
+		strings.Contains(lower, "them") ||
+		strings.Contains(lower, "same ones")
+
+	if !isFollowup {
+		return q
+	}
+
+	last := history[len(history)-1]
+	prevUser := utils.SanitizeAnswerText(last.UserMessage)
+	prevAssistant := utils.SanitizeAnswerText(last.AssistantSummary)
+
+	if strings.TrimSpace(prevUser) == "" && strings.TrimSpace(prevAssistant) == "" {
+		return q
+	}
+
+	return strings.TrimSpace(q + " Previous business context: " + prevUser + " " + prevAssistant)
+}
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

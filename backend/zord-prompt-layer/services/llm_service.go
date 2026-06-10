@@ -326,6 +326,49 @@ func (s *LLMService) GenerateOperationalJSON(userQuery, context, visRule string)
 			"- If both are available, explain matched value, unmatched value, review value, and confidence if present.\n" +
 			"- If data_available=false for any section, explain missing data in plain language.\n" +
 			"- If denominator is zero/unavailable, do not present 0% as real performance; say not available yet.\n\n" +
+			"Count and aggregate rules:\n" +
+			"- For count questions, use only aggregate summary values from CONTEXT.\n" +
+			"- Never estimate totals by counting sample records or citations.\n" +
+			"- Clearly distinguish payment instructions received, payment instructions processed, failed payment instructions, DLQ entries, and unique payment instructions affected by DLQ.\n" +
+			"- If CONTEXT includes a status breakdown, explain the most important status groups in business language.\n" +
+			"- If aggregate summary is missing for a count question, say the total cannot be calculated from current data.\n\n" +
+			"Policy rules:\n" +
+			"- Follow the policy facts provided in CONTEXT. Do not invent policy outcomes.\n" +
+			"- If a policy summary is present, treat it as more reliable than sample records.\n\n" +
+
+			"Payment count policy:\n" +
+			"- For count questions, use only aggregate summary values from CONTEXT.\n" +
+			"- Never estimate totals by counting sample records or citations.\n" +
+			"- Clearly distinguish payment instructions received, payment instructions processed, pending payment instructions, and failed payment instructions.\n" +
+			"- If CONTEXT includes a status breakdown, explain the key status groups in business language.\n" +
+			"- If aggregate summary is missing for a count question, say the total cannot be calculated from current data.\n\n" +
+
+			"Settlement ETA policy:\n" +
+			"- If CONTEXT includes Settlement ETA policy, use it to answer settlement arrival questions.\n" +
+			"- T+1_day means settlement is normally expected one day after the latest relevant payment instruction timestamp.\n" +
+			"- Use words like expected or estimated unless settlement evidence is already available.\n" +
+			"- Do not claim an exact or guaranteed settlement arrival time unless settlement confirmation exists in CONTEXT.\n\n" +
+
+			"DLQ failure policy:\n" +
+			"- Clearly distinguish DLQ entries from unique payment instructions affected by DLQ.\n" +
+			"- Do not call every DLQ entry a failed payment instruction unless CONTEXT says the affected payment instruction failed.\n" +
+			"- If reason or stage breakdown is present, explain the main failure concentration in business language.\n" +
+			"- If DLQ aggregate data is missing, do not estimate failure totals from sample records.\n\n" +
+
+			"Duplicate check policy:\n" +
+			"- Use duplicate-control or idempotency evidence from CONTEXT when answering duplicate processing questions.\n" +
+			"- Explain duplicate risk as no indication, possible duplicate-control conflict, or needs review based only on CONTEXT.\n" +
+			"- Do not expose idempotency keys, hashes, request fingerprints, or internal IDs.\n\n" +
+
+			"Upload progress policy:\n" +
+			"- For upload or batch progress questions, compare received/upload evidence with payment instruction counts when available.\n" +
+			"- If only upload intake data is available, say the file was received but final payment progress is not visible yet.\n" +
+			"- Do not say all payments are processed unless payment instruction or downstream status data supports it.\n\n" +
+
+			"Follow-up resolution policy:\n" +
+			"- If CONTEXT includes RESOLVED_QUERY_CONTEXT, answer the resolved business query while keeping the response natural for the original user query.\n" +
+			"- Use previous conversation context only to resolve references like those, that, them, these, or same ones.\n" +
+			"- Do not guess what a follow-up refers to if the resolved context is missing or unclear.\n\n" +
 			"Action rules:\n" +
 			"- Include next steps only when user asks what to do, or context includes available_actions, or context clearly shows missing data/review items.\n" +
 			"- Do not invent actions.\n\n" +

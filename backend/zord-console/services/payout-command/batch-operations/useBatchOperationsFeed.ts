@@ -225,54 +225,38 @@ export function useBatchOperationsFeed(options: {
     setDetailLoading(true)
     setFeedError(null)
 
-    const isLocalPreview = id.startsWith('LOCAL-')
-
     try {
       const [engineRes, intelRes, patternsRes, leakageRes, ambiguityRes, defensibilityRes, settleRes] =
         await Promise.all([
-          isLocalPreview
-            ? Promise.resolve(null)
-            : getProdIntentEngineBatchDetailAll(undefined, id),
-          isLocalPreview ? Promise.resolve(null) : getIntelligenceBatchDetail(id),
-          isLocalPreview ? Promise.resolve(null) : getPatternsKpis(id),
-          isLocalPreview ? Promise.resolve(null) : getLeakageKpis(undefined, id),
-          isLocalPreview ? Promise.resolve(null) : getAmbiguityKpis(undefined, id),
-          isLocalPreview ? Promise.resolve(null) : getDefensibilityKpis(),
+          getProdIntentEngineBatchDetailAll(undefined, id),
+          getIntelligenceBatchDetail(id),
+          getPatternsKpis(id),
+          getLeakageKpis(undefined, id),
+          getAmbiguityKpis(undefined, id),
+          getDefensibilityKpis(),
           getSettlementObservationsForClientBatch(id),
         ])
 
-      if (!isLocalPreview) {
-        if (engineRes?.batchDetails && engineRes.batchDetails.batchId === id) {
-          const { batchDetails } = engineRes
-          setIntentRows(
-            (batchDetails.paymentIntents?.items ?? []).map((it) =>
-              mapPaymentIntentToIntentRow(it, id, tenantId),
-            ),
-          )
-          setFailureRows((batchDetails.dlqItems?.items ?? []).map(mapDlqToFailureRow))
-        } else {
-          setIntentRows([])
-          setFailureRows([])
-          if (engineRes === null) {
-            /* LOCAL skip */
-          } else {
-            setFeedError((prev) => prev ?? 'Could not load batch rows from intent-engine.')
-          }
-        }
-        setIntelBatchDetail(intelRes)
-        setPatternsKpi(patternsRes)
-        setLeakageKpi(leakageRes)
-        setAmbiguityKpi(ambiguityRes)
-        setDefensibilityKpi(defensibilityRes)
+      if (engineRes?.batchDetails && engineRes.batchDetails.batchId === id) {
+        const { batchDetails } = engineRes
+        setIntentRows(
+          (batchDetails.paymentIntents?.items ?? []).map((it) =>
+            mapPaymentIntentToIntentRow(it, id, tenantId),
+          ),
+        )
+        setFailureRows((batchDetails.dlqItems?.items ?? []).map((row) => mapDlqToFailureRow(row)))
       } else {
         setIntentRows([])
         setFailureRows([])
-        setIntelBatchDetail(null)
-        setPatternsKpi(null)
-        setLeakageKpi(null)
-        setAmbiguityKpi(null)
-        setDefensibilityKpi(null)
+        if (engineRes === null) {
+          setFeedError((prev) => prev ?? 'Could not load batch rows from intent-engine.')
+        }
       }
+      setIntelBatchDetail(intelRes)
+      setPatternsKpi(patternsRes)
+      setLeakageKpi(leakageRes)
+      setAmbiguityKpi(ambiguityRes)
+      setDefensibilityKpi(defensibilityRes)
 
       if (settleRes.ok && settleRes.data?.items?.length) {
         const rows = settleRes.data.items.map((item, i) =>

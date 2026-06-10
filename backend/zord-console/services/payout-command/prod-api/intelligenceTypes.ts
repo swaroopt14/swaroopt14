@@ -9,7 +9,7 @@ export type EmptyKpiResponse = {
   reason?: string
 }
 
-type Resolved<T> = T & {
+export type Resolved<T> = T & {
   data_available: true
   tenant_id: string
   snapshot_id?: string
@@ -243,6 +243,9 @@ export type IntelligenceBatchRow = {
   /** When batches list includes ambiguity projections. */
   match_confidence_pct?: number
   value_at_risk_minor?: MinorAmountField
+  unmatched_amount_minor?: MinorAmountField
+  unexplained_variance_minor?: MinorAmountField
+  total_variance_minor?: MinorAmountField
   status_label?: string
 }
 export type BatchesListResponse = {

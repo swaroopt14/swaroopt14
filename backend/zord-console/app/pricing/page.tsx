@@ -6,7 +6,51 @@ import { useEffect, useState } from 'react'
 
 import { ZordLogo } from '@/components/ZordLogo'
 
-const topNav = [
+type TopNavMenuItem = {
+  label: string
+  href: string
+  note: string
+}
+
+type TopNavItem = {
+  label: string
+  href: string
+  menu?: readonly TopNavMenuItem[]
+}
+
+type PricingCard = {
+  title: string
+  value: string
+  note: string
+  accent?: boolean
+}
+
+type PricingFamily = {
+  id: string
+  label: string
+  eyebrow: string
+  title: string
+  description: string
+  detail: string
+  pricingLabel: string
+  pricingNote: string
+  bullets: readonly string[]
+  cards: readonly PricingCard[]
+  footnote?: string
+}
+
+type EngagementPlan = {
+  title: string
+  eyebrow: string
+  metric: string
+  description: string
+  features: readonly string[]
+  cta: string
+  href: string
+  featured?: boolean
+}
+
+const topNav: readonly TopNavItem[] = [
   {
     label: 'Product',
     href: '#product-families',
@@ -48,7 +92,7 @@ const topNav = [
   },
 ] as const
 
-const pricingFamilies = [
+const pricingFamilies: readonly PricingFamily[] = [
   {
     id: 'payments',
     label: 'Payments',
@@ -196,7 +240,7 @@ const pricingFamilies = [
   },
 ] as const
 
-const engagementPlans = [
+const engagementPlans: readonly EngagementPlan[] = [
   {
     title: 'Pay as you go',
     eyebrow: 'Best for lean teams and new builds',

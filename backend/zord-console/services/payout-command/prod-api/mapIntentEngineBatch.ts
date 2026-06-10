@@ -206,7 +206,7 @@ export function mapPaymentIntentToIntentRow(
   if (st.includes('FAIL') || st.includes('REJECT') || st.includes('ERROR') || gov === 'FLAGGED') {
     status = 'Needs Review'
   } else if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') {
-    status = 'Ready to Process'
+    status = 'Confirmed'
   } else if (st.includes('PROCESS') || st.includes('DISPAT') || st === 'IN_FLIGHT' || biz === 'PROCESSING') {
     status = 'In Progress'
   } else if (st.includes('PEND') || st.includes('CREAT')) {

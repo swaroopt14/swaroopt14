@@ -222,6 +222,9 @@ function emptyProdBody(path: string): unknown {
   if (/\/evidence\/batch\/[^/]+\/intents$/.test(path)) {
     return { packs: [], total: 0 }
   }
+  if (path.endsWith('/intelligence/timeseries/leakage')) {
+    return { data_available: false, points: [], granularity: 'day' }
+  }
   if (path.endsWith('/intelligence/leakage')) {
     return {
       data_available: true,
@@ -235,17 +238,6 @@ function emptyProdBody(path: string): unknown {
       total_observed_settled_amount_minor: 4_200_000,
       leakage_percentage: 0.04,
       risk_tier: 'MEDIUM',
-    }
-  }
-  if (path.endsWith('/intelligence/ambiguity')) {
-    return {
-      data_available: true,
-      tenant_id: SESSION_TENANT,
-      computed_at: '2026-06-02T07:00:00Z',
-      value_at_risk_minor: 250_000,
-      avg_attachment_confidence: 0.82,
-      provider_ref_missing_rate: 0.16,
-      ambiguous_intent_count: 12,
     }
   }
   if (path.endsWith('/intelligence/ambiguity/heatmap')) {
@@ -276,6 +268,17 @@ function emptyProdBody(path: string): unknown {
       ],
     }
   }
+  if (path.endsWith('/intelligence/ambiguity')) {
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      computed_at: '2026-06-02T07:00:00Z',
+      value_at_risk_minor: 250_000,
+      avg_attachment_confidence: 0.82,
+      provider_ref_missing_rate: 0.16,
+      ambiguous_intent_count: 12,
+    }
+  }
   if (path.endsWith('/intelligence/recommendations')) {
     return {
       data_available: true,
@@ -287,44 +290,6 @@ function emptyProdBody(path: string): unknown {
       action_acceptance_rate: 0.33,
       action_resolution_rate: 0.33,
       recommendation_impact_estimate_minor: 300_000,
-    }
-  }
-  if (path.endsWith('/intelligence/pattern')) {
-    return {
-      data_available: true,
-      tenant_id: SESSION_TENANT,
-      computed_at: '2026-06-02T07:00:00Z',
-      data: {
-        computed_at: '2026-06-02T07:00:00Z',
-        weakest_source_system: 'manual_excel',
-        weakest_source_missing_ref_rate: 0.42,
-        weakest_provider_id: 'cashfree',
-        settlement_delay_p95_days: 2,
-        duplicate_risk_exposure_minor: 420_000,
-        unexplained_variance_amount_minor: 75_000,
-        source_quality_patterns: [
-          {
-            severity: 'HIGH',
-            source_system: 'manual_excel',
-            manual_review_rate: 0.31,
-            missing_client_ref_rate: 0.42,
-            low_matchability_rate: 0.4,
-            duplicate_risk_rate: 0.12,
-            manual_review_amount_minor: 500_000,
-          },
-        ],
-        provider_quality_patterns: [
-          {
-            severity: 'CRITICAL',
-            provider_id: 'cashfree',
-            orphan_rate: 0.24,
-            ambiguity_rate: 0.05,
-            avg_carrier_richness: 0.42,
-            avg_parse_confidence: 0.59,
-            settlement_delay_p95_days: 2,
-          },
-        ],
-      },
     }
   }
   if (path.endsWith('/intelligence/pattern/history')) {
@@ -360,11 +325,98 @@ function emptyProdBody(path: string): unknown {
       pending_count: 14,
     }
   }
-  if (path.endsWith('/intelligence/timeseries/leakage')) {
-    return { data_available: false, points: [], granularity: 'day' }
+  if (path.endsWith('/intelligence/pattern')) {
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      snapshot_type: 'PATTERN',
+      snapshot_id: 'snap-pattern-e2e',
+      scope_type: 'BATCH',
+      scope_ref: BATCH_ID,
+      window_start: '2026-06-01T00:00:00Z',
+      window_end: '2026-06-02T07:00:00Z',
+      computed_at: '2026-06-02T07:00:00Z',
+      model_version: 'deterministic-v1',
+      intelligence_mode: 'GRADE_A',
+      data: {
+        batch_id: BATCH_ID,
+        risk_tier: 'HIGH',
+        anomaly_level: 'ELEVATED',
+        finality_status: 'PARTIALLY_SETTLED',
+        batch_anomaly_score: 0.71,
+        batch_quality_score: 0.62,
+        batch_risk_score: 0.68,
+        total_count: 120,
+        success_count: 88,
+        failed_count: 6,
+        pending_count: 26,
+        ambiguity_score: 0.24,
+        ambiguous_count: 14,
+        unresolved_count: 9,
+        conflicted_count: 3,
+        exact_match_count: 52,
+        high_confidence_count: 36,
+        prepare_and_sign_recommended: true,
+        recommended_action: 'Review ambiguous batch before dispatch',
+        duplicate_risk_rate: 0.12,
+        duplicate_risk_exposure_minor: 420_000,
+        unexplained_variance_amount_minor: 75_000,
+        whitelisted_deduction_amount_minor: 12_000,
+        over_settlement_amount_minor: 8_000,
+        missing_leaf_rate: 0.09,
+        weak_evidence_rate: 0.11,
+        evidence_pack_coverage: 0.81,
+        tenant_manual_review_rate: 0.22,
+        settlement_delay_p50_days: 1.2,
+        settlement_delay_p95_days: 2,
+        computed_at: '2026-06-02T07:00:00Z',
+        weakest_source_system: 'manual_excel',
+        weakest_source_missing_ref_rate: 0.42,
+        weakest_source_manual_review_rate: 0.31,
+        weakest_provider_id: 'cashfree',
+        risk_signals: [
+          { signal: 'missing_client_ref_rate', severity: 'HIGH', value: 0.42, threshold: 0.2, contribution: 0.35 },
+        ],
+        top_manual_review_reasons: [
+          { reason_code: 'MISSING_CLIENT_REF', count: 12, rate: 0.18 },
+        ],
+        source_quality_patterns: [
+          {
+            severity: 'HIGH',
+            source_system: 'manual_excel',
+            manual_review_rate: 0.31,
+            missing_client_ref_rate: 0.42,
+            low_matchability_rate: 0.4,
+            duplicate_risk_rate: 0.12,
+            manual_review_amount_minor: 500_000,
+          },
+        ],
+        provider_quality_patterns: [
+          {
+            severity: 'CRITICAL',
+            provider_id: 'cashfree',
+            orphan_rate: 0.24,
+            ambiguity_rate: 0.05,
+            avg_carrier_richness: 0.42,
+            avg_parse_confidence: 0.59,
+            settlement_delay_p95_days: 2,
+          },
+        ],
+      },
+    }
   }
-  if (path.endsWith('/ambiguity/velocity')) {
-    return { data_available: false, points: [] }
+  if (path.endsWith('/ambiguity/velocity') || path.endsWith('/dashboard/bubble-map')) {
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      intelligence_mode: 'GRADE_A',
+      count: 3,
+      batches: [
+        { batch_id: 'batch_live_001', amount_value: 2_000_000, amount_at_risk: 245_000 },
+        { batch_id: 'batch_002', amount_value: 750_000, amount_at_risk: 12_000 },
+        { batch_id: 'batch_003', amount_value: 5_000_000, amount_at_risk: 115_000 },
+      ],
+    }
   }
   if (path.endsWith('/settlement/observations/batches')) {
     return { items: [], client_batch_ids: [BATCH_ID] }
@@ -805,10 +857,12 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
   test('ambiguity shows Preview on velocity scatter', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=ambiguity')
     await expect(page.getByText('Ambiguity Velocity')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText(/60 batches|batch mock/).first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText(/Preview ·|batch batch_live_001|60 batches/).first()).toBeVisible({
+      timeout: 20_000,
+    })
   })
 
-  test('connectors renders routing wireframe sections and drawer drill-down', async ({ page }) => {
+  test('connectors renders API-driven routing sections', async ({ page }) => {
     test.setTimeout(45_000)
     const captures: ProdCapture[] = []
     page.on('request', (req) => {
@@ -821,19 +875,40 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
-    await expect(page.getByTestId('routing-kpi-bar')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByTestId('routing-kpi-bar')).toContainText('₹50,000')
-    await expect(page.getByTestId('network-health-chart')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByTestId('leakage-composition-chart')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByTestId('recommended-routes')).toContainText('Razorpay → UPI → HDFC')
+    await expect(page.getByTestId('routing-kpi-bar')).toBeVisible({ timeout: 25_000 })
+    await expect(page.getByTestId('connector-grid')).toContainText('Cashfree', { timeout: 15_000 })
     await expect(page.getByTestId('connector-grid')).toContainText('Strengthen provider contract')
-    await page.getByTestId('connector-grid').locator('tbody tr', { hasText: 'ICICI Bank' }).click()
-    await expect(page.getByTestId('connector-drawer')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByTestId('connector-drawer')).toContainText('Top failures')
+    await expect(page.getByTestId('recommended-routes')).toHaveCount(0)
+    await expect(page.getByText('Razorpay')).toHaveCount(0)
+    await expect(page.getByText('ICICI Bank')).toHaveCount(0)
     expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/leakage'))).toBe(true)
+    expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/ambiguity/heatmap'))).toBe(true)
     expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/pattern'))).toBe(true)
     expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/pattern/history'))).toBe(true)
     expect(captures.some((c) => c.pathname.endsWith('/api/prod/intelligence/recommendations'))).toBe(true)
+  })
+
+  test('connectors shows empty state when intelligence APIs have no data', async ({ page }) => {
+    await page.route('**/api/prod/intelligence/**', async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.continue()
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ data_available: false, tenant_id: SESSION_TENANT }),
+      })
+    })
+
+    await page.goto('/payout-command-view/today?dock=connectors')
+    await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
+      timeout: 25_000,
+    })
+    await expect(page.getByTestId('routing-empty-state')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('routing-kpi-bar')).toHaveCount(0)
+    await expect(page.getByTestId('connector-grid')).toHaveCount(0)
+    await expect(page.getByText('Razorpay')).toHaveCount(0)
   })
 
   test('evidence charts show Preview when packs empty', async ({ page }) => {

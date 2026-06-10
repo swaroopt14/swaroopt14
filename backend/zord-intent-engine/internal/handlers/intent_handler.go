@@ -87,12 +87,14 @@ func (h *IntentHandler) List(w http.ResponseWriter, r *http.Request) {
 	tenantID := r.URL.Query().Get("tenant_id")
 	status := r.URL.Query().Get("status")
 	intentType := r.URL.Query().Get("intent_type")
+	batchID := strings.TrimSpace(r.URL.Query().Get("batch_id"))
 
 	// Call repository
 	intents, total, err := h.queryRepo.ListIntents(ctx, persistence.IntentFilter{
 		TenantID:   tenantID,
 		Status:     status,
 		IntentType: intentType,
+		BatchID:    batchID,
 		Page:       page,
 		PageSize:   pageSize,
 	})
@@ -203,7 +205,13 @@ func (h *IntentHandler) ListPaymentIntentLiteByBatch(w http.ResponseWriter, r *h
 	ctx := r.Context()
 
 	tenantID := strings.TrimSpace(r.Header.Get("tenant_id"))
+	if tenantID == "" {
+		tenantID = strings.TrimSpace(r.URL.Query().Get("tenant_id"))
+	}
 	batchID := strings.TrimSpace(r.Header.Get("batch_id"))
+	if batchID == "" {
+		batchID = strings.TrimSpace(r.URL.Query().Get("batch_id"))
+	}
 
 	if tenantID == "" {
 		respondError(w, "INVALID_REQUEST", "tenant_id header is required", http.StatusBadRequest, nil)
@@ -214,20 +222,29 @@ func (h *IntentHandler) ListPaymentIntentLiteByBatch(w http.ResponseWriter, r *h
 		return
 	}
 
-	items, err := h.queryRepo.ListPaymentIntentLiteByBatch(ctx, tenantID, batchID)
+	// Full batch scope — no pagination cap; journal hero totals must sum every row for batchid.
+	items, total, err := h.queryRepo.ListPaymentIntentsByBatch(ctx, tenantID, batchID, 1, 0)
 	if err != nil {
 		respondError(w, "DATABASE_ERROR", "Failed to fetch payment intent data", http.StatusInternalServerError, err)
 		return
 	}
 	if items == nil {
-		items = []models.PaymentIntentLite{}
+		items = []models.CanonicalIntent{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(struct {
-		Items []models.PaymentIntentLite `json:"items"`
-	}{Items: items})
+		Items      []models.CanonicalIntent `json:"items"`
+		Pagination TablePagination          `json:"pagination"`
+	}{
+		Items: items,
+		Pagination: TablePagination{
+			Page:     1,
+			PageSize: total,
+			Total:    total,
+		},
+	})
 }
 
 func (h *IntentHandler) ListDLQItemsByBatchSimple(w http.ResponseWriter, r *http.Request) {

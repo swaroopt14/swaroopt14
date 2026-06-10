@@ -61,7 +61,7 @@ export type WorkspaceTab =
   | 'Routing'
 /** Command center time window. 'Quarter' is set by the `onQuarterChange` handler
  * in PayoutCommandViewClient when the user picks a specific quarter. */
-export type HomeTimeframe = 'Today' | 'Week' | 'Month' | 'Custom' | 'Quarter'
+export type HomeTimeframe = 'Today' | 'Week' | 'Month' | 'Year' | 'Custom' | 'Quarter'
 
 export type HomeSourceFilter = 'All' | 'Loan System' | 'Payment Partner'
 export type HomeMethodFilter = 'All' | 'NACH' | 'LSM' | 'Bank Transfer'

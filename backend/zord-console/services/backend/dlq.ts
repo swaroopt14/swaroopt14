@@ -22,6 +22,16 @@ export interface DLQListParams {
   tenant_id?: string
 }
 
+function tenantHeaders(tenant_id?: string): Record<string, string> {
+  const tid = tenant_id?.trim()
+  if (!tid) return {}
+  return {
+    'x-tenant-id': tid,
+    'tenant-id': tid,
+    tenant_id: tid,
+  }
+}
+
 async function fetchDLQListFromEndpoint(endpoint: string, params: DLQListParams = {}): Promise<BackendDLQItem[]> {
   const { tenant_id } = params
 
@@ -38,6 +48,7 @@ async function fetchDLQListFromEndpoint(endpoint: string, params: DLQListParams 
     const response = await fetch(fullUrl, {
       ...DEFAULT_FETCH_OPTIONS,
       method: 'GET',
+      headers: tenantHeaders(tenant_id),
       signal: controller.signal,
     })
 
@@ -100,6 +111,7 @@ export async function fetchDLQTerminalCount(params: DLQListParams = {}): Promise
     const response = await fetch(fullUrl, {
       ...DEFAULT_FETCH_OPTIONS,
       method: 'GET',
+      headers: tenantHeaders(tenant_id),
       signal: controller.signal,
     })
     clearTimeout(timeoutId)

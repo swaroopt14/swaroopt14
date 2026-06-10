@@ -22,7 +22,15 @@ export function deriveIntentBatchMetrics(
   dlqItems: IntentJournalDlqItem[],
 ): IntentBatchMetrics {
   const instructionCount = paymentIntents.length
-  const intendedValue = paymentIntents.reduce((sum, item) => sum + parseAmount(item.amount), 0)
+  // Sum via integer milli-rupees (3 dp) to eliminate float-drift over large batches.
+  // JS floating-point accumulation across 1000s of additions can drift by ~₹1+;
+  // rounding each amount to the nearest 0.001 before summing keeps the result
+  // consistent with a spreadsheet sum of the same values.
+  const intendedValueMillis = paymentIntents.reduce(
+    (sum, item) => sum + Math.round(parseAmount(item.amount) * 1000),
+    0,
+  )
+  const intendedValue = intendedValueMillis / 1000
 
   const scores = paymentIntents
     .map((item) => item.intent_quality_score)

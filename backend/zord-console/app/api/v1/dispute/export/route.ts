@@ -4,7 +4,6 @@ import {
   applyEvidenceGateCookies,
   gateEvidenceTenant,
   getEvidencePackById,
-  getEvidenceTimelineById,
   listEvidencePacksByQuery,
 } from '../../evidence/_shared'
 import type { EvidencePackFull, EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
@@ -34,21 +33,46 @@ function escapePdfText(value: string): string {
 }
 
 function simplePdfFromLines(title: string, lines: string[]): Buffer {
-  const safeLines = [title, ...lines].slice(0, 44)
-  let content = 'BT\n/F1 11 Tf\n50 790 Td\n'
-  safeLines.forEach((line, idx) => {
-    if (idx > 0) content += '0 -16 Td\n'
-    content += `(${escapePdfText(line)}) Tj\n`
-  })
-  content += 'ET'
+  const all = [title, ...lines]
+  const PAGE_SIZE = 42
+  const chunks: string[][] = []
+  for (let i = 0; i < all.length; i += PAGE_SIZE) chunks.push(all.slice(i, i + PAGE_SIZE))
+  if (chunks.length === 0) chunks.push([title])
 
-  const objects = [
+  // Build content streams
+  const streams = chunks.map((chunk) => {
+    let s = 'BT\n/F1 11 Tf\n50 790 Td\n'
+    chunk.forEach((line, idx) => {
+      if (idx > 0) s += '0 -16 Td\n'
+      s += `(${escapePdfText(line)}) Tj\n`
+    })
+    return s + 'ET'
+  })
+
+  const N = chunks.length
+  // Object layout:
+  //  1: Catalog
+  //  2: Pages (Kids = page objs)
+  //  3: Font
+  //  4, 6, 8 ... (4 + 2*i): Page i
+  //  5, 7, 9 ... (5 + 2*i): Content stream i
+  const pageObjNums = Array.from({ length: N }, (_, i) => 4 + 2 * i)
+  const streamObjNums = Array.from({ length: N }, (_, i) => 5 + 2 * i)
+  const kidsRef = pageObjNums.map((n) => `${n} 0 R`).join(' ')
+
+  const objects: string[] = [
     '<< /Type /Catalog /Pages 2 0 R >>',
-    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
-    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    `<< /Type /Pages /Kids [${kidsRef}] /Count ${N} >>`,
     '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
-    `<< /Length ${Buffer.byteLength(content, 'utf8')} >>\nstream\n${content}\nendstream`,
   ]
+  for (let i = 0; i < N; i++) {
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${streamObjNums[i]} 0 R >>`,
+    )
+    objects.push(
+      `<< /Length ${Buffer.byteLength(streams[i], 'utf8')} >>\nstream\n${streams[i]}\nendstream`,
+    )
+  }
 
   let pdf = '%PDF-1.4\n'
   const offsets: number[] = [0]
@@ -96,9 +120,22 @@ function packPaymentReference(pack: EvidencePackFull): string {
   )
 }
 
-function packUtrLike(pack: EvidencePackFull): string {
-  const attach = (pack.items ?? []).find((item) => (item.type || '').toUpperCase().includes('ATTACH'))
-  return apiTrimmedString(attach?.ref) || 'N/A'
+/** Mask a UTR leaving only the last 4 characters visible (mirrors zord-evidence MaskUTR). */
+function maskUtr(value: string): string {
+  if (value.length <= 4) return '*'.repeat(value.length)
+  return '*'.repeat(value.length - 4) + value.slice(-4)
+}
+
+/** Resolve the UTR from the pack's utr/bank_reference fields; empty string when absent. */
+function packUtr(pack: EvidencePackFull): string {
+  const fromApi = (pack as Record<string, unknown>).utr
+  const raw =
+    (typeof fromApi === 'string' ? fromApi.trim() : '') ||
+    apiTrimmedString(pack.bank_reference)
+  if (!raw) return ''
+  // Upstream may already return a masked value — don't double-mask.
+  if (raw.includes('*')) return raw
+  return maskUtr(raw)
 }
 
 function pickPackFromList(reference: string, rows: EvidencePackSummaryRow[]): EvidencePackSummaryRow | null {
@@ -183,20 +220,29 @@ export async function POST(request: NextRequest) {
   }
 
   const packRef = sanitizeFileSafe(packPaymentReference(pack))
-  const minorAmount = toMinorAmount(pack.amount_minor) ?? toMinorAmount(pack.amount)
-  const matchingConfidence = pack.proof_score != null ? `${Number(pack.proof_score).toFixed(1)}` : 'N/A'
-  const utr = packUtrLike(pack)
+  const utr = packUtr(pack)
+  const rawZordSignature = (pack as Record<string, unknown>).zord_signature
+  const zordSignature =
+    (typeof rawZordSignature === 'string' ? rawZordSignature.trim() : '') ||
+    apiTrimmedString(pack.signatures?.[0]?.sig) ||
+    'N/A'
 
   if (exportType === 'FINANCE_SUMMARY') {
+    const packAny = pack as Record<string, unknown>
+    const currency = typeof packAny.currency === 'string' ? packAny.currency : 'INR'
+    const proofScore = pack.proof_score != null ? pack.proof_score : 'N/A'
+    const matched = pack.proof_components?.match_decision_available ?? false
     const pdf = simplePdfFromLines('Finance Summary', [
       `Payment reference: ${masked(packPaymentReference(pack))}`,
-      `Evidence pack: ${pack.evidence_pack_id}`,
-      `Absolute processing status: ${apiTrimmedString(pack.pack_status) || 'N/A'}`,
-      `Target UTR: ${utr}`,
-      `Transaction amount: ${formatInr(minorAmount)}`,
-      `Matching confidence index: ${matchingConfidence}`,
-      `Dispute reason: ${disputeReason}`,
-      `PII policy: masked in finance summary output`,
+      `Amount:            ${pack.amount ?? 'N/A'}`,
+      `Currency:          ${currency}`,
+      `UTR:               ${utr}`,
+      `Status:            ${apiTrimmedString(pack.pack_status) || 'N/A'}`,
+      `Matched:           ${String(matched)}`,
+      `Variance:          ${apiTrimmedString(pack.proof_status) || 'N/A'}`,
+      `Proof score:       ${proofScore}/100`,
+      `Explanation:       Payment verified. Proof score: ${proofScore}/100.`,
+      `Zord signature:    ${zordSignature}`,
     ])
     const res = new NextResponse(new Uint8Array(pdf), {
       status: 200,
@@ -211,29 +257,80 @@ export async function POST(request: NextRequest) {
   }
 
   if (exportType === 'AUDIT_DETAILED') {
-    const timeline = await getEvidenceTimelineById(gate.tenantId, pack.evidence_pack_id)
-    const events =
-      timeline.ok && Array.isArray(timeline.data.timeline)
-        ? timeline.data.timeline.map((entry) => `${entry.timestamp} · ${entry.event}`).slice(0, 10)
-        : []
-    const checklist = [
-      'Instruction captured',
-      'Payload hashed',
-      'Intent canonicalized',
-      'Settlement observed',
-      'Attachment decision sealed',
-      'Merkle root committed',
-    ]
+    const resolvedPack = pack
+    const sv = resolvedPack.schema_versions ?? {}
+    const cs = resolvedPack.cryptographic_signatures ?? {}
+
+    function itemHash(typeFragment: string): string {
+      const item = (resolvedPack.items ?? []).find((i) =>
+        (i.type || '').toUpperCase().includes(typeFragment.toUpperCase()),
+      )
+      return apiTrimmedString(item?.leaf_hash || item?.hash) || 'N/A'
+    }
+
+    const sig = pack.signatures?.[0]
+    const pc = pack.proof_components ?? {}
+
     const pdf = simplePdfFromLines('Audit Evidence Pack', [
-      `Evidence pack: ${pack.evidence_pack_id}`,
-      `Created at: ${pack.created_at}`,
-      `Mode: ${apiTrimmedString(pack.mode) || 'N/A'}`,
-      `Contract id: ${apiTrimmedString(pack.contract_id) || 'N/A'}`,
-      `Ruleset version: ${apiTrimmedString(pack.ruleset_version) || 'N/A'}`,
-      `Cryptographic root: ${apiTrimmedString(pack.merkle_root) || 'N/A'}`,
-      `Dispute reason: ${disputeReason}`,
-      `Checklist: ${checklist.join(' | ')}`,
-      ...events.map((line) => `Timeline: ${line}`),
+      '--- Identity ---',
+      `Evidence pack:   ${pack.evidence_pack_id}`,
+      `Intent:          ${pack.intent_id || 'N/A'}`,
+      `Tenant:          ${pack.tenant_id}`,
+      `Contract:        ${apiTrimmedString(pack.contract_id) || 'N/A'}`,
+      `UTR:             ${utr}`,
+      '',
+      '--- Timestamps ---',
+      `Instruction received:    ${apiTrimmedString(pack.payment_instruction_received) || 'N/A'}`,
+      `Intent created:          ${apiTrimmedString(pack.canonical_intent_created) || 'N/A'}`,
+      `Settlement received:     ${apiTrimmedString(pack.settlement_record_received) || 'N/A'}`,
+      `Settlement created:      ${apiTrimmedString(pack.canonical_settlement_created) || 'N/A'}`,
+      `Pack created:            ${pack.created_at}`,
+      '',
+      '--- Mapping Profiles ---',
+      `Profile used:    ${apiTrimmedString(pack.mapping_profile_used) || 'N/A'}`,
+      `Ruleset version: ${apiTrimmedString(pack.ruleset_version) || 'v1'}`,
+      `Schema (intent):   ${sv.intent ?? sv.intent_schema ?? 'v1'}`,
+      `Schema (outcome):  ${sv.outcome ?? sv.outcome_schema ?? 'v1'}`,
+      `Schema (contract): ${sv.contract ?? sv.contract_schema ?? 'v1'}`,
+      `Schema (attach):   ${sv.attachment ?? sv.attachment_schema ?? 'N/A'}`,
+      '',
+      '--- Hashes ---',
+      `Raw intent hash:          ${cs.raw_intent_hash || itemHash('RAW_INGRESS_ENVELOPE') || 'N/A'}`,
+      `Canonical intent hash:    ${itemHash('CANONICAL_INTENT')}`,
+      `Raw settlement hash:      ${cs.raw_settlement_hash || itemHash('RAW_SETTLEMENT_ENVELOPE') || 'N/A'}`,
+      `Canonical settlement hash:${cs.canonical_settlement_hash || itemHash('CANONICAL_SETTLEMENT') || 'N/A'}`,
+      `Attachment decision hash: ${cs.attachment_decision_hash || itemHash('ATTACHMENT_DECISION') || 'N/A'}`,
+      `Governance decision hash: ${cs.governance_decision_hash || itemHash('GOVERNANCE_DECISION') || 'N/A'}`,
+      `Envelope hash:            ${itemHash('RAW_INGRESS_ENVELOPE') || cs.raw_intent_hash || 'N/A'}`,
+      `Final evidence view hash: ${cs.final_evidence_view_hash || itemHash('FINAL_EVIDENCE_VIEW') || 'N/A'}`,
+      '',
+      '--- Governance ---',
+      `Decision:         ${apiTrimmedString(pack.governance_decision) || 'N/A'}`,
+      `Required fields:  ${String(pack.required_fields_status ?? 'N/A')}`,
+      `Tokenization:     ${String(pack.tokenization_status ?? 'N/A')}`,
+      '',
+      `Merkle root:             ${apiTrimmedString(pack.merkle_root) || 'N/A'}`,
+      '',
+      '--- Signature ---',
+      `Signer:    ${apiTrimmedString(sig?.signer) || 'N/A'}`,
+      `Algorithm: ${apiTrimmedString(sig?.alg) || 'N/A'}`,
+      `Signed at: ${apiTrimmedString(sig?.signed_at) || 'N/A'}`,
+      `Zord signature: ${zordSignature}`,
+      '',
+      `Verification status:     ${String(pack.verification_status ?? 'N/A')}`,
+      `Completeness score:      ${pack.pack_completeness_score ?? 'N/A'}`,
+      `Settlement leaf present: ${String(pack.settlement_leaf_present_flag ?? 'N/A')}`,
+      `Attachment decision:     ${String(pack.attachment_decision_leaf_present_flag ?? 'N/A')}`,
+      '',
+      '--- Proof Components ---',
+      `Payment instruction: ${String(pc.payment_instruction_available ?? 'N/A')}`,
+      `Settlement record:   ${String(pc.settlement_record_available ?? 'N/A')}`,
+      `Match decision:      ${String(pc.match_decision_available ?? 'N/A')}`,
+      `Governance check:    ${String(pc.governance_decision_available ?? 'N/A')}`,
+      `Replay protection:   ${String(pc.replay_check_passed ?? 'N/A')}`,
+      `Cryptographic seal:  ${(pack.signatures?.length ?? 0) > 0 ? 'true' : 'false'}`,
+      '',
+      `Proof score: ${pack.proof_score ?? 'N/A'}/100`,
     ])
     const res = new NextResponse(new Uint8Array(pdf), {
       status: 200,
@@ -248,15 +345,25 @@ export async function POST(request: NextRequest) {
   }
 
   if (exportType === 'BANK_PSP_PACK') {
+    const packAnyBank = pack as Record<string, unknown>
+    const currencyBank = typeof packAnyBank.currency === 'string' ? packAnyBank.currency : 'INR'
+    const valueDate = pack.created_at ? pack.created_at.slice(0, 10) : 'N/A'
+    const settlementItem = (pack.items ?? []).find((i) =>
+      (i.type || '').toUpperCase().includes('SETTLEMENT'),
+    )
+    const settlementRef = apiTrimmedString(settlementItem?.ref) || 'N/A'
+    const issueStatement = `${apiTrimmedString(pack.attachment_decision) || 'MATCH_EXACT'} — UTR:${utr}`
     const ws = XLSX.utils.json_to_sheet([
       {
-        UTR: utr,
-        'Client Reference ID': packPaymentReference(pack),
-        'Value Date': pack.created_at,
-        'Clearing Ledger Record': apiTrimmedString(pack.pack_status) || 'N/A',
-        'Variance Issue Log': apiTrimmedString(pack.proof_status) || 'N/A',
-        'Processing Status': apiTrimmedString(pack.pack_status) || 'N/A',
-        'Dispute Reason': disputeReason,
+        'UTR': utr,
+        'Client Reference': packPaymentReference(pack),
+        'Value Date': valueDate,
+        'Amount': String(pack.amount ?? 'N/A'),
+        'Currency': currencyBank,
+        'Variance Reason': apiTrimmedString(pack.proof_status) || 'N/A',
+        'Settlement Record': settlementRef,
+        'Issue Statement': issueStatement,
+        'Zord Signature': zordSignature,
       },
     ])
     const wb = XLSX.utils.book_new()

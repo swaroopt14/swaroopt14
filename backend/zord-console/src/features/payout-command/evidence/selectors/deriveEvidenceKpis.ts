@@ -18,7 +18,7 @@ function formatMinorInrLabel(minor: string | number | undefined | null): string 
   if (minor == null || minor === '') return '—'
   const n = typeof minor === 'number' ? minor : Number(minor)
   if (!Number.isFinite(n)) return '—'
-  return fmtInrFull(n, { decimals: 0 })
+  return fmtInrFull(n, { decimals: 2 })
 }
 
 export function deriveEvidenceKpis(input: {

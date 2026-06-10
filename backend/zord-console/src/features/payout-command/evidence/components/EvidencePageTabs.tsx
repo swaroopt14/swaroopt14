@@ -9,7 +9,6 @@ type EvidencePageTabsProps = {
 
 const TABS: { id: EvidencePageTab; label: string }[] = [
   { id: 'workspace', label: 'Proof Workspace' },
-  { id: 'export', label: 'Export Center' },
 ]
 
 export function EvidencePageTabs({ active, onChange }: EvidencePageTabsProps) {

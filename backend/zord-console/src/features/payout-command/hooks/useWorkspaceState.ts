@@ -412,14 +412,15 @@ export function useWorkspaceState(
     [
       activeTab,
       activeThreadId,
+      authLoading,
       conversation,
       isSubmitting,
       setSelectedSuggestion,
       tenantId,
       tenantReady,
+      threads,
       upsertActiveThread,
       user?.id,
-      authLoading
     ],
   )
 

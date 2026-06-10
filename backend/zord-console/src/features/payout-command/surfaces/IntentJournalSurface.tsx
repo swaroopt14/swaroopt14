@@ -532,7 +532,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     selectedDlqTotal,
     selectedEngineIntentTotal,
     liveBatchDetail?.batch?.finality_status,
-    selectedBatch?.intelligenceCounts?.finality_status,
   ])
 
   useEffect(() => {
@@ -601,7 +600,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   }, [
     journalUsesBackendFeed,
     intents,
-    selectedBatch?.batchId ?? '',
+    selectedBatch,
     tableSearch,
     filterBatchId,
     connectorFilter,
@@ -630,7 +629,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   }, [
     journalUsesBackendFeed,
     failures,
-    selectedBatch?.batchId ?? '',
+    selectedBatch,
     tableSearch,
     filterBatchId,
     connectorFilter,

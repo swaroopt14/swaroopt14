@@ -278,16 +278,19 @@ export function HomeSurface({
       : trendTotalsMinor?.intentCount ?? 0
 
   const trendInsight = useMemo(() => {
-    if (patternsData?.total_count != null && patternsData.total_count > 0) {
-      const success = patternsData.success_count ?? 0
-      const share = Math.round((success / patternsData.total_count) * 100)
-      return `${patternsData.total_count} payment instructions in view; ${success} bank-confirmed (${share}% by count) for the ${carouselPeriod} window.`
+    if (intendedMinor != null && intendedMinor > 0 && observedMinor != null) {
+      const initiated = fmtInrFromMinorExact(intendedMinor)
+      const settled = fmtInrFromMinorExact(observedMinor)
+      const pct = Math.round((observedMinor / intendedMinor) * 100)
+      return `${initiated} was initiated, of which ${settled} has been successfully settled, reflecting ${pct}% settlement completion for the ${carouselPeriod} period.`
     }
     if (carouselTrendSeries?.data_available && carouselTrendSeries.buckets.length >= 2) {
-      const intents = carouselTrendSeries.buckets.reduce((s, b) => s + b.intent_count, 0)
-      const confirmed = carouselTrendSeries.buckets.reduce((s, b) => s + b.confirmed_count, 0)
-      const share = intents > 0 ? Math.round((confirmed / intents) * 100) : 0
-      return `${intents} payment instructions in view; ${confirmed} bank-confirmed (${share}% by count) for the ${carouselPeriod} window.`
+      const totalMinor = carouselTrendSeries.buckets.reduce((s, b) => s + b.total_amount, 0)
+      const confirmedMinor = carouselTrendSeries.buckets.reduce((s, b) => s + b.confirmed_amount, 0)
+      if (totalMinor > 0) {
+        const pct = Math.round((confirmedMinor / totalMinor) * 100)
+        return `${fmtInrFromMinorExact(totalMinor)} was initiated, of which ${fmtInrFromMinorExact(confirmedMinor)} has been successfully settled, reflecting ${pct}% settlement completion for the ${carouselPeriod} period.`
+      }
     }
     if (leakageData && patternsData) {
       return `${patternsData.pending_count} payments still pending confirmation in the latest batch view.`
@@ -296,7 +299,7 @@ export function HomeSurface({
       return `${patternsData.success_count} of ${patternsData.total_count} payments completed in the latest batch signal.`
     }
     return TENANT_KPI_EMPTY_CAROUSEL_INSIGHT
-  }, [carouselTrendSeries, carouselPeriod, leakageData, patternsData])
+  }, [intendedMinor, observedMinor, carouselTrendSeries, carouselPeriod, leakageData, patternsData])
 
   const reviewDisplay =
     reviewMinor !== null
@@ -336,7 +339,6 @@ export function HomeSurface({
       patternsData,
       reviewDisplay,
       reviewMinor,
-      leakageData,
       ambData?.ambiguous_intent_count,
     ],
   )

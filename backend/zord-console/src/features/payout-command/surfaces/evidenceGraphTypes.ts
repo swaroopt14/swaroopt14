@@ -75,6 +75,7 @@ export type EvidencePackGraph = {
   schemaVersions: { intent: string; outcome: string; contract: string; attachment?: string }
   createdAt: string
   defensibilityScore: number
+  proofScore: number
   leaves: LeafNode[]
   intermediates: IntermediateNode[]
   root: RootNode

@@ -1,7 +1,12 @@
 import { fetchProdJsonGet } from './fetchProdJsonGet'
 import { apiTrimmedString } from './coerceApiField'
 import type { IntelligenceDateQuery } from './getIntelligenceKpis'
-import type { PatternDetailResponse, PatternHistoryResponse } from './intelligencePatternTypes'
+import type {
+  PatternDetailResponse,
+  PatternHistoryResponse,
+  RecommendationDetailResponse,
+  RecommendationHistoryResponse,
+} from './intelligencePatternTypes'
 
 const INTEL_BASE = '/api/prod/intelligence'
 
@@ -48,6 +53,34 @@ export async function getPatternHistory(
 export function patternDataFrom(
   detail: PatternDetailResponse | null,
   history: PatternHistoryResponse | null,
+) {
+  if (detail?.data_available === true && detail.data) return detail.data
+  return history?.snapshots?.find((snapshot) => snapshot.snapshot_json)?.snapshot_json ?? null
+}
+
+export async function getRecommendationDetail(
+  dates?: IntelligenceDateQuery,
+): Promise<RecommendationDetailResponse | null> {
+  return fetchProdJsonGet<RecommendationDetailResponse>(
+    intelQueryPath(`${INTEL_BASE}/recommendation`, dateQueryExtra(dates)),
+  )
+}
+
+export async function getRecommendationHistory(
+  dates?: IntelligenceDateQuery,
+  limit = 5,
+): Promise<RecommendationHistoryResponse | null> {
+  const extra = dateQueryExtra(dates)
+  extra.limit = String(limit)
+  return fetchProdJsonGet<RecommendationHistoryResponse>(
+    intelQueryPath(`${INTEL_BASE}/recommendation/history`, extra),
+  )
+}
+
+/** Latest recommendation snapshot — detail first, newest history snapshot as fallback. */
+export function recommendationDataFrom(
+  detail: RecommendationDetailResponse | null,
+  history: RecommendationHistoryResponse | null,
 ) {
   if (detail?.data_available === true && detail.data) return detail.data
   return history?.snapshots?.find((snapshot) => snapshot.snapshot_json)?.snapshot_json ?? null

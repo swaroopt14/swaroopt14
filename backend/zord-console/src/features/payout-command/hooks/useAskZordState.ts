@@ -158,7 +158,7 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
         })
       })()
     },
-    [lastUserPrompt, response, status, tenantId, tenantReady, user?.id],
+    [authLoading, lastUserPrompt, response, status, tenantId, tenantReady, user?.id],
   )
 
   const dismissResponse = useCallback(() => {

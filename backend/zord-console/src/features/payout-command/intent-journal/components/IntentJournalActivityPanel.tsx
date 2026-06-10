@@ -208,11 +208,11 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
     page, setPage, jumpPage, setJumpPage, failurePage, setFailurePage,
     failureJumpPage, setFailureJumpPage, rowsPerPage, setRowsPerPage,
     expandedId, setExpandedId, selectedIntentId, setSelectedIntentId,
-    failureReviewId, setFailureReviewId, liveIntentDrawerApi,
+    liveIntentDrawerApi,
     filteredIntents, filteredFailures, pageRows, failurePageRows,
     intentTotal, failureTotal, safePage, safeFailurePage, totalPages, failureTotalPages,
     selectedBatch, selectedBatchId, journalUsesBackendFeed, liveDetailLoading,
-    clearTableFilters, failures, batches,
+    clearTableFilters, batches,
   } = vm
   const journalEnabled = Boolean(journalUsesBackendFeed)
   const [manualReviewRow, setManualReviewRow] = useState<FailureRow | null>(null)
@@ -585,33 +585,6 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     </button>
                   </div>
                 </div>
-                    {failureReviewId ? (
-                  <div className="mx-4 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[14px] text-amber-950">
-                        <p className="font-semibold">Review — DLQ row</p>
-                        <p className="mt-1 text-[13px] leading-relaxed">
-                          {failures.find((r) => r.requestId === failureReviewId)?.failureReason ?? '—'}
-                        </p>
-                        {(() => {
-                          const active = failures.find((r) => r.requestId === failureReviewId)
-                          if (!active) return null
-                          return (
-                            <p className="mt-1 text-[12px] leading-relaxed text-amber-900/80">
-                              {active.dlqStatusLabel ?? 'Need to review'}
-                              {active.beneficiaryName ? ` · ${active.beneficiaryName}` : ''}
-                              {active.sourceRowNum != null ? ` · row ${active.sourceRowNum}` : ''}
-                              {active.idempotencyKey ? ` · idempotency ${active.idempotencyKey}` : ''}
-                            </p>
-                          )
-                        })()}
-                        <button
-                          type="button"
-                          className="mt-2 text-[12px] font-semibold underline"
-                          onClick={() => setFailureReviewId(null)}
-                        >
-                          Close
-                        </button>
-                      </div>
-                    ) : null}
                 <div className="overflow-x-auto">
                   <table className={`w-full border-collapse text-[14px] ${HOME_TITLE_BLACK}`}>
                     <thead className="bg-[#f8fafc]">
@@ -646,7 +619,7 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                         failurePageRows.map((row, rowIndex) => (
                         <tr
                           key={row.requestId}
-                          className={`border-t border-[#f3f4f6] hover:bg-[#f9fafb] ${failureReviewId === row.requestId ? 'bg-amber-50/60' : ''} ${rowIndex % 2 === 1 && failureReviewId !== row.requestId ? 'bg-slate-50/40' : ''}`}
+                          className={`border-t border-[#f3f4f6] hover:bg-[#f9fafb] ${rowIndex % 2 === 1 ? 'bg-slate-50/40' : ''}`}
                         >
                           <td className="px-3 py-2.5 text-[15px] text-[#475569]">{row.batchId}</td>
                           <td className="px-3 py-2.5 text-[15px] text-[#475569] tabular-nums">
@@ -670,33 +643,13 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                           </td>
                           <td className="px-3 py-2.5 text-rose-700">{row.failureReason}</td>
                           <td className="px-3 py-2.5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span
-                                className={`inline-flex rounded-full border px-2.5 py-1 text-[12px] font-semibold ${
-                                  row.inManualReviewQueue || row.dlqStatus === 'NEEDS_MANUAL_REVIEW'
-                                    ? 'border-violet-200 bg-violet-50 text-violet-800'
-                                    : 'border-amber-200 bg-amber-50 text-amber-800'
-                                }`}
-                              >
-                                {row.dlqStatusLabel ?? 'Need to review'}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setFailureReviewId((id) => (id === row.requestId ? null : row.requestId))
-                                }
-                                className="inline-flex h-8 items-center rounded-lg border border-[#0A0A0A] bg-[#0A0A0A] px-3 text-[12px] font-medium text-white transition hover:bg-[#1a1a1a]"
-                              >
-                                Review
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setManualReviewRow(row)}
-                                className="inline-flex h-8 items-center rounded-lg border border-[#2563eb] bg-[#eff6ff] px-3 text-[12px] font-medium text-[#1d4ed8] transition hover:bg-[#dbeafe]"
-                              >
-                                Manual review
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setManualReviewRow(row)}
+                              className="inline-flex h-8 items-center rounded-lg border border-[#2563eb] bg-[#eff6ff] px-3 text-[12px] font-medium text-[#1d4ed8] transition hover:bg-[#dbeafe]"
+                            >
+                              Manual review
+                            </button>
                           </td>
                           <td className="px-3 py-2.5 text-[#64748b]">{row.lastUpdated}</td>
                         </tr>

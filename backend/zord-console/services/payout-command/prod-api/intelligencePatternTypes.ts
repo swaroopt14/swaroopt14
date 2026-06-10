@@ -122,79 +122,76 @@ export type PatternHistoryResponse = {
   snapshots?: PatternHistorySnapshot[]
 }
 
-export type PatternActionCode =
-  | 'ESCALATE'
-  | 'REQUEST_SOURCE_PATCH'
-  | 'PREPARE_AND_SIGN_RECOMMENDED'
-  | 'REVIEW_AMBIGUOUS_BATCH'
-  | 'DISPATCH_MODE_RECOMMENDED'
-  | 'ADVISORY_RECOMMENDATION'
-  | 'REGENERATE_EVIDENCE'
-  | 'REQUEST_STRONGER_CARRIER_CONTRACT'
-  | 'ESCALATE_LEAKAGE'
-  | 'ADVISORY_SLA'
+// ── Recommendation Intelligence (GET /v1/intelligence/recommendation) ─────
+// Shapes match zord-intelligence recommendation_intelligence_service.go.
 
-export type PatternActionCard = {
-  id: string
-  code: PatternActionCode
-  title: string
-  impactLabel: string
-  priority: number
+export type RecommendationCard = {
+  card_id?: string
+  /** CRITICAL | HIGH | MEDIUM | LOW */
+  priority?: string
+  action?: string
+  title?: string
+  reason?: string
+  /** LEAKAGE | AMBIGUITY | DEFENSIBILITY | RCA | PATTERN */
+  source_layer?: string
+  source_snapshot_id?: string
+  amount_at_stake_minor?: MinorAmountField
+  priority_score?: number
+  affected_source_system?: string
+  affected_provider_id?: string
+  affected_batch_count?: number
+  expected_improvement?: string
+  action_owner?: string
+  /** HIGH | MEDIUM | LOW */
+  confidence?: string
 }
 
-export type PatternKpiBucket = {
-  label: string
-  value: string
-  sub: string
+export type RecommendationSnapshotData = {
+  cards?: RecommendationCard[]
+  critical_count?: number
+  high_count?: number
+  medium_count?: number
+  low_count?: number
+  total_amount_at_stake_minor?: MinorAmountField
+  recommendation_priority_score?: number
+  recommendation_impact_estimate_minor?: MinorAmountField
+  source_snapshot_ids?: string[]
+  computed_at?: string
 }
 
-export type PatternCategoryRow = Record<string, string | number>
-
-export type PatternCategoryTable = {
-  id: string
-  title: string
-  columns: Array<{ key: string; label: string }>
-  rows: PatternCategoryRow[]
+export type RecommendationDetailResponse = {
+  tenant_id?: string
+  intelligence_mode?: string
+  snapshot_type?: string
+  snapshot_id?: string
+  scope_type?: string
+  scope_ref?: string | null
+  window_start?: string
+  window_end?: string
+  computed_at?: string
+  model_version?: string | null
+  data?: RecommendationSnapshotData | null
+  data_available?: boolean
+  reason?: string
 }
 
-export type PatternHistoryRow = {
-  id: string
-  createdAt: string
-  scopeType: string
-  scopeRef: string
-  batchId: string
-  riskTier: string
-  anomalyLevel: string
-  snapshot: PatternSnapshotData | null
+export type RecommendationHistorySnapshot = {
+  snapshot_id?: string
+  tenant_id?: string
+  snapshot_type?: string
+  scope_type?: string
+  scope_ref?: string | null
+  window_start?: string
+  window_end?: string
+  snapshot_json?: RecommendationSnapshotData
+  model_version?: string | null
+  created_at?: string
 }
 
-export type PatternIntelligenceView = {
-  hasLiveData: boolean
-  meta: {
-    tenantId: string
-    snapshotType: string
-    snapshotId: string
-    scopeType: string
-    scopeRef: string
-    windowStart: string
-    windowEnd: string
-    computedAt: string
-    modelVersion: string
-    intelligenceMode: string
-  }
-  statusBadges: {
-    batchId: string
-    riskTier: string
-    anomalyLevel: string
-    finalityStatus: string
-    prepareAndSignRecommended: boolean
-  }
-  scoreKpis: PatternKpiBucket[]
-  volumeKpis: PatternKpiBucket[]
-  ambiguitySummary: PatternKpiBucket[]
-  riskSignals: BatchRiskSignal[]
-  recommendedAction: string | null
-  actionCatalog: PatternActionCard[]
-  categories: PatternCategoryTable[]
-  history: PatternHistoryRow[]
+export type RecommendationHistoryResponse = {
+  tenant_id?: string
+  intelligence_mode?: string
+  snapshot_type?: string
+  count?: number
+  snapshots?: RecommendationHistorySnapshot[]
 }

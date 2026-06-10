@@ -210,6 +210,7 @@ export function buildEvidencePackGraphFromApi(
     schemaVersions: resolveSchemaVersions(pack),
     createdAt: pack.created_at,
     defensibilityScore: Math.round(opts.defensibilityScore),
+    proofScore: pack.proof_score != null ? Math.round(Number(pack.proof_score)) : Math.round(opts.defensibilityScore),
     leaves,
     intermediates,
     root: rootFromPack(pack),
@@ -314,6 +315,7 @@ export function buildEvidencePackGraphFromLineage(
     schemaVersions: resolveSchemaVersions(pack),
     createdAt: pack.created_at,
     defensibilityScore: Math.round(opts.defensibilityScore),
+    proofScore: pack.proof_score != null ? Math.round(Number(pack.proof_score)) : Math.round(opts.defensibilityScore),
     leaves,
     intermediates,
     root: {

@@ -90,6 +90,8 @@ export const BACKEND_SERVICES = {
       PATTERNS: '/v1/intelligence/dashboard/patterns',
       PATTERN: '/v1/intelligence/pattern',
       PATTERN_HISTORY: '/v1/intelligence/pattern/history',
+      RECOMMENDATION: '/v1/intelligence/recommendation',
+      RECOMMENDATION_HISTORY: '/v1/intelligence/recommendation/history',
       RECOMMENDATIONS: '/v1/intelligence/dashboard/recommendations',
       RCA: '/v1/intelligence/dashboard/rca',
       BATCHES: '/v1/intelligence/batches',

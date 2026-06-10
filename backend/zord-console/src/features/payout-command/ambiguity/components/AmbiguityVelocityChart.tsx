@@ -100,7 +100,10 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
     }
   }, [batchId])
 
-  const points = seriesLive && livePoints?.length ? livePoints : []
+  const points = useMemo(
+    () => (seriesLive && livePoints?.length ? livePoints : []),
+    [seriesLive, livePoints],
+  )
   const isPreview = !seriesLive
   const maxAmountMinor = seriesLive ? liveMaxAmountMinor : 1
   const sizeTicks = useMemo(() => batchSizeAxisTicks(maxAmountMinor), [maxAmountMinor])

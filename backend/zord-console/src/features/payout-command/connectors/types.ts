@@ -54,7 +54,10 @@ export type CorrelationInsight = {
 export type ActionRecommendation = {
   id: string
   title: string
+  /** Current exposure (amount at stake) in minor units. */
   impactMinor: number
+  /** Preventable share of the exposure in minor units (confidence-scaled). */
+  preventableMinor?: number
   impactLabel: string
 }
 
@@ -78,8 +81,6 @@ export type LeakageCompositionSlice = {
   amountMinor: number
 }
 
-import type { PatternIntelligenceView } from '@/services/payout-command/prod-api/intelligencePatternTypes'
-
 export type RoutingKpiSnapshot = {
   generatedAtIso: string
   staleAfterMinutes: number
@@ -90,5 +91,4 @@ export type RoutingKpiSnapshot = {
   leakageComposition: LeakageCompositionSlice[]
   networkHealthTrend: Array<{ label: string; successPct: number; latencyIndex: number }>
   drilldowns: ConnectorDrilldown[]
-  patternIntelligence: PatternIntelligenceView | null
 }

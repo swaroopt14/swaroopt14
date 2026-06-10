@@ -21,7 +21,6 @@ import { COMMAND_CENTER_KPI_CARD, COMMAND_CENTER_LABEL_GREEN } from '@/features/
 import { JournalIntelligenceKpiHero } from '@/features/payout-command/command-center/JournalIntelligenceKpiHero'
 import { EntityLogo } from '@/features/payout-command/entity-logo'
 import { getRoutingIntelligenceAdapter } from './routingDataAdapter'
-import { PatternIntelligencePanel } from './PatternIntelligencePanel'
 import { rankRoutes } from './scoring'
 import type {
   ConnectorHealthRow,
@@ -95,12 +94,14 @@ function buildKpis(snapshot: RoutingKpiSnapshot) {
 }
 
 function buildImpactSeries(snapshot: RoutingKpiSnapshot) {
-  return snapshot.actionRecommendations.map((action) => ({
-    id: action.id,
-    action: action.title.length > 26 ? `${action.title.slice(0, 26)}…` : action.title,
-    currentMinor: Math.round(action.impactMinor * 1.45),
-    preventableMinor: action.impactMinor,
-  }))
+  return snapshot.actionRecommendations
+    .filter((action) => action.impactMinor > 0)
+    .map((action) => ({
+      id: action.id,
+      action: action.title.length > 26 ? `${action.title.slice(0, 26)}…` : action.title,
+      currentMinor: action.impactMinor,
+      preventableMinor: action.preventableMinor ?? Math.round(action.impactMinor * 0.65),
+    }))
 }
 
 function ConnectorIdentity({ row }: { row: ConnectorHealthRow }) {
@@ -262,10 +263,6 @@ export default function ConnectorIntelligenceClient() {
         <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900" data-testid="routing-stale-banner">
           Metrics are stale. Refresh connector telemetry before making routing decisions.
         </section>
-      ) : null}
-
-      {snapshot.patternIntelligence?.hasLiveData ? (
-        <PatternIntelligencePanel view={snapshot.patternIntelligence} />
       ) : null}
 
       <section>

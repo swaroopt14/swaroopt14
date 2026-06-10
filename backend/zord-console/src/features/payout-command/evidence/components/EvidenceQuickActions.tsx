@@ -18,7 +18,6 @@ type Action = {
 type Props = {
   batchId: string
   firstPackId?: string
-  onExportTab?: () => void
 }
 
 const ICONS: Record<string, ReactNode> = {
@@ -48,7 +47,7 @@ const ICONS: Record<string, ReactNode> = {
   ),
 }
 
-export function EvidenceQuickActions({ batchId, firstPackId, onExportTab }: Props) {
+export function EvidenceQuickActions({ batchId, firstPackId }: Props) {
   const pathname = usePathname()
 
   const actions: Action[] = [
@@ -56,7 +55,9 @@ export function EvidenceQuickActions({ batchId, firstPackId, onExportTab }: Prop
       id: 'export',
       title: 'Export Pack',
       subtitle: 'Download proof',
-      onClick: onExportTab,
+      href: firstPackId
+        ? `/payout-command-view/evidence-pack/${encodeURIComponent(firstPackId)}?tab=export`
+        : undefined,
       accent: '#4a6fe6',
     },
     {

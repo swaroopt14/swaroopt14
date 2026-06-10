@@ -33,7 +33,6 @@ import { DisputeResolverPanel } from './components/DisputeResolverPanel'
 import { EvidenceQuickActions } from './components/EvidenceQuickActions'
 import { EvidencePackBreakdownChart } from './components/EvidencePackBreakdownChart'
 import { EvidencePackTrendChart } from './components/EvidencePackTrendChart'
-import { EvidenceExportCenter } from './components/export/EvidenceExportCenter'
 import { mapPackTableRow } from './mappers/mapPackTableRow'
 import { deriveEvidenceKpis } from './selectors/deriveEvidenceKpis'
 import { deriveProofBreakdown } from './selectors/deriveProofBreakdown'
@@ -272,18 +271,6 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
 
   const dataLoading = packsLoading || kpisLoading
 
-  if (pageTab === 'export') {
-    return (
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[13px] font-medium text-slate-500">Export structured proof for audit and disputes</p>
-          <EvidencePageTabs active={pageTab} onChange={setPageTab} />
-        </div>
-        <EvidenceExportCenter defaultPackId={tableRows[0]?.packId} />
-      </div>
-    )
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-3">
@@ -344,7 +331,6 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
               <EvidenceQuickActions
                 batchId={batchId}
                 firstPackId={tableRows[0]?.packId}
-                onExportTab={() => setPageTab('export')}
               />
             </div>
 

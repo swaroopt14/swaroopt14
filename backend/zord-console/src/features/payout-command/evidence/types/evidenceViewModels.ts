@@ -67,6 +67,6 @@ export type MissingProofItem = {
   done: boolean
 }
 
-export type EvidencePageTab = 'workspace' | 'export'
+export type EvidencePageTab = 'workspace'
 
 export const EXPECTED_PROOF_ITEMS = 9

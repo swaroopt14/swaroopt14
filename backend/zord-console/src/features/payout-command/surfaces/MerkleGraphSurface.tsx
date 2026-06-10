@@ -20,10 +20,6 @@ import {
   downloadEvidencePackPdf,
   downloadEvidencePackJson,
 } from '@/services/payout-command/prod-api/exportEvidencePack'
-import {
-  downloadEvidenceBatchIntentsJson,
-  downloadEvidenceBatchIntentsPdf,
-} from '@/services/payout-command/prod-api/exportEvidenceBatchIntents'
 import { getIntentJournalPaymentIntentsForSession } from '@/services/payout-command/prod-api/intentJournalApi'
 import type {
   EvidencePackFull,
@@ -110,6 +106,7 @@ const SAMPLE_PACK: EvidencePackGraph = {
   schemaVersions: SHARED_SCHEMAS,
   createdAt: '2026-05-08T10:14:00Z',
   defensibilityScore: 98,
+  proofScore: 98,
   leaves: VERIFIED_LEAVES,
   intermediates: INTERMEDIATES,
   root: {
@@ -132,6 +129,7 @@ const SAMPLE_PACK_PARTNER: EvidencePackGraph = {
   schemaVersions: SHARED_SCHEMAS,
   createdAt: '2026-05-08T10:18:00Z',
   defensibilityScore: 94,
+  proofScore: 94,
   leaves: VERIFIED_LEAVES.map((leaf) =>
     leaf.id === 'L7' ? { ...leaf, status: 'missing' as LeafStatus, impact: 'Final evidence view not yet exposed for this intent.' } : leaf,
   ),
@@ -156,6 +154,7 @@ const SAMPLE_PACK_THIRD: EvidencePackGraph = {
   schemaVersions: SHARED_SCHEMAS,
   createdAt: '2026-05-08T10:21:00Z',
   defensibilityScore: 89,
+  proofScore: 89,
   leaves: VERIFIED_LEAVES,
   intermediates: INTERMEDIATES,
   root: {
@@ -178,6 +177,7 @@ const SAMPLE_PACK_TAMPERED: EvidencePackGraph = {
   schemaVersions: SHARED_SCHEMAS,
   createdAt: '2026-05-08T09:42:00Z',
   defensibilityScore: 72,
+  proofScore: 72,
   leaves: VERIFIED_LEAVES.map((leaf) => {
     if (leaf.id === 'L6') return { ...leaf, status: 'missing' as LeafStatus, impact: 'Attachment decision missing — independent confirmation absent.' }
     if (leaf.id === 'L4') return { ...leaf, status: 'invalid' as LeafStatus, impact: 'Settlement envelope hash mismatch — file altered.' }
@@ -226,6 +226,7 @@ const EMPTY_LIVE_PACK: EvidencePackGraph = {
   schemaVersions: SHARED_SCHEMAS,
   createdAt: new Date(0).toISOString(),
   defensibilityScore: 0,
+  proofScore: 0,
   leaves: [],
   intermediates: [],
   root: { id: 'root', hashFull: '', hashShort: '—', status: 'partial', tamper: 'no-changes' },
@@ -732,19 +733,14 @@ export function MerkleGraphSurface({
   const handleExport = useCallback(
     async (kind: 'pdf' | 'json') => {
       const pid = apiTrimmedString(activePackId) || apiTrimmedString(controlledPackId) || apiTrimmedString(initialPackId) || apiTrimmedString(pack.packId)
-      const bid = apiTrimmedString(activeBatchId) || apiTrimmedString(controlledBatchId) || apiTrimmedString(initialPack.batchId) || apiTrimmedString(pack.batchId)
       if (!pid || pid === EMPTY_LIVE_PACK.packId) return
 
       setExporting(kind)
       setLiveListError(null)
       try {
-        const result = bid
-          ? kind === 'json'
-            ? await downloadEvidenceBatchIntentsJson(bid)
-            : await downloadEvidenceBatchIntentsPdf(bid)
-          : kind === 'json'
-            ? await downloadEvidencePackJson(pid)
-            : await downloadEvidencePackPdf(pid)
+        const result = kind === 'json'
+          ? await downloadEvidencePackJson(pid)
+          : await downloadEvidencePackPdf(pid)
         if (!result.ok) {
           setLiveListError(
             result.errorText?.slice(0, 240) ||
@@ -757,7 +753,7 @@ export function MerkleGraphSurface({
         setExporting(null)
       }
     },
-    [activePackId, activeBatchId, controlledBatchId, controlledPackId, initialPack.batchId, initialPackId, pack.batchId, pack.packId],
+    [activePackId, controlledPackId, initialPackId, pack.packId],
   )
 
   useEffect(() => {
@@ -820,10 +816,13 @@ export function MerkleGraphSurface({
   // Aggregated values across sampled packs in the batch (header + chips).
   const batchAggregate = useMemo(() => {
     if (batchPacks.length === 0) {
-      return { defensibility: 0, valid: 0, missing: 0, invalid: 0, total: 0, status: 'verified' as const }
+      return { defensibility: 0, proofScore: 0, valid: 0, missing: 0, invalid: 0, total: 0, status: 'verified' as const }
     }
     const defensibility = Math.round(
       batchPacks.reduce((sum, p) => sum + p.defensibilityScore, 0) / batchPacks.length,
+    )
+    const proofScore = Math.round(
+      batchPacks.reduce((sum, p) => sum + p.proofScore, 0) / batchPacks.length,
     )
     let valid = 0, missing = 0, invalid = 0, total = 0
     for (const p of batchPacks) {
@@ -837,10 +836,10 @@ export function MerkleGraphSurface({
     const hasInvalid = batchPacks.some((p) => p.root.status === 'invalid')
     const hasPartial = batchPacks.some((p) => p.root.status !== 'verified')
     const status: 'verified' | 'partial' | 'invalid' = hasInvalid ? 'invalid' : hasPartial ? 'partial' : 'verified'
-    return { defensibility, valid, missing, invalid, total, status }
+    return { defensibility, proofScore, valid, missing, invalid, total, status }
   }, [batchPacks])
 
-  const displayDefensibility = batchAggregate.defensibility
+  const displayDefensibility = batchAggregate.proofScore
   const displayCounts = {
     valid: batchAggregate.valid,
     missing: batchAggregate.missing,
@@ -1027,12 +1026,6 @@ export function MerkleGraphSurface({
             </p>
           </div>
           ) : null}
-          <ContextField label="Intents" value={String(batchMetaResolved?.totalIntents ?? batchPacks.length)} />
-          <ContextField label="Transactions" value={String(batchMetaResolved?.totalTransactions ?? 0)} />
-          <ContextField
-            label="Loaded packs"
-            value={useLive ? `${batchPacks.length} from API` : `${batchPacks.length} sampled`}
-          />
           <ContextField label="Contract" value={pack.contractId} mono />
           <ContextField label="Mode" value={pack.mode} />
         <div>
@@ -1779,12 +1772,6 @@ function SidePanel({
           </ol>
         </div>
 
-        <button
-          type="button"
-          className="mt-4 w-full rounded-[8px] bg-[#111111] px-3 py-2 text-[15px] font-semibold text-white transition hover:bg-black"
-        >
-          View JSON
-        </button>
       </aside>
     )
   }

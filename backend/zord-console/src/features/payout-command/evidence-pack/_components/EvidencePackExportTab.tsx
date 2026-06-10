@@ -13,10 +13,10 @@ export function EvidencePackExportTab({ pack }: EvidencePackExportTabProps) {
   const [exporting, setExporting] = useState<string | null>(null)
 
   const paymentReference =
+    pack?.evidence_pack_id ||
     pack?.client_payout_ref ||
     pack?.client_reference ||
     pack?.intent_id ||
-    pack?.evidence_pack_id ||
     ''
 
   const runExport = async (

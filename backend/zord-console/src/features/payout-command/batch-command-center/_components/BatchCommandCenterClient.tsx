@@ -14,12 +14,15 @@ import {
 } from './BatchIntakePanel'
 import { HydrationSafeLocaleTime } from '../../command-center/HydrationSafeLocaleTime'
 import {
+  derivePaymentProofTimeline,
+  paymentProofProgressPct,
   type BatchSummary,
 } from '@/services/payout-command/batch-model'
 import { useBatchOperationsFeed } from '@/services/payout-command/batch-operations/useBatchOperationsFeed'
 import { BATCH_REVIEW_COPY } from '../copy/batchCommandCenterCopy'
 import { BatchAdvancedDetails } from './BatchAdvancedDetails'
 import { BatchIngestSuccessDialog } from './BatchIngestSuccessDialog'
+import { BatchProgressPanel } from './BatchProgressPanel'
 import { PaymentStatusBreakdown } from './PaymentStatusBreakdown'
 import { ReviewItemsTable } from './ReviewItemsTable'
 import { mapPaymentStatusBreakdown } from '../mappers/mapBatchReviewKpis'
@@ -178,6 +181,25 @@ export default function BatchCommandCenterClient() {
 
   const pieSlices = useMemo(() => mapPaymentStatusBreakdown(statCardsSummary), [statCardsSummary])
 
+  const pipelineBusy = useMemo(
+    () =>
+      intakeSnapshot.intakeStep === 'intent_uploading' ||
+      intakeSnapshot.intakeStep === 'settlement_uploading' ||
+      uploadStatus.state === 'syncing' ||
+      (feed.detailLoading && Boolean(activeBatchId)),
+    [intakeSnapshot, uploadStatus.state, feed.detailLoading, activeBatchId],
+  )
+
+  const pipelineSteps = useMemo(
+    () => derivePaymentProofTimeline(statCardsSummary, intakeSnapshot),
+    [statCardsSummary, intakeSnapshot],
+  )
+
+  const pipelineProgressPct = useMemo(
+    () => paymentProofProgressPct(pipelineSteps),
+    [pipelineSteps],
+  )
+
   const shareBatchSummary = useCallback(async () => {
     const url = typeof window !== 'undefined' ? window.location.href : ''
     const batchLabel = activeBatchId || '—'
@@ -322,6 +344,12 @@ export default function BatchCommandCenterClient() {
           onSnapshotChange={setIntakeSnapshot}
           onUploadStatusChange={setUploadStatus}
           onIntentUploadFailed={() => void feed.refreshBatchFeed()}
+        />
+
+        <BatchProgressPanel
+          steps={pipelineSteps}
+          progressPct={pipelineProgressPct}
+          busy={pipelineBusy}
         />
 
         {uploadStatus.message ? (

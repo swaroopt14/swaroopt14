@@ -20,10 +20,10 @@ const G = {
   pill: 'rgba(255,255,255,0.18)',
 } as const
 
-import { fmtInrFull } from '../command-center/commandCenterFormat'
+import { fmtInrFromMinorExact } from '../command-center/commandCenterFormat'
 
 function fmtINR(n: number): string {
-  return fmtInrFull(n, { decimals: 0 })
+  return fmtInrFromMinorExact(n)
 }
 
 function BoltSvg() {

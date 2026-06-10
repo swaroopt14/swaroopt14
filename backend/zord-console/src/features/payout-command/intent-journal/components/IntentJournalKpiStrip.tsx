@@ -10,7 +10,7 @@ import {
 import { useJournalBatchSelection } from '../context/JournalBatchSelectionContext'
 import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
 import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
-import { fmtInrFull } from '../../command-center/commandCenterFormat'
+import { fmtInrFromMinorExact } from '../../command-center/commandCenterFormat'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
 import { useDlqTerminalCount } from '../hooks/useDlqTerminalCount'
 
@@ -85,7 +85,7 @@ export function IntentJournalKpiStrip() {
       />
       <KpiCard
         label={copy.intendedValue}
-        value={fmtInrFull(intendedValue, { decimals: 0 })}
+        value={fmtInrFromMinorExact(intendedValue)}
         sub="Sum of payment instruction amounts"
       />
       <KpiCard

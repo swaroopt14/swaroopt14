@@ -1,6 +1,6 @@
 import type { DisbursementTrendResponse } from '@/services/payout-command/prod-api/disbursementTrendTypes'
 import type { LeakageKpiResolved, PatternsKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { minorToRupees } from '../command-center/commandCenterFormat'
+import { fmtInrFromMinorExact } from '../command-center/commandCenterFormat'
 import type { InsightDelta, ZordInsightCard } from './zordInsightCarouselTypes'
 
 function readMinor(value: string | number | undefined | null): number {
@@ -95,8 +95,8 @@ export function buildZordInsightCards(params: {
       type: 'metric',
       id: 'mismatch-value',
       label: 'Value Needing Review',
-      valueRupee: minorToRupees(mismatchMinor) ?? 0,
-      valueDisplay: reviewValueMinor == null ? '—' : undefined,
+      valueRupee: mismatchMinor,
+      valueDisplay: reviewValueMinor == null ? '—' : fmtInrFromMinorExact(reviewValueMinor),
       subtext: patternsData
         ? `${patternsData.pending_count} intents pending in latest batch signal`
         : reviewValueMinor != null
@@ -121,7 +121,7 @@ export function buildZordInsightCards(params: {
       id: 'disbursement-trend',
       label: 'Payment Value Trend',
       spark,
-      currentValueRupee: minorToRupees(totalMinor) ?? 0,
+      currentValueRupee: totalMinor,
       delta: bucketDelta(trendSeries.buckets),
     })
   }
@@ -134,7 +134,7 @@ export function buildZordInsightCards(params: {
       label: 'Payments needing attention',
       count: patternsData.pending_count,
       topPattern: `${patternsData.anomaly_level} · ${(patternsData.batch_anomaly_score * 100).toFixed(0)}% batch signal`,
-      exposureRupee: minorToRupees(exposureMinor) ?? 0,
+      exposureRupee: exposureMinor,
     })
   }
 

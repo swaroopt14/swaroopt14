@@ -18,7 +18,7 @@ function toDateKey(d: Date): string {
 }
 
 /** Last 30 calendar days (today inclusive), one bar per day. */
-export function buildVolumeHistogram(rows: PackTableRowVm[], usingMock: boolean): EvidenceTrendPoint[] {
+export function buildVolumeHistogram(rows: PackTableRowVm[]): EvidenceTrendPoint[] {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const tickFmt = new Intl.DateTimeFormat('en-US', { day: 'numeric' })
@@ -34,16 +34,6 @@ export function buildVolumeHistogram(rows: PackTableRowVm[], usingMock: boolean)
       dateKey: toDateKey(d),
       count: 0,
     })
-  }
-
-  if (usingMock) {
-    return skeleton.map((p, i) => ({
-      ...p,
-      count: Math.max(
-        0,
-        Math.round(3 + 5 * Math.sin(i / 3.2) + (i % 5) * 1.2 + ((i * 7) % 11) * 0.35),
-      ),
-    }))
   }
 
   const counts = new Map<string, number>()
@@ -93,30 +83,12 @@ function statusBucket(proofStatusKey: PackTableRowVm['proofStatusKey']): string 
 function buildMixAreaSeries(
   segments: EvidenceTypeSegment[],
   rows: PackTableRowVm[],
-  usingMock: boolean,
-  volumeTrendForMock?: EvidenceTrendPoint[],
 ): { points: EvidenceMixAreaPoint[]; series: EvidenceMixAreaSeries[] } {
   const series = segments.map((seg) => ({
     key: segmentSeriesKey(seg.name),
     name: seg.name,
     color: seg.color,
   }))
-
-  if (usingMock) {
-    const mockTrend =
-      volumeTrendForMock?.slice(-7) ??
-      buildVolumeHistogram([], true).slice(-7)
-    const points = mockTrend.map((t, i) => {
-      const point: EvidenceMixAreaPoint = { period: t.day }
-      const scale = Math.max(t.count, 1)
-      segments.forEach((seg, j) => {
-        const wobble = 0.88 + ((i + j) % 5) * 0.05
-        point[segmentSeriesKey(seg.name)] = Math.max(0, Math.round((seg.pct / 100) * scale * wobble))
-      })
-      return point
-    })
-    return { points, series }
-  }
 
   const dayFmt = new Intl.DateTimeFormat('en-US', { weekday: 'short' })
   const byDay = new Map<string, Map<string, number>>()
@@ -150,30 +122,20 @@ function buildMixAreaSeries(
 
 const SEGMENT_COLORS = ['#16a34a', '#22c55e', '#86efac', '#cbd5e1', '#f59e0b']
 
-/** Preview layout when no packs are loaded yet. */
-export const MOCK_EVIDENCE_SEGMENTS: EvidenceTypeSegment[] = [
-  { name: 'Proof Ready', pct: 48, color: '#16a34a' },
-  { name: 'Partial Proof', pct: 28, color: '#22c55e' },
-  { name: 'Needs Review', pct: 16, color: '#f59e0b' },
-  { name: 'Incomplete', pct: 8, color: '#cbd5e1' },
-]
-
 export function deriveEvidenceAnalytics(rows: PackTableRowVm[]): {
   segments: EvidenceTypeSegment[]
   trend: EvidenceTrendPoint[]
   mixArea: EvidenceMixAreaPoint[]
   mixSeries: EvidenceMixAreaSeries[]
-  usingMock: boolean
+  hasLiveData: boolean
 } {
   if (rows.length === 0) {
-    const trend = buildVolumeHistogram([], true)
-    const mix = buildMixAreaSeries(MOCK_EVIDENCE_SEGMENTS, [], true, trend)
     return {
-      segments: MOCK_EVIDENCE_SEGMENTS,
-      trend,
-      mixArea: mix.points,
-      mixSeries: mix.series,
-      usingMock: true,
+      segments: [],
+      trend: [],
+      mixArea: [],
+      mixSeries: [],
+      hasLiveData: false,
     }
   }
 
@@ -190,9 +152,14 @@ export function deriveEvidenceAnalytics(rows: PackTableRowVm[]): {
     color: SEGMENT_COLORS[i % SEGMENT_COLORS.length],
   }))
 
-  const trend = buildVolumeHistogram(rows, false)
+  const trend = buildVolumeHistogram(rows)
+  const mix = buildMixAreaSeries(segments, rows)
 
-  const mix = buildMixAreaSeries(segments, rows, false)
-
-  return { segments, trend, mixArea: mix.points, mixSeries: mix.series, usingMock: false }
+  return {
+    segments,
+    trend,
+    mixArea: mix.points,
+    mixSeries: mix.series,
+    hasLiveData: true,
+  }
 }

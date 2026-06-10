@@ -56,7 +56,7 @@ export function EvidencePackBreakdownChart({ segments, mixArea, mixSeries, previ
       <EvidenceSectionHeader
         title="Pack Status Mix"
         subtitle="Distribution of proof-ready, partial, and missing packs in scope"
-        badge={preview ? 'Preview' : undefined}
+        badge={preview ? 'Awaiting live data' : undefined}
         live={!preview && hasChart}
       />
       <div className="flex flex-1 flex-col px-3 pb-4 pt-1">

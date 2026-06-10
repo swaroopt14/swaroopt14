@@ -317,9 +317,9 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
               segments={analytics.segments}
               mixArea={analytics.mixArea}
               mixSeries={analytics.mixSeries}
-              preview={analytics.usingMock}
+              preview={!analytics.hasLiveData}
             />
-            <EvidencePackTrendChart trend={analytics.trend} preview={analytics.usingMock} />
+            <EvidencePackTrendChart trend={analytics.trend} preview={!analytics.hasLiveData} />
           </div>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">

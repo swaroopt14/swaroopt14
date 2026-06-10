@@ -5,7 +5,7 @@ import { useJournalBatchSelection } from '../context/JournalBatchSelectionContex
 import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
 import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
-import { fmtInrFull } from '../../command-center/commandCenterFormat'
+import { fmtInrFromMinorExact } from '../../command-center/commandCenterFormat'
 import { IntentJournalExportMenu } from './IntentJournalExportMenu'
 import { useDlqTerminalCount } from '../hooks/useDlqTerminalCount'
 
@@ -25,7 +25,7 @@ export function IntentJournalHeroBanner({
   const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, journalEnabled)
   const { count: terminalDlqCount, loading: terminalLoading } = useDlqTerminalCount(journalEnabled)
 
-  const valueLabel = fmtInrFull(metrics?.intendedValue ?? batch?.totalValue ?? 0, { decimals: 0 })
+  const valueLabel = fmtInrFromMinorExact(metrics?.intendedValue ?? batch?.totalValue ?? 0)
   const instructionCount = metrics?.instructionCount ?? batch?.transactions ?? 0
   const readinessPct = metrics?.avgReadinessPct != null ? `${metrics.avgReadinessPct.toFixed(0)}%` : '—'
   const needsReview =

@@ -423,8 +423,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                               <td className="truncate px-3 py-2.5 text-[13px] text-[#334155]" title={row.intendedExecutionAt}>
                                 {row.intendedExecutionAt}
                               </td>
-                              <td className="truncate px-3 py-2.5 text-[13px] font-medium text-[#334155]" title={row.rail ?? row.method}>
-                                {row.rail ?? row.method}
+                              <td className="truncate px-3 py-2.5 text-[13px] font-medium text-[#334155]" title={row.rail && row.rail !== '—' ? row.rail : row.method}>
+                                {row.rail && row.rail !== '—' ? row.rail : row.method}
                               </td>
                               <td className="px-3 py-2.5 tabular-nums font-semibold text-[#0f172a]">{row.confidenceLabel}</td>
                             </tr>

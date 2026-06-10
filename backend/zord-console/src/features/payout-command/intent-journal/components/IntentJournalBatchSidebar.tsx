@@ -126,13 +126,11 @@ export function IntentJournalBatchSidebar({
               const liveFinality = detailRow?.finality_status ?? batch.intelligenceCounts?.finality_status
               const dlqCount = selected
                 ? selectedDlqTotal
-                : batch.engineSidebar && batch.transactions > 0 && batch.confirmedCount === 0
-                  ? batch.transactions
-                  : batch.unresolvedCount + batch.mismatchCount
+                : batch.unresolvedCount + batch.mismatchCount
               const intentCount = selected
-                ? selectedEngineIntentTotal
+                ? Math.max(selectedEngineIntentTotal, liveTotalRaw)
                 : batch.engineSidebar
-                  ? batch.confirmedCount
+                  ? Math.max(batch.confirmedCount, batch.transactions, liveTotalRaw)
                   : batch.transactions
               const engineConfPct = confidencePctFromBatch(batch)
               const status = resolveBatchHealthStatus(batch, {
@@ -227,7 +225,7 @@ export function IntentJournalBatchSidebar({
                     </span>
                     <span aria-hidden>·</span>
                     <span className="tabular-nums">
-                      {(journalUsesBackendFeed ? liveTotalRaw : batch.transactions).toLocaleString('en-US')} intents
+                      {intentCount.toLocaleString('en-US')} intents
                     </span>
                   </div>
                   {journalUsesBackendFeed && liveFinality ? (

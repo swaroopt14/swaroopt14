@@ -473,14 +473,15 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     return liveBatchList
   }, [journalUsesBackendFeed, liveBatchList])
 
-  const selectedDlqTotal = journalUsesBackendFeed
-    ? Math.max(dlqPagination?.total ?? 0, liveFailureRows.length)
-    : 0
+  const failureFeedLoading = failureFeed.loading
   /** After detail fetch, trust loaded rows — pagination `total` can mirror ingest volume when all rows are DLQ. */
+  const selectedDlqTotal = journalUsesBackendFeed
+    ? failureFeedLoading
+      ? Math.max(dlqPagination?.total ?? 0, liveFailureRows.length)
+      : liveFailureRows.length
+    : 0
   const selectedEngineIntentTotal = journalUsesBackendFeed
-    ? liveDetailLoading
-      ? Math.max(intentPagination?.total ?? 0, liveIntentRows.length)
-      : liveIntentRows.length
+    ? Math.max(intentPagination?.total ?? 0, liveIntentRows.length)
     : 0
 
   // Sidebar list filters — intelligence batches from `GET /v1/intelligence/batches`.
@@ -493,14 +494,12 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           dlqCount:
             b.batchId === selectedBatchId
               ? selectedDlqTotal
-              : b.engineSidebar && b.transactions > 0 && b.confirmedCount === 0
-                ? b.transactions
-                : b.unresolvedCount + b.mismatchCount,
+              : b.unresolvedCount + b.mismatchCount,
           intentCount:
             b.batchId === selectedBatchId
               ? selectedEngineIntentTotal
               : b.engineSidebar
-                ? b.confirmedCount
+                ? Math.max(b.confirmedCount, b.transactions)
                 : b.transactions,
           finality: b.intelligenceCounts?.finality_status,
         })
@@ -567,14 +566,12 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       dlqCount:
         b.batchId === selectedBatchId
           ? selectedDlqTotal
-          : b.engineSidebar && b.transactions > 0 && b.confirmedCount === 0
-            ? b.transactions
-            : b.unresolvedCount + b.mismatchCount,
+          : b.unresolvedCount + b.mismatchCount,
       intentCount:
         b.batchId === selectedBatchId
           ? selectedEngineIntentTotal
           : b.engineSidebar
-            ? b.confirmedCount
+            ? Math.max(b.confirmedCount, b.transactions)
             : b.transactions,
       finality: b.intelligenceCounts?.finality_status,
     })

@@ -159,7 +159,7 @@ export function resolveBatchHealthStatus(
   const dlq = Math.max(0, opts?.dlqCount ?? 0)
   const intents = Math.max(0, opts?.intentCount ?? 0)
   const attention = (batch.mismatchCount ?? 0) + (batch.unresolvedCount ?? 0)
-  const ingestTotal = Math.max(batch.transactions, 0)
+  const ingestTotal = Math.max(batch.transactions, intents, 0)
   const pipelineTotal = Math.max(intents + dlq, ingestTotal, 1)
 
   if (dlq > 0 && intents === 0) return 'Critical'
@@ -173,6 +173,16 @@ export function resolveBatchHealthStatus(
 
   if (dlq === 0 && attention === 0 && ingestTotal > 0 && batch.confirmedCount >= ingestTotal) {
     return 'Strong'
+  }
+
+  if (dlq === 0 && attention === 0 && intents > 0) {
+    const confPct = confidencePctFromBatch(batch)
+    if (confPct != null) return batchStatusFromConfidencePct(confPct)
+    return 'Stable'
+  }
+
+  if (dlq === 0 && attention === 0 && intents === 0 && ingestTotal === 0) {
+    return 'Stable'
   }
 
   const fs = opts?.finality

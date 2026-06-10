@@ -47,21 +47,6 @@ function CopyProofRootButton({ text }: { text: string }) {
   )
 }
 
-function ProofStatusChip({ label }: { label: string }) {
-  const ready = label === 'Proof Ready' || label === 'Verified'
-  const partial = label.includes('Partial') || label.includes('Missing')
-  const tone = ready
-    ? 'border-emerald-300/60 bg-emerald-50 text-emerald-800'
-    : partial
-      ? 'border-amber-200/80 bg-amber-50/80 text-amber-900'
-      : 'border-slate-200 bg-white text-slate-700'
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${tone}`}>
-      {label}
-    </span>
-  )
-}
-
 function ScopeChip({ scope }: { scope: PackTableRowVm['scope'] }) {
   if (scope === 'batch') {
     return (
@@ -261,7 +246,6 @@ export function EvidencePackBrowser({
               <th className="border-b border-slate-200/80 px-4 py-3">Proof Root</th>
               <th className="border-b border-slate-200/80 px-4 py-3 text-right">Score</th>
               <th className="border-b border-slate-200/80 px-4 py-3 text-right">Leaves</th>
-              <th className="border-b border-slate-200/80 px-4 py-3">Status</th>
               <th className="border-b border-slate-200/80 px-4 py-3 text-right">Generated</th>
               <th className="border-b border-slate-200/80 px-5 py-3 text-right">Actions</th>
             </tr>
@@ -270,7 +254,7 @@ export function EvidencePackBrowser({
             {packsLoading && pageRows.length === 0
               ? Array.from({ length: 5 }).map((_, i) => (
                   <tr key={`loading-${i}`} className="align-top">
-                    <td colSpan={8} className="px-5 py-3">
+                    <td colSpan={7} className="px-5 py-3">
                       <div className="h-10 animate-pulse rounded-lg bg-slate-100" />
                     </td>
                   </tr>
@@ -322,9 +306,6 @@ export function EvidencePackBrowser({
                   <td className="px-4 py-4 text-right tabular-nums text-[13px] text-slate-700">
                     {row.itemCount ?? '—'}/{row.totalItems}
                   </td>
-                  <td className="px-4 py-4">
-                    <ProofStatusChip label={row.proofStatus} />
-                  </td>
                   <td className="px-4 py-4 text-right text-[13px] tabular-nums text-slate-600">
                     {formatIsoDate(row.generatedAt)}
                   </td>
@@ -342,7 +323,7 @@ export function EvidencePackBrowser({
             })}
             {!packsLoading && pageRows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-5 py-14 text-center">
+                <td colSpan={7} className="px-5 py-14 text-center">
                   <p className="text-[15px] font-semibold text-slate-900">{evidenceCopy.empty.noPack}</p>
                   <p className="mt-2 text-[13.5px] text-slate-500">{evidenceCopy.empty.noPackHint}</p>
                 </td>

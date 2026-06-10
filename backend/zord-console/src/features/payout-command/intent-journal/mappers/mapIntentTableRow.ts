@@ -73,6 +73,7 @@ function resolveRailHint(item: IntentJournalPaymentIntentItem): string {
     if (value.includes('IMPS')) return 'IMPS'
     if (value.includes('UPI')) return 'UPI'
     if (value.includes('LSM') || value.includes('INSTA')) return 'LSM'
+    if (value.includes('BANK_TRANSFER') || value.includes('BANK TRANSFER')) return 'Bank Transfer'
   }
   return '—'
 }

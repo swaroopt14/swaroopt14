@@ -973,7 +973,7 @@ func computeBatchSummary(
 			}
 		}
 		if isAttached {
-			summary.TotalObservedAmount = summary.TotalObservedAmount.Add(obs.Amount)
+			summary.TotalObservedAmount = summary.TotalObservedAmount.Add(*obs.SettledAmount)
 		}
 	}
 

@@ -143,7 +143,7 @@ function SettlementJournalSurfaceContent({
   tenantReady: boolean
 }) {
   const { mode } = useEnvironment()
-  const batchCommandCenterHref = payoutBatchCommandCenterHref(true)
+  const batchCommandCenterHref = payoutBatchCommandCenterHref(mode === 'sandbox')
 
   useEffect(() => {
     if (mode === 'sandbox' && feedLoaded && observationRows.length > 0) {
@@ -169,11 +169,16 @@ function SettlementJournalSurfaceContent({
   const [syncAt, setSyncAt] = useState<Date | null>(null)
   const [parseErrors, setParseErrors] = useState<SettlementParseErrorRow[]>([])
   const [parseErrorsLoading, setParseErrorsLoading] = useState(false)
+  const [batchIdDraft, setBatchIdDraft] = useState(selectedClientBatchId)
 
   const selectClientBatch = useCallback(
     (batchId: string) => setSelectedClientBatchId(batchId),
     [setSelectedClientBatchId],
   )
+
+  useEffect(() => {
+    setBatchIdDraft(selectedClientBatchId)
+  }, [selectedClientBatchId])
 
   useEffect(() => {
     if (!selectedClientBatchId || observationRows.length === 0) return
@@ -408,9 +413,12 @@ function SettlementJournalSurfaceContent({
             </JournalPageHeader>
             <div className="mb-4">
               <SessionTenantScopeBar
-                batchId={selectedClientBatchId}
-                onBatchIdChange={(id) => selectClientBatch(id)}
-                onAfterFetch={() => void handleRefresh()}
+                batchId={batchIdDraft}
+                onBatchIdChange={setBatchIdDraft}
+                onAfterFetch={() => {
+                  selectClientBatch(batchIdDraft.trim())
+                  void handleRefresh()
+                }}
               />
             </div>
             {feedMetaLine ? (
@@ -418,27 +426,37 @@ function SettlementJournalSurfaceContent({
             ) : null}
 
             {selectedClientBatchId ? (
-              <>
-                <SettlementJournalHeroBanner
-                  onExport={() => {
-                    downloadCsv(
-                      `settlement-observations${selectedClientBatchId ? `-${selectedClientBatchId}` : ''}.csv`,
-                      observationsToCsv(filteredRows),
-                    )
-                  }}
-                  exportDisabled={filteredRows.length === 0}
-                  filteredCount={filteredRows.length}
-                  filtersActive={filtersActive}
-                />
-                <SettlementJournalDataHealthPanel />
-                <SettlementParseErrorsPanel
-                  rows={parseErrors}
-                  loading={parseErrorsLoading}
-                  selectedClientBatchId={selectedClientBatchId}
-                />
+              observationRows.length === 0 && !detailLoading ? (
+                <section className={`relative mb-4 ${COMMAND_CENTER_KPI_CARD} px-6 py-8 text-center`}>
+                  <CommandCenterCardGlow />
+                  <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>No settlement records</p>
+                  <p className={`relative mx-auto mt-2 max-w-xl ${HOME_BODY_IMPERIAL_SM}`}>
+                    Batch <span className="font-mono">{selectedClientBatchId}</span> has no settlement data yet. Upload a settlement file from Batch Command Center to populate this view.
+                  </p>
+                </section>
+              ) : (
+                <>
+                  <SettlementJournalHeroBanner
+                    onExport={() => {
+                      downloadCsv(
+                        `settlement-observations${selectedClientBatchId ? `-${selectedClientBatchId}` : ''}.csv`,
+                        observationsToCsv(filteredRows),
+                      )
+                    }}
+                    exportDisabled={filteredRows.length === 0}
+                    filteredCount={filteredRows.length}
+                    filtersActive={filtersActive}
+                  />
+                  <SettlementJournalDataHealthPanel />
+                  <SettlementParseErrorsPanel
+                    rows={parseErrors}
+                    loading={parseErrorsLoading}
+                    selectedClientBatchId={selectedClientBatchId}
+                  />
 
-                <SettlementJournalActivityPanel vm={activityVm} />
-              </>
+                  <SettlementJournalActivityPanel vm={activityVm} />
+                </>
+              )
             ) : (
               <section className={`relative mb-4 ${COMMAND_CENTER_KPI_CARD} px-6 py-8 text-center`}>
                 <CommandCenterCardGlow />

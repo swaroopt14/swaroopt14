@@ -155,13 +155,13 @@ export function BillingSurface({ onActivateClick }: { onActivateClick: () => voi
 
             <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
               <Link
-                href="/sandbox?dock=grid"
+                href={isSandbox ? '/sandbox?dock=grid' : '/payout-command-view/today?dock=grid'}
                 className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
               >
                 Intent Journal
               </Link>
               <Link
-                href={payoutBatchCommandCenterHref(true)}
+                href={payoutBatchCommandCenterHref(isSandbox)}
                 className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
               >
                 Batch Command Center

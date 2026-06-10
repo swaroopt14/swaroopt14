@@ -83,17 +83,19 @@ export function AlertStrip({
               Dismiss
             </button>
           ) : null}
-          <time
-            className="text-sm font-medium tabular-nums opacity-95 sm:text-base"
-            dateTime={timestamp}
-            title="Last updated"
-          >
-            Last updated ·{' '}
-            {new Date(timestamp).toLocaleString('en-IN', {
-              dateStyle: 'medium',
-              timeStyle: 'short',
-            })}
-          </time>
+          {timestamp && !Number.isNaN(new Date(timestamp).getTime()) ? (
+            <time
+              className="text-sm font-medium tabular-nums opacity-95 sm:text-base"
+              dateTime={timestamp}
+              title="Last updated"
+            >
+              Last updated ·{' '}
+              {new Date(timestamp).toLocaleString('en-IN', {
+                dateStyle: 'medium',
+                timeStyle: 'short',
+              })}
+            </time>
+          ) : null}
         </div>
       </div>
     </div>

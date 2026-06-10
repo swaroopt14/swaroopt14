@@ -21,10 +21,8 @@ import {
   BUBBLE_MAP_MAX_Z,
   BUBBLE_MAP_QUADRANTS,
   batchSizeAxisTicks,
-  buildAmbiguityVelocityMock,
   bubbleMapSummary,
   mapAmbiguityVelocityScatter,
-  MOCK_PREVIEW_BATCH_COUNT,
   type AmbiguityBubblePoint,
 } from '../utils/mapAmbiguityVelocityScatter'
 
@@ -82,11 +80,6 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
   const [liveMaxAmountMinor, setLiveMaxAmountMinor] = useState(0)
   const [seriesLive, setSeriesLive] = useState(false)
 
-  const mockPoints = useMemo(
-    () => buildAmbiguityVelocityMock(MOCK_PREVIEW_BATCH_COUNT, batchId),
-    [batchId],
-  )
-
   useEffect(() => {
     let cancelled = false
     void getAmbiguityVelocityScatter({ batchId }).then((body) => {
@@ -107,9 +100,9 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
     }
   }, [batchId])
 
-  const points = seriesLive && livePoints?.length ? livePoints : mockPoints
+  const points = seriesLive && livePoints?.length ? livePoints : []
   const isPreview = !seriesLive
-  const maxAmountMinor = seriesLive ? liveMaxAmountMinor : Math.max(...mockPoints.map((p) => p.amountValueMinor), 1)
+  const maxAmountMinor = seriesLive ? liveMaxAmountMinor : 1
   const sizeTicks = useMemo(() => batchSizeAxisTicks(maxAmountMinor), [maxAmountMinor])
   const summary = useMemo(() => bubbleMapSummary(points), [points])
 
@@ -150,7 +143,7 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
           </span>
           {isPreview ? (
             <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800">
-              Preview · {batchId ? `batch ${batchId}` : `${MOCK_PREVIEW_BATCH_COUNT} batches`}
+              Awaiting live data
             </span>
           ) : null}
         </div>

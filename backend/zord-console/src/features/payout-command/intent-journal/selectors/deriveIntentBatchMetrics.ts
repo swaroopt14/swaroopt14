@@ -74,6 +74,9 @@ export function deriveIntentBatchHealth(metrics: IntentBatchMetrics): {
   if (metrics.needsReviewCount > 0) {
     return { status: 'Needs Review', reasons }
   }
+  if (metrics.instructionCount > 0 && metrics.dlqCount === 0 && metrics.lowReadinessCount === 0) {
+    return { status: 'Ready', reasons: ['All instructions passed validation'] }
+  }
   if (metrics.instructionCount > 0) {
     return { status: 'Awaiting Confirmation', reasons: ['Payment instructions received — awaiting bank confirmation'] }
   }

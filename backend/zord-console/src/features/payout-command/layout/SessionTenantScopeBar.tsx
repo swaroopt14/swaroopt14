@@ -49,8 +49,7 @@ export function SessionTenantScopeBar({
           ) : null}
           {showWarning ? (
             <p className="text-[12px] leading-relaxed text-amber-900">
-              Data APIs use your session cookie; this label helps when /api/auth/me omits tenant_id. Sign in, enter
-              Batch-Id if you have one, then click Fetch tenant id.
+              Sign in with a tenant workspace, or enter a Batch-Id and click Fetch tenant id.
             </p>
           ) : null}
         </div>

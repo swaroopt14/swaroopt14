@@ -862,7 +862,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
               <JournalRecommendedBlackCard
                 eyebrow="Batches"
                 title="No batches yet"
-                body="Create or ingest a batch in Batch Command Center. The sidebar loads from the intent-engine batch list for your session tenant."
+                body="Upload a payment file from Batch Command Center to get started."
                 onDismiss={() => {
                   dismissJournalNotice(JOURNAL_NO_BATCHES_DISMISS_KEY)
                   setNoBatchesNoticeDismissed(true)

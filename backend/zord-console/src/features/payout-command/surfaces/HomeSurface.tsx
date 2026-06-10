@@ -388,7 +388,7 @@ export function HomeSurface({
       ? 'Upload a bank statement or settlement file for this period.'
       : null
 
-  const lastUpdatedIso = leakageData?.computed_at ?? trendSeries?.buckets?.[0]?.key
+  const lastUpdatedIso = leakageData?.computed_at ?? null
   const lastUpdatedDisplay = lastUpdatedIso
     ? new Date(lastUpdatedIso).toLocaleString('en-GB', {
         day: '2-digit',

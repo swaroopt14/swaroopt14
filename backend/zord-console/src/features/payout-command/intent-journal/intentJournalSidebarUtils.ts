@@ -171,6 +171,10 @@ export function resolveBatchHealthStatus(
   if (attention > 0 && attention >= ingestTotal && ingestTotal > 0) return 'Critical'
   if (attention > ingestTotal * 0.5 && ingestTotal > 0) return 'Critical'
 
+  if (dlq === 0 && attention === 0 && ingestTotal > 0 && batch.confirmedCount >= ingestTotal) {
+    return 'Strong'
+  }
+
   const fs = opts?.finality
   if (fs) {
     const fromFinality = batchStatusFromFinality(fs)

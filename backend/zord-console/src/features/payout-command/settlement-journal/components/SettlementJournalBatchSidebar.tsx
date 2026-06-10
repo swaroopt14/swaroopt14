@@ -42,7 +42,7 @@ export function SettlementJournalBatchSidebar({
   safeSidebarPage,
   sidebarTotalPages,
   setSidebarPage,
-  batchCommandCenterHref = payoutBatchCommandCenterHref(true),
+  batchCommandCenterHref = payoutBatchCommandCenterHref(false),
 }: SettlementJournalBatchSidebarProps) {
   return (
     <aside className={`flex h-full flex-col overflow-hidden border-r ${JOURNAL_BORDER} bg-white`}>

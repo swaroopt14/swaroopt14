@@ -206,7 +206,7 @@ export default function BatchCommandCenterClient() {
     showToolbarNotice('Opened email draft with batch summary.')
   }, [activeBatchId, showToolbarNotice, statCardsSummary, tenantId])
 
-  const createPaymentHref = '/customer/intents/create'
+  const createPaymentHref = '/payout-command-view/create-payment'
 
   return (
     <div

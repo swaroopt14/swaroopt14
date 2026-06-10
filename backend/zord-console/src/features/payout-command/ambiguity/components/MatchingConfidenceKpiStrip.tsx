@@ -24,6 +24,10 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
   const rate = amb?.ambiguity_rate
   const missingRate = amb?.provider_ref_missing_rate
   const ambiguityRateLabel = rate != null ? `${(rate * 100).toFixed(1)}%` : '—'
+  const matchConfidenceLabel =
+    amb?.avg_attachment_confidence != null
+      ? `${(amb.avg_attachment_confidence * 100).toFixed(1)}%`
+      : '—'
 
   const buckets = [
     {
@@ -51,7 +55,7 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
   return (
     <JournalIntelligenceKpiHero
       eyebrow="Matching confidence"
-      value={formatAmbiguityInr(amb?.value_at_risk_minor)}
+      value={matchConfidenceLabel}
       deltaPill={ambiguityRateLabel}
       subcopy={scopeHint ?? 'Tenant-wide snapshot'}
       buckets={buckets}

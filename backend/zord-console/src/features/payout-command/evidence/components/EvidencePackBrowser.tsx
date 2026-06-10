@@ -267,6 +267,15 @@ export function EvidencePackBrowser({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
+            {packsLoading && pageRows.length === 0
+              ? Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={`loading-${i}`} className="align-top">
+                    <td colSpan={8} className="px-5 py-3">
+                      <div className="h-10 animate-pulse rounded-lg bg-slate-100" />
+                    </td>
+                  </tr>
+                ))
+              : null}
             {pageRows.map((row) => {
               const merkleShort = shortHash(row.proofRoot)
               const href = `/payout-command-view/evidence-pack/${encodeURIComponent(row.packId)}?tab=graph${batchId ? `&batch_id=${encodeURIComponent(batchId)}` : ''}`
@@ -331,7 +340,7 @@ export function EvidencePackBrowser({
                 </tr>
               )
             })}
-            {pageRows.length === 0 ? (
+            {!packsLoading && pageRows.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-5 py-14 text-center">
                   <p className="text-[15px] font-semibold text-slate-900">{evidenceCopy.empty.noPack}</p>

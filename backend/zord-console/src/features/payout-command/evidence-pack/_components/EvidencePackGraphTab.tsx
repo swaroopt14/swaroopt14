@@ -61,10 +61,11 @@ export function EvidencePackGraphTab({ packId, batchId, intentId }: EvidencePack
     let cancelled = false
     setPackLoading(true)
     setPackError(null)
-    void listEvidencePacksForBatch(bid).then((rows) => {
+    void listEvidencePacksForBatch(bid).then(({ packs: rows, errors }) => {
       if (cancelled) return
       if (!rows.length) {
-        setPackError(`No evidence packs available for batch ${bid}.`)
+        const detail = errors.length ? ` ${errors.join(' · ')}` : ''
+        setPackError(`No evidence packs available for batch ${bid}.${detail}`)
         setBatchPacks([])
         setIntentPacks([])
         setSelectedBatchPackId(null)

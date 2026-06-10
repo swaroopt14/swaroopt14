@@ -391,10 +391,13 @@ export function MerkleGraphSurface({
     }
     let cancelled = false
     setLiveListError(null)
-    void listEvidencePacksForBatch(activeBatchId).then((packs) => {
+    void listEvidencePacksForBatch(activeBatchId).then(({ packs, errors }) => {
       if (cancelled) return
       if (!packs.length) {
-        setLiveListError('Evidence list unavailable. Confirm zord-evidence is up and list filters match your deployment.')
+        const detail = errors.length ? errors.join(' · ') : 'empty response'
+        setLiveListError(
+          `Evidence list unavailable for batch ${activeBatchId}. ${detail}`,
+        )
         setPackSummaries([])
         return
       }
@@ -654,11 +657,13 @@ export function MerkleGraphSurface({
 
       let nextSummaries = packSummaries
       if (bid) {
-        nextSummaries = await listEvidencePacksForBatch(bid)
+        const listed = await listEvidencePacksForBatch(bid)
+        nextSummaries = listed.packs
         if (nextSummaries.length) {
           setPackSummaries(nextSummaries)
         } else {
-          setLiveListError('Evidence list unavailable. Confirm zord-evidence is up and list filters match your deployment.')
+          const detail = listed.errors.length ? listed.errors.join(' · ') : 'empty response'
+          setLiveListError(`Evidence list unavailable for batch ${bid}. ${detail}`)
           setPackSummaries([])
           return
         }

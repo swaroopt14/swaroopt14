@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
   getAmbiguityKpis,
@@ -16,7 +16,12 @@ import type {
   LeakageKpiResolved,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
-import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
+import { stubIntelligenceBatchRow } from '@/services/payout-command/prod-api/evidenceBatchScope'
+import {
+  getEvidenceBatchIdsForSession,
+  listEvidencePacksForBatch,
+  listEvidencePacksForFirstBatchWithData,
+} from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
 import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { EvidencePageTabs } from './components/EvidencePageTabs'
@@ -36,6 +41,13 @@ import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
 import type { EvidencePageTab } from './types/evidenceViewModels'
 
 const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
+
+/** Prefer batches like 1234 over 123 when both exist in the journal list. */
+function sortBatchPickerRows(rows: IntelligenceBatchRow[]): IntelligenceBatchRow[] {
+  return [...rows].sort((a, b) =>
+    b.batch_id.localeCompare(a.batch_id, undefined, { numeric: true, sensitivity: 'base' }),
+  )
+}
 
 /**
  * APIs (5 on workspace load):
@@ -58,6 +70,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const [leakage, setLeakage] = useState<LeakageKpiResolved | null>(null)
   const [ambiguity, setAmbiguity] = useState<AmbiguityKpiResolved | null>(null)
   const [kpisLoading, setKpisLoading] = useState(false)
+  const autoBatchFallbackPending = useRef(!apiTrimmedString(initialBatchId))
 
   const { tenantReady } = useSessionTenant()
   const { batchHealth } = useIntelligenceBatchHealth(tenantReady, batchId || undefined)
@@ -74,16 +87,32 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
       return
     }
     let cancelled = false
-    void getIntelligenceBatches({ limit: 80 }).then((res) => {
-      if (cancelled) return
-      const list = res?.batches ?? []
-      setBatches(list)
-      setBatchId((prev) => {
-        const pinned = apiTrimmedString(prev) || apiTrimmedString(initialBatchId)
-        if (pinned && list.some((b) => b.batch_id === pinned)) return pinned
-        return list[0]?.batch_id ?? ''
-      })
-    })
+    void Promise.all([getIntelligenceBatches({ limit: 80 }), getEvidenceBatchIdsForSession()]).then(
+      ([res, journalBatchIds]) => {
+        if (cancelled) return
+        const intelList = res?.batches ?? []
+        const seen = new Set<string>()
+        const merged: IntelligenceBatchRow[] = []
+        for (const id of journalBatchIds) {
+          if (!id || seen.has(id)) continue
+          seen.add(id)
+          merged.push(stubIntelligenceBatchRow(id, apiTrimmedString(res?.tenant_id)))
+        }
+        for (const row of intelList) {
+          const id = apiTrimmedString(row.batch_id)
+          if (!id || seen.has(id)) continue
+          seen.add(id)
+          merged.push(row)
+        }
+        const sorted = sortBatchPickerRows(merged)
+        setBatches(sorted)
+        setBatchId((prev) => {
+          const pinned = apiTrimmedString(prev) || apiTrimmedString(initialBatchId)
+          if (pinned && sorted.some((b) => b.batch_id === pinned)) return pinned
+          return sorted[0]?.batch_id ?? ''
+        })
+      },
+    )
     return () => {
       cancelled = true
     }
@@ -123,26 +152,55 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     let cancelled = false
     setPacksLoading(true)
     setPackListError(null)
-    void listEvidencePacksForBatch(bid).then((packs) => {
-      if (cancelled) return
-      if (!packs.length) {
-        setPackListError(`No evidence packs for batch ${bid}.`)
+    void (async () => {
+      try {
+        let { packs, errors } = await listEvidencePacksForBatch(bid)
+        if (cancelled) return
+
+        if (
+          !packs.length &&
+          autoBatchFallbackPending.current &&
+          batches.length > 1 &&
+          !apiTrimmedString(initialBatchId)
+        ) {
+          autoBatchFallbackPending.current = false
+          const fallback = await listEvidencePacksForFirstBatchWithData(batches.map((b) => b.batch_id))
+          if (cancelled) return
+          if (fallback.resolvedBatchId && fallback.packs.length > 0) {
+            setBatchId(fallback.resolvedBatchId)
+            setPackListError(null)
+            setPackSummaries(fallback.packs)
+            setPacksLoading(false)
+            return
+          }
+          if (fallback.errors.length) errors = [...errors, ...fallback.errors]
+        } else {
+          autoBatchFallbackPending.current = false
+        }
+
+        if (!packs.length) {
+          const detail = errors.length ? errors.join(' · ') : 'All three evidence list calls returned empty.'
+          setPackListError(
+            `No evidence packs for batch ${bid}. APIs hit: GET /api/prod/evidence/packs?client_batch_id=…, GET /api/prod/evidence/batch/${bid}/intents, GET /api/prod/evidence/batch/${bid}/lineage-graph. ${detail}`,
+          )
+          setPackSummaries([])
+        } else {
+          setPackListError(null)
+          setPackSummaries(packs)
+        }
+        setPacksLoading(false)
+      } catch (error: unknown) {
+        if (cancelled) return
+        autoBatchFallbackPending.current = false
+        setPackListError(error instanceof Error ? error.message : `Evidence pack list failed for batch ${bid}.`)
         setPackSummaries([])
-      } else {
-        setPackListError(null)
-        setPackSummaries(packs)
+        setPacksLoading(false)
       }
-      setPacksLoading(false)
-    }).catch((error: unknown) => {
-      if (cancelled) return
-      setPackListError(error instanceof Error ? error.message : `No evidence packs for batch ${bid}.`)
-      setPackSummaries([])
-      setPacksLoading(false)
-    })
+    })()
     return () => {
       cancelled = true
     }
-  }, [tenantReady, batchId])
+  }, [tenantReady, batchId, batches, initialBatchId])
 
   const packRows = useMemo(
     () =>

@@ -54,6 +54,10 @@ spec:
           env:
             - name: PORT
               value: "8088"
+            - name: USER
+              value: evidenceuser
+            - name: SIGNING_KEY_PATH
+              value: /run/secrets/signing_key.pem
             - name: KAFKA_BROKERS
               valueFrom:
                 configMapKeyRef:

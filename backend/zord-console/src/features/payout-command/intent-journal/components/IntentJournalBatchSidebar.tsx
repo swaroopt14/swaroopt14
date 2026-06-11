@@ -8,23 +8,19 @@ import {
 import {
   BATCH_FILTERS,
   JOURNAL_BORDER,
-  JOURNAL_PANEL_BG,
   batchQualityScore,
   confidencePctFromBatch,
   formatInrRupees,
+  BATCH_AGGREGATE_STATUS_GUIDE,
   resolveBatchHealthStatus,
   statusTone,
   usdCompact,
   type BatchFilter,
   type BatchRecord,
-  type SidebarMode,
 } from '../intentJournalSidebarUtils'
 
 export type IntentJournalBatchSidebarProps = {
   batches: BatchRecord[]
-  sourceCount: number
-  sidebarMode: SidebarMode
-  setSidebarMode: (mode: SidebarMode) => void
   batchFilter: BatchFilter
   setBatchFilter: (filter: BatchFilter) => void
   setSidebarPage: (updater: (page: number) => number) => void
@@ -42,9 +38,6 @@ export type IntentJournalBatchSidebarProps = {
 
 export function IntentJournalBatchSidebar({
   batches,
-  sourceCount,
-  sidebarMode,
-  setSidebarMode,
   batchFilter,
   setBatchFilter,
   setSidebarPage,
@@ -64,26 +57,8 @@ export function IntentJournalBatchSidebar({
           <div className="border-b border-[#E5E5E5] px-4 pb-3 pt-4">
             <h2 className={`text-[14px] font-medium ${HOME_TITLE_BLACK}`}>Batches</h2>
             <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
-              {batches.length} listed · {sourceCount} sources
+              {batches.length} batch{batches.length === 1 ? '' : 'es'}
             </p>
-            <div className={`mt-3 rounded-[10px] border ${JOURNAL_BORDER} ${JOURNAL_PANEL_BG} p-1`}>
-              <div className="grid grid-cols-2 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setSidebarMode('listed')}
-                  className={`rounded-[8px] px-3 py-1.5 text-[15px] font-medium transition ${sidebarMode === 'listed' ? 'bg-white text-[#0f172a] shadow-sm' : 'text-[#64748b] hover:text-[#0f172a]'}`}
-                >
-                  Listed <span className="ml-1 text-[#94a3b8]">{batches.length}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSidebarMode('sectors')}
-                  className={`rounded-[8px] px-3 py-1.5 text-[15px] font-medium transition ${sidebarMode === 'sectors' ? 'bg-white text-[#0f172a] shadow-sm' : 'text-[#64748b] hover:text-[#0f172a]'}`}
-                >
-                  Sectors <span className="ml-1 text-[#94a3b8]">{sourceCount}</span>
-                </button>
-              </div>
-            </div>
             <div className="mt-3">
               <select
                 value={batchFilter}
@@ -137,9 +112,9 @@ export function IntentJournalBatchSidebar({
               const progressWidthPct = engineConfPct ?? score
               const tone = statusTone(status)
               const dotColor =
-                status === 'Strong' || status === 'Stable'
+                status === 'Stable'
                   ? 'bg-emerald-500'
-                  : status === 'Risk'
+                  : status === 'At Risk'
                     ? 'bg-amber-500'
                     : 'bg-rose-500'
 
@@ -170,7 +145,7 @@ export function IntentJournalBatchSidebar({
                     </div>
                     <span
                       className={`shrink-0 text-[15px] font-semibold tabular-nums ${tone.text}`}
-                      title="Batch aggregate_confidence_score from intent-engine"
+                      title={`Aggregate confidence · ${BATCH_AGGREGATE_STATUS_GUIDE}`}
                     >
                       {sidebarScoreDisplay}
                     </span>
@@ -198,12 +173,13 @@ export function IntentJournalBatchSidebar({
                   <div className="mt-1 flex flex-wrap items-center gap-2 pl-4">
                     <div
                       className={`inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold ${tone.text} ${
-                        status === 'Risk'
+                        status === 'At Risk'
                           ? 'bg-amber-100'
                           : status === 'Critical'
                             ? 'bg-rose-100'
                             : 'bg-emerald-100'
                       }`}
+                      title={BATCH_AGGREGATE_STATUS_GUIDE}
                     >
                       {status}
                     </div>
@@ -219,9 +195,9 @@ export function IntentJournalBatchSidebar({
                       <div className="h-1 w-full overflow-hidden rounded-full bg-[#E5E5E5]">
                         <div
                           className={`h-full rounded-full ${
-                            status === 'Strong' || status === 'Stable'
+                            status === 'Stable'
                               ? 'bg-emerald-500'
-                              : status === 'Risk'
+                              : status === 'At Risk'
                                 ? 'bg-amber-500'
                                 : 'bg-rose-500'
                           }`}

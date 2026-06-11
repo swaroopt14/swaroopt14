@@ -27,7 +27,6 @@ import {
   type BatchFilter,
   type BatchRecord,
   type BatchStatus,
-  type SidebarMode,
 } from '../intent-journal/intentJournalSidebarUtils'
 import { useJournalSidebarBatches } from '../intent-journal/hooks/useJournalSidebarBatches'
 import { useJournalIntentRows } from '../intent-journal/hooks/useJournalIntentRows'
@@ -407,7 +406,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   }, [mode, liveBatchList.length])
 
   const [batchFilter, setBatchFilter] = useState<BatchFilter>('All Batches')
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>('listed')
   const [sidebarPage, setSidebarPage] = useState(1)
   const [activeTab, setActiveTab] = useState<TabKey>('transactions')
 
@@ -503,11 +501,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 : b.transactions,
           finality: b.intelligenceCounts?.finality_status,
         })
-        return health === 'Risk' || health === 'Critical'
+        return health === 'At Risk' || health === 'Critical'
       })
     }
     if (batchFilter === 'High Value') return sidebarBatchList.filter((b) => b.totalValue >= 1_500_000)
-    return sidebarBatchList.filter((b) => batchStatus(batchQualityScore(b)) === 'Strong' || batchStatus(batchQualityScore(b)) === 'Stable')
+    return sidebarBatchList.filter((b) => batchStatus(batchQualityScore(b)) === 'Stable')
   }, [batchFilter, sidebarBatchList, selectedBatchId, selectedDlqTotal, selectedEngineIntentTotal])
 
   /** Resolved from intelligence batch list only — no synthetic batch row. */
@@ -574,9 +572,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
             : b.transactions,
       finality: b.intelligenceCounts?.finality_status,
     })
-    return health === 'Risk' || health === 'Critical'
+    return health === 'At Risk' || health === 'Critical'
   }).length
-  const sourceCount = new Set(batches.map((b) => b.source)).size
   const sidebarTotalPages = Math.max(1, Math.ceil(filteredBatches.length / SIDEBAR_PAGE_SIZE))
   const safeSidebarPage = Math.min(sidebarPage, sidebarTotalPages)
   const sidebarPageRows = filteredBatches.slice((safeSidebarPage - 1) * SIDEBAR_PAGE_SIZE, safeSidebarPage * SIDEBAR_PAGE_SIZE)
@@ -804,9 +801,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       <div className="grid h-full grid-cols-[272px,minmax(0,1fr)]">
         <IntentJournalBatchSidebar
           batches={batches}
-          sourceCount={sourceCount}
-          sidebarMode={sidebarMode}
-          setSidebarMode={setSidebarMode}
           batchFilter={batchFilter}
           setBatchFilter={setBatchFilter}
           setSidebarPage={setSidebarPage}
@@ -958,9 +952,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                       failuresToCsv(filteredFailures),
                     )
                   }}
-                  exportDisabled={
-                    filteredIntents.length === 0 && filteredFailures.length === 0
-                  }
+                  intentExportCount={filteredIntents.length}
+                  reviewExportCount={filteredFailures.length}
+                  exportDisabled={false}
                 />
 
                 <IntentJournalActivityPanel vm={activityVm} isSandboxRoute={mode === 'sandbox'} />

@@ -627,7 +627,7 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                           </td>
                           <td className="px-3 py-2.5 tabular-nums">
                             {row.amount > 0
-                              ? formatJournalMoney(row.amount, journalUsesBackendFeed ? 'INR' : 'USD')
+                              ? formatJournalMoney(row.amount, row.currency ?? 'INR')
                               : '—'}
                           </td>
                           <td className="px-3 py-2.5">{row.method}</td>

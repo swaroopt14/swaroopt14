@@ -49,7 +49,7 @@ export type CanonicalSettlementObservation = {
   mapping_profile_version?: string
   client_batch_id?: string
   parse_confidence?: number
-  mapping_confidence?: number
+  mapping_confidence?: number | string
   carrier_richness_score?: number
   attachment_readiness_score?: number
   score_breakdown_json?: unknown
@@ -97,7 +97,7 @@ export type SettlementObservationBatchDetailItem = {
   value_date?: string | null
   source_system_id?: string
   parse_confidence?: number
-  mapping_confidence?: number
+  mapping_confidence?: number | string
   attachment_readiness_score?: number
   matched_intent_id?: string | null
   created_at?: string

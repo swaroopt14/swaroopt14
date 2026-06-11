@@ -160,7 +160,6 @@ export async function fetchJournalDlqItems(batchId: string): Promise<IntentJourn
       .filter((row) => dlqItemMatchesBatch(row, bid))
       .map((row) => ({
         dlq_id: row.dlq_id,
-        envelope_id: row.envelope_id,
         client_batch_ref: row.client_batch_ref,
         batch_id: row.batch_id,
         source_row_num: row.source_row_num,
@@ -169,7 +168,6 @@ export async function fetchJournalDlqItems(batchId: string): Promise<IntentJourn
         error_detail: row.error_detail,
         dlq_status: row.dlq_status,
         intent_context: row.intent_context,
-        trace_id: row.trace_id,
         replayable: row.replayable,
         created_at: row.created_at,
         tenant_id: row.tenant_id,
@@ -196,7 +194,6 @@ export async function fetchJournalDlqItems(batchId: string): Promise<IntentJourn
       if (filteredItems.length > 0) {
         const merged = mergeDlqItemsById(manualForBatch, filteredItems.map((row) => ({
           dlq_id: row.dlq_id,
-          envelope_id: row.envelope_id,
           client_batch_ref: row.client_batch_ref,
           batch_id: row.batch_id,
           source_row_num: row.source_row_num,
@@ -205,7 +202,6 @@ export async function fetchJournalDlqItems(batchId: string): Promise<IntentJourn
           error_detail: row.error_detail,
           dlq_status: row.dlq_status,
           intent_context: row.intent_context,
-          trace_id: row.trace_id,
           replayable: row.replayable,
           created_at: row.created_at,
         })))

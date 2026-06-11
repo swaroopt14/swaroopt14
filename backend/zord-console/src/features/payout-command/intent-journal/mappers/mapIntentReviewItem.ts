@@ -8,7 +8,6 @@ function toApiDlqRow(row: IntentJournalDlqItem, selectedBatchId?: string): ApiDl
   const batchFromIngest = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
   return {
     dlq_id: row.dlq_id,
-    envelope_id: row.envelope_id,
     client_batch_ref: row.client_batch_ref,
     batch_id: batchFromIngest || apiTrimmedString(selectedBatchId) || row.batch_id,
     source_row_num: row.source_row_num,
@@ -18,7 +17,6 @@ function toApiDlqRow(row: IntentJournalDlqItem, selectedBatchId?: string): ApiDl
     error_detail: row.error_detail,
     dlq_status: row.dlq_status,
     intent_context: row.intent_context,
-    trace_id: row.trace_id,
     replayable: row.replayable,
     created_at: row.created_at,
   }

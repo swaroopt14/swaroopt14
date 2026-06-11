@@ -19,17 +19,12 @@ export type IntentJournalPaymentIntentItem = {
   /** Batch-level aggregate confidence (same value on every intent in the batch). */
   aggregate_confidence_score?: number | null
   intent_id?: string
-  envelope_id?: string
   batch_id?: string
   client_payout_ref?: string
   client_batch_ref?: string
   source_row_num?: number
   beneficiary_type?: string | null
   beneficiary?: Record<string, unknown> | null
-  routing_hints_json?: Record<string, unknown> | null
-  status?: string | null
-  governance_state?: string | null
-  business_state?: string | null
 }
 
 export type IntentJournalPaymentIntentsResponse = {
@@ -44,13 +39,11 @@ export type IntentJournalPaymentIntentsResponse = {
 export type IntentJournalDlqItem = {
   dlq_id: string
   tenant_id?: string
-  envelope_id?: string
   stage?: string
   reason_code?: string
   error_detail?: string
   dlq_status?: string
   intent_context?: Record<string, unknown> | null
-  trace_id?: string
   replayable?: boolean
   client_batch_ref?: string
   batch_id?: string

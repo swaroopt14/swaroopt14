@@ -610,7 +610,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const filteredFailures = useMemo(() => {
     const sidebarBid = journalUsesBackendFeed && selectedBatch ? selectedBatch.batchId : ''
     const scopeBatch = sidebarBid !== ''
-    return failures.filter((row) => {
+    const filtered = failures.filter((row) => {
       const q = tableSearch.trim().toLowerCase()
       const bySearch = !q || failureHaystack(row).includes(q)
       const bySidebarBatch = !scopeBatch || row.batchId === sidebarBid
@@ -622,6 +622,14 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       const byDate = intentInDateRange(row.lastUpdated, dateRange)
       const byAmount = matchesIntentAmountRange(row.amount, amountRangeFilter)
       return bySearch && bySidebarBatch && byBatch && byConnector && byDispatch && byStage && byDate && byAmount
+    })
+    return [...filtered].sort((a, b) => {
+      const aRow = a.sourceRowNum
+      const bRow = b.sourceRowNum
+      if (aRow == null && bRow == null) return 0
+      if (aRow == null) return 1
+      if (bRow == null) return -1
+      return aRow - bRow
     })
   }, [
     journalUsesBackendFeed,

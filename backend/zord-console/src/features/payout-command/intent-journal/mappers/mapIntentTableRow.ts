@@ -66,21 +66,8 @@ function resolveRailHint(item: IntentJournalPaymentIntentItem): string {
       ? String((beneficiary.instrument as { kind?: string }).kind || '')
       : ''
 
-  const routingRaw = item.routing_hints_json
-  const routingRail =
-    typeof routingRaw === 'object' &&
-    routingRaw &&
-    typeof (routingRaw as { rail_hint?: unknown }).rail_hint === 'string'
-      ? String((routingRaw as { rail_hint: string }).rail_hint)
-      : typeof routingRaw === 'object' &&
-          routingRaw &&
-          typeof (routingRaw as { payment_mode?: unknown }).payment_mode === 'string'
-        ? String((routingRaw as { payment_mode: string }).payment_mode)
-        : ''
-
   const candidates = [
     apiTrimmedString(item.rail_hint),
-    apiTrimmedString(routingRail),
     apiTrimmedString(item.beneficiary_type),
     apiTrimmedString(instrumentKind),
     apiTrimmedString(item.provider_hint),
@@ -124,7 +111,6 @@ function syntheticRequestId(batchId: string, index: number, item: IntentJournalP
   if (apiTrimmedString(item.intent_id)) return apiTrimmedString(item.intent_id)!
   const sourceRowNum = parseSourceRowNum(item.source_row_num)
   if (sourceRowNum != null) return `${batchId}-src-${sourceRowNum}`
-  if (apiTrimmedString(item.envelope_id)) return apiTrimmedString(item.envelope_id)!
   return `${batchId}-row-${index + 1}`
 }
 
@@ -145,8 +131,7 @@ export function mapPaymentIntentListItemToRow(
   const zordId = buildZordId(requestId, batchId, index)
   const paymentRef = apiTrimmedString(item.client_payout_ref)
   const clientBatchRef = apiTrimmedString(item.client_batch_ref) || apiTrimmedString(item.batch_id) || batchId
-  const referenceFallback =
-    sourceRowNum != null ? `SRC-${sourceRowNum}` : apiTrimmedString(item.envelope_id) || requestId
+  const referenceFallback = sourceRowNum != null ? `SRC-${sourceRowNum}` : requestId
 
   return {
     batchId,

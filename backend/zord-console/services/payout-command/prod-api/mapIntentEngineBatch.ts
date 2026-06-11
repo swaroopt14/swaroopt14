@@ -302,7 +302,7 @@ export function mapPaymentIntentToIntentRow(
 
 export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?: boolean }): JournalFailureRow {
   const batchFromIngest = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
-  const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
+  const batchId = batchFromIngest || '—'
   const stageRaw = (row.stage ?? '').toLowerCase()
   let failureStage: JournalFailureRow['failureStage'] = 'Processing'
   if (stageRaw.includes('valid')) failureStage = 'Validation'
@@ -318,7 +318,7 @@ export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?
     batchId,
     requestId: row.dlq_id,
     sourceRowNum: typeof row.source_row_num === 'number' ? row.source_row_num : null,
-    reference: row.envelope_id ?? row.dlq_id,
+    reference: row.dlq_id,
     amount: ctx.amount,
     method: resolveDlqPaymentMethod(ctx),
     currency: ctx.currency ?? 'INR',

@@ -17,7 +17,6 @@ type PaymentIntentLiteUpstream = {
   intent_quality_score?: number | string | null
   aggregate_confidence_score?: number | string | null
   intent_id?: string | null
-  envelope_id?: string | null
   batchid?: string | null
   batch_id?: string | null
   client_payout_ref?: string | null
@@ -25,10 +24,6 @@ type PaymentIntentLiteUpstream = {
   source_row_num?: number | string | null
   beneficiary_type?: string | null
   beneficiary?: Record<string, unknown> | null
-  routing_hints_json?: Record<string, unknown> | null
-  status?: string | null
-  governance_state?: string | null
-  business_state?: string | null
 }
 
 function coerceScore(value: unknown): number | null {
@@ -49,15 +44,7 @@ function inferRailHint(item: PaymentIntentLiteUpstream): string | undefined {
       ? String((beneficiary.instrument as { kind?: string }).kind || '')
       : ''
 
-  const routingRail =
-    typeof item.routing_hints_json?.rail_hint === 'string'
-      ? item.routing_hints_json.rail_hint
-      : typeof item.routing_hints_json?.payment_mode === 'string'
-        ? item.routing_hints_json.payment_mode
-        : ''
-
   const candidates = [
-    String(routingRail || ''),
     String(item.beneficiary_type ?? ''),
     instrumentKind,
     String(item.provider_hint ?? ''),
@@ -146,7 +133,6 @@ export async function GET(request: NextRequest) {
         intent_quality_score: coerceScore(item.intent_quality_score),
         aggregate_confidence_score: coerceScore(item.aggregate_confidence_score),
         intent_id: item.intent_id ?? null,
-        envelope_id: item.envelope_id ?? null,
         batch_id: resolvedBatchId,
         client_payout_ref: item.client_payout_ref ?? null,
         client_batch_ref: item.client_batch_ref ?? resolvedBatchId,
@@ -158,10 +144,6 @@ export async function GET(request: NextRequest) {
               : null,
         beneficiary_type: item.beneficiary_type ?? null,
         beneficiary: item.beneficiary ?? null,
-        routing_hints_json: item.routing_hints_json ?? null,
-        status: item.status ?? null,
-        governance_state: item.governance_state ?? null,
-        business_state: item.business_state ?? null,
         rail_hint: inferRailHint(item) ?? null,
       }
     })

@@ -633,15 +633,10 @@ func (r *IntentQueryRepo) ListPaymentIntentLiteByBatch(
 			intent_quality_score,
 			aggregate_confidence_score,
 			intent_id::text,
-			envelope_id::text,
 			COALESCE(client_payout_ref, '') AS client_payout_ref,
 			source_row_num,
 			COALESCE(beneficiary_type, '') AS beneficiary_type,
-			COALESCE(beneficiary, '{}'::jsonb) AS beneficiary,
-			COALESCE(routing_hints_json, '{}'::jsonb) AS routing_hints_json,
-			COALESCE(status, '') AS status,
-			COALESCE(governance_state, '') AS governance_state,
-			COALESCE(business_state, '') AS business_state
+			COALESCE(beneficiary, '{}'::jsonb) AS beneficiary
 		FROM payment_intents
 		WHERE tenant_id = $1
 		  AND batchid = $2
@@ -671,15 +666,10 @@ func (r *IntentQueryRepo) ListPaymentIntentLiteByBatch(
 			&quality,
 			&aggregate,
 			&row.IntentID,
-			&row.EnvelopeID,
 			&row.ClientPayoutRef,
 			&sourceRow,
 			&row.BeneficiaryType,
 			&row.Beneficiary,
-			&row.RoutingHintsJSON,
-			&row.Status,
-			&row.GovernanceState,
-			&row.BusinessState,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan payment intent lite row: %w", err)
 		}
@@ -718,7 +708,6 @@ func (r *IntentQueryRepo) ListDLQItemsByBatchSimple(
 		SELECT
 			dlq_id,
 			tenant_id::text,
-			envelope_id::text,
 			stage,
 			reason_code,
 			COALESCE(error_detail, '') AS error_detail,
@@ -728,12 +717,11 @@ func (r *IntentQueryRepo) ListDLQItemsByBatchSimple(
 			COALESCE(batch_id, '') AS batch_id,
 			source_row_num,
 			COALESCE(dlq_status, '') AS dlq_status,
-			intent_context,
-			COALESCE(trace_id::text, '') AS trace_id
+			intent_context
 		FROM dlq_items
 		WHERE tenant_id = $1
 		  AND (client_batch_ref = $2 OR batch_id = $2)
-		ORDER BY created_at DESC, dlq_id DESC
+		ORDER BY source_row_num ASC NULLS LAST, created_at ASC, dlq_id ASC
 	`
 
 	rows, err := r.db.QueryContext(ctx, q, tenantID, batchID)
@@ -750,7 +738,6 @@ func (r *IntentQueryRepo) ListDLQItemsByBatchSimple(
 		if err := rows.Scan(
 			&e.DLQID,
 			&e.TenantID,
-			&e.EnvelopeID,
 			&e.Stage,
 			&e.ReasonCode,
 			&e.ErrorDetail,
@@ -761,7 +748,6 @@ func (r *IntentQueryRepo) ListDLQItemsByBatchSimple(
 			&sourceRow,
 			&e.DLQStatus,
 			&intentContext,
-			&e.TraceID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan dlq row: %w", err)
 		}

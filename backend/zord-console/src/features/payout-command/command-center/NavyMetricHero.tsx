@@ -6,6 +6,10 @@ export type NavyHeroBucket = {
   label: string
   value: string
   sub: string
+  /** Optional 7-point mini sparkline rendered under the value (Stripe-style). */
+  spark?: readonly number[]
+  /** Sparkline stroke tone. Defaults to neutral white. */
+  sparkTone?: 'good' | 'warn' | 'bad' | 'neutral'
 }
 
 type BucketCols = 3 | 4 | 5 | 6
@@ -108,16 +112,45 @@ export function NavyMetricHero({
   )
 }
 
+const SPARK_STROKE: Record<NonNullable<NavyHeroBucket['sparkTone']>, string> = {
+  good: '#34d399',
+  warn: '#fbbf24',
+  bad: '#f87171',
+  neutral: 'rgba(255,255,255,0.65)',
+}
+
+function BucketSparkline({ points, tone = 'neutral' }: { points: readonly number[]; tone?: NavyHeroBucket['sparkTone'] }) {
+  if (points.length < 2) return null
+  const min = Math.min(...points)
+  const max = Math.max(...points)
+  const span = max - min || 1
+  const coords = points.map((p, idx) => {
+    const x = (idx / (points.length - 1)) * 100
+    const y = 26 - ((p - min) / span) * 22
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  const stroke = SPARK_STROKE[tone ?? 'neutral']
+  return (
+    <svg viewBox="0 0 100 30" preserveAspectRatio="none" className="mt-1.5 h-[26px] w-full" aria-hidden>
+      <polygon points={`0,30 ${coords.join(' ')} 100,30`} fill={stroke} opacity={0.14} />
+      <polyline points={coords.join(' ')} fill="none" stroke={stroke} strokeWidth="1.6" vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 export function NavyHeroBucketCard({
   label,
   value,
   sub,
+  spark,
+  sparkTone,
   testId,
 }: NavyHeroBucket & { testId?: string }) {
   return (
     <div className="rounded-[12px] border border-white/10 bg-white/[0.06] p-4" data-testid={testId}>
       <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">{label}</p>
       <p className="mt-1.5 text-[25px] font-semibold tabular-nums tracking-[-0.02em]">{value}</p>
+      {spark ? <BucketSparkline points={spark} tone={sparkTone} /> : null}
       <p className="mt-1 text-[12px] leading-relaxed text-white/60">{sub}</p>
     </div>
   )

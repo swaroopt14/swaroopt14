@@ -5,6 +5,8 @@ export type IntentBatchMetrics = {
   instructionCount: number
   intendedValue: number
   avgReadinessPct: number | null
+  /** Batch aggregate from intent-engine `aggregate_confidence_score` (0–1). */
+  batchAggregateConfidenceScore: number | null
   lowReadinessCount: number
   dlqCount: number
   manualReviewCount: number
@@ -32,18 +34,29 @@ export function deriveIntentBatchMetrics(
   )
   const intendedValue = intendedValueMillis / 1000
 
+  const readScore = (raw: unknown): number | null => {
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+    if (typeof raw === 'string' && raw.trim()) {
+      const n = Number.parseFloat(raw)
+      return Number.isFinite(n) ? n : null
+    }
+    return null
+  }
+
   const scores = paymentIntents
-    .map((item) => item.intent_quality_score)
-    .filter((s): s is number => typeof s === 'number' && Number.isFinite(s))
+    .map((item) => readScore(item.intent_quality_score))
+    .filter((s): s is number => s != null)
 
   const avgReadinessPct =
     scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) * 100 : null
 
-  const lowReadinessCount = paymentIntents.filter(
-    (item) =>
-      typeof item.intent_quality_score === 'number' &&
-      item.intent_quality_score < READINESS_REVIEW_THRESHOLD,
-  ).length
+  const batchAggregateConfidenceScore =
+    paymentIntents.map((item) => readScore(item.aggregate_confidence_score)).find((s) => s != null) ?? null
+
+  const lowReadinessCount = paymentIntents.filter((item) => {
+    const score = readScore(item.intent_quality_score)
+    return score != null && score < READINESS_REVIEW_THRESHOLD
+  }).length
 
   const dlqCount = dlqItems.length
   const manualReviewCount = dlqItems.filter(
@@ -55,6 +68,7 @@ export function deriveIntentBatchMetrics(
     instructionCount,
     intendedValue,
     avgReadinessPct,
+    batchAggregateConfidenceScore,
     lowReadinessCount,
     dlqCount,
     manualReviewCount,

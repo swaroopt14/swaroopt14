@@ -62,7 +62,7 @@ export function useJournalBatchMetrics(batchId: string, enabled: boolean, pollMs
     return enrichBatchRecordWithMetrics(baseBatch, {
       instructionCount: metrics.instructionCount,
       intendedValue: metrics.intendedValue,
-      avgReadinessPct: metrics.avgReadinessPct,
+      batchAggregateConfidenceScore: metrics.batchAggregateConfidenceScore,
       reviewCount: metrics.needsReviewCount,
     })
   }, [baseBatch, metrics])

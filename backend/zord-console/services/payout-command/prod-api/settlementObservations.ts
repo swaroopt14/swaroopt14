@@ -73,8 +73,9 @@ export type SettlementObservationDetailResponse = {
   items: CanonicalSettlementObservation[]
 }
 
-/** Mode-2 rows from outcome-engine (subset of canonical columns). */
+/** Mode-2 rows from outcome-engine (canonical columns needed by Settlement Journal). */
 export type SettlementObservationBatchDetailItem = {
+  settlement_observation_id?: string
   settlement_batch_id?: string
   source_row_ref?: string
   source_system?: string
@@ -84,6 +85,8 @@ export type SettlementObservationBatchDetailItem = {
   deduction_amount?: string | number | null
   currency_code?: string
   settlement_status?: string
+  client_reference_candidate?: string | null
+  provider_reference?: string | null
   bank_reference?: string | null
   provider_status_code?: string | null
   failure_reason_code?: string | null
@@ -93,6 +96,10 @@ export type SettlementObservationBatchDetailItem = {
   observation_timestamp?: string
   value_date?: string | null
   source_system_id?: string
+  parse_confidence?: number
+  mapping_confidence?: number
+  attachment_readiness_score?: number
+  matched_intent_id?: string | null
   created_at?: string
   updated_at?: string
 }
@@ -257,7 +264,7 @@ function displayOrDash(value: string | null | undefined): string {
   return v ? v : '—'
 }
 
-/** Use 1-based row index when API source_row_ref is missing or implausible. */
+/** Use 1-based row index only when API source_row_ref is missing or invalid. */
 function resolveSourceRowRef(
   raw: string | null | undefined,
   rowIndex: number | undefined,
@@ -266,9 +273,10 @@ function resolveSourceRowRef(
   if (!v) {
     return rowIndex != null ? String(rowIndex + 1) : '—'
   }
-  if (/^\d+$/.test(v)) {
-    const n = Number.parseInt(v, 10)
-    if (n >= 1000 && rowIndex != null) return String(rowIndex + 1)
+  const signed = /^-?\d+$/.test(v) ? Number.parseInt(v, 10) : Number.NaN
+  if (Number.isFinite(signed)) {
+    if (signed <= 0 && rowIndex != null) return String(rowIndex + 1)
+    return String(signed)
   }
   return v
 }
@@ -285,6 +293,7 @@ export function mapObservationToTableRow(
   const createdAt = formatObsTime(full.created_at ?? slim.created_at)
   const observationId =
     full.settlement_observation_id?.trim() ||
+    slim.settlement_observation_id?.trim() ||
     `${settlementBatchId}:${sourceRowRef}:${opts?.rowIndex ?? 0}:${createdAt}`
 
   return {
@@ -294,8 +303,8 @@ export function mapObservationToTableRow(
     clientBatchId: displayOrDash(full.client_batch_id ?? opts?.clientBatchId),
     sourceRowRef,
     sourceFileRef: displayOrDash(full.source_file_ref),
-    clientRef: displayOrDash(full.client_reference_candidate),
-    providerRef: displayOrDash(full.provider_reference),
+    clientRef: displayOrDash(full.client_reference_candidate ?? slim.client_reference_candidate),
+    providerRef: displayOrDash(full.provider_reference ?? slim.provider_reference),
     bankRef: displayOrDash(full.bank_reference ?? slim.bank_reference),
     amount: parseMoney(full.amount ?? slim.amount),
     settledAmount: parseMoney(full.settled_amount ?? slim.settled_amount),
@@ -318,12 +327,29 @@ export function mapObservationToTableRow(
     retryFlag: Boolean(full.retry_flag ?? slim.retry_flag),
     reversalFlag: Boolean(full.reversal_flag ?? slim.reversal_flag),
     returnFlag: Boolean(full.return_flag ?? slim.return_flag),
-    parseConfidence: typeof full.parse_confidence === 'number' ? full.parse_confidence : null,
-    mappingConfidence: typeof full.mapping_confidence === 'number' ? full.mapping_confidence : null,
+    parseConfidence:
+      typeof full.parse_confidence === 'number'
+        ? full.parse_confidence
+        : typeof slim.parse_confidence === 'number'
+          ? slim.parse_confidence
+          : null,
+    mappingConfidence: (() => {
+      const raw = full.mapping_confidence ?? slim.mapping_confidence
+      if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+      if (typeof raw === 'string' && raw.trim()) {
+        const n = Number.parseFloat(raw)
+        return Number.isFinite(n) ? n : null
+      }
+      return null
+    })(),
     carrierRichnessScore:
       typeof full.carrier_richness_score === 'number' ? full.carrier_richness_score : null,
     attachmentReadinessScore:
-      typeof full.attachment_readiness_score === 'number' ? full.attachment_readiness_score : null,
+      typeof full.attachment_readiness_score === 'number'
+        ? full.attachment_readiness_score
+        : typeof slim.attachment_readiness_score === 'number'
+          ? slim.attachment_readiness_score
+          : null,
     traceId: displayOrDash(full.trace_id ?? undefined),
     settlementEnvelopeId: displayOrDash(full.settlement_envelope_id),
     connectorId: displayOrDash(full.connector_id ?? undefined),

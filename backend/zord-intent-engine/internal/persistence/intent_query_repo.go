@@ -630,11 +630,22 @@ func (r *IntentQueryRepo) ListPaymentIntentLiteByBatch(
 			currency,
 			intended_execution_at,
 			COALESCE(provider_hint, '') AS provider_hint,
-			intent_quality_score
+			intent_quality_score,
+			aggregate_confidence_score,
+			intent_id::text,
+			envelope_id::text,
+			COALESCE(client_payout_ref, '') AS client_payout_ref,
+			source_row_num,
+			COALESCE(beneficiary_type, '') AS beneficiary_type,
+			COALESCE(beneficiary, '{}'::jsonb) AS beneficiary,
+			COALESCE(routing_hints_json, '{}'::jsonb) AS routing_hints_json,
+			COALESCE(status, '') AS status,
+			COALESCE(governance_state, '') AS governance_state,
+			COALESCE(business_state, '') AS business_state
 		FROM payment_intents
 		WHERE tenant_id = $1
 		  AND batchid = $2
-		ORDER BY created_at DESC, intent_id DESC
+		ORDER BY source_row_num ASC NULLS LAST, created_at ASC, intent_id ASC
 	`
 
 	rows, err := r.db.QueryContext(ctx, q, tenantID, batchID)
@@ -648,6 +659,8 @@ func (r *IntentQueryRepo) ListPaymentIntentLiteByBatch(
 		var row models.PaymentIntentLite
 		var execAt sql.NullTime
 		var quality sql.NullFloat64
+		var aggregate sql.NullFloat64
+		var sourceRow sql.NullInt64
 
 		if err := rows.Scan(
 			&row.TenantID,
@@ -656,6 +669,17 @@ func (r *IntentQueryRepo) ListPaymentIntentLiteByBatch(
 			&execAt,
 			&row.ProviderHint,
 			&quality,
+			&aggregate,
+			&row.IntentID,
+			&row.EnvelopeID,
+			&row.ClientPayoutRef,
+			&sourceRow,
+			&row.BeneficiaryType,
+			&row.Beneficiary,
+			&row.RoutingHintsJSON,
+			&row.Status,
+			&row.GovernanceState,
+			&row.BusinessState,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan payment intent lite row: %w", err)
 		}
@@ -667,6 +691,14 @@ func (r *IntentQueryRepo) ListPaymentIntentLiteByBatch(
 		if quality.Valid {
 			v := quality.Float64
 			row.IntentQualityScore = &v
+		}
+		if aggregate.Valid {
+			v := aggregate.Float64
+			row.AggregateConfidenceScore = &v
+		}
+		if sourceRow.Valid {
+			n := int(sourceRow.Int64)
+			row.SourceRowNum = &n
 		}
 
 		items = append(items, row)

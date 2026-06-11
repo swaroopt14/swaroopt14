@@ -29,7 +29,8 @@ export type BatchRecord = {
   transactions: number
   confirmedCount: number
   highConfidenceCount: number
-  avgConfidenceScore?: number
+  /** Batch-level aggregate confidence 0–1 (`aggregate_confidence_score`). */
+  aggregateConfidenceScore?: number
   mismatchCount: number
   unresolvedCount: number
   intelligenceCounts?: Pick<IntelligenceBatchRow, 'success_count' | 'failed_count' | 'pending_count' | 'finality_status'>
@@ -55,8 +56,8 @@ export function usdCompact(value: number) {
 }
 
 export function engineDispatchConfidencePct(batch: BatchRecord): number {
-  if (typeof batch.avgConfidenceScore === 'number' && Number.isFinite(batch.avgConfidenceScore)) {
-    return Math.min(100, Math.max(0, batch.avgConfidenceScore * 100))
+  if (typeof batch.aggregateConfidenceScore === 'number' && Number.isFinite(batch.aggregateConfidenceScore)) {
+    return Math.min(100, Math.max(0, batch.aggregateConfidenceScore * 100))
   }
   const total = Math.max(batch.transactions, 1)
   return (batch.confirmedCount / total) * 100
@@ -110,8 +111,8 @@ export function batchQualityScore(batch: BatchRecord, intents?: IntentDetail[]):
   }
   // Intent-engine sidebar: `highConfidenceCount` in API is avg confidence 0–1.
   const total = Math.max(batch.transactions, 1)
-  if (batch.engineSidebar && typeof batch.avgConfidenceScore === 'number') {
-    const confPct = batch.avgConfidenceScore * 100
+  if (batch.engineSidebar && typeof batch.aggregateConfidenceScore === 'number') {
+    const confPct = batch.aggregateConfidenceScore * 100
     const penalty = ((batch.mismatchCount + batch.unresolvedCount) / total) * 30
     return Math.max(0, Math.min(100, Math.round(confPct - penalty)))
   }
@@ -127,12 +128,15 @@ export function batchStatus(score: number): BatchStatus {
   return 'Critical'
 }
 
-/** Intent-engine sidebar: API `highConfidenceCount` 0.48 → 48%. < 30% = Risk; < 80% = Risk; >= 80 Stable; > 95 Strong. */
+/** Sidebar batch score: intent-engine `aggregate_confidence_score` only (0–1 → percent). */
 export function confidencePctFromBatch(batch: BatchRecord): number | null {
-  if (!batch.engineSidebar || typeof batch.avgConfidenceScore !== 'number' || !Number.isFinite(batch.avgConfidenceScore)) {
+  if (typeof batch.aggregateConfidenceScore !== 'number' || !Number.isFinite(batch.aggregateConfidenceScore)) {
     return null
   }
-  return Math.min(100, Math.max(0, Math.round(batch.avgConfidenceScore * 100)))
+  const pct = batch.aggregateConfidenceScore <= 1
+    ? batch.aggregateConfidenceScore * 100
+    : batch.aggregateConfidenceScore
+  return Math.min(100, Math.max(0, Math.round(pct)))
 }
 
 function batchStatusFromConfidencePct(pct: number): BatchStatus {

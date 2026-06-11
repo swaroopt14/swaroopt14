@@ -115,14 +115,9 @@ export function IntentJournalBatchSidebar({
                 journalUsesBackendFeed && selected && liveBatchDetail?.batch?.batch_id === batch.batchId
                   ? liveBatchDetail.batch
                   : null
-              const liveSuccess =
-                journalUsesBackendFeed
-                  ? (detailRow?.success_count ?? batch.intelligenceCounts?.success_count ?? batch.confirmedCount ?? 0)
-                  : null
               const liveTotalRaw = journalUsesBackendFeed
                 ? (detailRow?.total_count ?? batch.transactions ?? 0)
                 : batch.transactions
-              const liveTotal = Math.max(liveTotalRaw, 0)
               const liveFinality = detailRow?.finality_status ?? batch.intelligenceCounts?.finality_status
               const dlqCount = selected
                 ? selectedDlqTotal
@@ -138,26 +133,8 @@ export function IntentJournalBatchSidebar({
                 intentCount,
                 finality: liveFinality,
               })
-              const sidebarScoreDisplay =
-                engineConfPct != null
-                  ? `${engineConfPct}%`
-                  : status === 'Critical' || status === 'Risk'
-                    ? status
-                    : journalUsesBackendFeed && liveSuccess !== null
-                      ? liveSuccess.toLocaleString('en-US')
-                      : String(score)
-              const progressWidthPct =
-                engineConfPct != null
-                  ? engineConfPct
-                  : status === 'Critical'
-                    ? Math.min(100, dlqCount > 0 ? 100 : 15)
-                    : status === 'Risk'
-                      ? 45
-                      : journalUsesBackendFeed && liveSuccess !== null
-                        ? liveTotal === 0
-                          ? 0
-                          : Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
-                        : score
+              const sidebarScoreDisplay = engineConfPct != null ? `${engineConfPct}%` : '—'
+              const progressWidthPct = engineConfPct ?? score
               const tone = statusTone(status)
               const dotColor =
                 status === 'Strong' || status === 'Stable'
@@ -193,17 +170,7 @@ export function IntentJournalBatchSidebar({
                     </div>
                     <span
                       className={`shrink-0 text-[15px] font-semibold tabular-nums ${tone.text}`}
-                      title={
-                        engineConfPct != null
-                          ? 'Avg aggregate confidence from intent-engine sidebar (0–1 API → percent)'
-                          : journalUsesBackendFeed
-                            ? batch.intelligenceCounts
-                              ? 'success_count from intelligence batch (detail when selected)'
-                              : batch.engineSidebar
-                                ? 'Confirmed-style count from intent-engine batch aggregates (sidebar)'
-                                : 'Batch quality score'
-                            : 'Batch quality score'
-                      }
+                      title="Batch aggregate_confidence_score from intent-engine"
                     >
                       {sidebarScoreDisplay}
                     </span>
@@ -228,15 +195,27 @@ export function IntentJournalBatchSidebar({
                       {intentCount.toLocaleString('en-US')} intents
                     </span>
                   </div>
-                  {journalUsesBackendFeed && liveFinality ? (
-                    <p className="mt-0.5 pl-4 text-[13px] font-medium uppercase tracking-wide text-slate-500">
-                      {String(liveFinality).replace(/_/g, ' ')}
-                    </p>
-                  ) : null}
+                  <div className="mt-1 flex flex-wrap items-center gap-2 pl-4">
+                    <div
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold ${tone.text} ${
+                        status === 'Risk'
+                          ? 'bg-amber-100'
+                          : status === 'Critical'
+                            ? 'bg-rose-100'
+                            : 'bg-emerald-100'
+                      }`}
+                    >
+                      {status}
+                    </div>
+                    {journalUsesBackendFeed && liveFinality ? (
+                      <span className="text-[12px] font-medium uppercase tracking-wide text-slate-500">
+                        {String(liveFinality).replace(/_/g, ' ')}
+                      </span>
+                    ) : null}
+                  </div>
 
-                  {/* Selected = expanded score-bar + status pill */}
                   {selected ? (
-                    <div className="mt-2 space-y-1.5 pl-4">
+                    <div className="mt-2 pl-4">
                       <div className="h-1 w-full overflow-hidden rounded-full bg-[#E5E5E5]">
                         <div
                           className={`h-full rounded-full ${
@@ -248,15 +227,6 @@ export function IntentJournalBatchSidebar({
                           }`}
                           style={{ width: `${progressWidthPct}%` }}
                         />
-                      </div>
-                      <div className={`inline-flex items-center rounded-full px-2 py-0.5 text-[13px] font-semibold ${tone.text} ${
-                        status === 'Risk'
-                          ? 'bg-amber-100'
-                          : status === 'Critical'
-                            ? 'bg-rose-100'
-                            : 'bg-emerald-100'
-                      }`}>
-                        {status}
                       </div>
                     </div>
                   ) : null}

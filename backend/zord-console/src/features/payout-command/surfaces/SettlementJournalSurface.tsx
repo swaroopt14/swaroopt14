@@ -262,7 +262,7 @@ function SettlementJournalSurfaceContent({
       const bNum = Number.parseInt(b.sourceRowRef, 10)
       const aValid = Number.isFinite(aNum)
       const bValid = Number.isFinite(bNum)
-      if (aValid && bValid) return bNum - aNum
+      if (aValid && bValid) return aNum - bNum
       if (aValid) return -1
       if (bValid) return 1
       return 0

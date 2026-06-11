@@ -18,6 +18,15 @@ function formatJournalExecutionAt(iso: string | undefined): string {
   })
 }
 
+function coerceQualityScore(raw: unknown): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string' && raw.trim()) {
+    const n = Number.parseFloat(raw)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
 function formatConfidenceLabel(score: number | undefined): string {
   if (score == null || !Number.isFinite(score)) return '—'
   const pct = score <= 1 ? score * 100 : score
@@ -57,8 +66,21 @@ function resolveRailHint(item: IntentJournalPaymentIntentItem): string {
       ? String((beneficiary.instrument as { kind?: string }).kind || '')
       : ''
 
+  const routingRaw = item.routing_hints_json
+  const routingRail =
+    typeof routingRaw === 'object' &&
+    routingRaw &&
+    typeof (routingRaw as { rail_hint?: unknown }).rail_hint === 'string'
+      ? String((routingRaw as { rail_hint: string }).rail_hint)
+      : typeof routingRaw === 'object' &&
+          routingRaw &&
+          typeof (routingRaw as { payment_mode?: unknown }).payment_mode === 'string'
+        ? String((routingRaw as { payment_mode: string }).payment_mode)
+        : ''
+
   const candidates = [
     apiTrimmedString(item.rail_hint),
+    apiTrimmedString(routingRail),
     apiTrimmedString(item.beneficiary_type),
     apiTrimmedString(instrumentKind),
     apiTrimmedString(item.provider_hint),
@@ -115,10 +137,7 @@ export function mapPaymentIntentListItemToRow(
 ): JournalIntentRow {
   const amount = parseAmount(item.amount)
   const sourceRowNum = parseSourceRowNum(item.source_row_num)
-  const qualityScore =
-    typeof item.intent_quality_score === 'number' && Number.isFinite(item.intent_quality_score)
-      ? item.intent_quality_score
-      : null
+  const qualityScore = coerceQualityScore(item.intent_quality_score)
   const status: JournalIntentStatus = 'Ready to Process'
   const provider = resolveProviderHint(item)
   const rail = resolveRailHint(item)

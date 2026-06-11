@@ -19,8 +19,8 @@ export type JournalBatchRecord = {
   confirmedCount: number
   /** Legacy field name — when from engine sidebar, stores rounded count fallback only. */
   highConfidenceCount: number
-  /** Avg aggregate confidence 0–1 from engine (`highConfidenceCount` in API JSON). */
-  avgConfidenceScore?: number
+  /** Batch-level aggregate confidence 0–1 from intent-engine `aggregate_confidence_score`. */
+  aggregateConfidenceScore?: number
   mismatchCount: number
   unresolvedCount: number
   intelligenceCounts?: Pick<IntelligenceBatchRow, 'success_count' | 'failed_count' | 'pending_count' | 'finality_status'>
@@ -147,10 +147,14 @@ export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): J
   const tv = Number.parseFloat(String(it.totalValue ?? '').replace(/,/g, ''))
   const totalValue = Number.isFinite(tv) ? tv : 0
   const hcRaw = it.highConfidenceCount
-  const avgConfidenceScore =
+  const aggregateConfidenceScore =
     typeof hcRaw === 'number' && Number.isFinite(hcRaw) && hcRaw <= 1 ? hcRaw : undefined
   const highConfidenceCount =
-    avgConfidenceScore != null ? Math.round(avgConfidenceScore * 100) : typeof hcRaw === 'number' && Number.isFinite(hcRaw) ? Math.round(hcRaw) : 0
+    aggregateConfidenceScore != null
+      ? Math.round(aggregateConfidenceScore * 100)
+      : typeof hcRaw === 'number' && Number.isFinite(hcRaw)
+        ? Math.round(hcRaw)
+        : 0
 
   return {
     batchId: String(it.batchId ?? '').trim() || '—',
@@ -161,7 +165,7 @@ export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): J
     transactions: it.transactions ?? 0,
     confirmedCount: it.confirmedCount ?? 0,
     highConfidenceCount,
-    avgConfidenceScore,
+    aggregateConfidenceScore,
     mismatchCount: it.mismatchCount ?? 0,
     unresolvedCount: it.unresolvedCount ?? 0,
     engineSidebar: true,
@@ -236,8 +240,8 @@ export function mapPaymentIntentToIntentRow(
     .join(' · ') || '—'
 
   const confidenceScore =
-    typeof intent.aggregate_confidence_score === 'number' && Number.isFinite(intent.aggregate_confidence_score)
-      ? intent.aggregate_confidence_score
+    typeof intent.intent_quality_score === 'number' && Number.isFinite(intent.intent_quality_score)
+      ? intent.intent_quality_score
       : null
 
   return {

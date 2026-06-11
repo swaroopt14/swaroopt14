@@ -1,5 +1,5 @@
 import type { SettlementObservationTableRow } from '@/services/payout-command/prod-api/settlementObservations'
-import { mapMatchStatus } from '../mappers/mapMatchStatus'
+import { mapMatchStatus, settlementMappingConfidence } from '../mappers/mapMatchStatus'
 import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 
 export type SettlementDataHealthMetrics = {
@@ -26,15 +26,19 @@ export function deriveSettlementDataHealth(rows: SettlementObservationTableRow[]
     }
   }
 
-  const withBankRef = rows.filter((r) => (r.bankRef ?? '').trim()).length
-  const withClientRef = rows.filter((r) => (r.clientRef ?? '').trim()).length
+  const hasRef = (value: string | undefined) => {
+    const v = (value ?? '').trim()
+    return Boolean(v && v !== '—')
+  }
+  const withBankRef = rows.filter((r) => hasRef(r.bankRef)).length
+  const withClientRef = rows.filter((r) => hasRef(r.clientRef)).length
   const matchedCount = rows.filter((r) => mapMatchStatus(r) === 'Matched').length
   const unmatchedOrphanValue = rows
-    .filter((r) => !(r.clientRef ?? '').trim())
+    .filter((r) => !hasRef(r.clientRef))
     .reduce((sum, r) => sum + r.amount, 0)
 
   const scores = rows
-    .map((r) => r.attachmentReadinessScore)
+    .map((r) => settlementMappingConfidence(r))
     .filter((s): s is number => typeof s === 'number' && Number.isFinite(s))
   const avgMatchConfidence =
     scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : null

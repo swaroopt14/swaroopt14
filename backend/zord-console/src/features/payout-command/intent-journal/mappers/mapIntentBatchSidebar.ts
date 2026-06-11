@@ -25,7 +25,7 @@ export function enrichBatchRecordWithMetrics(
   metrics: {
     instructionCount: number
     intendedValue: number
-    avgReadinessPct: number | null
+    batchAggregateConfidenceScore: number | null
     reviewCount: number
   },
 ): JournalBatchRecord {
@@ -33,9 +33,7 @@ export function enrichBatchRecordWithMetrics(
     ...base,
     transactions: metrics.instructionCount,
     totalValue: metrics.intendedValue,
-    highConfidenceCount: metrics.avgReadinessPct != null ? Math.round(metrics.avgReadinessPct) : 0,
-    avgConfidenceScore:
-      metrics.avgReadinessPct != null ? metrics.avgReadinessPct / 100 : undefined,
+    aggregateConfidenceScore: metrics.batchAggregateConfidenceScore ?? undefined,
     unresolvedCount: metrics.reviewCount,
   }
 }

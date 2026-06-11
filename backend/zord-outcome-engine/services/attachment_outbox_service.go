@@ -90,7 +90,6 @@ func (s *AttachmentOutboxService) EmitForJob(
 		if err != nil {
 			return fmt.Errorf("failed to lookup intents for outbox: %w", err)
 		}
-		defer rows.Close()
 
 		for rows.Next() {
 			var idStr, corrID, curr string
@@ -110,6 +109,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 				IntendedExecutionAt: intendedAt,
 			}
 		}
+		rows.Close()
 	}
 
 	// 2. Fetch batch summary data for aggregate amounts
@@ -745,13 +745,13 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 		}
 		rows, err := db.DB.QueryContext(ctx, `SELECT ingest_run_id, file_sha256 FROM settlement_ingest_runs WHERE ingest_run_id = ANY($1)`, pq.Array(ids))
 		if err == nil {
-			defer rows.Close()
 			for rows.Next() {
 				var rid, sha string
 				if err := rows.Scan(&rid, &sha); err == nil {
 					shaMap[rid] = sha
 				}
 			}
+			rows.Close()
 		} else {
 			log.Printf("leaf_bundle.sha_fetch_failed err=%v", err)
 		}

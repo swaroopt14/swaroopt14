@@ -85,7 +85,7 @@ func (e *AttachmentEngine) RunForJob(
 	}
 
 	// Scope type stays batch for reporting compatibility; scope_ref stores job_id.
-	return e.runAttachment(ctx, tenantID, models.JobScopeSettlementBatch, jobID, observations)
+	return e.runAttachment(ctx, tenantID, models.JobScopeIngestRun, jobID, observations)
 }
 
 // RunForSingleObservation triggers an attachment job for one specific observation.
@@ -135,7 +135,7 @@ func (e *AttachmentEngine) runAttachment(
 	//
 	// pg_try_advisory_lock returns false immediately if another session holds
 	// the lock; we return a clear error rather than queuing silently.
-	lockKey := advisoryLockKey(tenantID, scopeRef)
+	lockKey := advisoryLockKey(tenantID, scopeType+"|"+scopeRef)
 	var acquired bool
 	if err := db.DB.QueryRowContext(ctx,
 		`SELECT pg_try_advisory_lock($1)`, lockKey,
@@ -181,19 +181,47 @@ func (e *AttachmentEngine) runAttachment(
 		return nil, fmt.Errorf("attachment.engine: insert job: %w", err)
 	}
 
-	// ── Reverse scan setup: load master intent list for batch scope ───────
-	// Per PDF review (section 10): we must also scan from the intent side to
-	// detect intents that were never matched by any observation.
-	// Only performed for SETTLEMENT_BATCH scope — a single ad-hoc observation
-	// check has no defined "expected population" to compare against.
+	// ── Reverse scan setup: load master intent list ──────────────────────
+	// Per spec (section 10): we must scan from the intent side to detect
+	// intents that were never matched by any observation.
+	//
+	// SETTLEMENT_BATCH: load by scope_ref (the batch ref).
+	// INGEST_RUN: derive unique batch refs from the loaded observations and
+	// load intents for each, merging into one map.  This covers the case
+	// where a single ingest run spans multiple client batch refs.
+	// SINGLE_OBSERVATION: no defined expected population — skipped.
 	var masterIntentMap map[uuid.UUID]models.CanonicalIntent
-	if scopeType == models.JobScopeSettlementBatch {
+	switch scopeType {
+	case models.JobScopeSettlementBatch:
 		masterIntentMap, err = loadMasterIntentsByBatchRef(ctx, tenantID, scopeRef)
 		if err != nil {
-			// Non-fatal: log and continue. Reverse scan will be skipped below.
-			log.Printf("attachment.engine.master_intent_load_warn job=%s err=%v (reverse scan skipped)", job.AttachmentJobID, err)
+			log.Printf("attachment.engine.master_intent_load_warn job=%s err=%v (will fall back to candidate scan)", job.AttachmentJobID, err)
 			masterIntentMap = map[uuid.UUID]models.CanonicalIntent{}
 		}
+	case models.JobScopeIngestRun:
+		// Collect the unique batch refs seen across all observations in this run.
+		batchRefSet := make(map[string]struct{})
+		for _, obs := range observations {
+			if obs.BatchReference != nil && *obs.BatchReference != "" {
+				batchRefSet[*obs.BatchReference] = struct{}{}
+			}
+			if obs.ClientBatchID != "" {
+				batchRefSet[obs.ClientBatchID] = struct{}{}
+			}
+		}
+		masterIntentMap = make(map[uuid.UUID]models.CanonicalIntent)
+		for bref := range batchRefSet {
+			partial, loadErr := loadMasterIntentsByBatchRef(ctx, tenantID, bref)
+			if loadErr != nil {
+				log.Printf("attachment.engine.master_intent_load_warn job=%s batch_ref=%s err=%v", job.AttachmentJobID, bref, loadErr)
+				continue
+			}
+			for id, intent := range partial {
+				masterIntentMap[id] = intent
+			}
+		}
+		log.Printf("attachment.engine.master_intent_loaded job=%s scope=INGEST_RUN distinct_batch_refs=%d intents=%d",
+			job.AttachmentJobID, len(batchRefSet), len(masterIntentMap))
 	}
 
 	// matchedIntentIDs tracks every intent that won a MATCH_EXACT or
@@ -206,6 +234,12 @@ func (e *AttachmentEngine) runAttachment(
 	// in the reverse scan (e.g. ONLY_AMBIGUOUS_CANDIDATES_FOUND).
 	intentDecisionTypes := make(map[uuid.UUID][]string)
 
+	// ── Preload previously decided intents to prevent N+1 queries ────────
+	previouslyDecidedIntentIDs, err := loadPreviouslyDecidedIntentIDs(ctx, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("attachment.engine: load previously decided intents: %w", err)
+	}
+
 	// ── Steps 3-7: Process each observation ──────────────────────────────
 	var (
 		allDecisions        []models.AttachmentDecision
@@ -214,7 +248,7 @@ func (e *AttachmentEngine) runAttachment(
 		totalIntendedAmount decimal.Decimal
 		clientBatchRef      *string
 		intentsMap          = make(map[uuid.UUID]*models.CanonicalIntent)
-		claimedIntentIDs    = make(map[uuid.UUID]bool)
+		claimedIntentIDs    = previouslyDecidedIntentIDs
 		// allScannedIntentsMap accumulates every intent seen as a candidate
 		// during the forward scan. Used as a fallback for the reverse scan
 		// when loadMasterIntentsByBatchRef returns nothing (e.g. batch-ref
@@ -229,7 +263,7 @@ func (e *AttachmentEngine) runAttachment(
 	for _, obs := range observations {
 
 		// Step 3: Build candidate intent set.
-		intents, err := findCandidateIntents(ctx, tenantID, obs)
+		intents, err := findCandidateIntents(ctx, tenantID, obs, claimedIntentIDs)
 		if err != nil {
 			log.Printf("attachment.engine.candidate_lookup_failed obs=%s err=%v", obs.SettlementObservationID, err)
 			// Record as unresolved — do not drop silently.
@@ -290,7 +324,6 @@ func (e *AttachmentEngine) runAttachment(
 		candidates := buildCandidateRows(tenantID, job.AttachmentJobID, obs.SettlementObservationID, scored, intents)
 		allCandidates = append(allCandidates, candidates...)
 
-
 		// Updated signatures: pass obs and policy so scores reflect candidate
 		// set size, source strength, carrier richness, and parse/mapping quality.
 		ambiguityScore := ComputeAmbiguityScore(scored, decisionType, obs, policy)
@@ -314,7 +347,8 @@ func (e *AttachmentEngine) runAttachment(
 
 		// For AMBIGUOUS / CONFLICTED decisions — do NOT set winnerIntentID.
 		if decisionType == models.DecisionMatchAmbiguous ||
-			decisionType == models.DecisionMatchConflicted {
+			decisionType == models.DecisionMatchConflicted ||
+			decisionType == models.DecisionMatchUnresolved {
 			winnerIntentID = nil
 		}
 
@@ -465,31 +499,52 @@ func (e *AttachmentEngine) runAttachment(
 		}
 	}
 
-	// ── Reverse scan: find intents with no strong observation match ───────
-	// Only runs for SETTLEMENT_BATCH scope.
+	// ── Reverse scan: for each canonical intent, did we find a settlement? ─
 	//
-	// Fallback: if the DB-based masterIntentMap is empty (e.g. client_batch_ref
-	// on canonical_intents does not match the scopeRef), fall back to every
-	// intent that appeared as a candidate during the forward scan. This ensures
-	// ambiguous / conflicted / low-confidence intents still generate
-	// UnresolvedIntentRecords even when the batch-ref lookup fails.
-	if scopeType == models.JobScopeSettlementBatch && len(masterIntentMap) == 0 && len(allScannedIntentsMap) > 0 {
-		log.Printf("attachment.engine.reverse_scan_fallback job=%s: masterIntentMap empty, using %d forward-scan intents as fallback",
-			job.AttachmentJobID, len(allScannedIntentsMap))
-		masterIntentMap = allScannedIntentsMap
-	}
-
+	// Runs for SETTLEMENT_BATCH and INGEST_RUN scopes.
+	// SINGLE_OBSERVATION has no defined expected population — skipped.
+	//
+	// Intent population priority:
+	//   1. masterIntentMap   — authoritative DB-loaded list (catches intents
+	//      that never surfaced as candidates during the forward scan at all).
+	//   2. allScannedIntentsMap — fallback: every intent seen as a candidate
+	//      during the forward scan. Covers batch-ref mismatches and ensures
+	//      ambiguous / conflicted intents still produce UnresolvedIntentRecords.
 	var allUnresolvedIntents []models.UnresolvedIntentRecord
-	if scopeType == models.JobScopeSettlementBatch && len(masterIntentMap) > 0 {
-		allUnresolvedIntents = performReverseScan(
-			tenantID,
-			job.AttachmentJobID,
-			scopeRef,
-			masterIntentMap,
-			matchedIntentIDs,
-			intentDecisionTypes,
-			policy,
-		)
+	if scopeType == models.JobScopeSettlementBatch || scopeType == models.JobScopeIngestRun {
+		effectiveIntentMap := masterIntentMap
+		if len(effectiveIntentMap) == 0 && len(allScannedIntentsMap) > 0 {
+			log.Printf(
+				"attachment.engine.reverse_scan_fallback job=%s scope=%s "+
+					"reason=MASTER_MAP_EMPTY_USING_CANDIDATE_INTENTS candidate_count=%d",
+				job.AttachmentJobID, scopeType, len(allScannedIntentsMap),
+			)
+			effectiveIntentMap = allScannedIntentsMap
+		}
+
+		if len(effectiveIntentMap) > 0 {
+			allUnresolvedIntents = performReverseScan(
+				tenantID,
+				job.AttachmentJobID,
+				scopeRef,
+				effectiveIntentMap,
+				matchedIntentIDs,
+				intentDecisionTypes,
+				policy,
+			)
+			log.Printf(
+				"attachment.engine.reverse_scan_done job=%s scope=%s "+
+					"intent_population=%d matched=%d unresolved=%d",
+				job.AttachmentJobID, scopeType,
+				len(effectiveIntentMap), len(matchedIntentIDs), len(allUnresolvedIntents),
+			)
+		} else {
+			log.Printf(
+				"attachment.engine.reverse_scan_skipped job=%s scope=%s "+
+					"reason=EMPTY_EXPECTED_POPULATION",
+				job.AttachmentJobID, scopeType,
+			)
+		}
 	}
 
 	// ── Step 7: Persist all outputs transactionally ───────────────────────
@@ -628,12 +683,37 @@ func performReverseScan(
 // CANDIDATE DISCOVERY
 // ─────────────────────────────────────────────────────────────────────────────
 
+// loadPreviouslyDecidedIntentIDs fetches all intent IDs for the tenant that have already
+// been strongly matched in the past. We preload this into a map at the start of a job
+// to avoid executing N+1 EXISTS queries in the database.
+func loadPreviouslyDecidedIntentIDs(ctx context.Context, tenantID uuid.UUID) (map[uuid.UUID]bool, error) {
+	rows, err := db.DB.QueryContext(ctx, `
+		SELECT intent_id FROM attachment_decisions 
+		WHERE tenant_id = $1 AND decision_type IN ('MATCH_EXACT', 'MATCH_HIGH_CONFIDENCE')
+	`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query attachment_decisions: %w", err)
+	}
+	defer rows.Close()
+
+	excluded := make(map[uuid.UUID]bool)
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		excluded[id] = true
+	}
+	return excluded, rows.Err()
+}
+
 // findCandidateIntents builds the candidate intent set for one settlement observation.
 // Multi-index search: tenant + references, source system, and amount/currency/time.
 func findCandidateIntents(
 	ctx context.Context,
 	tenantID uuid.UUID,
 	obs models.CanonicalSettlementObservation,
+	excludedIntentIDs map[uuid.UUID]bool,
 ) ([]models.CanonicalIntent, error) {
 
 	// Build a union query that finds intents matching ANY of:
@@ -716,6 +796,9 @@ func findCandidateIntents(
 		if err != nil {
 			log.Printf("attachment.engine.intent_scan_err: %v", err)
 			continue
+		}
+		if excludedIntentIDs[intent.IntentID] {
+			continue // Skip already claimed intents
 		}
 		intents = append(intents, intent)
 	}

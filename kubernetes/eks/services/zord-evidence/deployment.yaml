@@ -57,7 +57,7 @@ spec:
             - name: USER
               value: evidenceuser
             - name: SIGNING_KEY_PATH
-              value: /run/secrets/signing_key.pem
+              value: " "
             - name: KAFKA_BROKERS
               valueFrom:
                 configMapKeyRef:

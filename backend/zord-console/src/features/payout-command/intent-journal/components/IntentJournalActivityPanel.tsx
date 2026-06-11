@@ -633,23 +633,24 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                           <td className="px-3 py-2.5">{row.method}</td>
                           <td className="px-3 py-2.5">
                             <div className="inline-flex items-center gap-2 rounded-lg border border-[#e6ebf2] bg-white px-2 py-1">
-                              {row.beneficiaryName || row.paymentPartner ? (
-                                <EntityLogo name={row.beneficiaryName || row.paymentPartner || '—'} kind="psp" size={18} />
+                              {row.paymentPartner && row.paymentPartner !== '—' ? (
+                                <EntityLogo name={row.paymentPartner} kind="psp" size={18} />
                               ) : null}
-                              <span className="text-[15px] font-medium text-[#334155]">
-                                {row.beneficiaryName || row.connectorSubtitle}
-                              </span>
+                              <span className="text-[15px] font-medium text-[#334155]">{row.paymentPartner}</span>
                             </div>
                           </td>
                           <td className="px-3 py-2.5 text-rose-700">{row.failureReason}</td>
-                          <td className="px-3 py-2.5">
-                            <button
-                              type="button"
-                              onClick={() => setManualReviewRow(row)}
-                              className="inline-flex h-8 items-center rounded-lg border border-[#2563eb] bg-[#eff6ff] px-3 text-[12px] font-medium text-[#1d4ed8] transition hover:bg-[#dbeafe]"
-                            >
-                              Manual review
-                            </button>
+                          <td className="px-3 py-2.5 min-w-[9.5rem]">
+                            <div className="flex flex-col items-start gap-1.5">
+                              <span className="text-[13px] font-medium text-[#334155]">{row.dlqStatusLabel ?? '—'}</span>
+                              <button
+                                type="button"
+                                onClick={() => setManualReviewRow(row)}
+                                className="inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-lg border border-[#0f172a] bg-[#0f172a] px-3 text-[12px] font-medium text-white transition hover:bg-[#1e293b]"
+                              >
+                                Manual review
+                              </button>
+                            </div>
                           </td>
                           <td className="px-3 py-2.5 text-[#64748b]">{row.lastUpdated}</td>
                         </tr>

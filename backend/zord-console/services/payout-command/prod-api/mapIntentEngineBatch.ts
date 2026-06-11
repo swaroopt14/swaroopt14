@@ -103,13 +103,37 @@ function buildZordId(requestId: string, batchId: string): string {
   return `ZRD-${normalized.slice(-8).toUpperCase()}`
 }
 
+function resolveDlqPaymentMethod(ctx: ReturnType<typeof parseDlqIntentContext>): JournalFailureRow['method'] {
+  const raw = (ctx.paymentMethod ?? '').toUpperCase()
+  if (!raw) return '—'
+  if (raw.includes('NACH')) return 'NACH'
+  if (raw.includes('IMPS') || raw.includes('UPI') || raw.includes('LSM')) return 'LSM'
+  if (raw.includes('RTGS') || raw.includes('NEFT') || raw.includes('BANK')) return 'Bank Transfer'
+  return 'Bank Transfer'
+}
+
+function formatDlqUpdatedAt(iso?: string): string {
+  const s = apiTrimmedString(iso)
+  if (!s) return '—'
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return s
+  return d.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export type JournalFailureRow = {
   batchId: string
   requestId: string
   sourceRowNum?: number | null
   reference: string
   amount: number
-  method: 'Bank Transfer' | 'LSM' | 'NACH'
+  method: 'Bank Transfer' | 'LSM' | 'NACH' | '—'
+  currency?: string
   paymentPartner: string
   connectorSubtitle: string
   failureReason: string
@@ -284,11 +308,9 @@ export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?
   if (stageRaw.includes('valid')) failureStage = 'Validation'
   else if (stageRaw.includes('dispatch')) failureStage = 'Dispatch'
   else if (stageRaw.includes('settle')) failureStage = 'Settlement'
-  const lastUpdated = row.created_at
-    ? new Date(row.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-    : '—'
-  const connectorSubtitle = [row.stage, row.reason_code].filter(Boolean).join(' · ') || '—'
   const ctx = parseDlqIntentContext(row.intent_context)
+  const connector = ctx.sourceSystem || '—'
+  const connectorSubtitle = connector
   const manualReview =
     opts?.inManualReviewQueue ??
     apiTrimmedString(row.dlq_status) === 'NEEDS_MANUAL_REVIEW'
@@ -298,12 +320,13 @@ export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?
     sourceRowNum: typeof row.source_row_num === 'number' ? row.source_row_num : null,
     reference: row.envelope_id ?? row.dlq_id,
     amount: ctx.amount,
-    method: 'Bank Transfer',
-    paymentPartner: ctx.beneficiaryName ?? '',
+    method: resolveDlqPaymentMethod(ctx),
+    currency: ctx.currency ?? 'INR',
+    paymentPartner: connector,
     connectorSubtitle,
-    failureReason: row.error_detail || row.reason_code || '—',
+    failureReason: apiTrimmedString(row.error_detail) || apiTrimmedString(row.reason_code) || '—',
     failureStage,
-    lastUpdated,
+    lastUpdated: formatDlqUpdatedAt(row.created_at),
     action: row.replayable ? 'Retry' : 'Investigate',
     dlqStatus: row.dlq_status,
     dlqStatusLabel: formatDlqStatusLabel(row.dlq_status),

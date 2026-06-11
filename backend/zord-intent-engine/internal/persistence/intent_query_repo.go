@@ -725,7 +725,11 @@ func (r *IntentQueryRepo) ListDLQItemsByBatchSimple(
 			replayable,
 			COALESCE(client_batch_ref, '') AS client_batch_ref,
 			created_at,
-			COALESCE(batch_id, '') AS batch_id
+			COALESCE(batch_id, '') AS batch_id,
+			source_row_num,
+			COALESCE(dlq_status, '') AS dlq_status,
+			intent_context,
+			COALESCE(trace_id::text, '') AS trace_id
 		FROM dlq_items
 		WHERE tenant_id = $1
 		  AND (client_batch_ref = $2 OR batch_id = $2)
@@ -741,6 +745,8 @@ func (r *IntentQueryRepo) ListDLQItemsByBatchSimple(
 	items := make([]models.DLQEntry, 0)
 	for rows.Next() {
 		var e models.DLQEntry
+		var sourceRow sql.NullInt64
+		var intentContext []byte
 		if err := rows.Scan(
 			&e.DLQID,
 			&e.TenantID,
@@ -752,8 +758,19 @@ func (r *IntentQueryRepo) ListDLQItemsByBatchSimple(
 			&e.ClientBatchRef,
 			&e.CreatedAt,
 			&e.BatchID,
+			&sourceRow,
+			&e.DLQStatus,
+			&intentContext,
+			&e.TraceID,
 		); err != nil {
 			return nil, fmt.Errorf("failed to scan dlq row: %w", err)
+		}
+		if sourceRow.Valid {
+			n := int(sourceRow.Int64)
+			e.SourceRowNum = &n
+		}
+		if len(intentContext) > 0 {
+			e.IntentContext = intentContext
 		}
 		items = append(items, e)
 	}

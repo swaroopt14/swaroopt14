@@ -269,7 +269,6 @@ func (e *AttachmentEngine) runAttachment(
 		// Runner-up candidates need their own bucket so the DB row is meaningful.
 		// We use margin = 0 for every non-top candidate (they lost the contest).
 		if len(scored) > 0 {
-			policy := parseRuleProfile(profile)
 			// Top candidate: margin vs runner-up (already set by SelectDecisionType,
 			// but we re-derive here to guarantee consistency for all paths).
 			topMargin := 0.0
@@ -368,6 +367,9 @@ func (e *AttachmentEngine) runAttachment(
 		if len(scored) > 0 {
 			reasonDetail["top_score"] = scored[0].Total
 			reasonDetail["top_confidence_bucket"] = scored[0].ConfidenceBucket
+			reasonDetail["has_hard_conflict"] = scored[0].HasHardConflict
+			reasonDetail["has_any_conflict"] = scored[0].HasAnyConflict
+			reasonDetail["score_breakdown"] = scored[0].Breakdown
 		}
 		reasonDetailJSON, _ := json.Marshal(reasonDetail)
 
@@ -1099,10 +1101,10 @@ func persistAttachmentOutputs(
 				matching_ruleset_version,
 				winning_score, runner_up_score, score_margin,relative_score_margin,
 				confidence_score, ambiguity_score,
-				supporting_carriers_json, candidate_set_hash,
+				supporting_carriers_json, candidate_set_hash, candidate_set_size,
 				created_at, updated_at
 			) VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
 			) ON CONFLICT (settlement_observation_id, attachment_job_id) DO UPDATE SET
 				decision_type              = EXCLUDED.decision_type,
 				decision_reason_code       = EXCLUDED.decision_reason_code,
@@ -1115,6 +1117,7 @@ func persistAttachmentOutputs(
 				ambiguity_score            = EXCLUDED.ambiguity_score,
 				supporting_carriers_json   = EXCLUDED.supporting_carriers_json,
 				candidate_set_hash         = EXCLUDED.candidate_set_hash,
+				candidate_set_size         = EXCLUDED.candidate_set_size,
 				intent_id                  = EXCLUDED.intent_id,
 				updated_at                 = EXCLUDED.updated_at`,
 			d.AttachmentDecisionID, d.TenantID,
@@ -1123,7 +1126,7 @@ func persistAttachmentOutputs(
 			d.MatchingRulesetVersion,
 			d.WinningScore, d.RunnerUpScore, d.ScoreMargin, d.RelativeScoreMargin,
 			d.ConfidenceScore, d.AmbiguityScore,
-			d.SupportingCarriersJSON, d.CandidateSetHash,
+			d.SupportingCarriersJSON, d.CandidateSetHash, d.CandidateSetSize,
 			d.CreatedAt, d.UpdatedAt,
 		); err != nil {
 			return fmt.Errorf("persistAttachmentOutputs: insert decision: %w", err)

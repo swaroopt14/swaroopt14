@@ -94,23 +94,39 @@ export const evidenceCopy = {
   browser: {
     title: 'Evidence Pack Browser',
     subtitle:
-      'Search and export proof by payment reference, invoice number, UTR, beneficiary, batch ID, or proof root.',
-    searchPlaceholder: 'Search payment ref, invoice, UTR, beneficiary, batch, or evidence hash…',
+      'Batch proof root for the selected payout batch. Open the batch hub to browse payment proofs and graphs.',
+    searchPlaceholder: 'Filter batch proof by pack id or proof root…',
     batchLabel: 'Batch',
-    intentLabel: 'Intent',
-    intentAll: 'All intents in batch',
-    intentBatchOnly: 'Batch-level pack only',
+    batchProofCount: 'batch proof',
+    intentProofCount: 'payment proofs',
+    viewBatchProof: 'View batch proof',
+  },
+  hub: {
+    batchSubtitle:
+      'See how this batch proof root commits evidence for all payments in the batch.',
+    intentSidebarTitle: 'Payment proofs',
+    intentSidebarSearch: 'Search payment ref or intent…',
+    intentSidebarEmpty: 'No payment proofs in this batch',
+    intentHeroTitle: 'Proof lineage graph',
+    intentSelectPayment: 'Select a payment proof from the list',
+    batchGraph: 'Batch graph',
+    intentProofs: 'Intent proofs',
   },
   graph: {
     title: 'Evidence Pack Lineage',
     subtitle:
       'See how this payment proof was built from the original instruction, settlement signal, matching decision, and final evidence root.',
+    batchSubtitle:
+      'See how this batch proof root was built from aggregated payment evidence across the batch.',
     timelineTitle: 'Operational proof timeline',
     timelineEmpty: 'No timeline events returned for this pack.',
     verifyTitle: 'Cryptographic verification',
     verifyBusy: 'Verifying Merkle root…',
     verified: 'Verified',
     corrupted: 'Corrupted',
+    loadingGraph: 'Loading proof graph…',
+    packNotFound: 'This proof graph is not available yet. Try again or open another payment from the list.',
+    batchEmpty: 'No evidence packs for this batch yet. Select a batch with ingested payments.',
   },
   dispute: {
     title: 'Create Dispute / Evidence Case',

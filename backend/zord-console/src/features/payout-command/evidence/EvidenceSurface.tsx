@@ -39,8 +39,6 @@ import { deriveProofBreakdown } from './selectors/deriveProofBreakdown'
 import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
 import type { EvidencePageTab } from './types/evidenceViewModels'
 
-const INTENT_FILTER_BATCH_ONLY = '__batch_only__'
-
 /** Prefer batches like 1234 over 123 when both exist in the journal list. */
 function sortBatchPickerRows(rows: IntelligenceBatchRow[]): IntelligenceBatchRow[] {
   return [...rows].sort((a, b) =>
@@ -60,7 +58,6 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const [pageTab, setPageTab] = useState<EvidencePageTab>('workspace')
   const [search, setSearch] = useState('')
   const [batchId, setBatchId] = useState<string>(() => apiTrimmedString(initialBatchId))
-  const [intentId, setIntentId] = useState('')
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
   const [packSummaries, setPackSummaries] = useState<EvidencePackSummaryRow[]>([])
   const [packListError, setPackListError] = useState<string | null>(null)
@@ -141,7 +138,6 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
 
   useEffect(() => {
     const bid = apiTrimmedString(batchId)
-    setIntentId('')
     if (!tenantReady || !bid) {
       setPackSummaries([])
       setPackListError(null)
@@ -218,38 +214,17 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     [packRows, defensibility],
   )
 
-  const intentOptions = useMemo(() => {
-    const seen = new Set<string>()
-    const out: { intentId: string; paymentRef: string }[] = []
-    for (const row of tableRows) {
-      const id = apiTrimmedString(row.intentId)
-      if (!id || id === '—' || seen.has(id)) continue
-      seen.add(id)
-      out.push({ intentId: id, paymentRef: row.paymentRef })
-    }
-    return out
-  }, [tableRows])
+  const intentPackCount = useMemo(
+    () => tableRows.filter((row) => row.scope === 'intent').length,
+    [tableRows],
+  )
 
-  const scopedTableRows = useMemo(() => {
-    if (!intentId) return tableRows
-    if (intentId === INTENT_FILTER_BATCH_ONLY) {
-      return tableRows.filter((row) => row.scope === 'batch')
-    }
-    return tableRows.filter((row) => row.intentId === intentId)
-  }, [tableRows, intentId])
+  const batchBrowserRow = useMemo(
+    () => tableRows.find((row) => row.scope === 'batch') ?? null,
+    [tableRows],
+  )
 
-  const filteredTableRows = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return scopedTableRows
-    return scopedTableRows.filter(
-      (row) =>
-        row.packId.toLowerCase().includes(q) ||
-        row.batchId.toLowerCase().includes(q) ||
-        row.paymentRef.toLowerCase().includes(q) ||
-        row.intentId.toLowerCase().includes(q) ||
-        row.proofRoot.toLowerCase().includes(q),
-    )
-  }, [scopedTableRows, search])
+  const batchPackId = batchBrowserRow?.packId
 
   const kpiCards = useMemo(
     () => deriveEvidenceKpis({ defensibility, leakage, ambiguity, packRows, batchHealth, batchId }),
@@ -312,25 +287,19 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
             <div className="space-y-5 min-w-0">
               <EvidencePackBrowser
-                rows={filteredTableRows}
-                search={search}
-                onSearchChange={setSearch}
+                batchRow={batchBrowserRow}
+                intentPackCount={intentPackCount}
                 batchId={batchId}
                 onBatchChange={setBatchId}
                 batchOptions={batchOptions}
                 intelBatches={batches}
-                intentId={intentId}
-                onIntentChange={setIntentId}
-                intentOptions={intentOptions}
                 tenantReady={tenantReady}
                 packsLoading={dataLoading}
                 packListError={packListError}
-                filteredCount={filteredTableRows.length}
-                totalCount={scopedTableRows.length}
               />
               <EvidenceQuickActions
                 batchId={batchId}
-                firstPackId={tableRows[0]?.packId}
+                firstPackId={batchPackId}
               />
             </div>
 

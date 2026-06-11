@@ -56,8 +56,6 @@ spec:
               value: "8088"
             - name: USER
               value: evidenceuser
-            - name: SIGNING_KEY_PATH
-              value: " "
             - name: KAFKA_BROKERS
               valueFrom:
                 configMapKeyRef:
@@ -127,6 +125,12 @@ spec:
                   key: OTEL_EXPORTER_OTLP_ENDPOINT
             - name: OTEL_SERVICE_NAME
               value: zord-evidence
+            - name: SIGNING_KEY_PATH
+              value: /run/secrets/signing_key.pem
+          volumeMounts:
+            - name: evidence-signing-key
+              mountPath: /run/secrets
+              readOnly: true
           readinessProbe:
             httpGet:
               path: /healthz
@@ -146,3 +150,7 @@ spec:
             limits:
               cpu: 750m
               memory: 768Mi
+      volumes:
+        - name: evidence-signing-key
+          secret:
+            secretName: zord-evidence-signing-key

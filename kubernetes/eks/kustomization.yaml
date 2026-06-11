@@ -13,6 +13,7 @@ resources:
   - shared/secret-store.yaml
   - shared/external-secret-app-secrets.yaml
   - shared/external-secret-edge-signing-key.yaml
+  - shared/external-secret-evidence-signing-key.yaml
   - shared/relay-config.yaml
   - shared/aws-config.yaml
   - shared/postgres-bootstrap-config.yaml

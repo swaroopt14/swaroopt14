@@ -415,6 +415,7 @@ type AttachmentDecisionCreatedEvent struct {
 	ContractID   string `json:"contract_id"`
 	CorridorID   string `json:"corridor_id"`
 	BatchID      string `json:"batch_id"`
+	ProviderID   string `json:"source_system"`
 
 	// ── Decision outcome ──────────────────────────────────────────────────────
 	DecisionType string `json:"decision_type"`
@@ -496,6 +497,7 @@ type VarianceRecordCreatedEvent struct {
 	SettlementID string `json:"settlement_id"` // the settlement observation
 	CorridorID   string `json:"corridor_id"`
 	BatchID      string `json:"batch_id"`
+	ProviderID   string `json:"source_system"`
 
 	// ── Variance type ─────────────────────────────────────────────────────────
 	VarianceType string `json:"variance_type"` // one of:

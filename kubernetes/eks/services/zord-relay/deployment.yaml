@@ -68,7 +68,12 @@ spec:
             - name: RELAY_METRICS_ADDR
               value: :8082
             - name: RELAY_TRACING_ENABLED
-              value: "false"
+              value: "true"
+            - name: RELAY_TRACING_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: zord-aws-config
+                  key: OTEL_EXPORTER_OTLP_ENDPOINT
             - name: RELAY_SERVICES_0_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:

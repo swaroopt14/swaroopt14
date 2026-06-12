@@ -47,8 +47,12 @@ spec:
           configMap:
             name: prometheus-config
         - name: rules
-          configMap:
-            name: prometheus-alerting-rules
+          projected:
+            sources:
+              - configMap:
+                  name: prometheus-alerting-rules
+              - configMap:
+                  name: prometheus-recording-rules
         - name: data
           persistentVolumeClaim:
             claimName: prometheus-data

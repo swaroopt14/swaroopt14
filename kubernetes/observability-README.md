@@ -203,35 +203,18 @@ Services send traces via the `OTEL_EXPORTER_OTLP_ENDPOINT` env var (gRPC format,
 - zord-intent-engine
 - zord-token-enclave
 - zord-intelligence
+- zord-relay
+- zord-outcome-engine
+- zord-evidence
+- zord-prompt-layer
+
+**All 8 backend Go services have OpenTelemetry tracing built-in.**
+
+**Note:** zord-console (Next.js) does not have server-side tracing — it's a frontend app.
 
 **Requirement:** Docker images must be rebuilt after tracing code was added. If Jaeger Search only shows `jaeger-all-in-one`, the images need rebuilding via Jenkins.
 
-**For zord-relay (requires manual enable):**
-
-After deploying the tracing stack and rebuilding images, edit `kubernetes/eks/services/zord-relay/deployment.yaml`:
-
-```yaml
-# Change:
-- name: RELAY_TRACING_ENABLED
-  value: "false"
-
-# To:
-- name: RELAY_TRACING_ENABLED
-  value: "true"
-- name: RELAY_TRACING_OTLP_ENDPOINT
-  valueFrom:
-    configMapKeyRef:
-      name: zord-aws-config
-      key: OTEL_EXPORTER_OTLP_ENDPOINT
-```
-
-Then redeploy:
-```bash
-kubectl apply -k kubernetes/eks
-kubectl rollout restart deployment/zord-relay -n zord
-```
-
-**Important:** Do NOT enable relay tracing before deploying the tracing stack — relay will crash if the OTEL endpoint doesn't exist.
+**Deploy order:** Deploy the tracing stack (`kubernetes/tracing`) **before** deploying app services (`kubernetes/eks`). This ensures the OTel collector endpoint exists when services start. However, if services start before the collector, they will gracefully skip tracing (except zord-relay which will log a warning and continue without tracing).
 
 ---
 

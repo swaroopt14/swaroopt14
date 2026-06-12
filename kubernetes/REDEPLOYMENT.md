@@ -1,6 +1,11 @@
 # Redeployment Guide — Deploy Latest Code Changes
 
 ---
+```bash
+# Verify the external secret syncs
+kubectl get externalsecret zord-evidence-signing-key -n zord
+```
+
 
 ## Redeploy Config Changes Only (No Image Rebuild)
 

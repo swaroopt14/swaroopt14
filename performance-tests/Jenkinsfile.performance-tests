@@ -17,6 +17,7 @@ pipeline {
   environment {
     RESULTS_DIR = "performance-tests/results/${BUILD_NUMBER}"
     SCRIPTS_DIR = "performance-tests/scripts"
+    PATH = "${WORKSPACE}:${PATH}"
   }
 
   stages {
@@ -29,20 +30,16 @@ pipeline {
     stage('Install k6') {
       steps {
         sh '''
-          if ! command -v k6 &> /dev/null; then
+          if ! command -v k6 &> /dev/null && ! [ -f ./k6 ]; then
             echo "Installing k6..."
-            sudo yum install -y https://dl.k6.io/rpm/repo.rpm || true
-            sudo yum install -y k6 || {
-              curl -sL https://github.com/grafana/k6/releases/download/v0.49.0/k6-v0.49.0-linux-amd64.tar.gz | tar xz
-              sudo mv k6-v0.49.0-linux-amd64/k6 /usr/local/bin/k6
-            }
+            curl -sL https://github.com/grafana/k6/releases/download/v0.49.0/k6-v0.49.0-linux-amd64.tar.gz | tar xz
+            mv k6-v0.49.0-linux-amd64/k6 ./k6
+            chmod +x ./k6
           fi
-          k6 version
 
-          # Install pandoc for PDF report generation
-          if ! command -v pandoc &> /dev/null; then
-            sudo yum install -y pandoc wkhtmltopdf 2>/dev/null || true
-          fi
+          # Use local k6 binary
+          export PATH="$(pwd):${PATH}"
+          k6 version || ./k6 version
         '''
       }
     }

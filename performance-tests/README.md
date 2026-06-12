@@ -83,7 +83,7 @@ Every Saturday 3 AM:
    - ID: `slack-webhook`
    - Save
 3. Jenkins → **Manage Jenkins** → **System** → Scroll to **Slack**:
-   - Workspace: your workspace name
+   - Workspace: your workspace name (any name)
    - Credential: `slack-webhook`
    - Default channel: `#zord-performance-testing-bot`
    - Click **Test Connection** → must show "Success"

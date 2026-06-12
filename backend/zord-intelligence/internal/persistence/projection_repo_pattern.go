@@ -190,7 +190,7 @@ func (r *ProjectionRepo) AtomicUpsertProviderQuality(
 		DO UPDATE SET computed_at = now()
 		RETURNING value_json
 	`, tenantID, key, windowStart, windowEnd,
-		`{"provider_id":"`+sanitizeProjectionKey(providerID)+`","total_settlement_count":0,"total_settlement_amount_minor":"0","parse_confidence_sum":0,"parse_confidence_count":0,"weak_parse_count":0,"mapping_confidence_sum":0,"mapping_confidence_count":0,"weak_mapping_count":0,"carrier_richness_sum":0,"carrier_richness_count":0,"attachment_readiness_sum":0,"attachment_readiness_count":0,"orphan_count":0,"missing_provider_ref_count":0,"missing_client_ref_count":0,"total_decisions":0,"ambiguous_decisions":0,"unresolved_decisions":0,"settlement_delay_samples":[]}`,
+		`{"provider_id":"`+sanitizeProjectionKey(providerID)+`","total_settlement_count":0,"total_settlement_amount_minor":"0","parse_confidence_sum":0,"parse_confidence_count":0,"weak_parse_count":0,"mapping_confidence_sum":0,"mapping_confidence_count":0,"weak_mapping_count":0,"carrier_richness_sum":0,"carrier_richness_count":0,"attachment_readiness_sum":0,"attachment_readiness_count":0,"orphan_count":0,"missing_provider_ref_count":0,"missing_client_ref_count":0,"total_decisions":0,"ambiguous_decisions":0,"unresolved_decisions":0,"successful_decision_count":0,"decision_success_rate":0,"settlement_delay_samples":[]}`,
 	).Scan(&rawJSON)
 	if err != nil {
 		return fmt.Errorf("projection_repo_pattern.AtomicUpsertProviderQuality upsert key=%s: %w", key, err)
@@ -234,6 +234,7 @@ func (r *ProjectionRepo) AtomicUpsertProviderQuality(
 	v.TotalDecisions += delta.DecisionCount
 	v.AmbiguousDecisions += delta.AmbiguousDecisionCount
 	v.UnresolvedDecisions += delta.UnresolvedDecisionCount
+	v.SuccessfulDecisionCount += delta.SuccessfulDecisionCount
 
 	if delta.SettlementDelayDays > 0 {
 		v.SettlementDelaySamples = appendBoundedSample(v.SettlementDelaySamples, delta.SettlementDelayDays)
@@ -257,6 +258,7 @@ func (r *ProjectionRepo) AtomicUpsertProviderQuality(
 	}
 	if v.TotalDecisions > 0 {
 		v.AmbiguityRate = roundRate(float64(v.AmbiguousDecisions) / float64(v.TotalDecisions))
+		v.DecisionSuccessRate = roundRate(float64(v.SuccessfulDecisionCount) / float64(v.TotalDecisions))
 	}
 	if len(v.SettlementDelaySamples) > 0 {
 		v.SettlementDelayP95Days = computePercentile(v.SettlementDelaySamples, 95)
@@ -291,6 +293,7 @@ type ProviderQualityDelta struct {
 	DecisionCount            int
 	AmbiguousDecisionCount   int
 	UnresolvedDecisionCount  int
+	SuccessfulDecisionCount  int
 	SettlementDelayDays      int
 }
 

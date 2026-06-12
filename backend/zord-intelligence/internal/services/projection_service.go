@@ -1224,6 +1224,12 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	// A7: ScoreMargin is pre-computed upstream as WinningScore - RunnerUpScore
 	isLowConfidence := e.ConfidenceScore < 0.70
 	hasCollision := e.CandidateSetSize > 1
+	// A9: a decision is "successful" when it is unambiguous, has a single
+	// (non-colliding) candidate, and the settled amount exactly matches the
+	// intended amount.
+	isSuccessfulDecision := e.AmbiguityScore <= 0.30 &&
+		e.CandidateSetSize <= 1 &&
+		e.SettledAmountMinor.Equal(e.IntendedAmountMinor)
 	if err := s.projRepo.AtomicRecordAttachmentDecision(
 		ctx,
 		e.TenantID,
@@ -1234,10 +1240,33 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		isLowConfidence,
 		hasCollision,
 		e.ScoreMargin,
+		isSuccessfulDecision,
 		window.start, window.end,
 	); err != nil {
 		return fmt.Errorf("HandleAttachmentDecision AtomicRecordAttachmentDecision decision=%s: %w",
 			e.DecisionID, err)
+	}
+
+	// ── Step 2a: Update PROVIDER QUALITY projection (decision-side stats) ──
+	// Merges decision-derived counts (total_decisions, successful_decision_count,
+	// ambiguous/unresolved) into the same pattern.provider.{id} projection that
+	// HandleSettlementCreated populates with settlement-side stats (e.g. orphan_rate).
+	if e.ProviderID != "" {
+		isAmbiguous := e.DecisionType == "MATCH_AMBIGUOUS"
+		isUnresolved := e.DecisionType == "MATCH_UNRESOLVED"
+		if err := s.projRepo.AtomicUpsertProviderQuality(
+			ctx, e.TenantID, e.ProviderID,
+			persistence.ProviderQualityDelta{
+				DecisionCount:           1,
+				AmbiguousDecisionCount:  boolToInt(isAmbiguous),
+				UnresolvedDecisionCount: boolToInt(isUnresolved),
+				SuccessfulDecisionCount: boolToInt(isSuccessfulDecision),
+			},
+			window.start, window.end,
+		); err != nil {
+			log.Printf("HandleAttachmentDecision: AtomicUpsertProviderQuality failed decision=%s provider=%s: %v",
+				e.DecisionID, e.ProviderID, err)
+		}
 	}
 
 	// ── Step 2b: Increment DEFENSIBILITY denominator (Grade A path) ──────
@@ -1294,10 +1323,11 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		}
 	}
 
-	// NOTE: Provider/source grouping for ambiguity patterns comes exclusively from
-	// CanonicalSettlementCreatedEvent (5B) via HandleSettlementCreated.
-	// AttachmentDecisionCreatedEvent (5C) carries ProviderID (source_system) for
-	// logging/diagnostics only — it does not feed provider-quality projections here.
+	// NOTE: AttachmentDecisionCreatedEvent (5C) carries ProviderID (source_system),
+	// which feeds the decision-side counters (total_decisions, ambiguous_decisions,
+	// unresolved_decisions, successful_decision_count) into pattern.provider.{id}
+	// via Step 2a above. Settlement-side stats (e.g. orphan_rate) for the same
+	// provider key come from CanonicalSettlementCreatedEvent (5B) via HandleSettlementCreated.
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleAttachmentDecision MarkProcessed event_id=%s: %w", e.EventID, err)

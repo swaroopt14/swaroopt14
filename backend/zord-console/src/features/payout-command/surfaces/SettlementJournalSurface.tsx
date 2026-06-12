@@ -6,7 +6,6 @@ import { SettlementBatchSelectionProvider } from '../settlement-journal/context/
 import { SettlementJournalBatchSidebar } from '../settlement-journal/components/SettlementJournalBatchSidebar'
 import { SettlementJournalHeroBanner } from '../settlement-journal/components/SettlementJournalHeroBanner'
 import { SettlementJournalDataHealthPanel } from '../settlement-journal/components/SettlementJournalDataHealthPanel'
-import { SettlementParseErrorsPanel } from '../settlement-journal/components/SettlementParseErrorsPanel'
 import {
   SettlementJournalActivityPanel,
   type SettlementJournalActivityViewModel,
@@ -42,6 +41,9 @@ import {
 } from '@/services/payout-command/prod-api/settlementObservations'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { LiveDataHint } from '../shared'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
+
+type SettlementActivityTab = 'observations' | 'parseErrors'
 const SETTLEMENT_PAGE_SUMMARY = dockItems.find((d) => d.id === 'settlement')?.summary ?? ''
 
 const ROW_SIZE_OPTIONS = [25, 50, 100, 200] as const
@@ -168,6 +170,7 @@ function SettlementJournalSurfaceContent({
   const [syncAt, setSyncAt] = useState<Date | null>(null)
   const [parseErrors, setParseErrors] = useState<SettlementParseErrorRow[]>([])
   const [parseErrorsLoading, setParseErrorsLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<SettlementActivityTab>('observations')
   const selectClientBatch = useCallback(
     (batchId: string) => setSelectedClientBatchId(batchId),
     [setSelectedClientBatchId],
@@ -196,23 +199,30 @@ function SettlementJournalSurfaceContent({
   ])
 
   useEffect(() => {
+    setPage(1)
+    setJumpPage('1')
+    setExpandedId(null)
+  }, [activeTab])
+
+  const refetchParseErrors = useCallback(async () => {
     const bid = selectedClientBatchId.trim()
     if (!tenantReady || !bid) {
       setParseErrors([])
       setParseErrorsLoading(false)
       return
     }
-    let cancelled = false
     setParseErrorsLoading(true)
-    void getSettlementParseErrorsForClientBatch(bid).then((res) => {
-      if (cancelled) return
+    try {
+      const res = await getSettlementParseErrorsForClientBatch(bid)
       setParseErrors(res.data ?? [])
+    } finally {
       setParseErrorsLoading(false)
-    })
-    return () => {
-      cancelled = true
     }
   }, [tenantReady, selectedClientBatchId])
+
+  useEffect(() => {
+    void refetchParseErrors()
+  }, [refetchParseErrors])
 
   const statusOptions = useMemo(() => {
     const set = new Set(observationRows.map((r) => r.status).filter(Boolean))
@@ -293,16 +303,29 @@ function SettlementJournalSurfaceContent({
     safeSidebarPage * SETTLEMENT_SIDEBAR_PAGE_SIZE,
   )
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setFeedRefreshing(true)
     try {
       await refreshSidebar()
       await refetchObservations()
+      await refetchParseErrors()
       setSyncAt(new Date())
     } finally {
       setFeedRefreshing(false)
     }
-  }
+  }, [refreshSidebar, refetchObservations, refetchParseErrors])
+
+  useRegisterPayoutPageActions({
+    refresh: handleRefresh,
+    refreshing: feedRefreshing || detailLoading || parseErrorsLoading,
+    exportShare: () => {
+      downloadCsv(
+        `settlement-observations${selectedClientBatchId ? `-${selectedClientBatchId}` : ''}.csv`,
+        observationsToCsv(filteredRows),
+      )
+    },
+    exportDisabled: filteredRows.length === 0,
+  })
 
   const clearTableFilters = () => {
     setTableSearch('')
@@ -363,6 +386,10 @@ function SettlementJournalSurfaceContent({
     setJumpPage,
     totalPages,
     jumpPage,
+    activeTab,
+    setActiveTab,
+    parseErrors,
+    parseErrorsLoading,
   }
 
   return (
@@ -431,11 +458,6 @@ function SettlementJournalSurfaceContent({
                     filtersActive={filtersActive}
                   />
                   <SettlementJournalDataHealthPanel />
-                  <SettlementParseErrorsPanel
-                    rows={parseErrors}
-                    loading={parseErrorsLoading}
-                    selectedClientBatchId={selectedClientBatchId}
-                  />
 
                   <SettlementJournalActivityPanel vm={activityVm} />
                 </>

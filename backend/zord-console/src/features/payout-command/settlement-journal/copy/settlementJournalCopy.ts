@@ -11,7 +11,7 @@ export const settlementJournalCopy = {
     recordsMarkedSettled: 'Records Marked Settled',
     netSettled: 'Net Settled Value',
     matchedToIntents: 'Matched to Payment Intents',
-    matchedFromIntentId: 'Linked via client ref or intent id (payment-intents API)',
+    matchedFromIntentId: 'Linked via client ref or intent id',
     matchedAwaitingPipeline:
       'Matching pipeline has not linked settlement rows to intents yet',
   },
@@ -20,6 +20,10 @@ export const settlementJournalCopy = {
     records: 'settlement records',
     observedValue: 'observed value',
     selectBatch: 'Select a batch from the sidebar',
+  },
+  tabs: {
+    observations: 'Settlement observations',
+    parseErrors: 'Settlement parse errors',
   },
   table: {
     sourceRow: 'Source Row',

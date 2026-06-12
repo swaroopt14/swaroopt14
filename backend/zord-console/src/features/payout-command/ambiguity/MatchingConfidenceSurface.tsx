@@ -23,6 +23,7 @@ import { BatchesNeedingReviewTable } from './components/BatchesNeedingReviewTabl
 import { AmbiguityMixDonut } from './components/AmbiguityMixDonut'
 import { BatchControlList, DataQualityAuditCard } from './components/BatchControlList'
 import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import { LiveDataHint } from '../shared'
 
 export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
@@ -71,6 +72,15 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
     }
     return amb
   }, [amb, batchHealth, selectedBatchId])
+
+  const handlePageRefresh = useCallback(async () => {
+    await Promise.all([refresh(), refreshHeatmap()])
+  }, [refresh, refreshHeatmap])
+
+  useRegisterPayoutPageActions({
+    refresh: tenantReady ? handlePageRefresh : undefined,
+    refreshing: kpiLoading || heatmapLoading || batchHealthLoading,
+  })
 
   const kpiScopeHint =
     selectedBatchId && batchHealth

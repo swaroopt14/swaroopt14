@@ -43,6 +43,7 @@ import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCom
 import { markSandboxSetupStep, openSandboxSetupPanel } from '@/services/payout-command/sandbox-setup-guide'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { dockItems } from '@/services/payout-command/model'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import {
   COMMAND_CENTER_KPI_CARD,
   COMMAND_CENTER_LABEL_GREEN,
@@ -684,6 +685,38 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const failureTotalPages = Math.max(1, Math.ceil(failureTotal / rowsPerPage))
   const safeFailurePage = Math.min(failurePage, failureTotalPages)
   const failurePageRows = filteredFailures.slice((safeFailurePage - 1) * rowsPerPage, safeFailurePage * rowsPerPage)
+
+  const [feedRefreshing, setFeedRefreshing] = useState(false)
+
+  const handlePageRefresh = useCallback(async () => {
+    if (!journalUsesBackendFeed) return
+    setFeedRefreshing(true)
+    try {
+      await Promise.all([refreshSidebar(), intentFeed.refetch(), failureFeed.refetch()])
+    } finally {
+      setFeedRefreshing(false)
+    }
+  }, [journalUsesBackendFeed, refreshSidebar, intentFeed, failureFeed])
+
+  useRegisterPayoutPageActions({
+    refresh: journalUsesBackendFeed ? handlePageRefresh : undefined,
+    refreshing: feedRefreshing || liveDetailLoading,
+    exportShare: () => {
+      if (activeTab === 'failures') {
+        downloadCsv(
+          `intent-journal-review-items${selectedBatchId ? `-${selectedBatchId}` : ''}.csv`,
+          failuresToCsv(filteredFailures),
+        )
+        return
+      }
+      downloadCsv(
+        `intent-journal-payment-instructions${selectedBatchId ? `-${selectedBatchId}` : ''}.csv`,
+        intentsToCsv(filteredIntents),
+      )
+    },
+    exportDisabled:
+      activeTab === 'failures' ? filteredFailures.length === 0 : filteredIntents.length === 0,
+  })
 
   // Derive overview KPIs from intelligence batch list + batch detail only (`/v1/intelligence/batches*`).
   // KPI 14 (`/v1/intelligence/dashboard/patterns`) is fetched separately — never used for intent counts or INR.

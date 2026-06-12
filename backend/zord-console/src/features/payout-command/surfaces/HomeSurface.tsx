@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Bar, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   clamp,
@@ -37,6 +37,7 @@ import { useDisbursementTrend } from '@/services/payout-command/prod-api/useDisb
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCard'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
   'No payment data in this period yet. Upload payment instructions or connect bank/settlement files to populate this view.'
@@ -90,13 +91,13 @@ export function HomeSurface({
     else setCommandPeriod('month')
   }, [timeframe])
 
-  const { data: trendSeries, loading: trendLoading } = useDisbursementTrend({ tenantReady, range: trendRange })
-  const { data: carouselTrendSeries, loading: carouselTrendLoading } = useDisbursementTrend({
+  const { data: trendSeries, loading: trendLoading, refresh: refreshTrend } = useDisbursementTrend({ tenantReady, range: trendRange })
+  const { data: carouselTrendSeries, loading: carouselTrendLoading, refresh: refreshCarouselTrend } = useDisbursementTrend({
     tenantReady,
     range: carouselTrendRange,
   })
 
-  const { leakage, ambiguity, defensibility, patterns, recommendations, loading } = useIntelligenceKpis({
+  const { leakage, ambiguity, defensibility, patterns, recommendations, loading, refresh } = useIntelligenceKpis({
     tenantReady,
     batchId,
     dateQuery: intelligenceDateQuery,
@@ -106,6 +107,15 @@ export function HomeSurface({
   const defData = isDataAvailable(defensibility) ? defensibility : null
   const patternsData = isDataAvailable(patterns) ? patterns : null
   const recsData = isDataAvailable(recommendations) ? recommendations : null
+
+  const handlePageRefresh = useCallback(async () => {
+    await Promise.all([refresh(), refreshTrend(), refreshCarouselTrend()])
+  }, [refresh, refreshTrend, refreshCarouselTrend])
+
+  useRegisterPayoutPageActions({
+    refresh: tenantReady ? handlePageRefresh : undefined,
+    refreshing: loading || trendLoading || carouselTrendLoading,
+  })
 
   useEffect(() => {
     if (!isSandbox || !tenantReady || loading || trendLoading) return

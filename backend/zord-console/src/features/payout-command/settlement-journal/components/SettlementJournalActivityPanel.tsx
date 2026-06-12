@@ -21,6 +21,15 @@ import {
   formatClientRefDisplay,
   formatMappingConfidenceLabel,
 } from '../mappers/mapMatchStatus'
+import { SettlementParseErrorsTable } from './SettlementParseErrorsTable'
+import type { SettlementParseErrorRow } from '@/services/payout-command/prod-api/settlementObservations'
+
+type SettlementTabKey = 'observations' | 'parseErrors'
+
+const TAB_ITEMS: { key: SettlementTabKey; label: string }[] = [
+  { key: 'observations', label: settlementJournalCopy.tabs.observations },
+  { key: 'parseErrors', label: settlementJournalCopy.tabs.parseErrors },
+]
 
 const JOURNAL_FILTER_LABEL =
   'mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]'
@@ -70,6 +79,10 @@ export type SettlementJournalActivityViewModel = {
   setJumpPage: (v: string) => void
   totalPages: number
   jumpPage: string
+  activeTab: SettlementTabKey
+  setActiveTab: (tab: SettlementTabKey) => void
+  parseErrors: SettlementParseErrorRow[]
+  parseErrorsLoading: boolean
 }
 
 type SettlementJournalActivityPanelProps = {
@@ -111,6 +124,10 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
     setJumpPage,
     totalPages,
     jumpPage,
+    activeTab,
+    setActiveTab,
+    parseErrors,
+    parseErrorsLoading,
   } = vm
 
   return (
@@ -253,6 +270,24 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
   </div>
 </div>
 
+<nav className="mb-4 flex items-center gap-0.5 border-b border-[#E5E5E5]">
+  {TAB_ITEMS.map((tab) => (
+    <button
+      key={tab.key}
+      type="button"
+      onClick={() => setActiveTab(tab.key)}
+      className={`-mb-px border-b-2 px-4 py-2 text-[14px] font-medium tracking-[0] transition ${
+        activeTab === tab.key
+          ? 'border-[#39E07E] text-[#000000]'
+          : 'border-transparent text-[#888888] hover:text-[#000000]'
+      }`}
+    >
+      {tab.label}
+    </button>
+  ))}
+</nav>
+
+{activeTab === 'observations' ? (
 <section className={`overflow-hidden ${COMMAND_CENTER_KPI_CARD} !p-0`}>
   <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
     <p className={`text-[14px] font-semibold ${HOME_TITLE_BLACK}`}>Settlement observations</p>
@@ -586,6 +621,22 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
     </div>
   </div>
 </section>
+) : (
+<section className={`overflow-hidden ${COMMAND_CENTER_KPI_CARD} !p-0`}>
+  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+    <p className={`text-[14px] font-semibold ${HOME_TITLE_BLACK}`}>
+      {settlementJournalCopy.tabs.parseErrors}
+    </p>
+    <p className={HOME_BODY_IMPERIAL_SM}>
+      <span className="rounded-full border border-rose-200/70 bg-rose-50 px-2 py-0.5 text-[12px] font-semibold text-rose-800">
+        {parseErrors.length.toLocaleString('en-US')} rows
+      </span>{' '}
+      {parseErrorsLoading ? 'loading…' : 'for this batch'}
+    </p>
+  </div>
+  <SettlementParseErrorsTable rows={parseErrors} loading={parseErrorsLoading} />
+</section>
+)}
     </>
   )
 }

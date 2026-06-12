@@ -16,6 +16,7 @@ import { AllocationPerformanceCard } from './components/AllocationPerformanceCar
 import { RiskScoreGauge } from './components/RiskScoreGauge'
 import { SystemInsightsCard } from './components/SystemInsightsCard'
 import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 
 type PortfolioLeakageDashboardProps = {
   tenantReady: boolean
@@ -36,6 +37,18 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
 
   const { viewModel, ambiguity, defensibility, loading, refresh, hasData, leak } =
     usePortfolioLeakageData(tenantReady, selectedBatchId)
+
+  const handlePageRefresh = useCallback(async () => {
+    await refresh()
+    if (!tenantReady) return
+    const res = await getIntelligenceBatches({ limit: 20 })
+    setBatches(res?.batches ?? [])
+  }, [refresh, tenantReady])
+
+  useRegisterPayoutPageActions({
+    refresh: tenantReady ? handlePageRefresh : undefined,
+    refreshing: loading || batchHealthLoading,
+  })
 
   useEffect(() => {
     const pinned = initialBatchId?.trim()

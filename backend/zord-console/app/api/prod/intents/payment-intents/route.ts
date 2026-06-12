@@ -1,15 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { fetchIntents, type BackendIntent } from '@/services/backend/intents'
+import { BACKEND_SERVICES } from '@/config/api.endpoints'
 import {
   applyRefreshedSessionCookies,
   requireSessionTenantForProdProxy,
   TENANT_MISMATCH_BODY,
 } from '@/services/auth/resolvePayoutTenant.server'
+import { readIntentQualityScore } from '@/services/payout-command/prod-api/resolveIntentQualityScore'
 
 export const dynamic = 'force-dynamic'
 
-function inferRailHint(intent: BackendIntent): string | undefined {
-  const beneficiary = intent.beneficiary as { instrument?: unknown } | undefined
+type PaymentIntentLiteUpstream = {
+  tenant_id?: string
+  amount?: string | number
+  currency?: string
+  intended_execution_at?: string | null
+  provider_hint?: string | null
+  intent_quality_score?: number | string | null
+  aggregate_confidence_score?: number | string | null
+  intent_id?: string | null
+  batchid?: string | null
+  batch_id?: string | null
+  client_payout_ref?: string | null
+  client_batch_ref?: string | null
+  source_row_num?: number | string | null
+  beneficiary_type?: string | null
+  beneficiary?: Record<string, unknown> | null
+}
+
+function coerceScore(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number.parseFloat(value)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function inferRailHint(item: PaymentIntentLiteUpstream): string | undefined {
+  const beneficiary = item.beneficiary
   const instrumentKind =
     typeof beneficiary?.instrument === 'object' &&
     beneficiary?.instrument &&
@@ -18,9 +46,9 @@ function inferRailHint(intent: BackendIntent): string | undefined {
       : ''
 
   const candidates = [
-    String(intent.provider_hint ?? ''),
-    String(intent.beneficiary_type ?? ''),
+    String(item.beneficiary_type ?? ''),
     instrumentKind,
+    String(item.provider_hint ?? ''),
   ]
     .map((v) => v.trim().toUpperCase())
     .filter(Boolean)
@@ -32,11 +60,12 @@ function inferRailHint(intent: BackendIntent): string | undefined {
     if (value.includes('IMPS')) return 'IMPS'
     if (value.includes('UPI')) return 'UPI'
     if (value.includes('LSM') || value.includes('INSTA')) return 'LSM'
+    if (value.includes('BANK_TRANSFER') || value.includes('BANK TRANSFER')) return 'Bank Transfer'
   }
   return undefined
 }
 
-/** BFF: GET /api/prod/intents/payment-intents?batch_id= (session-tenant scoped, enriched fields). */
+/** BFF: GET /api/prod/intents/payment-intents?batch_id= → intent-engine journal lite API. */
 export async function GET(request: NextRequest) {
   const batchId = request.nextUrl.searchParams.get('batch_id')?.trim()
   const gate = await requireSessionTenantForProdProxy(request)
@@ -55,56 +84,78 @@ export async function GET(request: NextRequest) {
     return res
   }
 
-  const page = Math.max(1, Number.parseInt(request.nextUrl.searchParams.get('page') ?? '1', 10) || 1)
-  const pageSize = Math.min(
-    500,
-    Math.max(1, Number.parseInt(request.nextUrl.searchParams.get('page_size') ?? '200', 10) || 200),
-  )
+  const upstreamParams = new URLSearchParams({
+    tenant_id: gate.tenantId,
+    batch_id: batchId,
+  })
+  const url = `${BACKEND_SERVICES.INTENT_ENGINE.BASE_URL}/api/prod/intents/payment-intents?${upstreamParams.toString()}`
 
   try {
-    const response = await fetchIntents({
-      page,
-      page_size: pageSize,
-      tenant_id: gate.tenantId,
-      batch_id: batchId,
+    const upstream = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'content-type': 'application/json',
+        'x-tenant-id': gate.tenantId,
+        'tenant-id': gate.tenantId,
+        tenant_id: gate.tenantId,
+        batch_id: batchId,
+      },
+      cache: 'no-store',
     })
 
-    const items = (response.items ?? []).map((intent) => {
-      const aggregate =
-        typeof intent.aggregate_confidence_score === 'number' && Number.isFinite(intent.aggregate_confidence_score)
-          ? intent.aggregate_confidence_score
-          : null
-      const fallback =
-        typeof intent.confidence_score === 'number' && Number.isFinite(intent.confidence_score)
-          ? intent.confidence_score
-          : null
-      const intentQualityScore =
-        typeof intent.intent_quality_score === 'number' && Number.isFinite(intent.intent_quality_score)
-          ? intent.intent_quality_score
-          : aggregate ?? fallback
+    if (!upstream.ok) {
+      const res = NextResponse.json(
+        {
+          items: [],
+          pagination: { page: 1, page_size: 0, total: 0 },
+          error: `intent-engine returned HTTP ${upstream.status}`,
+        },
+        { status: upstream.status },
+      )
+      applyRefreshedSessionCookies(res, gate.refreshedPayload)
+      return res
+    }
+
+    const payload = (await upstream.json()) as { items?: PaymentIntentLiteUpstream[] }
+    const rawItems = payload.items ?? []
+
+    const items = rawItems.map((item) => {
+      const resolvedBatchId =
+        (typeof item.batchid === 'string' && item.batchid.trim()) ||
+        (typeof item.batch_id === 'string' && item.batch_id.trim()) ||
+        batchId
 
       return {
-        tenant_id: intent.tenant_id,
-        amount: intent.amount,
-        currency: intent.currency,
-        intended_execution_at: intent.intended_execution_at ?? intent.deadline_at ?? null,
-        provider_hint: intent.provider_hint ?? null,
-        intent_quality_score: intentQualityScore,
-        intent_id: intent.intent_id,
-        envelope_id: intent.envelope_id,
-        batch_id: intent.batch_id ?? null,
-        client_payout_ref: intent.client_payout_ref ?? null,
-        client_batch_ref: intent.client_batch_ref ?? intent.batch_id ?? null,
-        source_row_num: intent.source_row_num ?? null,
-        beneficiary_type: intent.beneficiary_type ?? null,
-        beneficiary: intent.beneficiary ?? null,
-        rail_hint: inferRailHint(intent) ?? null,
+        tenant_id: item.tenant_id ?? gate.tenantId,
+        amount: item.amount,
+        currency: item.currency ?? 'INR',
+        intended_execution_at: item.intended_execution_at ?? null,
+        provider_hint: item.provider_hint ?? null,
+        intent_quality_score: readIntentQualityScore(item),
+        aggregate_confidence_score: coerceScore(item.aggregate_confidence_score),
+        intent_id: item.intent_id ?? null,
+        batch_id: resolvedBatchId,
+        client_payout_ref: item.client_payout_ref ?? null,
+        client_batch_ref: item.client_batch_ref ?? resolvedBatchId,
+        source_row_num:
+          typeof item.source_row_num === 'number'
+            ? item.source_row_num
+            : typeof item.source_row_num === 'string' && item.source_row_num.trim()
+              ? Number.parseInt(item.source_row_num, 10) || null
+              : null,
+        beneficiary_type: item.beneficiary_type ?? null,
+        beneficiary: item.beneficiary ?? null,
+        rail_hint: inferRailHint(item) ?? null,
       }
     })
 
     const res = NextResponse.json({
       items,
-      pagination: response.pagination,
+      pagination: {
+        page: 1,
+        page_size: items.length,
+        total: items.length,
+      },
     })
     applyRefreshedSessionCookies(res, gate.refreshedPayload)
     return res
@@ -112,11 +163,7 @@ export async function GET(request: NextRequest) {
     const res = NextResponse.json(
       {
         items: [],
-        pagination: {
-          page,
-          page_size: pageSize,
-          total: 0,
-        },
+        pagination: { page: 1, page_size: 0, total: 0 },
         error: error instanceof Error ? error.message : 'Failed to fetch payment intents',
       },
       { status: 502 },

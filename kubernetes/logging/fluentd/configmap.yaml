@@ -39,12 +39,13 @@ data:
 
     <filter kubernetes.**>
       @type record_transformer
+      enable_ruby true
       <record>
         cluster zord-eks-prod
-        namespace ${record.dig("kubernetes", "namespace_name") || "unknown"}
-        pod ${record.dig("kubernetes", "pod_name") || "unknown"}
-        container ${record.dig("kubernetes", "container_name") || "unknown"}
-        service ${record.dig("kubernetes", "labels", "app.kubernetes.io/name") || record.dig("kubernetes", "labels", "app") || "unknown"}
+        namespace ${record.dig("kubernetes", "namespace_name") rescue "unknown"}
+        pod ${record.dig("kubernetes", "pod_name") rescue "unknown"}
+        container ${record.dig("kubernetes", "container_name") rescue "unknown"}
+        service ${(record.dig("kubernetes", "labels", "app.kubernetes.io/name") || record.dig("kubernetes", "labels", "app")) rescue "unknown"}
       </record>
     </filter>
 

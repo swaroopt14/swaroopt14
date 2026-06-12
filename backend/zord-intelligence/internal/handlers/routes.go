@@ -54,6 +54,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 // NewRouter creates and returns the fully wired HTTP router.
@@ -233,5 +234,5 @@ func NewRouter(
 		})
 	})
 
-	return r
+	return otelhttp.NewHandler(r, "zord-intelligence")
 }

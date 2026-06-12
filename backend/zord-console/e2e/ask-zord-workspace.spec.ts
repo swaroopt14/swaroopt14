@@ -18,7 +18,7 @@ function installAuthIntelligenceAndPromptMocks(page: Page) {
         contentType: 'application/json',
         body: JSON.stringify({
           session: { tenant_id: SESSION_TENANT },
-          user: { tenant_id: SESSION_TENANT },
+          user: { id: 'e2e-user-1', tenant_id: SESSION_TENANT },
         }),
       })
     }),
@@ -48,7 +48,7 @@ function installAuthIntelligenceAndPromptMocks(page: Page) {
           buckets: [
             { key: '1', label: 'W1', total_amount: 10000, confirmed_amount: 8000, review_amount: 2000, intent_count: 10, confirmed_count: 8 },
           ],
-          source: 'intent_engine_aggregate',
+          source: 'intelligence_leakage_windows',
         }),
       })
     }),
@@ -197,6 +197,21 @@ test.describe('Payment Operations View (Ask Zord workspace)', () => {
     await expect(page.getByTestId('workspace-routing-tab-disabled')).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Today' })).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Payment Clarity' })).toBeVisible()
+  })
+
+  test('loads initial latest answer from prompt-layer', async ({ page }) => {
+    const promptWait = page.waitForRequest(
+      (req) => req.method() === 'POST' && req.url().includes('/api/prompt-layer/query'),
+      { timeout: 20_000 },
+    )
+
+    await page.goto('/payout-command-view/today?dock=workspace')
+
+    await promptWait
+    await expect(page.getByTestId('workspace-chat-transcript-answer')).toBeVisible()
+    await expect(page.getByText(/18 payments needing review|missing bank references/i)).toBeVisible({
+      timeout: 15_000,
+    })
   })
 
   test('typed prompt triggers prompt-layer POST', async ({ page }) => {

@@ -67,6 +67,8 @@ spec:
                   name: grafana-dashboards-nodes
               - configMap:
                   name: grafana-dashboards-platform
+              - configMap:
+                  name: grafana-dashboards-data-layer
         - name: data
           persistentVolumeClaim:
             claimName: grafana-data

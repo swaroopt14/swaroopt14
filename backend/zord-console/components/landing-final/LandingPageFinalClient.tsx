@@ -664,7 +664,32 @@ const switchboardLensDashboard = {
   },
 } as const
 
-const pricingFamilies = [
+type PricingFamily = {
+  id: string
+  label: string
+  eyebrow: string
+  kicker: string
+  metric: string
+  detail: string
+  subdetail: string
+  highlights: readonly string[]
+  stats: readonly (readonly [string, string])[]
+  footnote?: string
+}
+
+type PricingPlan = {
+  title: string
+  subtitle: string
+  metric: string
+  detail: string
+  points: readonly string[]
+  ctaLabel: string
+  href: string
+  featured?: boolean
+  badge?: string
+}
+
+const pricingFamilies: readonly PricingFamily[] = [
   {
     id: 'payments',
     label: 'Payments',
@@ -744,7 +769,7 @@ const pricingFamilies = [
   },
 ] as const
 
-const pricingPlans = [
+const pricingPlans: readonly PricingPlan[] = [
   {
     title: 'Pay as You Go',
     subtitle: 'Best for individuals and developers',

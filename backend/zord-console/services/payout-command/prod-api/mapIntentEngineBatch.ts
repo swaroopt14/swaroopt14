@@ -2,7 +2,8 @@ import type { IntentEngineBatchSidebarItem, PaymentIntentRecord } from './getPro
 import type { ApiDlqRow } from './prodApiTypes'
 import type { IntelligenceBatchRow } from './intelligenceTypes'
 import { apiTrimmedString } from './coerceApiField'
-import { formatDlqStatusLabel, parseDlqIntentContext } from './mapDlqContext'
+import { readIntentQualityScore } from '@/services/payout-command/prod-api/resolveIntentQualityScore'
+import { formatDlqStatusLabel, parseDlqIntentContext, normalizePspDisplayName } from './mapDlqContext'
 
 export type JournalBatchType = 'Disbursement' | 'Settlement'
 export type JournalIntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
@@ -19,8 +20,8 @@ export type JournalBatchRecord = {
   confirmedCount: number
   /** Legacy field name — when from engine sidebar, stores rounded count fallback only. */
   highConfidenceCount: number
-  /** Avg aggregate confidence 0–1 from engine (`highConfidenceCount` in API JSON). */
-  avgConfidenceScore?: number
+  /** Batch-level aggregate confidence 0–1 from intent-engine `aggregate_confidence_score`. */
+  aggregateConfidenceScore?: number
   mismatchCount: number
   unresolvedCount: number
   intelligenceCounts?: Pick<IntelligenceBatchRow, 'success_count' | 'failed_count' | 'pending_count' | 'finality_status'>
@@ -103,13 +104,37 @@ function buildZordId(requestId: string, batchId: string): string {
   return `ZRD-${normalized.slice(-8).toUpperCase()}`
 }
 
+function resolveDlqPaymentMethod(ctx: ReturnType<typeof parseDlqIntentContext>): JournalFailureRow['method'] {
+  const raw = (ctx.paymentMethod ?? '').toUpperCase()
+  if (!raw) return '—'
+  if (raw.includes('NACH')) return 'NACH'
+  if (raw.includes('IMPS') || raw.includes('UPI') || raw.includes('LSM')) return 'LSM'
+  if (raw.includes('RTGS') || raw.includes('NEFT') || raw.includes('BANK')) return 'Bank Transfer'
+  return 'Bank Transfer'
+}
+
+function formatDlqUpdatedAt(iso?: string): string {
+  const s = apiTrimmedString(iso)
+  if (!s) return '—'
+  const d = new Date(s)
+  if (Number.isNaN(d.getTime())) return s
+  return d.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
 export type JournalFailureRow = {
   batchId: string
   requestId: string
   sourceRowNum?: number | null
   reference: string
   amount: number
-  method: 'Bank Transfer' | 'LSM' | 'NACH'
+  method: 'Bank Transfer' | 'LSM' | 'NACH' | '—'
+  currency?: string
   paymentPartner: string
   connectorSubtitle: string
   failureReason: string
@@ -147,10 +172,14 @@ export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): J
   const tv = Number.parseFloat(String(it.totalValue ?? '').replace(/,/g, ''))
   const totalValue = Number.isFinite(tv) ? tv : 0
   const hcRaw = it.highConfidenceCount
-  const avgConfidenceScore =
+  const aggregateConfidenceScore =
     typeof hcRaw === 'number' && Number.isFinite(hcRaw) && hcRaw <= 1 ? hcRaw : undefined
   const highConfidenceCount =
-    avgConfidenceScore != null ? Math.round(avgConfidenceScore * 100) : typeof hcRaw === 'number' && Number.isFinite(hcRaw) ? Math.round(hcRaw) : 0
+    aggregateConfidenceScore != null
+      ? Math.round(aggregateConfidenceScore * 100)
+      : typeof hcRaw === 'number' && Number.isFinite(hcRaw)
+        ? Math.round(hcRaw)
+        : 0
 
   return {
     batchId: String(it.batchId ?? '').trim() || '—',
@@ -161,7 +190,7 @@ export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): J
     transactions: it.transactions ?? 0,
     confirmedCount: it.confirmedCount ?? 0,
     highConfidenceCount,
-    avgConfidenceScore,
+    aggregateConfidenceScore,
     mismatchCount: it.mismatchCount ?? 0,
     unresolvedCount: it.unresolvedCount ?? 0,
     engineSidebar: true,
@@ -169,6 +198,14 @@ export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): J
 }
 
 export function mapIntelligenceRowToBatchRecord(b: IntelligenceBatchRow): JournalBatchRecord {
+  const matchPct = b.match_confidence_pct
+  const aggregateConfidenceScore =
+    typeof matchPct === 'number' && Number.isFinite(matchPct)
+      ? matchPct <= 1
+        ? matchPct
+        : matchPct / 100
+      : undefined
+
   return {
     batchId: b.batch_id,
     type: 'Disbursement',
@@ -178,6 +215,7 @@ export function mapIntelligenceRowToBatchRecord(b: IntelligenceBatchRow): Journa
     transactions: b.total_count ?? 0,
     confirmedCount: b.success_count ?? 0,
     highConfidenceCount: 0,
+    aggregateConfidenceScore,
     mismatchCount: 0,
     unresolvedCount: 0,
     intelligenceCounts: {
@@ -206,7 +244,7 @@ export function mapPaymentIntentToIntentRow(
   if (st.includes('FAIL') || st.includes('REJECT') || st.includes('ERROR') || gov === 'FLAGGED') {
     status = 'Needs Review'
   } else if (st.includes('CONFIRM') || st.includes('SUCCESS') || st === 'COMPLETED' || st === 'SETTLED') {
-    status = 'Ready to Process'
+    status = 'Confirmed'
   } else if (st.includes('PROCESS') || st.includes('DISPAT') || st === 'IN_FLIGHT' || biz === 'PROCESSING') {
     status = 'In Progress'
   } else if (st.includes('PEND') || st.includes('CREAT')) {
@@ -235,10 +273,7 @@ export function mapPaymentIntentToIntentRow(
     .filter(Boolean)
     .join(' · ') || '—'
 
-  const confidenceScore =
-    typeof intent.aggregate_confidence_score === 'number' && Number.isFinite(intent.aggregate_confidence_score)
-      ? intent.aggregate_confidence_score
-      : null
+  const confidenceScore = readIntentQualityScore(intent)
 
   return {
     batchId,
@@ -274,17 +309,15 @@ export function mapPaymentIntentToIntentRow(
 
 export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?: boolean }): JournalFailureRow {
   const batchFromIngest = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
-  const batchId = batchFromIngest || (row.envelope_id ? String(row.envelope_id) : '—')
+  const batchId = batchFromIngest || '—'
   const stageRaw = (row.stage ?? '').toLowerCase()
   let failureStage: JournalFailureRow['failureStage'] = 'Processing'
   if (stageRaw.includes('valid')) failureStage = 'Validation'
   else if (stageRaw.includes('dispatch')) failureStage = 'Dispatch'
   else if (stageRaw.includes('settle')) failureStage = 'Settlement'
-  const lastUpdated = row.created_at
-    ? new Date(row.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-    : '—'
-  const connectorSubtitle = [row.stage, row.reason_code].filter(Boolean).join(' · ') || '—'
   const ctx = parseDlqIntentContext(row.intent_context)
+  const connector = normalizePspDisplayName(ctx.sourceSystem)
+  const connectorSubtitle = connector
   const manualReview =
     opts?.inManualReviewQueue ??
     apiTrimmedString(row.dlq_status) === 'NEEDS_MANUAL_REVIEW'
@@ -292,14 +325,15 @@ export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?
     batchId,
     requestId: row.dlq_id,
     sourceRowNum: typeof row.source_row_num === 'number' ? row.source_row_num : null,
-    reference: row.envelope_id ?? row.dlq_id,
+    reference: row.dlq_id,
     amount: ctx.amount,
-    method: 'Bank Transfer',
-    paymentPartner: ctx.beneficiaryName ?? '',
+    method: resolveDlqPaymentMethod(ctx),
+    currency: ctx.currency ?? 'INR',
+    paymentPartner: connector,
     connectorSubtitle,
-    failureReason: row.error_detail || row.reason_code || '—',
+    failureReason: apiTrimmedString(row.error_detail) || apiTrimmedString(row.reason_code) || '—',
     failureStage,
-    lastUpdated,
+    lastUpdated: formatDlqUpdatedAt(row.created_at),
     action: row.replayable ? 'Retry' : 'Investigate',
     dlqStatus: row.dlq_status,
     dlqStatusLabel: formatDlqStatusLabel(row.dlq_status),

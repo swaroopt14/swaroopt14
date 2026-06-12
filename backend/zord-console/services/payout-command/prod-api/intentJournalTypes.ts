@@ -15,15 +15,18 @@ export type IntentJournalPaymentIntentItem = {
   intended_execution_at?: string
   provider_hint?: string
   rail_hint?: string
-  intent_quality_score?: number
+  intent_quality_score?: number | null
+  confidence_score?: number | null
+  mapping_confidence_score?: number | null
+  /** Batch-level aggregate confidence (same value on every intent in the batch). */
+  aggregate_confidence_score?: number | null
   intent_id?: string
-  envelope_id?: string
   batch_id?: string
   client_payout_ref?: string
   client_batch_ref?: string
   source_row_num?: number
-  beneficiary_type?: string
-  beneficiary?: Record<string, unknown>
+  beneficiary_type?: string | null
+  beneficiary?: Record<string, unknown> | null
 }
 
 export type IntentJournalPaymentIntentsResponse = {
@@ -38,13 +41,11 @@ export type IntentJournalPaymentIntentsResponse = {
 export type IntentJournalDlqItem = {
   dlq_id: string
   tenant_id?: string
-  envelope_id?: string
   stage?: string
   reason_code?: string
   error_detail?: string
   dlq_status?: string
   intent_context?: Record<string, unknown> | null
-  trace_id?: string
   replayable?: boolean
   client_batch_ref?: string
   batch_id?: string

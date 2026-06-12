@@ -90,7 +90,6 @@ func (s *AttachmentOutboxService) EmitForJob(
 		if err != nil {
 			return fmt.Errorf("failed to lookup intents for outbox: %w", err)
 		}
-		defer rows.Close()
 
 		for rows.Next() {
 			var idStr, corrID, curr string
@@ -110,6 +109,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 				IntendedExecutionAt: intendedAt,
 			}
 		}
+		rows.Close()
 	}
 
 	// 2. Fetch batch summary data for aggregate amounts
@@ -221,11 +221,11 @@ func (s *AttachmentOutboxService) EmitForJob(
 			contractIDStr = cID.String()
 		}
 		var valueDateCheck bool
-        var amountMatch bool
-        if v, ok := varianceByDecision[d.AttachmentDecisionID]; ok {
-            valueDateCheck = v.ValueDateMismatchFlag
-            amountMatch = v.AmountVariance.IsZero()
-        }
+		var amountMatch bool
+		if v, ok := varianceByDecision[d.AttachmentDecisionID]; ok {
+			valueDateCheck = v.ValueDateMismatchFlag
+			amountMatch = v.AmountVariance.IsZero()
+		}
 
 		// Fetch observation for metadata enrichment
 		obs, ok := obsMap[d.SettlementObservationID]
@@ -236,31 +236,32 @@ func (s *AttachmentOutboxService) EmitForJob(
 		envelopeID := obs.SettlementEnvelopeID.String()
 
 		payload := map[string]interface{}{
-			"event_id":                  uuid.New().String(),
-			"attachment_decision_id":    d.AttachmentDecisionID,
-			"attachment_job_id":         d.AttachmentJobID,
-			"tenant_id":                 d.TenantID,
-			"trace_id":                  tID.String(),
-			"occurred_at":               time.Now().UTC().Format(time.RFC3339),
-			"settlement_observation_id": d.SettlementObservationID,
-			"intent_id":                 intentIDStr,
-			"contract_id":               contractIDStr,
-			"corridor_id":               corrID,
-			"batch_id":                  bID,
-			"settled_amount":            settledAmount.String(),
-			"intended_amount":           intendedAmount.String(),
-			"currency":                  curr,
-			"candidate_set_size":        d.CandidateSetSize,
-			"decision_type":             d.DecisionType,
-			"decision_reason_code":      d.DecisionReasonCode,
-			"confidence_score":          d.ConfidenceScore,
-			"ambiguity_score":           d.AmbiguityScore,
-			"matching_ruleset_version":  d.MatchingRulesetVersion,
-			"winning_score":             d.WinningScore,
-			"runner_up_score":           d.RunnerUpScore,
-			"score_margin":              d.ScoreMargin,
-			"candidate_set_hash":        d.CandidateSetHash,
-			"supporting_carriers":       d.SupportingCarriersJSON,
+			"event_id":                     uuid.New().String(),
+			"attachment_decision_id":       d.AttachmentDecisionID,
+			"attachment_job_id":            d.AttachmentJobID,
+			"tenant_id":                    d.TenantID,
+			"trace_id":                     tID.String(),
+			"occurred_at":                  time.Now().UTC().Format(time.RFC3339),
+			"settlement_observation_id":    d.SettlementObservationID,
+			"intent_id":                    intentIDStr,
+			"contract_id":                  contractIDStr,
+			"corridor_id":                  corrID,
+			"batch_id":                     bID,
+			"settled_amount":               settledAmount.String(),
+			"source_system":                obs.SourceSystem, // ProviderID in zord-intelligence
+			"intended_amount":              intendedAmount.String(),
+			"currency":                     curr,
+			"candidate_set_size":           d.CandidateSetSize,
+			"decision_type":                d.DecisionType,
+			"decision_reason_code":         d.DecisionReasonCode,
+			"confidence_score":             d.ConfidenceScore,
+			"ambiguity_score":              d.AmbiguityScore,
+			"matching_ruleset_version":     d.MatchingRulesetVersion,
+			"winning_score":                d.WinningScore,
+			"runner_up_score":              d.RunnerUpScore,
+			"score_margin":                 d.ScoreMargin,
+			"candidate_set_hash":           d.CandidateSetHash,
+			"supporting_carriers":          d.SupportingCarriersJSON,
 			"settlement_record_received":   parsedCreatedAt.UTC().Format(time.RFC3339),
 			"canonical_settlement_created": obsCreatedAt.UTC().Format(time.RFC3339),
 			"bank_reference":               bankRef,
@@ -412,6 +413,11 @@ func (s *AttachmentOutboxService) EmitForJob(
 		if obs, ok := obsMap[v.SettlementObservationID]; ok && obs.TraceID != nil {
 			vTraceID = *obs.TraceID
 		}
+		// Look up obs for source_system — same obsMap used above for corridorID/batchID.
+		var vSourceSystem string
+		if vobs, ok := obsMap[v.SettlementObservationID]; ok {
+			vSourceSystem = vobs.SourceSystem
+		}
 
 		vPayload := map[string]interface{}{
 			"event_id":              uuid.New().String(),
@@ -431,6 +437,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 			"currency":              currency,
 			"expected_value_date":   expectedDateStr,
 			"actual_value_date":     actualDateStr,
+			"source_system":         vSourceSystem, // ProviderID in zord-intelligence
 			"cross_period_flag":     v.CrossPeriodFlag,
 			"deduction_reason":      "TAX",
 			"is_whitelisted":        false,
@@ -702,10 +709,10 @@ type leafBundlePayload struct {
 	CanonicalSettlementCreated *time.Time `json:"canonical_settlement_created,omitempty"`
 	BankReference              *string    `json:"bank_reference,omitempty"`
 	ClientReference            *string    `json:"client_reference,omitempty"`
-	AttachmentDecision        *string    `json:"attachment_decision,omitempty"`
-	MatchConfidence           *float64   `json:"match_confidence,omitempty"`
-	ValueDateCheck            *bool      `json:"value_date_check,omitempty"`
-	AmountMatch               *bool      `json:"amount_match,omitempty"`
+	AttachmentDecision         *string    `json:"attachment_decision,omitempty"`
+	MatchConfidence            *float64   `json:"match_confidence,omitempty"`
+	ValueDateCheck             *bool      `json:"value_date_check,omitempty"`
+	AmountMatch                *bool      `json:"amount_match,omitempty"`
 }
 
 // EmitLeafBundlesForJob emits outcome_outbox events for all winner-resolved
@@ -745,13 +752,13 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 		}
 		rows, err := db.DB.QueryContext(ctx, `SELECT ingest_run_id, file_sha256 FROM settlement_ingest_runs WHERE ingest_run_id = ANY($1)`, pq.Array(ids))
 		if err == nil {
-			defer rows.Close()
 			for rows.Next() {
 				var rid, sha string
 				if err := rows.Scan(&rid, &sha); err == nil {
 					shaMap[rid] = sha
 				}
 			}
+			rows.Close()
 		} else {
 			log.Printf("leaf_bundle.sha_fetch_failed err=%v", err)
 		}
@@ -837,7 +844,7 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 			valueDateCheck = &vdc
 			amountMatch = &am
 		}
-		
+
 		t1 := parsedCreatedAt.UTC()
 		t2 := obs.CreatedAt.UTC()
 		decType := d.DecisionType
@@ -862,10 +869,10 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 			CanonicalSettlementCreated: &t2,
 			BankReference:              bankRef,
 			ClientReference:            clientRefCandidate,
-			AttachmentDecision:        &decType,
-			MatchConfidence:           &conf,
-			ValueDateCheck:            valueDateCheck,
-			AmountMatch:               amountMatch,
+			AttachmentDecision:         &decType,
+			MatchConfidence:            &conf,
+			ValueDateCheck:             valueDateCheck,
+			AmountMatch:                amountMatch,
 		}
 
 		if err := s.insertEvent(ctx, d.TenantID, d.AttachmentJobID,

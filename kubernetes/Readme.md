@@ -495,7 +495,8 @@ Paste this policy:
       ],
       "Resource": [
         "arn:aws:secretsmanager:ap-south-1:522189039032:secret:production/zord/app-secrets-*",
-        "arn:aws:secretsmanager:ap-south-1:522189039032:secret:production/zord/edge-signing-key-*"
+        "arn:aws:secretsmanager:ap-south-1:522189039032:secret:production/zord/edge-signing-key-*",
+        "arn:aws:secretsmanager:ap-south-1:522189039032:secret:production/zord/evidence-signing-key-*"
       ]
     }
   ]

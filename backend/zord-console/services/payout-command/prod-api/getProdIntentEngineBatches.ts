@@ -54,6 +54,8 @@ export type PaymentIntentRecord = {
   business_state?: string
   duplicate_risk_flag?: boolean
   aggregate_confidence_score?: number
+  intent_quality_score?: number | null
+  confidence_score?: number | null
   constraints?: { execution_window?: string }
   beneficiary?: {
     country?: string

@@ -112,7 +112,8 @@ export async function downloadEvidenceBatchIntentsPdf(batchId: string): Promise<
 
   const payload = (await response.json()) as BatchIntentsResponse
   const pdf = buildPdfSummary(bid, payload.packs ?? [])
-  const blob = new Blob([pdf], { type: 'application/pdf' })
+  const pdfBytes = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer
+  const blob = new Blob([pdfBytes], { type: 'application/pdf' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url

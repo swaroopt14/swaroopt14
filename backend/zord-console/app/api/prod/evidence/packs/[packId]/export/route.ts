@@ -153,7 +153,8 @@ export async function GET(
 
     const pack = JSON.parse(text) as EvidencePackExportPayload
     const pdf = evidencePackPdf(pack)
-    const res = new NextResponse(pdf, {
+    const pdfBytes = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer
+    const res = new NextResponse(pdfBytes, {
       status: 200,
       headers: {
         'content-type': 'application/pdf',

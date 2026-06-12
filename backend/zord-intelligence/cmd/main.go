@@ -20,8 +20,8 @@ import (
 	"github.com/zord/zord-intelligence/internal/persistence"
 	"github.com/zord/zord-intelligence/internal/services"
 	"github.com/zord/zord-intelligence/internal/worker"
-	"github.com/zord/zord-intelligence/tracing"
 	kafkapkg "github.com/zord/zord-intelligence/kafka"
+	"github.com/zord/zord-intelligence/tracing"
 )
 
 func init() {
@@ -126,6 +126,7 @@ func main() {
 
 	// ── PHASE 4 & 7: Six intelligence layer services + Explanation ────────
 	leakageSvc := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
+	leakagePredSvc := services.NewLeakagePredictionService(batchRepo, projRepo, mlRepo, predRepo, mlClient)
 	ambiguitySvc := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
 	defensibilitySvc := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
 	rcaSvc := services.NewRCAIntelligenceService(projRepo, snapshotRepo, mlClient)
@@ -143,6 +144,7 @@ func main() {
 		policyService,
 		slaRepo,
 		leakageSvc,
+		leakagePredSvc,
 		ambiguitySvc,
 		defensibilitySvc,
 		rcaSvc,
@@ -193,6 +195,7 @@ func main() {
 	patternHandler := handlers.NewPatternHandler(intelBase)
 	recommendationHandler := handlers.NewRecommendationHandler(intelBase)
 	batchHandler := handlers.NewBatchHandler(batchRepo, projRepo, projectionService)
+	leakageTimeseriesHandler := handlers.NewLeakageTimeseriesHandler(batchRepo)
 	historyHandler := handlers.NewHistoryHandler(projectionService, snapshotRepo)
 	explanationHandler := handlers.NewExplanationHandler(explSvc)
 
@@ -221,6 +224,7 @@ func main() {
 		patternHandler,
 		recommendationHandler,
 		batchHandler,
+		leakageTimeseriesHandler,
 		historyHandler,
 		explanationHandler,
 		dashLeakageH,

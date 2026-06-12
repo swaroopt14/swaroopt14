@@ -725,6 +725,36 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     defensibility_tier          TEXT,
     CHECK (defensibility_tier IN ('STRONG', 'GOOD', 'WEAK', 'FRAGILE', NULL)),
 
+    -- ── Intent-time batch feature state (Leakage Prediction) ──────────────────
+    -- These fields are updated as intent rows arrive so we can score a batch
+    -- before settlement data appears. BatchSummaryUpdatedEvent later writes the
+    -- authoritative operational totals into the existing aggregate columns above.
+
+    intent_row_count            INT          NOT NULL DEFAULT 0,
+    intent_total_amount_minor   NUMERIC(20,2) NOT NULL DEFAULT 0,
+    intent_amount_square_sum    NUMERIC(30,2) NOT NULL DEFAULT 0,
+    intent_min_amount_minor     NUMERIC(20,2),
+    intent_max_amount_minor     NUMERIC(20,2),
+    client_payout_ref_present_count INT      NOT NULL DEFAULT 0,
+
+    batch_currency              TEXT,
+    batch_source_system         TEXT,
+    batch_rail                  TEXT,
+    batch_intent_type           TEXT,
+    batch_provider_key          TEXT,
+    first_intent_created_at     TIMESTAMPTZ,
+
+    -- ── Batch leakage label + prediction state ────────────────────────────────
+    -- under_settlement_amount_minor is part of the true leakage label:
+    -- unmatched + under_settlement + confirmed_reversal.
+    -- predicted_leakage_* are written by the batch leakage prediction model.
+
+    under_settlement_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0,
+    predicted_leakage_rate      NUMERIC(10,6),
+    predicted_leakage_minor     NUMERIC(20,2),
+    predicted_leakage_model_id  TEXT,
+    predicted_at                TIMESTAMPTZ,
+
     -- ── Per-batch risk attribution (Pattern Intelligence) ─────────────────────
     -- These fields are incremented by individual event handlers (NOT reset by
     -- BatchSummaryUpdatedEvent). They give the frontend per-batch leakage and

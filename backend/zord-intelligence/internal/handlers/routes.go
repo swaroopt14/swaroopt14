@@ -71,17 +71,18 @@ func NewRouter(
 	patternH *PatternHandler,
 	recommendationH *RecommendationHandler,
 	batchH *BatchHandler,
+	leakageTimeseriesH *LeakageTimeseriesHandler,
 	historyH *HistoryHandler,
 	explanationH *ExplanationHandler,
 	// Dashboard handlers — frontend-facing endpoints (always contain /dashboard/ in path)
-	dashLeakageH        *DashboardLeakageHandler,
-	dashAmbiguityH      *DashboardAmbiguityHandler,
-	dashDefensibilityH  *DashboardDefensibilityHandler,
-	dashPatternH        *DashboardPatternHandler,
+	dashLeakageH *DashboardLeakageHandler,
+	dashAmbiguityH *DashboardAmbiguityHandler,
+	dashDefensibilityH *DashboardDefensibilityHandler,
+	dashPatternH *DashboardPatternHandler,
 	dashRecommendationH *DashboardRecommendationHandler,
-	dashRCAH            *DashboardRCAHandler,
-	dashBubbleMapH      *DashboardBubbleMapHandler,
-	dashBatchContractH  *DashboardBatchContractHandler,
+	dashRCAH *DashboardRCAHandler,
+	dashBubbleMapH *DashboardBubbleMapHandler,
+	dashBatchContractH *DashboardBatchContractHandler,
 ) http.Handler {
 
 	r := chi.NewRouter()
@@ -149,6 +150,7 @@ func NewRouter(
 		r.Get("/rca/clusters", rcaH.GetRCAClusters)
 		r.Get("/pattern", patternH.GetPattern)
 		r.Get("/recommendation", recommendationH.GetRecommendation)
+		r.Get("/timeseries/leakage-exposure", leakageTimeseriesH.GetLeakageExposure)
 
 		// ── PHASE 6: Batch intelligence endpoints ─────────────────────────
 		//

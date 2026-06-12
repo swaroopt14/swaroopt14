@@ -205,6 +205,36 @@ func (c *Client) InvokeRCAClustering(ctx context.Context, req RCARequest) (RCACl
 	return clusterResult, nil
 }
 
+// InvokeLeakagePrediction sends a batch-level leakage regression request and
+// blocks until a result arrives. On timeout/error returns FallbackLeakagePredictionResult.
+func (c *Client) InvokeLeakagePrediction(
+	ctx context.Context,
+	req LeakagePredictionRequest,
+) (LeakagePredictionResult, error) {
+	payload := map[string]interface{}{
+		"batch_id": req.BatchID,
+		"features": req.Features,
+	}
+	result, err := c.roundTrip(ctx, EventLeakagePredict, req.TenantID, payload)
+	if err != nil {
+		log.Printf("mlclient: InvokeLeakagePrediction failed tenant=%s batch=%s: %v",
+			req.TenantID, req.BatchID, err)
+		return FallbackLeakagePredictionResult(), err
+	}
+
+	rate, _ := result.ModelOutputs["predicted_leakage_rate"].(float64)
+	amount, _ := result.ModelOutputs["predicted_leakage_minor"].(float64)
+	riskTier, _ := result.ModelOutputs["risk_tier"].(string)
+	if riskTier == "" {
+		riskTier = "LOW"
+	}
+	return LeakagePredictionResult{
+		PredictedLeakageRate:  rate,
+		PredictedLeakageMinor: amount,
+		RiskTier:              riskTier,
+	}, nil
+}
+
 // SendLRTrain publishes a training event to the Python service (fire-and-forget).
 // The Go side does not wait for a response.  Errors are logged only.
 func (c *Client) SendLRTrain(ctx context.Context, req LRTrainRequest) {
@@ -222,6 +252,28 @@ func (c *Client) SendLRTrain(ctx context.Context, req LRTrainRequest) {
 	}
 	if err := c.publish(ctx, envelope); err != nil {
 		log.Printf("mlclient: SendLRTrain publish failed tenant=%s: %v", req.TenantID, err)
+	}
+}
+
+// SendLeakageTrain publishes one labeled batch row for background retraining.
+func (c *Client) SendLeakageTrain(ctx context.Context, req LeakageTrainRequest) {
+	payload := map[string]interface{}{
+		"batch_id":      req.BatchID,
+		"features":      req.Features,
+		"label_rate":    req.LabelRate,
+		"label_amount":  req.LabelAmount,
+		"sample_weight": req.SampleWeight,
+	}
+	envelope := MLRequest{
+		EventID:   uuid.NewString(),
+		EventType: EventLeakageTrain,
+		TenantID:  req.TenantID,
+		Payload:   payload,
+		Timestamp: nowUnix(),
+	}
+	if err := c.publish(ctx, envelope); err != nil {
+		log.Printf("mlclient: SendLeakageTrain publish failed tenant=%s batch=%s: %v",
+			req.TenantID, req.BatchID, err)
 	}
 }
 

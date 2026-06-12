@@ -49,6 +49,7 @@ type ProjectionService struct {
 
 	// ── Phase 4: Six intelligence layer services ──────────────────────────
 	leakageSvc        *LeakageIntelligenceService
+	leakagePredSvc    *LeakagePredictionService
 	ambiguitySvc      *AmbiguityIntelligenceService
 	defensibilitySvc  *DefensibilityIntelligenceService
 	rcaSvc            *RCAIntelligenceService
@@ -72,6 +73,7 @@ func NewProjectionService(
 	policyService *PolicyService,
 	slaRepo *persistence.SLATimerRepo,
 	leakageSvc *LeakageIntelligenceService,
+	leakagePredSvc *LeakagePredictionService,
 	ambiguitySvc *AmbiguityIntelligenceService,
 	defensibilitySvc *DefensibilityIntelligenceService,
 	rcaSvc *RCAIntelligenceService,
@@ -89,6 +91,7 @@ func NewProjectionService(
 		policyService:     policyService,
 		slaRepo:           slaRepo,
 		leakageSvc:        leakageSvc,
+		leakagePredSvc:    leakagePredSvc,
 		ambiguitySvc:      ambiguitySvc,
 		defensibilitySvc:  defensibilitySvc,
 		rcaSvc:            rcaSvc,
@@ -257,6 +260,28 @@ func (s *ProjectionService) HandleIntentCreated(
 		); err != nil {
 			log.Printf("HandleIntentCreated: AtomicIncrementPatternP2WithAmount failed intent=%s: %v",
 				e.IntentID, err)
+		}
+
+		if e.ClientBatchRef != "" {
+			providerKey, rail := deriveLeakageProviderAndRail(corridorID, e.ProviderHint, e.SourceSystem)
+			if err := s.batchRepo.AtomicAccumulateIntentFeatures(
+				ctx,
+				e.ClientBatchRef,
+				e.TenantID,
+				intendedAmt,
+				e.Currency,
+				e.SourceSystem,
+				rail,
+				e.IntentType,
+				providerKey,
+				e.CreatedAt,
+				e.ClientPayoutRef != "",
+			); err != nil {
+				log.Printf("HandleIntentCreated: AtomicAccumulateIntentFeatures failed intent=%s batch=%s: %v",
+					e.IntentID, e.ClientBatchRef, err)
+			} else if s.leakagePredSvc != nil {
+				s.leakagePredSvc.ScoreBatchAsync(ctx, e.TenantID, e.ClientBatchRef, window.start, window.end)
+			}
 		}
 	}
 
@@ -1716,6 +1741,11 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 	if e.BatchFinalityStatus == "FULLY_SETTLED" || e.BatchFinalityStatus == "FAILED" {
 		s.ambiguitySvc.TrainOnLabel(ctx, e.TenantID, e.BatchID, e.AmbiguityScore, window.start, window.end)
 	}
+	if e.BatchFinalityStatus == "FULLY_SETTLED" || e.BatchFinalityStatus == "FAILED" || e.BatchFinalityStatus == "CLOSED" {
+		if s.leakagePredSvc != nil {
+			s.leakagePredSvc.TrainOnLabel(ctx, e.TenantID, e.BatchID)
+		}
+	}
 
 	// Step 2: Compute PATTERN intelligence snapshot
 	if err := s.patternSvc.ComputeAndSave(ctx, e.TenantID, e.BatchID, window.start, window.end); err != nil {
@@ -1935,4 +1965,63 @@ func classifyCarrierRichness(score float64) string {
 	default:
 		return "POOR"
 	}
+}
+
+func deriveLeakageProviderAndRail(corridorID, providerHint, sourceSystem string) (string, string) {
+	corridorID = strings.TrimSpace(corridorID)
+	providerHint = strings.TrimSpace(providerHint)
+	sourceSystem = strings.TrimSpace(sourceSystem)
+
+	var providerKey string
+	var rail string
+
+	if corridorID != "" && !strings.EqualFold(corridorID, "UNKNOWN") {
+		parts := strings.Split(corridorID, ".")
+		if len(parts) >= 2 {
+			providerKey = strings.ToLower(strings.TrimSpace(parts[0]))
+			rail = strings.ToUpper(strings.TrimSpace(parts[len(parts)-1]))
+		} else {
+			rail = strings.ToUpper(corridorID)
+		}
+	}
+
+	if providerKey == "" && providerHint != "" {
+		hintUpper := strings.ToUpper(providerHint)
+		if !strings.Contains(hintUpper, "RAIL") &&
+			hintUpper != "UPI" &&
+			hintUpper != "IMPS" &&
+			hintUpper != "NEFT" &&
+			hintUpper != "RTGS" &&
+			hintUpper != "BANK" {
+			providerKey = strings.ToLower(providerHint)
+		}
+	}
+
+	if providerKey == "" && sourceSystem != "" {
+		providerKey = strings.ToLower(sourceSystem)
+	}
+
+	if rail == "" && providerHint != "" {
+		hintUpper := strings.ToUpper(providerHint)
+		switch {
+		case strings.Contains(hintUpper, "UPI"):
+			rail = "UPI"
+		case strings.Contains(hintUpper, "IMPS"):
+			rail = "IMPS"
+		case strings.Contains(hintUpper, "NEFT"):
+			rail = "NEFT"
+		case strings.Contains(hintUpper, "RTGS"):
+			rail = "RTGS"
+		case strings.Contains(hintUpper, "BANK"):
+			rail = "BANK"
+		}
+	}
+
+	if providerKey == "" {
+		providerKey = "UNKNOWN"
+	}
+	if rail == "" {
+		rail = "UNKNOWN"
+	}
+	return providerKey, rail
 }

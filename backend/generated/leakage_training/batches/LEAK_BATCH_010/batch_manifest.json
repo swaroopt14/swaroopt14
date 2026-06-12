@@ -1,0 +1,23 @@
+{
+  "batch_id": "LEAK_BATCH_010",
+  "batch_template": "under_heavy",
+  "batch_anchor_date": "2026-05-13",
+  "batch_size": 229,
+  "batch_total_intended_amount": "603954.09",
+  "expected_unmatched_amount": "0.00",
+  "expected_under_settlement_amount": "33073.35",
+  "expected_reversal_amount": "0.00",
+  "expected_total_leakage_amount": "33073.35",
+  "expected_leakage_rate": "0.05",
+  "scenario_family_counts": {
+    "clean": 103,
+    "clean_delay": 23,
+    "under": 79,
+    "under_ref_stress": 1,
+    "ref_stress": 23
+  },
+  "truth_label": {
+    "predicted_leakage_rate": "0.05",
+    "leakage_amount_minor_assumption": "33073.35"
+  }
+}

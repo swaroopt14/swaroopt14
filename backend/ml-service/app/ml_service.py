@@ -16,10 +16,12 @@ import logging
 from typing import Optional
 
 from app import config
-from app.models import isolation_forest, logistic_regression, zscore
+from app.models import isolation_forest, leakage_prediction, logistic_regression, zscore
 from app.models import rca_hdbscan
 from app.schemas import (
     EVENT_TYPE_IF_SCORE,
+    EVENT_TYPE_LEAKAGE_PREDICT,
+    EVENT_TYPE_LEAKAGE_TRAIN,
     EVENT_TYPE_LR_PREDICT,
     EVENT_TYPE_LR_TRAIN,
     EVENT_TYPE_RCA_CLUSTER,
@@ -37,6 +39,7 @@ class MLService:
     def __init__(self) -> None:
         self._lr_model = logistic_regression.AmbiguityModel.load(config.LR_MODEL_PATH)
         self._rca_model = rca_hdbscan.RCAModel(config.RCA_MODEL_PATH)
+        self._leakage_model = leakage_prediction.LeakagePredictionModel()
         self._steps_since_save = 0
 
     def process(self, req: MLRequest) -> Optional[MLResult]:
@@ -57,6 +60,11 @@ class MLService:
                 return None
             if req.event_type == EVENT_TYPE_RCA_CLUSTER:
                 return self._handle_rca_cluster(req)
+            if req.event_type == EVENT_TYPE_LEAKAGE_PREDICT:
+                return self._handle_leakage_predict(req)
+            if req.event_type == EVENT_TYPE_LEAKAGE_TRAIN:
+                self._handle_leakage_train(req)
+                return None
             logger.warning(
                 "ml_service: unknown event_type=%s event_id=%s",
                 req.event_type, req.event_id,
@@ -233,4 +241,34 @@ class MLService:
             tenant_id=req.tenant_id,
             model_outputs=model_outputs,
             model_version=config.MODEL_VERSION_RCA,
+        )
+
+    def _handle_leakage_predict(self, req: MLRequest) -> MLResult:
+        payload = req.payload
+        features = payload.get("features") or {}
+        result = self._leakage_model.predict(features)
+        batch_id = payload.get("batch_id", "")
+        logger.info(
+            "leakage_predict: ok tenant=%s batch=%s rate=%.6f amount=%.2f",
+            req.tenant_id,
+            batch_id,
+            result["predicted_leakage_rate"],
+            result["predicted_leakage_minor"],
+        )
+        return MLResult(
+            event_id=req.event_id,
+            event_type=req.event_type,
+            tenant_id=req.tenant_id,
+            model_outputs=result,
+            model_version=config.MODEL_VERSION_LEAKAGE,
+        )
+
+    def _handle_leakage_train(self, req: MLRequest) -> None:
+        payload = req.payload
+        self._leakage_model.buffer_labeled_row(
+            batch_id=str(payload.get("batch_id", "")),
+            raw_features=payload.get("features") or {},
+            label_rate=float(payload.get("label_rate", 0.0)),
+            label_amount=float(payload.get("label_amount", 0.0)),
+            sample_weight=float(payload.get("sample_weight", config.LEAKAGE_REAL_SAMPLE_WEIGHT)),
         )

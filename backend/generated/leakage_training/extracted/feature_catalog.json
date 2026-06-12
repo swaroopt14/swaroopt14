@@ -1,0 +1,224 @@
+[
+  {
+    "feature": "batch_total_intended_amount_minor",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "batch_intent_count",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "batch_avg_amount_minor",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "batch_max_amount_minor",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "batch_min_amount_minor",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "batch_amount_stddev",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "batch_same_beneficiary_amount_density",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "batch_max_pair_count",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "client_payout_ref_coverage_rate",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "currency",
+    "source": "raw batch intent.csv + payment_intents",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "source_system",
+    "source": "raw batch intent.csv + payment_intents",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "intent_type",
+    "source": "payment_intents",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "created_hour",
+    "source": "raw batch intent.csv scheduled_execution_at",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "created_day_of_week",
+    "source": "raw batch intent.csv scheduled_execution_at",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "weekend_flag",
+    "source": "raw batch intent.csv scheduled_execution_at",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "rail",
+    "source": "raw batch intent.csv",
+    "phase": "intent_time",
+    "safe_for_model": true
+  },
+  {
+    "feature": "provider_key",
+    "source": "canonical_settlement_observations source_system_id fallback raw source",
+    "phase": "mostly_intent_time_proxy",
+    "safe_for_model": true
+  },
+  {
+    "feature": "parse_success_rate",
+    "source": "normalized_ingest_records",
+    "phase": "post_ingest_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "mapping_confidence_score",
+    "source": "payment_intents",
+    "phase": "post_ingest_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "required_field_completeness_rate",
+    "source": "payment_intents schema_completeness_score",
+    "phase": "post_ingest_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "canonicalization_error_rate",
+    "source": "canonical_batches / dlq_items",
+    "phase": "post_ingest_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "missing_required_field_rate",
+    "source": "normalized_ingest_records",
+    "phase": "post_ingest_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "unknown_column_count",
+    "source": "normalized_ingest_records.unmapped_json distinct keys",
+    "phase": "post_ingest_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "invalid_amount_rate",
+    "source": "dlq_items reason_code",
+    "phase": "post_ingest_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "invalid_beneficiary_rate",
+    "source": "dlq_items reason_code/error_detail heuristic",
+    "phase": "post_ingest_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "provider_missing_provider_ref_rate",
+    "source": "outcome observations rolling 30d",
+    "phase": "historical_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "provider_missing_client_ref_rate",
+    "source": "outcome observations rolling 30d",
+    "phase": "historical_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "provider_settlement_delay_p50_days",
+    "source": "variance_records rolling 30d by provider",
+    "phase": "historical_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "provider_settlement_delay_p95_days",
+    "source": "variance_records rolling 30d by provider",
+    "phase": "historical_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "avg_attachment_confidence",
+    "source": "attachment_decisions",
+    "phase": "post_settlement",
+    "safe_for_model": false
+  },
+  {
+    "feature": "low_confidence_rate",
+    "source": "attachment_decisions",
+    "phase": "post_settlement",
+    "safe_for_model": false
+  },
+  {
+    "feature": "candidate_collision_rate",
+    "source": "attachment_decisions",
+    "phase": "post_settlement",
+    "safe_for_model": false
+  },
+  {
+    "feature": "avg_score_margin",
+    "source": "attachment_decisions",
+    "phase": "post_settlement",
+    "safe_for_model": false
+  },
+  {
+    "feature": "carrier_completeness_rate",
+    "source": "canonical_settlement_observations",
+    "phase": "post_settlement",
+    "safe_for_model": false
+  },
+  {
+    "feature": "settlement_delay_p50_days",
+    "source": "variance_records rolling 30d tenant-wide",
+    "phase": "historical_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "settlement_delay_p95_days",
+    "source": "variance_records rolling 30d tenant-wide",
+    "phase": "historical_pre_settlement",
+    "safe_for_model": true
+  },
+  {
+    "feature": "predicted_leakage_rate",
+    "source": "truth manifest ground truth",
+    "phase": "label",
+    "safe_for_model": false
+  }
+]

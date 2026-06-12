@@ -1,0 +1,12 @@
+{
+  "tenant_id": "f74d5f6c-5b36-441b-b478-cca9f302feb7",
+  "batch_count": 18,
+  "batch_contract_rows_available": 18,
+  "max_system_label_abs_delta_amount_minor": "131633.940000",
+  "outputs": {
+    "training_dataset_full": "generated\\leakage_training\\extracted\\training_dataset_full.csv",
+    "training_dataset_intent_safe": "generated\\leakage_training\\extracted\\training_dataset_intent_safe.csv",
+    "feature_catalog": "generated\\leakage_training\\extracted\\feature_catalog.json",
+    "tenant_session": "generated\\leakage_training\\extracted\\tenant_session.json"
+  }
+}

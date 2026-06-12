@@ -209,19 +209,22 @@ pipeline {
           def failCount = 0
           def detailLines = []
           def failedDetails = []
+          def tableRows = []
 
           for (int i = 0; i < testNames.size(); i++) {
             def outputFile = "${env.RESULTS_DIR}/${testNames[i]}-output.txt"
             def summaryFile = "${env.RESULTS_DIR}/${testNames[i]}-summary.json"
             def status = ':white_check_mark:'
             def metrics = ''
+            def testReqs = '-'
+            def testP95 = '-'
+            def testChecks = '-'
 
             try {
               def content = readFile(outputFile)
               if (content.contains('level=error msg="thresholds')) {
                 status = ':x:'
                 failCount++
-                // Extract what failed
                 def failedChecks = []
                 content.eachLine { line ->
                   if (line.contains('✗') && !line.contains('↳')) {
@@ -235,39 +238,29 @@ pipeline {
                 passCount++
               }
 
-              // Extract key metrics from summary JSON
-              try {
-                def json = new groovy.json.JsonSlurper().parseText(readFile(summaryFile))
-                def p95Val = json.metrics?.http_req_duration?.values?.get('p(95)')
-                def countVal = json.metrics?.http_reqs?.values?.count
-                def checksVal = json.metrics?.checks?.values?.rate
-                if (p95Val != null) metrics = "p95:${String.format('%.0f', p95Val as Double)}ms"
-                if (countVal != null) metrics += " reqs:${countVal as Long}"
-                if (checksVal != null) metrics += " pass:${String.format('%.0f', (checksVal as Double) * 100)}%"
-              } catch (e2) { }
+              // Parse metrics from output text (reliable — always works)
+              def p95Match = (content =~ /http_req_duration[^p]+p\(95\)=([0-9.]+)(ms|µs|s)/)
+              def reqMatch = (content =~ /http_reqs[.\s:]+(\d+)/)
+              def checksMatch = (content =~ /checks[.\s:]+([0-9.]+)%/)
+              if (p95Match) {
+                def val = p95Match[0][1] as Double
+                def unit = p95Match[0][2]
+                if (unit == 'µs') testP95 = String.format("%.0f", val / 1000) + 'ms'
+                else if (unit == 's') testP95 = String.format("%.0f", val * 1000) + 'ms'
+                else testP95 = String.format("%.0f", val) + 'ms'
+              }
+              if (reqMatch) testReqs = reqMatch[0][1]
+              if (checksMatch) testChecks = checksMatch[0][1] + '%'
             } catch (e) {
               status = ':fast_forward:'
-              metrics = 'skipped'
+              testChecks = 'skip'
             }
 
-            detailLines.add("${status} *${testLabels[i]}*  ${metrics}")
+            detailLines.add("${status} *${testLabels[i]}*")
+            tableRows.add([num: String.format("%02d", i + 1), name: testLabels[i], status: (status == ':white_check_mark:' ? '✅' : (status == ':x:' ? '❌' : '⏭')), reqs: testReqs, p95: testP95, checks: testChecks])
           }
 
           def overallStatus = failCount == 0 ? ':white_check_mark: ALL 9 TESTS PASSED' : ":warning: ${failCount} FAILED — ${passCount} passed"
-
-          // Parse health check metrics for summary
-          def p95 = 'N/A'
-          def reqs = 'N/A'
-          def rps = 'N/A'
-          try {
-            def json = new groovy.json.JsonSlurper().parseText(readFile("${env.RESULTS_DIR}/01-health-check-summary.json"))
-            def p95Val = json.metrics?.http_req_duration?.values?.get('p(95)')
-            def countVal = json.metrics?.http_reqs?.values?.count
-            def rateVal = json.metrics?.http_reqs?.values?.rate
-            if (p95Val != null) p95 = String.format("%.1f", p95Val as Double) + 'ms'
-            if (countVal != null) reqs = "${countVal as Long}"
-            if (rateVal != null) rps = String.format("%.0f", rateVal as Double) + '/s'
-          } catch (e) { }
 
           // Parse E2E service status from Test 04
           def serviceStatus = ''
@@ -307,7 +300,22 @@ pipeline {
           def color = failCount == 0 ? '#2eb886' : (failCount <= 2 ? '#e8912d' : '#dc2626')
           def timestamp = new Date().format("MMM d, yyyy 'at' h:mm a z")
 
-          // Build blocks
+          // Build table string (monospace — looks like a real table in Slack)
+          def tableHeader = '#   Test                      Status  Requests   p95      Checks'
+          def tableDivider = '──  ────────────────────────  ──────  ─────────  ───────  ──────'
+          def tableBody = tableRows.collect { row ->
+            String.format("%-3s %-26s %-6s %9s  %7s  %s", row.num, row.name.take(26), row.status, row.reqs, row.p95, row.checks)
+          }.join('\n')
+
+          // Calculate totals from table data
+          def totalReqs = tableRows.collect { it.reqs != '-' ? (it.reqs as Long) : 0 }.sum()
+          def avgP95 = tableRows.findAll { it.p95 != '-' }.collect { (it.p95.replace('ms','') as Double) }
+          def overallP95 = avgP95.size() > 0 ? String.format("%.0f", avgP95.max()) + 'ms' : 'N/A'
+          def summaryLine = "──  ────────────────────────  ──────  ─────────  ───────  ──────\n    TOTAL                             ${String.format('%9s', totalReqs)}  ${String.format('%7s', overallP95)}  ${passCount}/${passCount + failCount} pass"
+
+          def fullTable = "```${tableHeader}\n${tableDivider}\n${tableBody}\n${summaryLine}```"
+
+          // Build blocks — keep compact to avoid Slack "Show more" truncation
           def blocks = [
             [type: 'header', text: [type: 'plain_text', text: "Zord Performance Report — Build #${env.BUILD_NUMBER}", emoji: true]],
             [type: 'context', elements: [
@@ -316,7 +324,7 @@ pipeline {
             [type: 'divider'],
             [type: 'section', text: [type: 'mrkdwn', text: "*${overallStatus}*${serviceStatus}"]],
             [type: 'divider'],
-            [type: 'section', text: [type: 'mrkdwn', text: "*:clipboard: Detailed Results*\n${detailLines.join('\n')}"]],
+            [type: 'section', text: [type: 'mrkdwn', text: fullTable]],
           ]
 
           // Add failure details if any test failed
@@ -325,13 +333,6 @@ pipeline {
             blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:rotating_light: What Failed & Why*\n${failedDetails.join('\n\n')}\n\n:point_right: *Action:* Check Grafana for service health, Kibana for error logs"]])
           }
 
-          blocks.add([type: 'divider'])
-          blocks.add([type: 'section', fields: [
-            [type: 'mrkdwn', text: "*:chart_with_upwards_trend: p95 Latency*\n${p95}"],
-            [type: 'mrkdwn', text: "*:zap: Throughput*\n${rps}"],
-            [type: 'mrkdwn', text: "*:bar_chart: Total Requests*\n${reqs}"],
-            [type: 'mrkdwn', text: "*:rotating_light: Gateway Errors*\n0"]
-          ]])
           blocks.add([type: 'divider'])
           blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:link: Quick Links*\n<${env.BUILD_URL}artifact/${env.RESULTS_DIR}/REPORT.md|:page_facing_up: Full Report>  |  <${env.BUILD_URL}console|:mag: Console Log>  |  <https://grafana.zordnet.com/d/zord-platform-health?orgId=1&from=now-1h&to=now|:chart_with_downwards_trend: Grafana Dashboard>  |  <https://kibana.zordnet.com|:ledger: Kibana Logs>  |  <https://jaeger.zordnet.com|:mag_right: Jaeger Traces>"]])
           blocks.add([type: 'context', elements: [

@@ -98,6 +98,7 @@ func (s *LLMService) GenerateFromContextScoped(userQuery string, context string,
 		"You are Zord Prompt Layer assistant.\n" +
 			"Rules:\n" +
 			"1) Use only CONTEXT. Do not infer facts that are not present in CONTEXT.\n" +
+			"Copy numeric and money values exactly as shown in CONTEXT. Do not divide, multiply, round, add commas, remove decimals, add decimals, or change the numeric representation.\n" +
 			"2) If CONTEXT is insufficient, clearly say: \"I don't have enough information in current data to answer that confidently.\"\n" +
 			"3) Use plain, simple language that anyone can understand, even without technical or finance background.\n" +
 			"4) Talk like a helpful teammate or friend, not like a system log.\n" +
@@ -316,6 +317,8 @@ func (s *LLMService) GenerateOperationalJSON(userQuery, context, visRule string)
 			"- Use simple business English.\n" +
 			"- Avoid technical words unless necessary.\n" +
 			"- Do not use backend metric names.\n" +
+			"- Copy numeric and money values exactly as shown in CONTEXT. Do not divide, multiply, round, add commas, remove decimals, add decimals, or change the numeric representation.\n" +
+			"- If CONTEXT says INR 13146, answer INR 13146 exactly. Do not write INR 131.46 or INR 13,146.\n" +
 			"- Do not say \"leakage\" unless context clearly says money is actually lost. Prefer \"payment gap\", \"value needing review\", or \"unclear value\".\n" +
 			"- Do not say \"confirmed\" unless bank/settlement/outcome data is available.\n" +
 			"- Do not say \"proof-ready\" unless evidence data is available.\n" +
@@ -418,6 +421,7 @@ func (s *LLMService) GenerateEvidenceJSON(userQuery, context string) (EvidencePr
 		"You are Zord's evidence and dispute-resolution assistant.\n" +
 			"Use only CONTEXT.\n" +
 			"Do not reveal raw hashes, signatures, encrypted values, internal IDs, account numbers, PAN, tokens, API keys, or secrets.\n" +
+			"Copy numeric and money values exactly as shown in CONTEXT. Do not divide, multiply, round, add commas, remove decimals, add decimals, or change the numeric representation.\n" +
 			"You may say proof root available/verified if context says so, but do not print raw proof root unless marked safe.\n\n" +
 			"Explain:\n" +
 			"- whether evidence pack exists,\n" +
@@ -474,6 +478,7 @@ func (s *LLMService) GenerateNavigationHowTo(userQuery, context string) (string,
 		"You are Zord's in-product guide.\n" +
 			"Use only CONTEXT.\n" +
 			"Explain where the user should go and what they should click.\n" +
+			"Copy numeric and money values exactly as shown in CONTEXT. Do not divide, multiply, round, add commas, remove decimals, add decimals, or change the numeric representation.\n" +
 			"Do not mention backend systems or internal IDs.\n" +
 			"Do not invent unavailable screens.\n\n" +
 			"Answer format:\n" +

@@ -1375,18 +1375,15 @@ func safeOptional(v string) string {
 }
 
 func moneyFromMinor(raw string) string {
+	return exactDBMoneyValue(raw)
+}
+
+func exactDBMoneyValue(raw string) string {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || raw == "-" || strings.EqualFold(raw, "null") {
+	if raw == "" || raw == "-" || strings.EqualFold(raw, "null") || strings.EqualFold(raw, "<nil>") {
 		return "Not available"
 	}
-
-	f, err := strconv.ParseFloat(raw, 64)
-	if err != nil {
-		return "Not available"
-	}
-
-	major := f / 100.0
-	return fmt.Sprintf("INR %.2f", major)
+	return "INR " + raw
 }
 
 func readableTime(raw string) string {
@@ -1460,8 +1457,11 @@ func summarizeBusinessJSON(raw string) string {
 		return ""
 	}
 
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+
 	var value any
-	if err := json.Unmarshal([]byte(raw), &value); err != nil {
+	if err := decoder.Decode(&value); err != nil {
 		return ""
 	}
 
@@ -1517,8 +1517,11 @@ func collectBusinessJSONParts(prefix string, value any, parts *[]string) {
 		}
 		*parts = append(*parts, fmt.Sprintf("%s: %s", businessMetricLabel(prefix), v))
 
+	case json.Number:
+		*parts = append(*parts, fmt.Sprintf("%s: %s", businessMetricLabel(prefix), businessNumber(prefix, v.String())))
+
 	case float64:
-		*parts = append(*parts, fmt.Sprintf("%s: %s", businessMetricLabel(prefix), businessNumber(prefix, v)))
+		*parts = append(*parts, fmt.Sprintf("%s: %s", businessMetricLabel(prefix), businessNumber(prefix, strconv.FormatFloat(v, 'f', -1, 64))))
 
 	case bool:
 		*parts = append(*parts, fmt.Sprintf("%s: %t", businessMetricLabel(prefix), v))
@@ -1606,21 +1609,18 @@ func businessMetricLabel(key string) string {
 	return strings.Title(clean)
 }
 
-func businessNumber(key string, value float64) string {
+func businessNumber(key string, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "-" || strings.EqualFold(raw, "null") || strings.EqualFold(raw, "<nil>") {
+		return "Not available"
+	}
+
 	k := strings.ToLower(key)
 	if strings.Contains(k, "_minor") || strings.Contains(k, "amount_minor") || strings.Contains(k, "value_minor") {
-		return moneyFromMinor(strconv.FormatFloat(value, 'f', 2, 64))
+		return exactDBMoneyValue(raw)
 	}
-	if strings.Contains(k, "rate") || strings.Contains(k, "coverage") {
-		return fmt.Sprintf("%.2f%%", value*100)
-	}
-	if strings.Contains(k, "score") || strings.Contains(k, "confidence") {
-		return fmt.Sprintf("%.2f", value)
-	}
-	if value == float64(int64(value)) {
-		return fmt.Sprintf("%d", int64(value))
-	}
-	return fmt.Sprintf("%.2f", value)
+
+	return raw
 }
 func (r *LiveSQLRetriever) fetchFromEvidence(tenantID string, topK int, failureOnly bool, scope utils.QueryScope) ([]model.RetrievedChunk, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)

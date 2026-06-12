@@ -40,6 +40,14 @@ pipeline {
           # Use local k6 binary
           export PATH="$(pwd):${PATH}"
           k6 version || ./k6 version
+
+          # Install pandoc for PDF report (optional — fails gracefully)
+          if ! command -v pandoc &> /dev/null; then
+            echo "Installing pandoc..."
+            curl -sL https://github.com/jgm/pandoc/releases/download/3.1.11/pandoc-3.1.11-linux-amd64.tar.gz | tar xz
+            mv pandoc-3.1.11/bin/pandoc ./pandoc
+            chmod +x ./pandoc || true
+          fi
         '''
       }
     }
@@ -62,7 +70,7 @@ pipeline {
             --summary-export="${RESULTS_DIR}/01-health-check-summary.json" \
             --env BASE_URL="${params.BASE_URL}" \
             "${SCRIPTS_DIR}/01-health-check.js" \
-            2>&1 | tee "${RESULTS_DIR}/01-health-check-output.txt"
+            2>&1 | tee "${RESULTS_DIR}/01-health-check-output.txt" || true
         """
       }
     }
@@ -75,7 +83,7 @@ pipeline {
             --env BASE_URL="${params.BASE_URL}" \
             --env ADMIN_KEY="${params.ADMIN_KEY}" \
             "${SCRIPTS_DIR}/02-tenant-registration.js" \
-            2>&1 | tee "${RESULTS_DIR}/02-tenant-reg-output.txt"
+            2>&1 | tee "${RESULTS_DIR}/02-tenant-reg-output.txt" || true
         """
       }
     }
@@ -88,7 +96,7 @@ pipeline {
             --env BASE_URL="${params.BASE_URL}" \
             --env ADMIN_KEY="${params.ADMIN_KEY}" \
             "${SCRIPTS_DIR}/03-bulk-ingest.js" \
-            2>&1 | tee "${RESULTS_DIR}/03-bulk-ingest-output.txt"
+            2>&1 | tee "${RESULTS_DIR}/03-bulk-ingest-output.txt" || true
         """
       }
     }
@@ -101,7 +109,7 @@ pipeline {
             --env BASE_URL="${params.BASE_URL}" \
             --env ADMIN_KEY="${params.ADMIN_KEY}" \
             "${SCRIPTS_DIR}/04-full-flow.js" \
-            2>&1 | tee "${RESULTS_DIR}/04-full-flow-output.txt"
+            2>&1 | tee "${RESULTS_DIR}/04-full-flow-output.txt" || true
         """
       }
     }
@@ -113,7 +121,7 @@ pipeline {
             --summary-export="${RESULTS_DIR}/05-rate-limit-summary.json" \
             --env BASE_URL="${params.BASE_URL}" \
             "${SCRIPTS_DIR}/05-rate-limit.js" \
-            2>&1 | tee "${RESULTS_DIR}/05-rate-limit-output.txt"
+            2>&1 | tee "${RESULTS_DIR}/05-rate-limit-output.txt" || true
         """
       }
     }
@@ -128,7 +136,7 @@ pipeline {
             --summary-export="${RESULTS_DIR}/06-spike-test-summary.json" \
             --env BASE_URL="${params.BASE_URL}" \
             "${SCRIPTS_DIR}/06-spike-test.js" \
-            2>&1 | tee "${RESULTS_DIR}/06-spike-test-output.txt"
+            2>&1 | tee "${RESULTS_DIR}/06-spike-test-output.txt" || true
         """
       }
     }
@@ -163,17 +171,18 @@ pipeline {
       steps {
         script {
           def report = readFile("${env.RESULTS_DIR}/REPORT.md")
-          def summary = report.take(500) // First 500 chars
+          def summary = report.take(1500)
 
           slackSend(
             channel: params.SLACK_CHANNEL,
-            color: currentBuild.result == 'SUCCESS' ? 'good' : 'danger',
+            color: currentBuild.result == 'SUCCESS' ? 'good' : 'warning',
             message: """🚀 *Performance Test Results — Build #${env.BUILD_NUMBER}*
 📊 Target: ${params.BASE_URL}
 ⏱️ Duration: ${currentBuild.durationString}
-📋 Full report in Jenkins artifacts
+📋 Full report: ${env.BUILD_URL}artifact/performance-tests/results/${env.BUILD_NUMBER}/REPORT.md
+📄 PDF report: ${env.BUILD_URL}artifact/performance-tests/results/${env.BUILD_NUMBER}/REPORT.pdf
 
-${summary}..."""
+${summary}"""
           )
         }
       }

@@ -1881,6 +1881,7 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	isLowConfidence bool,
 	hasCollision bool,
 	scoreMargin float64,
+	isSuccessfulDecision bool,
 	windowStart, windowEnd time.Time,
 ) error {
 	key := "ambiguity.summary"
@@ -1921,6 +1922,10 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	if hasCollision {
 		collisionIncr = 1
 	}
+	successfulIncr := 0
+	if isSuccessfulDecision {
+		successfulIncr = 1
+	}
 
 	upsertSQL := `
 		INSERT INTO projection_state
@@ -1946,7 +1951,9 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 				'candidate_collision_rate',     $12::float8,
 				'score_margin_sum',             $13::float8,
 				'score_margin_count',           1,
-				'avg_score_margin',             $13::float8
+				'avg_score_margin',             $13::float8,
+				'successful_decision_count',    $14::int,
+				'decision_success_rate',        $14::float8
 			),
 			now(), 1, 'AMBIGUITY', 'TENANT')
 		ON CONFLICT (tenant_id, projection_key, window_start, projection_version)
@@ -1963,42 +1970,46 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 												jsonb_set(
 													jsonb_set(
 														jsonb_set(
-															projection_state.value_json,
-															'{ambiguous_intent_count}',
-															to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_intent_count')::int, 0) + $5::int)
+															jsonb_set(
+																projection_state.value_json,
+																'{ambiguous_intent_count}',
+																to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_intent_count')::int, 0) + $5::int)
+															),
+															'{ambiguous_amount_minor}',
+															to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_amount_minor')::numeric, 0) + $6::numeric)
 														),
-														'{ambiguous_amount_minor}',
-														to_jsonb(COALESCE((projection_state.value_json->>'ambiguous_amount_minor')::numeric, 0) + $6::numeric)
+														'{unresolved_settlement_count}',
+														to_jsonb(COALESCE((projection_state.value_json->>'unresolved_settlement_count')::int, 0) + $7::int)
 													),
-													'{unresolved_settlement_count}',
-													to_jsonb(COALESCE((projection_state.value_json->>'unresolved_settlement_count')::int, 0) + $7::int)
+													'{value_at_risk_minor}',
+													to_jsonb(COALESCE((projection_state.value_json->>'value_at_risk_minor')::numeric, 0) + $8::numeric)
 												),
-												'{value_at_risk_minor}',
-												to_jsonb(COALESCE((projection_state.value_json->>'value_at_risk_minor')::numeric, 0) + $8::numeric)
+												'{confidence_sum}',
+												to_jsonb(COALESCE((projection_state.value_json->>'confidence_sum')::float8, 0.0) + $9::float8)
 											),
-											'{confidence_sum}',
-											to_jsonb(COALESCE((projection_state.value_json->>'confidence_sum')::float8, 0.0) + $9::float8)
+											'{confidence_count}',
+											to_jsonb(COALESCE((projection_state.value_json->>'confidence_count')::int, 0) + 1)
 										),
-										'{confidence_count}',
-										to_jsonb(COALESCE((projection_state.value_json->>'confidence_count')::int, 0) + 1)
+										'{provider_ref_missing_count}',
+										to_jsonb(COALESCE((projection_state.value_json->>'provider_ref_missing_count')::int, 0) + $10::int)
 									),
-									'{provider_ref_missing_count}',
-									to_jsonb(COALESCE((projection_state.value_json->>'provider_ref_missing_count')::int, 0) + $10::int)
+									'{total_decisions}',
+									to_jsonb(COALESCE((projection_state.value_json->>'total_decisions')::int, 0) + 1)
 								),
-								'{total_decisions}',
-								to_jsonb(COALESCE((projection_state.value_json->>'total_decisions')::int, 0) + 1)
+								'{low_confidence_count}',
+								to_jsonb(COALESCE((projection_state.value_json->>'low_confidence_count')::int, 0) + $11::int)
 							),
-							'{low_confidence_count}',
-							to_jsonb(COALESCE((projection_state.value_json->>'low_confidence_count')::int, 0) + $11::int)
+							'{candidate_collision_count}',
+							to_jsonb(COALESCE((projection_state.value_json->>'candidate_collision_count')::int, 0) + $12::int)
 						),
-						'{candidate_collision_count}',
-						to_jsonb(COALESCE((projection_state.value_json->>'candidate_collision_count')::int, 0) + $12::int)
+						'{score_margin_sum}',
+						to_jsonb(COALESCE((projection_state.value_json->>'score_margin_sum')::float8, 0.0) + $13::float8)
 					),
-					'{score_margin_sum}',
-					to_jsonb(COALESCE((projection_state.value_json->>'score_margin_sum')::float8, 0.0) + $13::float8)
+					'{score_margin_count}',
+					to_jsonb(COALESCE((projection_state.value_json->>'score_margin_count')::int, 0) + 1)
 				),
-				'{score_margin_count}',
-				to_jsonb(COALESCE((projection_state.value_json->>'score_margin_count')::int, 0) + 1)
+				'{successful_decision_count}',
+				to_jsonb(COALESCE((projection_state.value_json->>'successful_decision_count')::int, 0) + $14::int)
 			),
 		computed_at = now()
 	`
@@ -2013,6 +2024,7 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 		lowConfidenceIncr,        // $11
 		collisionIncr,            // $12
 		scoreMargin,              // $13
+		successfulIncr,           // $14
 	); err != nil {
 		return fmt.Errorf("projection_repo.AtomicRecordAttachmentDecision tenant=%s decision=%s: %w",
 			tenantID, decisionType, err)
@@ -2030,6 +2042,7 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 //	candidate_collision_rate  = candidate_collision_count / total_decisions
 //	avg_score_margin          = score_margin_sum / score_margin_count
 //	carrier_completeness_rate = carrier_complete_count / total_carrier_records
+//	decision_success_rate     = successful_decision_count / total_decisions
 func (r *ProjectionRepo) recomputeAmbiguityRates(
 	ctx context.Context,
 	tenantID, key string,
@@ -2044,12 +2057,22 @@ func (r *ProjectionRepo) recomputeAmbiguityRates(
 						jsonb_set(
 							jsonb_set(
 								jsonb_set(
-									value_json,
-									'{avg_attachment_confidence}',
+									jsonb_set(
+										value_json,
+										'{avg_attachment_confidence}',
+										to_jsonb(
+											COALESCE(
+												(value_json->>'confidence_sum')::numeric /
+												NULLIF((value_json->>'confidence_count')::numeric, 0),
+												0
+											)
+										)
+									),
+									'{decision_success_rate}',
 									to_jsonb(
 										COALESCE(
-											(value_json->>'confidence_sum')::numeric /
-											NULLIF((value_json->>'confidence_count')::numeric, 0),
+											(value_json->>'successful_decision_count')::numeric /
+											NULLIF((value_json->>'total_decisions')::numeric, 0),
 											0
 										)
 									)

@@ -947,20 +947,21 @@ test.describe('evidence batch → intent → pack wiring', () => {
     await preparePage(page, context, installEvidenceFixtureMocks)
   })
 
-  test('evidence proof dock shows reshaped browser columns and merged packs', async ({ page }) => {
+  test('evidence proof dock shows batch-only browser row', async ({ page }) => {
     await page.goto(`${BASE_URL}/payout-command-view/today?dock=proof&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`)
     await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
     await expect(page.getByRole('columnheader', { name: 'Evidence Pack' })).toBeVisible({ timeout: 15_000 })
-    await expect(page.getByRole('columnheader', { name: 'Intent' })).toBeVisible()
+    await expect(page.getByRole('columnheader', { name: 'Scope' })).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Proof Root' })).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Score' })).toBeVisible()
     await expect(page.getByRole('columnheader', { name: 'Leaves' })).toBeVisible()
-    await expect(page.getByRole('columnheader', { name: 'Status' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'View graph' })).toHaveCount(3, { timeout: 15_000 })
-    await expect(page.getByRole('columnheader', { name: 'Batch' })).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'View batch proof' })).toHaveCount(1, { timeout: 15_000 })
+    await expect(page.getByRole('columnheader', { name: 'Intent' })).toHaveCount(0)
+    await expect(page.getByRole('columnheader', { name: 'Status' })).toHaveCount(0)
     await expect(page.getByText('1100%')).toHaveCount(0)
+    await expect(page.getByText(/payment proofs/i).first()).toBeVisible({ timeout: 15_000 })
   })
 
   test('fan-out API calls and table on Evidence dock', async ({ page, context }) => {
@@ -975,9 +976,9 @@ test.describe('evidence batch → intent → pack wiring', () => {
     await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
-    await expect(page.getByRole('link', { name: 'View graph' }).first()).toBeVisible({ timeout: 25_000 })
+    await expect(page.getByRole('link', { name: 'View batch proof' }).first()).toBeVisible({ timeout: 25_000 })
     await expect(page.getByText(PACK_BATCH).first()).toBeVisible({ timeout: 25_000 })
-    await expect(page.getByText(PACK_INTENT_A).first()).toBeVisible({ timeout: 25_000 })
+    await expect(page.getByText(PACK_INTENT_A)).toHaveCount(0)
 
     const packs = captures.filter((c) => c.pathname.endsWith('/evidence/packs'))
     expect(packs.some((c) => c.searchParams.get('batch_id') === EVIDENCE_BATCH)).toBe(true)
@@ -986,13 +987,21 @@ test.describe('evidence batch → intent → pack wiring', () => {
     )
     expect(batchIntentsCalls.length).toBeGreaterThan(0)
 
-    await expect(page.getByText('Batch pack').first()).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText('Batch proof').first()).toBeVisible({ timeout: 10_000 })
 
     await installPayoutSessionCookies(context)
     await page.goto(`${BASE_URL}/payout-command-view/evidence-pack/${encodeURIComponent(PACK_BATCH)}?tab=graph&batch_id=${encodeURIComponent(EVIDENCE_BATCH)}`)
     await expect(page.getByRole('button', { name: /Batch graph/i })).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByRole('button', { name: /Intent graph/i })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('button', { name: /Intent proofs/i })).toBeVisible({ timeout: 20_000 })
     await expect(page.getByText('Verify proof integrity')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('link', { name: 'Summary' })).toHaveCount(0)
+
+    await page.getByRole('button', { name: /Intent proofs/i }).click()
+    await expect(page.getByText('Payment proofs')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByRole('link', { name: 'Summary' })).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Verify proof integrity')).toBeVisible({ timeout: 20_000 })
+    await page.getByRole('link', { name: 'Summary' }).click()
+    await expect(page.getByText('Match confidence')).toBeVisible({ timeout: 20_000 })
 
     const lineageCalls = captures.filter((c) => /\/evidence\/packs\/[^/]+\/lineage-graph$/.test(c.pathname))
     expect(lineageCalls.length).toBeGreaterThan(0)

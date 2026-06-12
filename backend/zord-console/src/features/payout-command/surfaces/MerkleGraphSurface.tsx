@@ -13,7 +13,7 @@ import {
 } from '@/services/payout-command/prod-api/evidenceBatchScope'
 import { getEvidencePackFull, listEvidencePacks } from '@/services/payout-command/prod-api/getEvidencePacks'
 import { getEvidenceBatchLineageGraph } from '@/services/payout-command/prod-api/getEvidenceBatchLineageGraph'
-import { isBatchEvidencePack } from '@/services/payout-command/prod-api/resolveBatchEvidencePack'
+import { isBatchEvidencePack, evidencePackFullFromBatchLineage } from '@/services/payout-command/prod-api/resolveBatchEvidencePack'
 import { getEvidencePackLineageGraph } from '@/services/payout-command/prod-api/getEvidencePackLineageGraph'
 import { listEvidencePacksForBatch } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
 import {
@@ -298,6 +298,7 @@ export function MerkleGraphSurface({
   // fan-out (which is capped) and the dropdown always lists the whole batch.
   const [batchIntents, setBatchIntents] = useState<IntentJournalPaymentIntentItem[]>([])
   const [resolvingIntentId, setResolvingIntentId] = useState<string | null>(null)
+  const [pinnedGraphLoading, setPinnedGraphLoading] = useState(false)
   const lastNotifiedPackIdRef = useRef('')
 
   const {
@@ -345,6 +346,55 @@ export function MerkleGraphSurface({
       })
     },
     [activeBatchId, defensibilityScore, isBatchScopedPack],
+  )
+
+  const resolveActiveBatchId = useCallback((): string => {
+    return (
+      apiTrimmedString(controlledBatchId) ||
+      apiTrimmedString(activeBatchId) ||
+      apiTrimmedString(urlBatchId)
+    )
+  }, [controlledBatchId, activeBatchId, urlBatchId])
+
+  const loadGraphForPackId = useCallback(
+    async (
+      targetPackId: string,
+      summaryHint?: EvidencePackSummaryRow | null,
+    ): Promise<EvidencePackGraph | null> => {
+      const pid = apiTrimmedString(targetPackId)
+      if (!pid) return null
+
+      const summary =
+        summaryHint ??
+        packSummaries.find((row) => apiTrimmedString(row.evidence_pack_id) === pid) ??
+        null
+
+      const full = await getEvidencePackFull(pid)
+      if (full) {
+        return resolvePackGraph(full, summary)
+      }
+
+      const bid = resolveActiveBatchId()
+      if (!bid) return null
+
+      const lineage = await getEvidenceBatchLineageGraph(bid)
+      if (!lineage.data) return null
+
+      const lineagePackId = apiTrimmedString(lineage.data.evidence_pack_id)
+      const batchCandidate =
+        (summary != null && isBatchEvidencePack(summary)) ||
+        pid === lineagePackId ||
+        pid.startsWith('bep_')
+
+      if (!batchCandidate) return null
+
+      const fallbackFull = evidencePackFullFromBatchLineage(bid, lineage.data, summary, pid)
+      return buildEvidencePackGraphFromLineage(fallbackFull, lineage.data, {
+        batchId: bid,
+        defensibilityScore,
+      })
+    },
+    [defensibilityScore, packSummaries, resolvePackGraph, resolveActiveBatchId],
   )
 
   useEffect(() => {
@@ -436,9 +486,8 @@ export function MerkleGraphSurface({
     const ids = [...summaryByPackId.keys()].slice(0, 256)
     void Promise.all(
       ids.map(async (id) => {
-        const full = await getEvidencePackFull(id)
-        if (!full) return
-        const g = await resolvePackGraph(full, summaryByPackId.get(id))
+        const g = await loadGraphForPackId(id, summaryByPackId.get(id))
+        if (!g) return
         return [id, g] as const
       }),
     ).then((pairs) => {
@@ -452,26 +501,55 @@ export function MerkleGraphSurface({
     return () => {
       cancelled = true
     }
-  }, [useLive, packSummaries, resolvePackGraph])
+  }, [useLive, packSummaries, loadGraphForPackId])
 
   useEffect(() => {
-    const packIdFromUrl = apiTrimmedString(initialPackId)
+    const packIdFromUrl =
+      apiTrimmedString(controlledPackId) || apiTrimmedString(initialPackId)
     if (!useLive || !packIdFromUrl) return
     let cancelled = false
-    void getEvidencePackFull(packIdFromUrl).then(async (full) => {
-      if (cancelled || !full) return
-      const summary = packSummaries.find(
-        (row) => apiTrimmedString(row.evidence_pack_id) === packIdFromUrl,
-      )
-      const g = await resolvePackGraph(full, summary)
+    setPinnedGraphLoading(true)
+    void loadGraphForPackId(packIdFromUrl).then((g) => {
       if (cancelled) return
-      setLiveGraphs((prev) => ({ ...prev, [g.packId]: g }))
-      setActivePackId(g.packId)
+      if (g) {
+        setLiveGraphs((prev) => ({ ...prev, [g.packId]: g }))
+        setActivePackId(g.packId)
+      }
+      setPinnedGraphLoading(false)
     })
     return () => {
       cancelled = true
+      setPinnedGraphLoading(false)
     }
-  }, [useLive, initialPackId, packSummaries, resolvePackGraph])
+  }, [useLive, initialPackId, controlledPackId, loadGraphForPackId])
+
+  useEffect(() => {
+    const pid = apiTrimmedString(controlledPackId) || apiTrimmedString(initialPackId)
+    if (!useLive || !tenantReady || !pid || liveGraphs[pid]) return
+    if (!resolveActiveBatchId()) return
+    let cancelled = false
+    setPinnedGraphLoading(true)
+    void loadGraphForPackId(pid).then((g) => {
+      if (cancelled) return
+      if (g) {
+        setLiveGraphs((prev) => ({ ...prev, [g.packId]: g }))
+        setActivePackId(g.packId)
+      }
+      setPinnedGraphLoading(false)
+    })
+    return () => {
+      cancelled = true
+      setPinnedGraphLoading(false)
+    }
+  }, [
+    useLive,
+    tenantReady,
+    controlledPackId,
+    initialPackId,
+    liveGraphs,
+    loadGraphForPackId,
+    resolveActiveBatchId,
+  ])
 
   const demoPack = SAMPLE_PACKS[activePackId] ?? initialPack
   const demoBatchPacks = useMemo(() => packsForBatch(activeBatchId), [activeBatchId])
@@ -635,10 +713,10 @@ export function MerkleGraphSurface({
     liveBatchPacks[0] ??
     null
 
-  const livePackMissing = useLive && livePack === null
+  const livePackMissing = useLive && livePack === null && !pinnedGraphLoading
   const pack = (useLive ? livePack : demoPack) ?? EMPTY_LIVE_PACK
   const batchPacks = useLive ? liveBatchPacks : demoBatchPacks
-  const showGraph = !useLive || (tenantReady && !livePackMissing)
+  const showGraph = !useLive || (tenantReady && !livePackMissing && !pinnedGraphLoading)
 
   const handleManualRefresh = useCallback(async () => {
     if (!useLive) return
@@ -678,38 +756,11 @@ export function MerkleGraphSurface({
       const pid = apiTrimmedString(summary?.evidence_pack_id) || targetPackId
       if (!pid) return
 
-      const full = await getEvidencePackFull(pid)
-      if (full) {
-        const graph = await resolvePackGraph(full, summary)
+      const graph = await loadGraphForPackId(pid, summary)
+      if (graph) {
         setLiveGraphs((prev) => ({ ...prev, [graph.packId]: graph }))
         setActivePackId(graph.packId)
         return
-      }
-
-      if (bid && summary && isBatchEvidencePack(summary)) {
-        const lineage = await getEvidenceBatchLineageGraph(bid)
-        if (lineage.data) {
-          const fallbackFull: EvidencePackFull = {
-            evidence_pack_id: apiTrimmedString(lineage.data.evidence_pack_id) || pid,
-            tenant_id: apiTrimmedString(lineage.data.tenant_id) || apiTrimmedString(summary.tenant_id),
-            intent_id: apiTrimmedString(lineage.data.intent_id),
-            batch_id: bid,
-            contract_id: apiTrimmedString(summary.contract_id) || '-',
-            mode: apiTrimmedString(summary.mode) || 'BATCH_PROOF',
-            pack_status: apiTrimmedString(summary.pack_status) || 'ACTIVE',
-            items: [],
-            merkle_root: apiTrimmedString(lineage.data.merkle_root) || apiTrimmedString(summary.merkle_root),
-            ruleset_version: apiTrimmedString(summary.ruleset_version) || 'v1',
-            created_at: apiTrimmedString(summary.created_at) || new Date().toISOString(),
-          }
-          const graph = buildEvidencePackGraphFromLineage(fallbackFull, lineage.data, {
-            batchId: bid,
-            defensibilityScore,
-          })
-          setLiveGraphs((prev) => ({ ...prev, [graph.packId]: graph }))
-          setActivePackId(graph.packId)
-          return
-        }
       }
 
       setLiveListError(`Could not refresh evidence pack ${pid}.`)
@@ -726,7 +777,7 @@ export function MerkleGraphSurface({
     initialPackId,
     packSummaries,
     refreshKpis,
-    resolvePackGraph,
+    loadGraphForPackId,
     useLive,
   ])
 
@@ -922,13 +973,19 @@ export function MerkleGraphSurface({
         </section>
       ) : null}
 
-      {tenantReady && livePackMissing ? (
+      {tenantReady && pinnedGraphLoading && embedMode ? (
+        <p className="py-8 text-center text-[14px] text-slate-500">{evidenceCopy.graph.loadingGraph}</p>
+      ) : null}
+
+      {tenantReady && livePackMissing && embedMode && !pinnedGraphLoading ? (
+        <p className="py-8 text-center text-[14px] text-slate-500">{evidenceCopy.graph.packNotFound}</p>
+      ) : null}
+
+      {tenantReady && livePackMissing && !embedMode ? (
         <section className="rounded-[16px] border border-slate-200 bg-white p-6">
           <LiveDataHint isLive={false} source="evidence" />
           <p className="mt-3 text-[15px] text-slate-600">
-            {initialPackId?.trim()
-              ? `Pack ${initialPackId} was not found for batch ${activeBatchId || '—'}. Confirm GET /v1/evidence/packs and pack detail for your tenant.`
-              : `No evidence packs for batch ${activeBatchId || '—'}. Select a batch with ingested packs or open from the Evidence dock.`}
+            {initialPackId?.trim() ? evidenceCopy.graph.packNotFound : evidenceCopy.graph.batchEmpty}
           </p>
         </section>
       ) : null}

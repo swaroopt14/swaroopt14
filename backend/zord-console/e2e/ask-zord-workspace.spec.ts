@@ -208,7 +208,7 @@ test.describe('Payment Operations View (Ask Zord workspace)', () => {
     await page.goto('/payout-command-view/today?dock=workspace')
 
     await promptWait
-    await expect(page.getByTestId('workspace-latest-answer')).toBeVisible()
+    await expect(page.getByTestId('workspace-chat-transcript-answer')).toBeVisible()
     await expect(page.getByText(/18 payments needing review|missing bank references/i)).toBeVisible({
       timeout: 15_000,
     })

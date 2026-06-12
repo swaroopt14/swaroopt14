@@ -75,9 +75,20 @@ export function usdCompact(value: number) {
   }).format(value)
 }
 
+/** Normalize aggregate / quality score to 0–100 for display. */
+export function formatConfidencePct(score: number | null | undefined): string {
+  if (score == null || !Number.isFinite(score)) return '—'
+  const pct = score <= 1 ? score * 100 : score
+  return `${Math.min(100, Math.max(0, pct)).toFixed(0)}%`
+}
+
 export function engineDispatchConfidencePct(batch: BatchRecord): number {
   if (typeof batch.aggregateConfidenceScore === 'number' && Number.isFinite(batch.aggregateConfidenceScore)) {
-    return Math.min(100, Math.max(0, batch.aggregateConfidenceScore * 100))
+    const pct =
+      batch.aggregateConfidenceScore <= 1
+        ? batch.aggregateConfidenceScore * 100
+        : batch.aggregateConfidenceScore
+    return Math.min(100, Math.max(0, pct))
   }
   const total = Math.max(batch.transactions, 1)
   return (batch.confirmedCount / total) * 100
@@ -170,27 +181,44 @@ function batchStatusFromFinality(fs: string | undefined): BatchStatus {
   return 'Stable'
 }
 
-/** DLQ volume can elevate status but not downgrade aggregate-based tiers. */
-function elevateStatusForDlq(status: BatchStatus, dlq: number, intents: number, pipelineTotal: number): BatchStatus {
-  if (dlq > 0 && intents === 0) return 'Critical'
-  if (dlq >= 10) return 'Critical'
-  const dlqRatio = dlq / Math.max(pipelineTotal, 1)
-  if (dlqRatio >= 0.15) return 'Critical'
-  if (dlq > 0 && dlqRatio >= 0.05) return status === 'Stable' ? 'At Risk' : status
-  if (dlq > 0 && status === 'Stable') return 'At Risk'
-  return status
+/** Merge live aggregate score onto a sidebar batch row (selected batch only). */
+export function mergeBatchAggregateScore(
+  batch: BatchRecord,
+  opts: {
+    isSelected: boolean
+    detailAggregateScore?: number | null
+    metricsBatch?: { aggregateConfidenceScore?: number } | null
+  },
+): BatchRecord {
+  if (!opts.isSelected) return batch
+
+  if (typeof opts.metricsBatch?.aggregateConfidenceScore === 'number') {
+    return { ...batch, aggregateConfidenceScore: opts.metricsBatch.aggregateConfidenceScore }
+  }
+
+  const raw = opts.detailAggregateScore
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const normalized = raw <= 1 ? raw : raw / 100
+    return { ...batch, aggregateConfidenceScore: normalized }
+  }
+
+  return batch
 }
 
-/** Sidebar health — primary signal is `aggregate_confidence_score`; DLQ can elevate tier. */
+/** Sidebar health — aggregate_confidence_score only when present; else legacy fallbacks. */
 export function resolveBatchHealthStatus(
   batch: BatchRecord,
   opts?: { dlqCount?: number; intentCount?: number; finality?: string },
 ): BatchStatus {
+  const confPct = confidencePctFromBatch(batch)
+  if (confPct != null) {
+    return batchStatusFromConfidencePct(confPct)
+  }
+
   const dlq = Math.max(0, opts?.dlqCount ?? 0)
   const intents = Math.max(0, opts?.intentCount ?? 0)
   const attention = (batch.mismatchCount ?? 0) + (batch.unresolvedCount ?? 0)
   const ingestTotal = Math.max(batch.transactions, intents, 0)
-  const pipelineTotal = Math.max(intents + dlq, ingestTotal, 1)
 
   if (batch.engineSidebar && ingestTotal > 0 && batch.confirmedCount === 0 && dlq > 0) {
     return 'Critical'
@@ -198,22 +226,16 @@ export function resolveBatchHealthStatus(
   if (attention > 0 && attention >= ingestTotal && ingestTotal > 0) return 'Critical'
   if (attention > ingestTotal * 0.5 && ingestTotal > 0) return 'Critical'
 
-  const confPct = confidencePctFromBatch(batch)
-  if (confPct != null) {
-    return elevateStatusForDlq(batchStatusFromConfidencePct(confPct), dlq, intents, pipelineTotal)
-  }
-
   const fs = opts?.finality
   if (fs) {
-    const fromFinality = batchStatusFromFinality(fs)
-    return elevateStatusForDlq(fromFinality, dlq, intents, pipelineTotal)
+    return batchStatusFromFinality(fs)
   }
 
   if (dlq === 0 && attention === 0 && intents === 0 && ingestTotal === 0) {
     return 'Stable'
   }
 
-  return elevateStatusForDlq(batchStatus(batchQualityScore(batch)), dlq, intents, pipelineTotal)
+  return batchStatus(batchQualityScore(batch))
 }
 
 export function statusTone(status: BatchStatus) {

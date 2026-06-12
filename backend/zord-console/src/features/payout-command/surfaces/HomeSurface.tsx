@@ -272,10 +272,12 @@ export function HomeSurface({
 
   const reviewMinor = leakageData != null ? parseMinorField(leakageData.unmatched_amount_minor) : null
 
-  const intentCountLabel =
+  const intentCountLabel: number | null =
     patternsData?.total_count != null && patternsData.total_count > 0
       ? patternsData.total_count
-      : trendTotalsMinor?.intentCount ?? 0
+      : trendTotalsMinor?.intentCount != null && trendTotalsMinor.intentCount > 0
+        ? trendTotalsMinor.intentCount
+        : null
 
   const trendInsight = useMemo(() => {
     if (intendedMinor != null && intendedMinor > 0 && observedMinor != null) {
@@ -437,9 +439,11 @@ export function HomeSurface({
             </div>
             <div className="mt-3 text-[18px] font-bold text-[#000000]">Intended Payment Value</div>
             <p className={`mt-2 max-w-xs ${HOME_BODY_IMPERIAL_CENTERED}`}>
-              {intentCountLabel > 0
+              {intentCountLabel != null
                 ? `${intentCountLabel} payment instructions received in this period.`
-                : 'Payment instructions will appear when your first batch is processed.'}
+                : loading || trendLoading
+                  ? '…'
+                  : '—'}
             </p>
           </>
         ) : (

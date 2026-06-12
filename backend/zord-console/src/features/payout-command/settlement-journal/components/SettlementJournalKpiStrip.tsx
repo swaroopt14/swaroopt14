@@ -83,7 +83,9 @@ export function SettlementJournalKpiStrip({ filteredCount, filtersActive }: Sett
         sub={
           outcome.failed > 0
             ? `${outcome.failed.toLocaleString('en-IN')} failed · ${total.toLocaleString('en-IN')} total rows`
-            : `${outcome.settledPct ?? 0}% of rows marked settled in source`
+            : outcome.settledPct != null
+              ? `${outcome.settledPct}% of rows marked settled in source`
+              : '—'
         }
       />
       <KpiCard label={copy.netSettled} value={netSettled.value} sub={netSettled.sub} />

@@ -9,10 +9,10 @@ import {
 } from '../../command-center/homeCommandCenterTokens'
 import { useJournalBatchSelection } from '../context/JournalBatchSelectionContext'
 import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
-import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
 import { fmtInrFromMinorExact } from '../../command-center/commandCenterFormat'
+import { formatConfidencePct } from '../intentJournalSidebarUtils'
+import { useDlqManualReviewCount } from '../hooks/useDlqManualReviewCount'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
-import { useDlqTerminalCount } from '../hooks/useDlqTerminalCount'
 
 function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
@@ -33,8 +33,10 @@ export function IntentJournalKpiStrip() {
   const { selectedBatchId, journalEnabled, tenantReady } = useJournalBatchSelection()
   const feedEnabled = journalEnabled && tenantReady
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, feedEnabled)
-  const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, feedEnabled)
-  const { count: terminalDlqCount, loading: terminalLoading } = useDlqTerminalCount(feedEnabled)
+  const { displayCount: manualReviewCount, loading: manualReviewLoading } = useDlqManualReviewCount(
+    feedEnabled,
+    selectedBatchId,
+  )
 
   const copy = intentJournalCopy.kpi
   const placeholderLabels = [copy.paymentWorkflow, copy.instructionsCreated, copy.intendedValue, copy.readiness, copy.needsReview]
@@ -59,17 +61,15 @@ export function IntentJournalKpiStrip() {
 
   const tx = metrics?.instructionCount ?? batch?.transactions ?? 0
   const intendedValue = metrics?.intendedValue ?? batch?.totalValue ?? 0
-  const readinessPct =
-    metrics?.avgReadinessPct != null ? `${metrics.avgReadinessPct.toFixed(0)}%` : '—'
-  const needsReview =
-    terminalDlqCount != null ? terminalDlqCount : terminalLoading ? null : 0
+  const qualityPct = formatConfidencePct(metrics?.batchAggregateConfidenceScore ?? null)
   const needsReviewDisplay =
-    needsReview != null ? needsReview.toLocaleString('en-IN') : '—'
+    manualReviewCount != null ? manualReviewCount.toLocaleString('en-IN') : manualReviewLoading ? '…' : '—'
   const needsReviewSub =
-    terminalDlqCount != null
-      ? 'Terminal DLQ items (tenant-wide)'
-      : 'Terminal DLQ count loading…'
-  const finality = intelDetail?.batch?.finality_status
+    manualReviewCount != null
+      ? 'Items in manual-review DLQ queue'
+      : manualReviewLoading
+        ? 'Loading manual-review count…'
+        : '—'
 
   return (
     <div className={KPI_GRID_CLASS}>
@@ -90,8 +90,8 @@ export function IntentJournalKpiStrip() {
       />
       <KpiCard
         label={copy.readiness}
-        value={readinessPct}
-        sub={finality ? `Batch finality · ${finality.replace(/_/g, ' ')}` : 'Average intent quality score'}
+        value={qualityPct}
+        sub="Batch aggregate confidence score"
       />
       <KpiCard
         label={copy.needsReview}

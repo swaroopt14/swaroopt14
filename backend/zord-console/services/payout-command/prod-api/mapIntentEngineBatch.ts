@@ -2,7 +2,8 @@ import type { IntentEngineBatchSidebarItem, PaymentIntentRecord } from './getPro
 import type { ApiDlqRow } from './prodApiTypes'
 import type { IntelligenceBatchRow } from './intelligenceTypes'
 import { apiTrimmedString } from './coerceApiField'
-import { formatDlqStatusLabel, parseDlqIntentContext } from './mapDlqContext'
+import { readIntentQualityScore } from '@/services/payout-command/prod-api/resolveIntentQualityScore'
+import { formatDlqStatusLabel, parseDlqIntentContext, normalizePspDisplayName } from './mapDlqContext'
 
 export type JournalBatchType = 'Disbursement' | 'Settlement'
 export type JournalIntentStatus = 'Ready to Process' | 'Confirmed' | 'Pending' | 'Needs Review' | 'In Progress'
@@ -197,6 +198,14 @@ export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): J
 }
 
 export function mapIntelligenceRowToBatchRecord(b: IntelligenceBatchRow): JournalBatchRecord {
+  const matchPct = b.match_confidence_pct
+  const aggregateConfidenceScore =
+    typeof matchPct === 'number' && Number.isFinite(matchPct)
+      ? matchPct <= 1
+        ? matchPct
+        : matchPct / 100
+      : undefined
+
   return {
     batchId: b.batch_id,
     type: 'Disbursement',
@@ -206,6 +215,7 @@ export function mapIntelligenceRowToBatchRecord(b: IntelligenceBatchRow): Journa
     transactions: b.total_count ?? 0,
     confirmedCount: b.success_count ?? 0,
     highConfidenceCount: 0,
+    aggregateConfidenceScore,
     mismatchCount: 0,
     unresolvedCount: 0,
     intelligenceCounts: {
@@ -263,10 +273,7 @@ export function mapPaymentIntentToIntentRow(
     .filter(Boolean)
     .join(' · ') || '—'
 
-  const confidenceScore =
-    typeof intent.intent_quality_score === 'number' && Number.isFinite(intent.intent_quality_score)
-      ? intent.intent_quality_score
-      : null
+  const confidenceScore = readIntentQualityScore(intent)
 
   return {
     batchId,
@@ -309,7 +316,7 @@ export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?
   else if (stageRaw.includes('dispatch')) failureStage = 'Dispatch'
   else if (stageRaw.includes('settle')) failureStage = 'Settlement'
   const ctx = parseDlqIntentContext(row.intent_context)
-  const connector = ctx.sourceSystem || '—'
+  const connector = normalizePspDisplayName(ctx.sourceSystem)
   const connectorSubtitle = connector
   const manualReview =
     opts?.inManualReviewQueue ??

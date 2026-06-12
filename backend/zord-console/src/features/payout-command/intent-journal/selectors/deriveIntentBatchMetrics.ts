@@ -1,6 +1,6 @@
 import type { IntentJournalPaymentIntentItem, IntentJournalDlqItem } from '@/services/payout-command/prod-api/intentJournalTypes'
+import { readIntentQualityScore } from '@/services/payout-command/prod-api/resolveIntentQualityScore'
 import { READINESS_REVIEW_THRESHOLD } from '../mappers/mapIntentTableRow'
-
 export type IntentBatchMetrics = {
   instructionCount: number
   intendedValue: number
@@ -43,21 +43,24 @@ export function deriveIntentBatchMetrics(
     return null
   }
 
-  const scores = paymentIntents
-    .map((item) => readScore(item.intent_quality_score))
-    .filter((s): s is number => s != null)
+  const normalizeQualityPct = (score: number): number => (score <= 1 ? score * 100 : score)
 
+  const scores = paymentIntents
+    .map((item) => readIntentQualityScore(item))
+    .filter((s): s is number => s != null)
   const avgReadinessPct =
-    scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) * 100 : null
+    scores.length > 0
+      ? scores.reduce((a, b) => a + normalizeQualityPct(b), 0) / scores.length
+      : null
 
   const batchAggregateConfidenceScore =
     paymentIntents.map((item) => readScore(item.aggregate_confidence_score)).find((s) => s != null) ?? null
 
   const lowReadinessCount = paymentIntents.filter((item) => {
-    const score = readScore(item.intent_quality_score)
-    return score != null && score < READINESS_REVIEW_THRESHOLD
+    const score = readIntentQualityScore(item)
+    if (score == null) return false
+    return normalizeQualityPct(score) < READINESS_REVIEW_THRESHOLD * 100
   }).length
-
   const dlqCount = dlqItems.length
   const manualReviewCount = dlqItems.filter(
     (item) => String(item.dlq_status ?? '').trim() === 'NEEDS_MANUAL_REVIEW',

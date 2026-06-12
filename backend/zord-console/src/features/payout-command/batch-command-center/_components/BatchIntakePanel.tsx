@@ -53,6 +53,7 @@ export type IntentIngestSuccessPayload = {
 export type SettlementIngestSuccessPayload = {
   batchId: string
   fileName: string
+  parsedRows: BatchRow[]
 }
 
 export type BatchUploadStatus = {
@@ -294,6 +295,7 @@ export function BatchIntakePanel({
     setIntakeStep('settlement_uploading')
     reportUploadStatus('syncing', BATCH_REVIEW_COPY.intake.uploadSettlementBusy)
     try {
+      const parsed = await parseUploadedSheet(file)
       const result = await postSettlementFileUpload({
         file,
         psp: pspVal,
@@ -311,7 +313,7 @@ export function BatchIntakePanel({
       reportUploadStatus('synced', BATCH_REVIEW_COPY.dialogs.settlementBody(bid))
       markSandboxSetupStep('settlement')
       setIntakeStep('closed')
-      onSettlementIngestSuccess({ batchId: bid, fileName: file.name })
+      onSettlementIngestSuccess({ batchId: bid, fileName: file.name, parsedRows: parsed })
     } catch (error) {
       reportUploadStatus(
         'failed',

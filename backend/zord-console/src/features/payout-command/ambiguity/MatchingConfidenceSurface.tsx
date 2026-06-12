@@ -22,6 +22,8 @@ import { MatchingExecutionLog } from './components/MatchingExecutionLog'
 import { BatchesNeedingReviewTable } from './components/BatchesNeedingReviewTable'
 import { AmbiguityMixDonut } from './components/AmbiguityMixDonut'
 import { BatchControlList, DataQualityAuditCard } from './components/BatchControlList'
+import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
+import { LiveDataHint } from '../shared'
 
 export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const pathname = usePathname()
@@ -30,6 +32,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
   const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>(() =>
     initialBatchId?.trim() || undefined,
   )
+  const handleSelectBatch = useBatchSelectWithUrl('ambiguity', setSelectedBatchId)
   const { ambiguity, loading: kpiLoading, refresh } = useIntelligenceKpis({
     tenantReady,
     batchId: selectedBatchId,
@@ -134,7 +137,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
           <div className="relative">
             <select
               value={selectedBatchId ?? ''}
-              onChange={(e) => setSelectedBatchId(e.target.value || undefined)}
+              onChange={(e) => handleSelectBatch(e.target.value || undefined)}
               className="h-9 appearance-none rounded-full border border-slate-200 bg-white pl-4 pr-8 text-[13px] font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
             >
               <option value="">All Batches (Tenant)</option>
@@ -188,6 +191,11 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
           </button>
         </div>
       </header>
+
+      <LiveDataHint
+        isLive={Boolean(tenantReady && (effectiveAmb || amb))}
+        source="intelligence"
+      />
 
       {/* ── Row 1+2: KPIs & Velocity (left) + Zord Intelligence & Heatmap (right) */}
       <div className="grid gap-4 xl:grid-cols-[1fr_320px]">

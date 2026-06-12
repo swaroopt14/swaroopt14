@@ -413,11 +413,19 @@ type AmbiguityValue struct {
 	TotalCarrierRecords   int `json:"total_carrier_records"`
 	CarrierCompletenessRate float64 `json:"carrier_completeness_rate"` // recomputed: complete / total
 
+	// ── A9: Successful decisions ──────────────────────────────────────────
+	// A decision is "successful" when it is unambiguous, has a single
+	// (non-colliding) candidate, and the settled amount exactly matches
+	// the intended amount:
+	//   ambiguity_score <= 0.30 && candidate_set_size <= 1 && settled == intended
+	SuccessfulDecisionCount int `json:"successful_decision_count"`
+
 	// ── Derived rates (recomputed after every increment) ─────────────────
 	ProviderRefMissingRate float64 `json:"provider_ref_missing_rate"` // missing_count / total_decisions
 	AmbiguityRate          float64 `json:"ambiguity_rate"`            // ambiguous_count / total_decisions
 	LowConfidenceRate      float64 `json:"low_confidence_rate"`       // low_confidence_count / total_decisions
 	CandidateCollisionRate float64 `json:"candidate_collision_rate"`  // collision_count / total_decisions
+	DecisionSuccessRate    float64 `json:"decision_success_rate"`     // successful_decision_count / total_decisions
 
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -829,6 +837,10 @@ type ProviderQualityValue struct {
 	AmbiguousDecisions    int `json:"ambiguous_decisions"`     // MATCH_AMBIGUOUS decisions
 	UnresolvedDecisions   int `json:"unresolved_decisions"`    // MATCH_UNRESOLVED decisions
 
+	// ── A9: Successful decisions (from AttachmentDecisionCreatedEvent) ───
+	// ambiguity_score <= 0.30 && candidate_set_size <= 1 && settled == intended
+	SuccessfulDecisionCount int `json:"successful_decision_count"`
+
 	// ── Settlement delay samples (from VarianceRecordCreatedEvent) ────────
 	// Bounded array: stores last 500 delay-day values for p50/p95 computation.
 	// Bounded to prevent unbounded memory growth in high-volume tenants.
@@ -841,6 +853,7 @@ type ProviderQualityValue struct {
 	AvgAttachmentReadiness  float64 `json:"avg_attachment_readiness"`
 	OrphanRate              float64 `json:"orphan_rate"`               // orphan_count / total_settlement_count
 	AmbiguityRate           float64 `json:"ambiguity_rate"`            // ambiguous_decisions / total_decisions
+	DecisionSuccessRate     float64 `json:"decision_success_rate"`     // successful_decision_count / total_decisions
 	SettlementDelayP95Days  float64 `json:"settlement_delay_p95_days"` // 95th percentile of delay samples
 	SettlementDelayP50Days  float64 `json:"settlement_delay_p50_days"` // 50th percentile of delay samples
 

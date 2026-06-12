@@ -11,7 +11,7 @@ pipeline {
     string(name: 'ADMIN_KEY', defaultValue: 'zord123', description: 'Admin API key for tenant registration')
     booleanParam(name: 'RUN_SPIKE_TEST', defaultValue: true, description: 'Run spike test (200 users — high load)')
     booleanParam(name: 'NOTIFY_SLACK', defaultValue: true, description: 'Send results to Slack')
-    string(name: 'SLACK_CHANNEL', defaultValue: '#dev-general', description: 'Slack channel for results')
+    string(name: 'SLACK_CHANNEL', defaultValue: '#zord-performance-testing-bot', description: 'Slack channel for results')
   }
 
   environment {

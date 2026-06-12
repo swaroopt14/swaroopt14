@@ -70,7 +70,7 @@ Every Saturday 3 AM:
 4. Select your workspace → Create App
 5. Left sidebar → **Incoming Webhooks** → Toggle ON
 6. Click **Add New Webhook to Workspace**
-7. Select channel: `#dev-general`
+7. Select channel: `#zord-performance-testing-bot`
 8. Click **Allow**
 9. Copy the webhook URL
 
@@ -85,7 +85,7 @@ Every Saturday 3 AM:
 3. Jenkins → **Manage Jenkins** → **System** → Scroll to **Slack**:
    - Workspace: your workspace name
    - Credential: `slack-webhook`
-   - Default channel: `#dev-general`
+   - Default channel: `#zord-performance-testing-bot`
    - Click **Test Connection** → must show "Success"
    - Save
 
@@ -93,7 +93,7 @@ Every Saturday 3 AM:
 
 ## What Gets Delivered
 
-### In Slack (`#dev-general`):
+### In Slack (`#zord-performance-testing-bot`):
 
 ```
 🚀 Performance Test Results — Build #12

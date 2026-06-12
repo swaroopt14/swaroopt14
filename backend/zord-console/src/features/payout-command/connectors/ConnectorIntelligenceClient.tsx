@@ -20,6 +20,7 @@ import { CommandCenterCardGlow } from '@/features/payout-command/command-center/
 import { COMMAND_CENTER_KPI_CARD, COMMAND_CENTER_LABEL_GREEN } from '@/features/payout-command/command-center/homeCommandCenterTokens'
 import { JournalIntelligenceKpiHero } from '@/features/payout-command/command-center/JournalIntelligenceKpiHero'
 import { EntityLogo } from '@/features/payout-command/entity-logo'
+import { fmtInrFromMinorExact } from '../command-center/commandCenterFormat'
 import { getRoutingIntelligenceAdapter } from './routingDataAdapter'
 import { rankRoutes } from './scoring'
 import type {
@@ -41,18 +42,6 @@ const TIME_WINDOWS: Array<{ value: RoutingTimeWindow; label: string }> = [
 
 const LEAKAGE_COLORS = ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa']
 
-function formatInr(minor: number): string {
-  const rupees = minor / 100
-  return `₹${rupees.toLocaleString('en-IN', { maximumFractionDigits: 2 })}`
-}
-
-function formatCompactInr(minor: number): string {
-  const rupees = minor / 100
-  if (rupees >= 10_000_000) return `₹${(rupees / 10_000_000).toFixed(1)} Cr`
-  if (rupees >= 100_000) return `₹${(rupees / 100_000).toFixed(1)} L`
-  return `₹${rupees.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
-}
-
 function trendArrow(trend: TrendDirection): string {
   if (trend === 'up') return '↑ Stable'
   if (trend === 'down') return '↓ Drop'
@@ -72,12 +61,18 @@ function confidenceTone(confidence: RecommendationConfidence): string {
 }
 
 function buildKpis(snapshot: RoutingKpiSnapshot) {
-  const totalVolumeMinor = snapshot.connectors.reduce((sum, row) => sum + row.volumeMinor, 0)
+  const totalVolumeMinor =
+    snapshot.apiTotals?.totalIntendedMinor ??
+    snapshot.connectors.reduce((sum, row) => sum + row.volumeMinor, 0)
   const weightedSuccessSum = snapshot.connectors.reduce((sum, row) => sum + row.successPct * row.volumeMinor, 0)
   const successRate = totalVolumeMinor > 0 ? weightedSuccessSum / totalVolumeMinor : 0
-  const moneyAtRiskMinor = snapshot.connectors.reduce((sum, row) => sum + row.moneyAtRiskMinor, 0)
-  const preventableLeakageMinor = snapshot.connectors.reduce((sum, row) => sum + row.preventableLeakageMinor, 0)
-  const preventablePct = moneyAtRiskMinor > 0 ? (preventableLeakageMinor / moneyAtRiskMinor) * 100 : 0
+  const moneyAtRiskMinor =
+    snapshot.apiTotals?.moneyAtRiskMinor ??
+    snapshot.connectors.reduce((sum, row) => sum + row.moneyAtRiskMinor, 0)
+  const preventableLeakageMinor =
+    snapshot.apiTotals?.preventableLeakageMinor ??
+    snapshot.connectors.reduce((sum, row) => sum + row.preventableLeakageMinor, 0)
+  const preventablePct = totalVolumeMinor > 0 ? (preventableLeakageMinor / totalVolumeMinor) * 100 : 0
   const degradedRoutes = snapshot.connectors.filter((row) =>
     row.status === 'Degraded' || row.status === 'Risk' || row.status === 'Load',
   ).length
@@ -100,7 +95,7 @@ function buildImpactSeries(snapshot: RoutingKpiSnapshot) {
       id: action.id,
       action: action.title.length > 26 ? `${action.title.slice(0, 26)}…` : action.title,
       currentMinor: action.impactMinor,
-      preventableMinor: action.preventableMinor ?? Math.round(action.impactMinor * 0.65),
+      preventableMinor: action.preventableMinor ?? action.impactMinor * 0.65,
     }))
 }
 
@@ -215,7 +210,7 @@ export default function ConnectorIntelligenceClient() {
   const routingBuckets = [
     {
       label: 'Total volume routed',
-      value: formatCompactInr(kpis.totalVolumeMinor),
+      value: fmtInrFromMinorExact(kpis.totalVolumeMinor),
       sub: 'Across active connector network',
     },
     {
@@ -225,13 +220,13 @@ export default function ConnectorIntelligenceClient() {
     },
     {
       label: 'Money at risk',
-      value: formatCompactInr(kpis.moneyAtRiskMinor),
+      value: fmtInrFromMinorExact(kpis.moneyAtRiskMinor),
       sub: 'Current unresolved exposure',
     },
     {
       label: 'Preventable leakage',
-      value: formatCompactInr(kpis.preventableLeakageMinor),
-      sub: `${kpis.preventablePct.toFixed(0)}% preventable share`,
+      value: fmtInrFromMinorExact(kpis.preventableLeakageMinor),
+      sub: `${kpis.preventablePct.toFixed(1)}% of routed volume`,
     },
     {
       label: 'Active connectors',
@@ -268,9 +263,9 @@ export default function ConnectorIntelligenceClient() {
       <section>
         <JournalIntelligenceKpiHero
           eyebrow="Routing intelligence overview"
-          value={formatCompactInr(kpis.totalVolumeMinor)}
+          value={fmtInrFromMinorExact(kpis.totalVolumeMinor)}
           deltaPill={`Success ${kpis.successRate.toFixed(1)}%`}
-          subcopy={`Window: ${windowLabel} · Money at risk ${formatCompactInr(kpis.moneyAtRiskMinor)}`}
+          subcopy={`Window: ${windowLabel} · Money at risk ${fmtInrFromMinorExact(kpis.moneyAtRiskMinor)}`}
           buckets={routingBuckets}
           testId="routing-kpi-bar"
         />
@@ -288,7 +283,15 @@ export default function ConnectorIntelligenceClient() {
                 <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 12 }} />
                 <YAxis yAxisId="left" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
                 <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
-                <Tooltip formatter={(value: number, name: string) => (name === 'successPct' ? `${value.toFixed(1)}%` : String(value))} />
+                <Tooltip
+                  formatter={(value: number, name: string) =>
+                    name === 'successPct'
+                      ? `${Number(value).toFixed(1)}%`
+                      : name === 'latencyIndex'
+                        ? Number(value).toFixed(1)
+                        : String(value)
+                  }
+                />
                 <Legend />
                 <Line yAxisId="left" type="monotone" dataKey="successPct" stroke="#1d4ed8" strokeWidth={2.5} name="Success %" />
                 <Line yAxisId="right" type="monotone" dataKey="latencyIndex" stroke="#0f172a" strokeWidth={2.2} name="Latency index" />
@@ -318,7 +321,7 @@ export default function ConnectorIntelligenceClient() {
                       <Cell key={slice.key} fill={LEAKAGE_COLORS[index % LEAKAGE_COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value: number) => formatInr(value)} />
+                  <Tooltip formatter={(value: number) => fmtInrFromMinorExact(value)} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -329,7 +332,7 @@ export default function ConnectorIntelligenceClient() {
                     <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: LEAKAGE_COLORS[index % LEAKAGE_COLORS.length] }} />
                     {slice.label}
                   </p>
-                  <p className="mt-1 font-semibold tabular-nums text-slate-900">{formatCompactInr(slice.amountMinor)}</p>
+                  <p className="mt-1 font-semibold tabular-nums text-slate-900">{fmtInrFromMinorExact(slice.amountMinor)}</p>
                 </div>
               ))}
             </div>
@@ -353,7 +356,7 @@ export default function ConnectorIntelligenceClient() {
                 Success: {route.successRatePct.toFixed(1)}% | Time: {route.avgTimeSec.toFixed(1)}s | Risk: {route.risk}
               </p>
               <p className="mt-2 text-[13px] font-semibold text-slate-900">
-                {route.bestForHighValue ? 'Best for high-value transactions' : `Saves: ${formatCompactInr(route.leakageSavingsMinor)} leakage`}
+                {route.bestForHighValue ? 'Best for high-value transactions' : `Saves: ${fmtInrFromMinorExact(route.leakageSavingsMinor)} leakage`}
               </p>
               <span className={`mt-3 inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${confidenceTone(route.confidence)}`}>
                 Confidence: {route.confidence}
@@ -460,8 +463,12 @@ export default function ConnectorIntelligenceClient() {
             <BarChart data={impactSeries}>
               <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
               <XAxis dataKey="action" tick={{ fill: '#64748b', fontSize: 11 }} />
-              <YAxis tickFormatter={(value) => `${Math.round(Number(value) / 100000)}L`} tick={{ fill: '#64748b', fontSize: 12 }} />
-              <Tooltip formatter={(value: number) => formatCompactInr(value)} />
+              <YAxis
+                tickFormatter={(value) => fmtInrFromMinorExact(Number(value))}
+                tick={{ fill: '#64748b', fontSize: 10 }}
+                width={120}
+              />
+              <Tooltip formatter={(value: number) => fmtInrFromMinorExact(value)} />
               <Legend />
               <Bar dataKey="currentMinor" fill="#94a3b8" name="Current leakage exposure" radius={[4, 4, 0, 0]} />
               <Bar dataKey="preventableMinor" fill="#0f172a" name="Preventable leakage" radius={[4, 4, 0, 0]} />

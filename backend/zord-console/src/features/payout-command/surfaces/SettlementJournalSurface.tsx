@@ -41,7 +41,6 @@ import {
   type SettlementParseErrorRow,
 } from '@/services/payout-command/prod-api/settlementObservations'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
-import { SessionTenantScopeBar } from '../layout/SessionTenantScopeBar'
 import { LiveDataHint } from '../shared'
 const SETTLEMENT_PAGE_SUMMARY = dockItems.find((d) => d.id === 'settlement')?.summary ?? ''
 
@@ -169,16 +168,10 @@ function SettlementJournalSurfaceContent({
   const [syncAt, setSyncAt] = useState<Date | null>(null)
   const [parseErrors, setParseErrors] = useState<SettlementParseErrorRow[]>([])
   const [parseErrorsLoading, setParseErrorsLoading] = useState(false)
-  const [batchIdDraft, setBatchIdDraft] = useState(selectedClientBatchId)
-
   const selectClientBatch = useCallback(
     (batchId: string) => setSelectedClientBatchId(batchId),
     [setSelectedClientBatchId],
   )
-
-  useEffect(() => {
-    setBatchIdDraft(selectedClientBatchId)
-  }, [selectedClientBatchId])
 
   useEffect(() => {
     if (!selectedClientBatchId || observationRows.length === 0) return
@@ -262,7 +255,7 @@ function SettlementJournalSurfaceContent({
       const bNum = Number.parseInt(b.sourceRowRef, 10)
       const aValid = Number.isFinite(aNum)
       const bValid = Number.isFinite(bNum)
-      if (aValid && bValid) return bNum - aNum
+      if (aValid && bValid) return aNum - bNum
       if (aValid) return -1
       if (bValid) return 1
       return 0
@@ -411,16 +404,6 @@ function SettlementJournalSurfaceContent({
                 Batch Command Center
               </Link>
             </JournalPageHeader>
-            <div className="mb-4">
-              <SessionTenantScopeBar
-                batchId={batchIdDraft}
-                onBatchIdChange={setBatchIdDraft}
-                onAfterFetch={() => {
-                  selectClientBatch(batchIdDraft.trim())
-                  void handleRefresh()
-                }}
-              />
-            </div>
             {feedMetaLine ? (
               <p className="mb-4 font-mono text-[12px] text-slate-500">{feedMetaLine}</p>
             ) : null}

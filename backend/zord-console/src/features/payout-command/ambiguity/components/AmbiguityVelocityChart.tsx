@@ -19,14 +19,28 @@ import { getValueAtRiskDelta } from '../utils/ambiguityApiMappers'
 import {
   AMBIGUITY_BUBBLE_LEGEND,
   BUBBLE_MAP_MAX_Z,
-  BUBBLE_MAP_QUADRANTS,
   batchSizeAxisTicks,
   bubbleMapSummary,
   mapAmbiguityVelocityScatter,
   type AmbiguityBubblePoint,
 } from '../utils/mapAmbiguityVelocityScatter'
 
-const Z_AXIS_RANGE: [number, number] = [420, 4200]
+/** Pixel diameter range for scatter symbols — keep modest so edge bubbles stay inside the plot. */
+const Z_AXIS_RANGE: [number, number] = [32, 96]
+const BUBBLE_CHART_MARGIN = { top: 44, right: 40, left: 52, bottom: 64 }
+/** Inset bubble centers from axis edges (as % of X domain; Y uses domain span). */
+const PLOT_EDGE_INSET_PCT = 10
+
+function clampXPlot(value: number): number {
+  return Math.min(100 - PLOT_EDGE_INSET_PCT, Math.max(PLOT_EDGE_INSET_PCT, value))
+}
+
+function clampYPlot(value: number, domain: [number, number]): number {
+  const [min, max] = domain
+  const span = Math.max(max - min, 1)
+  const pad = span * (PLOT_EDGE_INSET_PCT / 100)
+  return Math.min(max - pad, Math.max(min + pad, value))
+}
 
 function ScatterTooltip({
   active,
@@ -109,22 +123,22 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
   const sizeTicks = useMemo(() => batchSizeAxisTicks(maxAmountMinor), [maxAmountMinor])
   const summary = useMemo(() => bubbleMapSummary(points), [points])
 
-  const chartData = useMemo(
-    () =>
-      points.map((p) => ({
-        ...p,
-        x: p.sizePct,
-        y: p.riskRatioPct,
-        z: p.bubbleSizePct,
-      })),
-    [points],
-  )
-
   const yDomain = useMemo((): [number, number] => {
     const vals = points.map((p) => p.riskRatioPct)
     const max = Math.max(...vals, 10)
     return [0, Math.min(100, Math.ceil(max * 1.15))]
   }, [points])
+
+  const chartData = useMemo(
+    () =>
+      points.map((p) => ({
+        ...p,
+        x: clampXPlot(p.sizePct),
+        y: clampYPlot(p.riskRatioPct, yDomain),
+        z: p.bubbleSizePct,
+      })),
+    [points, yDomain],
+  )
 
   const totalAtRisk = formatAmbiguityInr(amb?.value_at_risk_minor)
   const confidencePct =
@@ -178,11 +192,11 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
         </div>
       </div>
 
-      <div className="relative mt-6 h-[360px] w-full min-h-[360px]">
+      <div className="relative mt-6 h-[380px] w-full min-h-[380px] overflow-visible">
         {chartData.length > 0 ? (
           <>
-            <ResponsiveContainer width="100%" height={360}>
-              <ScatterChart margin={{ top: 28, right: 24, left: 8, bottom: 32 }}>
+            <ResponsiveContainer width="100%" height={380}>
+              <ScatterChart margin={BUBBLE_CHART_MARGIN}>
                 <CartesianGrid vertical horizontal stroke="#e2e8f0" strokeOpacity={0.55} strokeWidth={1} />
                 <XAxis
                   type="number"
@@ -195,8 +209,8 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
                   tick={{ fill: '#64748b', fontSize: 10 }}
                   label={{
                     value: 'Batch size (payment value)',
-                    position: 'insideBottom',
-                    offset: -18,
+                    position: 'bottom',
+                    offset: 0,
                     fill: '#94a3b8',
                     fontSize: 10,
                   }}
@@ -209,11 +223,12 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: '#94a3b8', fontSize: 10 }}
-                  width={44}
+                  width={48}
                   label={{
                     value: 'Risk ratio',
                     angle: -90,
                     position: 'insideLeft',
+                    offset: 12,
                     fill: '#94a3b8',
                     fontSize: 10,
                   }}
@@ -240,26 +255,6 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
                 </Scatter>
               </ScatterChart>
             </ResponsiveContainer>
-
-            <div className="pointer-events-none absolute inset-x-4 top-8 bottom-12">
-              {BUBBLE_MAP_QUADRANTS.map((q) => (
-                <div
-                  key={q.position}
-                  className={`absolute max-w-[9rem] text-[10px] leading-snug text-slate-500 ${
-                    q.position === 'top-left'
-                      ? 'left-0 top-0'
-                      : q.position === 'top-right'
-                        ? 'right-0 top-0 text-right'
-                        : q.position === 'bottom-left'
-                          ? 'bottom-0 left-0'
-                          : 'bottom-0 right-0 text-right'
-                  }`}
-                >
-                  <span className="font-semibold text-slate-700">{q.title}</span>
-                  <span className="mt-0.5 block">{q.subtitle}</span>
-                </div>
-              ))}
-            </div>
           </>
         ) : (
           <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50">

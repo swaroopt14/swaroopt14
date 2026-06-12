@@ -1,12 +1,13 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef } from 'react'
-import { workspaceTabs, type WorkspaceTab } from '@/services/payout-command/model'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { workspacePromptCopy, workspaceTabs, type WorkspaceTab } from '@/services/payout-command/model'
 import type { WorkspaceState } from '../hooks/useWorkspaceState'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { Glyph } from '../shared'
-import { ConnectionPill, MarkdownMessage, MessageBubble, ZordAvatar } from './WorkspaceChatMessages'
+import { ConnectionPill, MessageBubble, WorkspaceChatStarterTurn } from './WorkspaceChatMessages'
+import { WorkspaceChatHistoryOverlay } from './WorkspaceChatHistoryOverlay'
 import { PAYMENT_OPERATIONS } from './paymentOperationsCopy'
 import {
   WORKSPACE_PANEL_SHELL,
@@ -15,6 +16,16 @@ import {
   WORKSPACE_TEXT_MUTED,
   WORKSPACE_TEXT_PRIMARY,
 } from './workspaceTokens'
+import {
+  CHAT_CARD_INNER,
+  CHAT_COMPOSER_FOOTER,
+  CHAT_COMPOSER_SHELL,
+  CHAT_HEADER,
+  CHAT_HISTORY_BTN,
+  CHAT_RECENT_CHIP,
+  CHAT_SUGGESTION_CHIP,
+  CHAT_TRANSCRIPT,
+} from './workspaceChatTokens'
 
 type WorkspaceIntelligencePanelProps = {
   activeTab: WorkspaceTab
@@ -48,31 +59,27 @@ export function WorkspaceIntelligencePanel({
   const { mode } = useEnvironment()
   const chatEndRef = useRef<HTMLDivElement | null>(null)
   const textareaRef = useAutoResizeTextarea(workspace.promptInput)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const hasUserTurn = workspace.conversation.some((m) => m.role === 'user')
+  const transcriptMessages = useMemo(
+    () => workspace.conversation.filter((m) => !m.id.endsWith('-welcome')),
+    [workspace.conversation],
+  )
 
-  const lastUserMessage = useMemo(() => {
-    const users = workspace.conversation.filter((m) => m.role === 'user')
-    return users[users.length - 1]?.body ?? question
-  }, [workspace.conversation, question])
+  const messageCount = transcriptMessages.length
 
-  const latestAnswer = useMemo(() => {
-    const assistants = workspace.conversation.filter(
-      (m) => m.role === 'assistant' && !m.id.endsWith('-welcome') && m.status === 'done',
-    )
-    return assistants[assistants.length - 1] ?? null
-  }, [workspace.conversation])
+  const starterAnswerBody =
+    workspace.initialAnswer.status === 'done' && workspace.initialAnswer.body.trim()
+      ? workspace.initialAnswer.body
+      : groundedAnswer.trim()
 
-  const displayPrompt = hasUserTurn ? lastUserMessage : question
-  const initialAnswerBody =
-    workspace.initialAnswer.status === 'done' ? workspace.initialAnswer.body : ''
-  const answerBody = latestAnswer?.body ?? initialAnswerBody ?? groundedAnswer
-  const showLatestAnswer =
-    workspace.initialAnswer.status === 'loading' || answerBody.trim().length > 0
+  const suggestions = workspacePromptCopy[activeTab].suggestions as readonly string[]
+  const recentThreads = workspace.threads.slice(0, 3)
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [workspace.conversation, workspace.isSubmitting])
+  }, [workspace.conversation, workspace.isSubmitting, workspace.initialAnswer.status, starterAnswerBody])
 
   const handleSubmit = useCallback(() => {
     const text = workspace.promptInput.trim()
@@ -87,13 +94,18 @@ export function WorkspaceIntelligencePanel({
     }
   }
 
+  const handleSuggestion = (text: string) => {
+    if (workspace.isSubmitting) return
+    void workspace.submitPrompt(text)
+  }
+
   const footerHint = !tenantReady
     ? 'Resolving session tenant…'
     : !tenantId.trim()
       ? 'Sign in so Ask Zord can scope answers to your tenant.'
       : workspace.isSubmitting
         ? 'Querying prompt-layer for your session tenant…'
-        : PAYMENT_OPERATIONS.footerLabel
+        : 'Shift+Enter for new line · Enter to send'
 
   return (
     <article className={WORKSPACE_PANEL_SHELL} data-testid="workspace-intelligence-panel">
@@ -133,87 +145,129 @@ export function WorkspaceIntelligencePanel({
         </div>
       </div>
 
-      <div className="mt-5 flex min-h-0 flex-1 flex-col rounded-[1.5rem] border border-black/10 bg-[#fbfbfc]">
-        <div className="shrink-0 border-b border-black/8 px-4 py-5 sm:px-5">
-          <div className="max-w-[28rem]">
-            <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#8a8a86]">
-              {PAYMENT_OPERATIONS.askPanelTitle}
-            </div>
-            <div className={`mt-2 text-[1.05rem] font-medium tracking-[-0.03em] ${WORKSPACE_TEXT_PRIMARY}`}>
-              {PAYMENT_OPERATIONS.askPanelSubtitle}
-            </div>
-            <p className={`mt-1 text-[12px] ${WORKSPACE_TEXT_MUTED}`}>
-              {mode === 'sandbox' ? 'Sandbox' : 'Live'} · {activeTab} context
-            </p>
-          </div>
+      <div className={`relative mt-5 ${CHAT_CARD_INNER}`}>
+        <WorkspaceChatHistoryOverlay
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          threads={workspace.threads}
+          activeThreadId={workspace.activeThreadId}
+          onSelectThread={workspace.selectThread}
+          onDeleteThread={workspace.deleteThread}
+        />
 
-          <div className="mt-5 rounded-[1.35rem] border border-black/10 bg-white p-4 sm:p-5">
-            <div className="inline-flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-emerald-700">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              Live reasoning prompt
-            </div>
-            <div className={`mt-4 max-w-[34rem] text-[1.05rem] leading-7 tracking-[-0.03em] ${WORKSPACE_TEXT_PRIMARY}`}>
-              {displayPrompt}
-            </div>
-            <div className={`mt-3 text-[12px] leading-5 ${WORKSPACE_TEXT_MUTED}`}>{supporting}</div>
-          </div>
-
-          {showLatestAnswer ? (
-            <div className="mt-5" data-testid="workspace-latest-answer">
-              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-[#8a8a86]">Latest answer</div>
-              <div className={`mt-3 text-[14px] leading-relaxed ${WORKSPACE_TEXT_PRIMARY}`}>
-                {workspace.initialAnswer.status === 'loading' && !latestAnswer ? (
-                  <p className="text-[#8a8a86]">Querying prompt-layer for your session tenant…</p>
-                ) : (
-                  <MarkdownMessage body={answerBody} />
-                )}
+        <div className={CHAT_HEADER}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="text-[11px] font-medium uppercase tracking-[0.18em] text-[#8a8a86]">
+                {PAYMENT_OPERATIONS.askPanelTitle}
               </div>
+              <div className={`mt-1.5 text-[1.02rem] font-medium tracking-[-0.03em] ${WORKSPACE_TEXT_PRIMARY}`}>
+                {PAYMENT_OPERATIONS.askPanelSubtitle}
+              </div>
+              <p className={`mt-1 text-[12px] ${WORKSPACE_TEXT_MUTED}`}>
+                {mode === 'sandbox' ? 'Sandbox' : 'Live'} · {activeTab} context
+                {messageCount > 0 ? ` · ${messageCount} message${messageCount === 1 ? '' : 's'}` : ''}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setHistoryOpen(true)}
+              className={CHAT_HISTORY_BTN}
+              data-testid="workspace-chat-history-button"
+            >
+              History
+              {workspace.threads.length > 0 ? (
+                <span className="rounded-full bg-[#eef1f5] px-1.5 py-0.5 text-[10px] tabular-nums text-[#64748b]">
+                  {workspace.threads.length}
+                </span>
+              ) : null}
+            </button>
+          </div>
+
+          {!hasUserTurn && recentThreads.length > 0 ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-[#8a8a86]">Recent</span>
+              {recentThreads.map((thread) => (
+                <button
+                  key={thread.id}
+                  type="button"
+                  onClick={() => workspace.selectThread(thread.id)}
+                  className={CHAT_RECENT_CHIP}
+                  title={thread.title}
+                >
+                  {thread.title}
+                </button>
+              ))}
+              {workspace.threads.length > recentThreads.length ? (
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(true)}
+                  className="text-[11px] font-medium text-[#00239C] hover:underline"
+                >
+                  +{workspace.threads.length - recentThreads.length} more
+                </button>
+              ) : null}
             </div>
           ) : null}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5" aria-live="polite">
-          {hasUserTurn ? (
-            <div className="space-y-6">
-              {workspace.conversation
-                .filter((m) => !m.id.endsWith('-welcome'))
-                .map((message) => (
-                  <MessageBubble key={message.id} message={message} />
+        <div className={CHAT_TRANSCRIPT} data-testid="workspace-chat-transcript" aria-live="polite">
+          {!hasUserTurn ? (
+            <>
+              <WorkspaceChatStarterTurn
+                question={question}
+                supporting={supporting}
+                answerBody={starterAnswerBody}
+                answerStatus={workspace.initialAnswer.status}
+              />
+              <div className="mt-5 flex flex-wrap gap-2">
+                {suggestions.slice(0, 4).map((suggestion) => (
+                  <button
+                    key={suggestion}
+                    type="button"
+                    disabled={workspace.isSubmitting}
+                    onClick={() => handleSuggestion(suggestion)}
+                    className={CHAT_SUGGESTION_CHIP}
+                  >
+                    {suggestion}
+                  </button>
                 ))}
+              </div>
+            </>
+          ) : (
+            <div className="space-y-5">
+              {transcriptMessages.map((message) => (
+                <MessageBubble key={message.id} message={message} />
+              ))}
             </div>
-          ) : null}
-          <div ref={chatEndRef} className="h-4" />
+          )}
+          <div ref={chatEndRef} className="h-2" />
         </div>
 
-        <div className="shrink-0 border-t border-black/8 px-4 py-4 sm:px-5">
-          <div className="rounded-[1.35rem] border border-black/10 bg-[#eef1f5] p-3">
-            <p className={`mb-2 text-center text-[12px] ${WORKSPACE_TEXT_MUTED}`}>{PAYMENT_OPERATIONS.footerLabel}</p>
-            <div className="flex items-end gap-2 rounded-[1rem] border border-black/10 bg-white p-3">
-              <ZordAvatar className="!h-11 !w-11" />
-              <div className="min-w-0 flex-1">
-                <textarea
-                  ref={textareaRef}
-                  value={workspace.promptInput}
-                  onChange={(e) => workspace.setPromptInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={PAYMENT_OPERATIONS.composerPlaceholder}
-                  rows={1}
-                  disabled={workspace.isSubmitting}
-                  className="block w-full resize-none bg-transparent text-[15px] leading-relaxed text-[#111111] outline-none placeholder:text-[#8a8a86] disabled:opacity-60"
-                />
-                <p className="mt-1 text-[11px] leading-snug text-[#8a8a86]">{footerHint}</p>
-              </div>
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={workspace.isSubmitting || !workspace.promptInput.trim()}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-black/10 bg-[#d7e4f4] text-[#111111] transition hover:bg-[#c5d8eb] disabled:cursor-not-allowed disabled:opacity-50"
-                aria-label="Send message"
-              >
-                <Glyph name="arrow-up-right" className="h-[18px] w-[18px]" />
-              </button>
-            </div>
+        <div className={CHAT_COMPOSER_FOOTER}>
+          <div className={CHAT_COMPOSER_SHELL}>
+            <textarea
+              ref={textareaRef}
+              value={workspace.promptInput}
+              onChange={(e) => workspace.setPromptInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={PAYMENT_OPERATIONS.composerPlaceholder}
+              rows={1}
+              disabled={workspace.isSubmitting}
+              className="max-h-[120px] min-h-[24px] flex-1 resize-none bg-transparent py-1 text-[15px] leading-relaxed text-[#111111] outline-none placeholder:text-[#8a8a86] disabled:opacity-60"
+              aria-label="Ask Zord"
+            />
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={workspace.isSubmitting || !workspace.promptInput.trim()}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#111111] text-white transition hover:bg-[#00239C] disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Send message"
+            >
+              <Glyph name="arrow-up-right" className="h-[16px] w-[16px]" />
+            </button>
           </div>
+          <p className={`mt-2 text-center text-[11px] ${WORKSPACE_TEXT_MUTED}`}>{footerHint}</p>
         </div>
       </div>
     </article>

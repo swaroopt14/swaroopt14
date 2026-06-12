@@ -2,9 +2,22 @@ import type { IntentDetail } from '@/services/payout-command/intent-journal-type
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 
 export type BatchType = 'Disbursement' | 'Settlement'
-export type BatchStatus = 'Strong' | 'Stable' | 'Risk' | 'Critical'
 
-/** Customer-facing sidebar health labels (maps from legacy BatchStatus + DLQ context). */
+/** Sidebar health from batch `aggregate_confidence_score` (0–1). */
+export type BatchStatus = 'Stable' | 'At Risk' | 'Critical'
+
+/** Aggregate score bands for sidebar status pills. */
+export const BATCH_AGGREGATE_STATUS_THRESHOLDS = {
+  /** Below 50% aggregate → Critical */
+  criticalBelowPct: 50,
+  /** 50%–75% aggregate → At Risk; 75%+ → Stable */
+  stableFromPct: 75,
+} as const
+
+export const BATCH_AGGREGATE_STATUS_GUIDE =
+  'Critical <50% · At Risk 50–75% · Stable ≥75% aggregate confidence'
+
+/** Customer-facing sidebar health labels (maps from BatchStatus + DLQ context). */
 export type CustomerBatchHealthLabel =
   | 'Ready'
   | 'Needs Review'
@@ -13,12 +26,19 @@ export type CustomerBatchHealthLabel =
 
 export function customerHealthLabelFromStatus(status: BatchStatus, dlqCount = 0): CustomerBatchHealthLabel {
   if (dlqCount > 0 || status === 'Critical') return 'Failed Validation'
-  if (status === 'Risk') return 'Needs Review'
-  if (status === 'Stable') return 'Awaiting Confirmation'
+  if (status === 'At Risk') return 'Needs Review'
   return 'Ready'
 }
+
+/** Map aggregate confidence (0–1 or 0–100) to sidebar status tier. */
+export function batchStatusFromAggregateScore(score: number): BatchStatus {
+  if (!Number.isFinite(score)) return 'At Risk'
+  const pct = score <= 1 ? score * 100 : score
+  if (pct < BATCH_AGGREGATE_STATUS_THRESHOLDS.criticalBelowPct) return 'Critical'
+  if (pct < BATCH_AGGREGATE_STATUS_THRESHOLDS.stableFromPct) return 'At Risk'
+  return 'Stable'
+}
 export type BatchFilter = 'All Batches' | 'Recent' | 'Needs Attention' | 'High Value' | 'Completed'
-export type SidebarMode = 'listed' | 'sectors'
 
 export type BatchRecord = {
   batchId: string
@@ -29,7 +49,8 @@ export type BatchRecord = {
   transactions: number
   confirmedCount: number
   highConfidenceCount: number
-  avgConfidenceScore?: number
+  /** Batch-level aggregate confidence 0–1 (`aggregate_confidence_score`). */
+  aggregateConfidenceScore?: number
   mismatchCount: number
   unresolvedCount: number
   intelligenceCounts?: Pick<IntelligenceBatchRow, 'success_count' | 'failed_count' | 'pending_count' | 'finality_status'>
@@ -55,8 +76,8 @@ export function usdCompact(value: number) {
 }
 
 export function engineDispatchConfidencePct(batch: BatchRecord): number {
-  if (typeof batch.avgConfidenceScore === 'number' && Number.isFinite(batch.avgConfidenceScore)) {
-    return Math.min(100, Math.max(0, batch.avgConfidenceScore * 100))
+  if (typeof batch.aggregateConfidenceScore === 'number' && Number.isFinite(batch.aggregateConfidenceScore)) {
+    return Math.min(100, Math.max(0, batch.aggregateConfidenceScore * 100))
   }
   const total = Math.max(batch.transactions, 1)
   return (batch.confirmedCount / total) * 100
@@ -110,8 +131,8 @@ export function batchQualityScore(batch: BatchRecord, intents?: IntentDetail[]):
   }
   // Intent-engine sidebar: `highConfidenceCount` in API is avg confidence 0–1.
   const total = Math.max(batch.transactions, 1)
-  if (batch.engineSidebar && typeof batch.avgConfidenceScore === 'number') {
-    const confPct = batch.avgConfidenceScore * 100
+  if (batch.engineSidebar && typeof batch.aggregateConfidenceScore === 'number') {
+    const confPct = batch.aggregateConfidenceScore * 100
     const penalty = ((batch.mismatchCount + batch.unresolvedCount) / total) * 30
     return Math.max(0, Math.min(100, Math.round(confPct - penalty)))
   }
@@ -121,37 +142,46 @@ export function batchQualityScore(batch: BatchRecord, intents?: IntentDetail[]):
 }
 
 export function batchStatus(score: number): BatchStatus {
-  if (score > 95) return 'Strong'
-  if (score >= 80) return 'Stable'
-  if (score >= 60) return 'Risk'
-  return 'Critical'
+  return batchStatusFromAggregateScore(score)
 }
 
-/** Intent-engine sidebar: API `highConfidenceCount` 0.48 → 48%. < 30% = Risk; < 80% = Risk; >= 80 Stable; > 95 Strong. */
+/** Sidebar batch score: intent-engine `aggregate_confidence_score` only (0–1 → percent). */
 export function confidencePctFromBatch(batch: BatchRecord): number | null {
-  if (!batch.engineSidebar || typeof batch.avgConfidenceScore !== 'number' || !Number.isFinite(batch.avgConfidenceScore)) {
+  if (typeof batch.aggregateConfidenceScore !== 'number' || !Number.isFinite(batch.aggregateConfidenceScore)) {
     return null
   }
-  return Math.min(100, Math.max(0, Math.round(batch.avgConfidenceScore * 100)))
+  const pct = batch.aggregateConfidenceScore <= 1
+    ? batch.aggregateConfidenceScore * 100
+    : batch.aggregateConfidenceScore
+  return Math.min(100, Math.max(0, Math.round(pct)))
 }
 
 function batchStatusFromConfidencePct(pct: number): BatchStatus {
-  if (pct > 95) return 'Strong'
-  if (pct >= 80) return 'Stable'
-  return 'Risk'
+  return batchStatusFromAggregateScore(pct)
 }
 
 /** Map intelligence `finality_status` to sidebar health pill (live batches). */
 function batchStatusFromFinality(fs: string | undefined): BatchStatus {
   const u = (fs ?? '').toUpperCase()
-  if (u === 'SETTLED') return 'Strong'
-  if (u === 'PARTIALLY_SETTLED') return 'Risk'
-  if (u === 'PENDING') return 'Risk'
+  if (u === 'SETTLED') return 'Stable'
+  if (u === 'PARTIALLY_SETTLED') return 'At Risk'
+  if (u === 'PENDING') return 'At Risk'
   if (u === 'FAILED' || u === 'CANCELLED' || u === 'REQUIRES_REVIEW') return 'Critical'
   return 'Stable'
 }
 
-/** Sidebar / overview health — uses loaded DLQ + intent counts when available. */
+/** DLQ volume can elevate status but not downgrade aggregate-based tiers. */
+function elevateStatusForDlq(status: BatchStatus, dlq: number, intents: number, pipelineTotal: number): BatchStatus {
+  if (dlq > 0 && intents === 0) return 'Critical'
+  if (dlq >= 10) return 'Critical'
+  const dlqRatio = dlq / Math.max(pipelineTotal, 1)
+  if (dlqRatio >= 0.15) return 'Critical'
+  if (dlq > 0 && dlqRatio >= 0.05) return status === 'Stable' ? 'At Risk' : status
+  if (dlq > 0 && status === 'Stable') return 'At Risk'
+  return status
+}
+
+/** Sidebar health — primary signal is `aggregate_confidence_score`; DLQ can elevate tier. */
 export function resolveBatchHealthStatus(
   batch: BatchRecord,
   opts?: { dlqCount?: number; intentCount?: number; finality?: string },
@@ -162,44 +192,37 @@ export function resolveBatchHealthStatus(
   const ingestTotal = Math.max(batch.transactions, intents, 0)
   const pipelineTotal = Math.max(intents + dlq, ingestTotal, 1)
 
-  if (dlq > 0 && intents === 0) return 'Critical'
-  if (dlq >= 10) return 'Critical'
-  const dlqRatio = dlq / pipelineTotal
-  if (dlqRatio >= 0.15) return 'Critical'
-  if (dlq > 0 && dlqRatio >= 0.05) return 'Risk'
-  if (batch.engineSidebar && ingestTotal > 0 && batch.confirmedCount === 0 && dlq > 0) return 'Critical'
+  if (batch.engineSidebar && ingestTotal > 0 && batch.confirmedCount === 0 && dlq > 0) {
+    return 'Critical'
+  }
   if (attention > 0 && attention >= ingestTotal && ingestTotal > 0) return 'Critical'
   if (attention > ingestTotal * 0.5 && ingestTotal > 0) return 'Critical'
 
-  if (dlq === 0 && attention === 0 && ingestTotal > 0 && batch.confirmedCount >= ingestTotal) {
-    return 'Strong'
+  const confPct = confidencePctFromBatch(batch)
+  if (confPct != null) {
+    return elevateStatusForDlq(batchStatusFromConfidencePct(confPct), dlq, intents, pipelineTotal)
   }
 
-  if (dlq === 0 && attention === 0 && intents > 0) {
-    const confPct = confidencePctFromBatch(batch)
-    if (confPct != null) return batchStatusFromConfidencePct(confPct)
-    return 'Stable'
+  const fs = opts?.finality
+  if (fs) {
+    const fromFinality = batchStatusFromFinality(fs)
+    return elevateStatusForDlq(fromFinality, dlq, intents, pipelineTotal)
   }
 
   if (dlq === 0 && attention === 0 && intents === 0 && ingestTotal === 0) {
     return 'Stable'
   }
 
-  const fs = opts?.finality
-  if (fs) {
-    const fromFinality = batchStatusFromFinality(fs)
-    if (fromFinality === 'Critical' || fromFinality === 'Risk') return fromFinality
-  }
-
-  const confPct = confidencePctFromBatch(batch)
-  if (confPct != null) return batchStatusFromConfidencePct(confPct)
-
-  return batchStatus(batchQualityScore(batch))
+  return elevateStatusForDlq(batchStatus(batchQualityScore(batch)), dlq, intents, pipelineTotal)
 }
 
 export function statusTone(status: BatchStatus) {
-  if (status === 'Strong' || status === 'Stable') return { text: 'text-emerald-700', left: 'border-l-4 border-l-emerald-500', ring: '#16a34a' }
-  if (status === 'Risk') return { text: 'text-amber-700', left: 'border-l-4 border-l-amber-500', ring: '#d97706' }
+  if (status === 'Stable') {
+    return { text: 'text-emerald-700', left: 'border-l-4 border-l-emerald-500', ring: '#16a34a' }
+  }
+  if (status === 'At Risk') {
+    return { text: 'text-amber-700', left: 'border-l-4 border-l-amber-500', ring: '#d97706' }
+  }
   return { text: 'text-rose-700', left: 'border-l-4 border-l-rose-600', ring: '#dc2626' }
 }
 

@@ -20,6 +20,7 @@ import {
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
 import {
   formatClientRefDisplay,
+  formatMappingConfidenceLabel,
   mapMatchStatus,
   matchStatusBadgeClass,
 } from '../mappers/mapMatchStatus'
@@ -336,9 +337,7 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
                     <span className={matchStatusBadgeClass(mapMatchStatus(row))}>{mapMatchStatus(row)}</span>
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-[13px] text-[#64748b]">
-                    {row.attachmentReadinessScore != null
-                      ? `${(row.attachmentReadinessScore * 100).toFixed(0)}%`
-                      : '—'}
+                    {formatMappingConfidenceLabel(row)}
                   </td>
                   <td className="px-3 py-2.5 text-[13px] text-[#64748b] whitespace-nowrap">
                     {row.observationTime}

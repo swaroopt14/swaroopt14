@@ -8,28 +8,35 @@ import {
 
 export const dynamic = 'force-dynamic'
 
-type UpstreamIntent = {
+type PaymentIntentLiteUpstream = {
   tenant_id?: string
   amount?: string | number
   currency?: string
   intended_execution_at?: string | null
   provider_hint?: string | null
-  intent_quality_score?: number
-  aggregate_confidence_score?: number
-  confidence_score?: number
-  intent_id?: string
-  envelope_id?: string
+  intent_quality_score?: number | string | null
+  aggregate_confidence_score?: number | string | null
+  intent_id?: string | null
   batchid?: string | null
   batch_id?: string | null
   client_payout_ref?: string | null
   client_batch_ref?: string | null
-  source_row_num?: number | null
+  source_row_num?: number | string | null
   beneficiary_type?: string | null
   beneficiary?: Record<string, unknown> | null
 }
 
-function inferRailHint(intent: UpstreamIntent): string | undefined {
-  const beneficiary = intent.beneficiary as { instrument?: unknown } | undefined
+function coerceScore(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number.parseFloat(value)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function inferRailHint(item: PaymentIntentLiteUpstream): string | undefined {
+  const beneficiary = item.beneficiary
   const instrumentKind =
     typeof beneficiary?.instrument === 'object' &&
     beneficiary?.instrument &&
@@ -38,9 +45,9 @@ function inferRailHint(intent: UpstreamIntent): string | undefined {
       : ''
 
   const candidates = [
-    String(intent.provider_hint ?? ''),
-    String(intent.beneficiary_type ?? ''),
+    String(item.beneficiary_type ?? ''),
     instrumentKind,
+    String(item.provider_hint ?? ''),
   ]
     .map((v) => v.trim().toUpperCase())
     .filter(Boolean)
@@ -57,45 +64,7 @@ function inferRailHint(intent: UpstreamIntent): string | undefined {
   return undefined
 }
 
-function mapUpstreamIntent(intent: UpstreamIntent, batchId: string) {
-  const aggregate =
-    typeof intent.aggregate_confidence_score === 'number' && Number.isFinite(intent.aggregate_confidence_score)
-      ? intent.aggregate_confidence_score
-      : null
-  const fallback =
-    typeof intent.confidence_score === 'number' && Number.isFinite(intent.confidence_score)
-      ? intent.confidence_score
-      : null
-  const intentQualityScore =
-    typeof intent.intent_quality_score === 'number' && Number.isFinite(intent.intent_quality_score)
-      ? intent.intent_quality_score
-      : aggregate ?? fallback
-
-  const resolvedBatchId =
-    (typeof intent.batchid === 'string' && intent.batchid.trim()) ||
-    (typeof intent.batch_id === 'string' && intent.batch_id.trim()) ||
-    batchId
-
-  return {
-    tenant_id: intent.tenant_id,
-    amount: intent.amount,
-    currency: intent.currency,
-    intended_execution_at: intent.intended_execution_at ?? null,
-    provider_hint: intent.provider_hint ?? null,
-    intent_quality_score: intentQualityScore,
-    intent_id: intent.intent_id,
-    envelope_id: intent.envelope_id,
-    batch_id: resolvedBatchId,
-    client_payout_ref: intent.client_payout_ref ?? null,
-    client_batch_ref: intent.client_batch_ref ?? resolvedBatchId,
-    source_row_num: intent.source_row_num ?? null,
-    beneficiary_type: intent.beneficiary_type ?? null,
-    beneficiary: intent.beneficiary ?? null,
-    rail_hint: inferRailHint(intent) ?? null,
-  }
-}
-
-/** BFF: GET /api/prod/intents/payment-intents?batch_id= → zord-intent-engine batch-scoped list. */
+/** BFF: GET /api/prod/intents/payment-intents?batch_id= → intent-engine journal lite API. */
 export async function GET(request: NextRequest) {
   const batchId = request.nextUrl.searchParams.get('batch_id')?.trim()
   const gate = await requireSessionTenantForProdProxy(request)
@@ -133,36 +102,60 @@ export async function GET(request: NextRequest) {
       cache: 'no-store',
     })
 
-    const text = await upstream.text()
     if (!upstream.ok) {
-      const res = new NextResponse(text, {
-        status: upstream.status,
-        headers: {
-          'content-type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
-          'cache-control': 'no-store',
+      const res = NextResponse.json(
+        {
+          items: [],
+          pagination: { page: 1, page_size: 0, total: 0 },
+          error: `intent-engine returned HTTP ${upstream.status}`,
         },
-      })
+        { status: upstream.status },
+      )
       applyRefreshedSessionCookies(res, gate.refreshedPayload)
       return res
     }
 
-    let body: { items?: UpstreamIntent[]; pagination?: { page?: number; page_size?: number; total?: number } }
-    try {
-      body = text ? (JSON.parse(text) as typeof body) : { items: [] }
-    } catch {
-      const res = NextResponse.json({ error: 'Invalid upstream response' }, { status: 502 })
-      applyRefreshedSessionCookies(res, gate.refreshedPayload)
-      return res
-    }
+    const payload = (await upstream.json()) as { items?: PaymentIntentLiteUpstream[] }
+    const rawItems = payload.items ?? []
 
-    const items = (body.items ?? []).map((intent) => mapUpstreamIntent(intent, batchId))
-    const pagination = body.pagination ?? {
-      page: 1,
-      page_size: items.length,
-      total: items.length,
-    }
+    const items = rawItems.map((item) => {
+      const resolvedBatchId =
+        (typeof item.batchid === 'string' && item.batchid.trim()) ||
+        (typeof item.batch_id === 'string' && item.batch_id.trim()) ||
+        batchId
 
-    const res = NextResponse.json({ items, pagination })
+      return {
+        tenant_id: item.tenant_id ?? gate.tenantId,
+        amount: item.amount,
+        currency: item.currency ?? 'INR',
+        intended_execution_at: item.intended_execution_at ?? null,
+        provider_hint: item.provider_hint ?? null,
+        intent_quality_score: coerceScore(item.intent_quality_score),
+        aggregate_confidence_score: coerceScore(item.aggregate_confidence_score),
+        intent_id: item.intent_id ?? null,
+        batch_id: resolvedBatchId,
+        client_payout_ref: item.client_payout_ref ?? null,
+        client_batch_ref: item.client_batch_ref ?? resolvedBatchId,
+        source_row_num:
+          typeof item.source_row_num === 'number'
+            ? item.source_row_num
+            : typeof item.source_row_num === 'string' && item.source_row_num.trim()
+              ? Number.parseInt(item.source_row_num, 10) || null
+              : null,
+        beneficiary_type: item.beneficiary_type ?? null,
+        beneficiary: item.beneficiary ?? null,
+        rail_hint: inferRailHint(item) ?? null,
+      }
+    })
+
+    const res = NextResponse.json({
+      items,
+      pagination: {
+        page: 1,
+        page_size: items.length,
+        total: items.length,
+      },
+    })
     applyRefreshedSessionCookies(res, gate.refreshedPayload)
     return res
   } catch (error) {

@@ -13,12 +13,16 @@ type IntentJournalHeroBannerProps = {
   onExportIntents: () => void
   onExportReviewItems: () => void
   exportDisabled?: boolean
+  intentExportCount?: number
+  reviewExportCount?: number
 }
 
 export function IntentJournalHeroBanner({
   onExportIntents,
   onExportReviewItems,
   exportDisabled,
+  intentExportCount = 0,
+  reviewExportCount = 0,
 }: IntentJournalHeroBannerProps) {
   const { selectedBatchId, journalEnabled } = useJournalBatchSelection()
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, journalEnabled)
@@ -85,6 +89,8 @@ export function IntentJournalHeroBanner({
           onExportIntents={onExportIntents}
           onExportReviewItems={onExportReviewItems}
           disabled={exportDisabled || !selectedBatchId}
+          intentCount={intentExportCount}
+          reviewCount={reviewExportCount}
         />
       }
     />

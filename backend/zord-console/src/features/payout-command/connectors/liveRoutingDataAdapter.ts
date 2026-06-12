@@ -125,6 +125,27 @@ function buildCardLookup(cards: RecommendationCard[]): Map<string, Recommendatio
   return byTarget
 }
 
+function resolveExposureTotals(
+  leakage: LeakageKpiResponse | null,
+  ambiguity: AmbiguityKpiResponse | null,
+  recommendations: RecommendationsKpiResponse | null,
+  recommendation: RecommendationSnapshotData | null,
+) {
+  const totalIntendedMinor = isDataAvailable(leakage) ? readMinor(leakage.total_intended_amount_minor) : 0
+  const moneyAtRiskMinor = isDataAvailable(leakage)
+    ? readMinor(leakage.unmatched_amount_minor)
+    : isDataAvailable(ambiguity)
+      ? readMinor(ambiguity.value_at_risk_minor)
+      : readMinor(recommendation?.total_amount_at_stake_minor)
+  const recommendationImpact =
+    readMinor(recommendation?.recommendation_impact_estimate_minor) ||
+    (isDataAvailable(recommendations)
+      ? readMinor(recommendations.recommendation_impact_estimate_minor)
+      : 0)
+  const preventableLeakageMinor = recommendationImpact || moneyAtRiskMinor * 0.65
+  return { totalIntendedMinor, moneyAtRiskMinor, preventableLeakageMinor }
+}
+
 function applyLiveExposure(
   connectors: ConnectorHealthRow[],
   leakage: LeakageKpiResponse | null,
@@ -141,26 +162,21 @@ function applyLiveExposure(
   if (!hasSignal) return connectors
 
   const totalWeight = connectors.reduce((sum, connector) => sum + exposureWeight(connector), 0)
-  const liveVolume = isDataAvailable(leakage) ? readMinor(leakage.total_intended_amount_minor) : 0
-  const valueAtRisk = isDataAvailable(leakage)
-    ? readMinor(leakage.unmatched_amount_minor)
-    : isDataAvailable(ambiguity)
-      ? readMinor(ambiguity.value_at_risk_minor)
-      : readMinor(recommendation?.total_amount_at_stake_minor)
-  const recommendationImpact =
-    readMinor(recommendation?.recommendation_impact_estimate_minor) ||
-    (isDataAvailable(recommendations)
-      ? readMinor(recommendations.recommendation_impact_estimate_minor)
-      : 0)
-  const preventable = recommendationImpact || Math.round(valueAtRisk * 0.65)
+  const { totalIntendedMinor, moneyAtRiskMinor, preventableLeakageMinor } = resolveExposureTotals(
+    leakage,
+    ambiguity,
+    recommendations,
+    recommendation,
+  )
 
   return connectors.map((connector) => {
     const share = totalWeight > 0 ? exposureWeight(connector) / totalWeight : 1 / connectors.length
     return {
       ...connector,
-      volumeMinor: liveVolume > 0 ? Math.max(1, Math.round(liveVolume * share)) : connector.volumeMinor,
-      moneyAtRiskMinor: valueAtRisk > 0 ? Math.round(valueAtRisk * share) : connector.moneyAtRiskMinor,
-      preventableLeakageMinor: preventable > 0 ? Math.round(preventable * share) : connector.preventableLeakageMinor,
+      volumeMinor: totalIntendedMinor > 0 ? totalIntendedMinor * share : connector.volumeMinor,
+      moneyAtRiskMinor: moneyAtRiskMinor > 0 ? moneyAtRiskMinor * share : connector.moneyAtRiskMinor,
+      preventableLeakageMinor:
+        preventableLeakageMinor > 0 ? preventableLeakageMinor * share : connector.preventableLeakageMinor,
     }
   })
 }
@@ -352,7 +368,7 @@ function actionsFromCards(cards: RecommendationCard[]): ActionRecommendation[] {
         id: card.card_id || `rec-card-${index}`,
         title: card.title?.trim() || card.action?.trim() || 'Recommendation',
         impactMinor,
-        preventableMinor: Math.round(impactMinor * preventableShare(card.confidence)),
+        preventableMinor: impactMinor * preventableShare(card.confidence),
         impactLabel: cardImpactLabel(card),
       }
     })
@@ -526,10 +542,12 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     ...providerRows(gridPattern?.provider_quality_patterns, cardLookup),
     ...sourceRows(gridPattern?.source_quality_patterns, cardLookup),
   ]
+  const apiTotals = resolveExposureTotals(leakage, ambiguity, recommendations, recommendation)
   const connectors = applyLiveExposure(gridRows, leakage, ambiguity, recommendations, recommendation)
   const leakageComposition = buildLeakageComposition(leakage)
 
   return {
+    apiTotals,
     generatedAtIso: generatedAtFrom([
       isDataAvailable(leakage) ? leakage.computed_at : null,
       isDataAvailable(ambiguity) ? ambiguity.computed_at : null,

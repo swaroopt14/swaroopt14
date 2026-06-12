@@ -6,9 +6,9 @@ import { useJournalBatchSelection } from '../context/JournalBatchSelectionContex
 
 export const INTENT_OUTCOME_MIX_COLORS = ['#5eead4', '#a3e635', '#a78bfa', '#52525b']
 
-function confidenceLabel(batch: { avgConfidenceScore?: number; highConfidenceCount: number }): string {
-  if (typeof batch.avgConfidenceScore === 'number' && Number.isFinite(batch.avgConfidenceScore)) {
-    const pct = batch.avgConfidenceScore <= 1 ? batch.avgConfidenceScore * 100 : batch.avgConfidenceScore
+function confidenceLabel(batch: { aggregateConfidenceScore?: number; highConfidenceCount: number }): string {
+  if (typeof batch.aggregateConfidenceScore === 'number' && Number.isFinite(batch.aggregateConfidenceScore)) {
+    const pct = batch.aggregateConfidenceScore <= 1 ? batch.aggregateConfidenceScore * 100 : batch.aggregateConfidenceScore
     return `${pct.toFixed(0)}% avg`
   }
   return '—'

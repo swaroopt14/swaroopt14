@@ -81,9 +81,18 @@ export type LeakageCompositionSlice = {
   amountMinor: number
 }
 
+/** Raw leakage / recommendation totals from intelligence APIs (no connector allocation). */
+export type RoutingApiTotals = {
+  totalIntendedMinor: number
+  moneyAtRiskMinor: number
+  preventableLeakageMinor: number
+}
+
 export type RoutingKpiSnapshot = {
   generatedAtIso: string
   staleAfterMinutes: number
+  /** Direct API totals for hero KPIs — avoids summed/rounded connector shares. */
+  apiTotals?: RoutingApiTotals
   connectors: ConnectorHealthRow[]
   routeCandidates: RouteRecommendationInput[]
   correlationInsights: CorrelationInsight[]

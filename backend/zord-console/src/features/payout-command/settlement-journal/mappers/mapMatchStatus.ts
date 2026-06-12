@@ -9,13 +9,26 @@ export type MatchStatus =
   | 'Amount Mismatch'
   | 'Awaiting Intent Data'
 
+/** Match Confidence column uses mapping_confidence from outcome-engine. */
+export function settlementMappingConfidence(row: SettlementObservationTableRow): number | null {
+  if (typeof row.mappingConfidence === 'number' && Number.isFinite(row.mappingConfidence)) {
+    return row.mappingConfidence
+  }
+  return null
+}
+
+export function formatMappingConfidenceLabel(row: SettlementObservationTableRow): string {
+  const score = settlementMappingConfidence(row)
+  return score != null ? `${(score * 100).toFixed(0)}%` : '—'
+}
+
 export function mapMatchStatus(row: SettlementObservationTableRow): MatchStatus {
   const clientRef = (row.clientRef ?? '').trim()
   const bankRef = (row.bankRef ?? '').trim()
-  const score = row.attachmentReadinessScore
+  const score = settlementMappingConfidence(row)
 
-  if (!clientRef) return 'Missing Client Ref'
-  if (!bankRef) return 'Missing Bank Ref'
+  if (!clientRef || clientRef === '—') return 'Missing Client Ref'
+  if (!bankRef || bankRef === '—') return 'Missing Bank Ref'
   if (typeof score === 'number' && score >= 0.85) return 'Matched'
   if (typeof score === 'number' && score >= 0.5) return 'Unmatched'
   return 'Awaiting Intent Data'

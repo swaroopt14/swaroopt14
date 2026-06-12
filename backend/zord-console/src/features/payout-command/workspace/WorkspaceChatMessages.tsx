@@ -1,16 +1,17 @@
 'use client'
 
+import { useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { WorkspaceConversationMessage, WorkspaceLoadingPhase } from '@/services/payout-command/types'
-import { Glyph } from '../shared'
+import { CHAT_USER_BUBBLE } from './workspaceChatTokens'
 
 export function MarkdownMessage({ body }: { body: string }) {
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
-        p: ({ node, ...props }) => <p className="mt-2" {...props} />,
+        p: ({ node, ...props }) => <p className="mt-2 first:mt-0" {...props} />,
         ul: ({ node, ...props }) => <ul className="mt-2 list-disc pl-5" {...props} />,
         ol: ({ node, ...props }) => <ol className="mt-2 list-decimal pl-5" {...props} />,
         li: ({ node, ...props }) => <li className="mt-1" {...props} />,
@@ -66,7 +67,7 @@ function ThinkingDots() {
 function AssistantLoadingIndicator({ phase }: { phase?: WorkspaceLoadingPhase | null }) {
   const label = phase ? PHASE_SPINNER_LABEL[phase] : 'Thinking'
   return (
-    <span className="inline-flex items-center gap-1.5 text-[12px] font-medium text-slate-500">
+    <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-slate-500">
       {label}
       <ThinkingDots />
     </span>
@@ -76,10 +77,18 @@ function AssistantLoadingIndicator({ phase }: { phase?: WorkspaceLoadingPhase | 
 export function ZordAvatar({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#39E07E] text-[#0A0A0A] shadow-sm ring-1 ring-[#39E07E]/40 ${className}`}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[#39E07E] text-[#0A0A0A] shadow-sm ring-1 ring-[#39E07E]/40 ${className}`}
       aria-hidden
     >
-      <Glyph name="zap" className="h-[18px] w-[18px]" />
+      <svg className="h-[16px] w-[16px]" viewBox="0 0 20 20" fill="none" aria-hidden>
+        <path
+          d="M10.7 2.8 5.8 10h3l-.5 7.2 5-7.3h-3l.4-7.1Z"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </span>
   )
 }
@@ -109,6 +118,41 @@ export function ConnectionPill({ state }: { state: 'idle' | 'connected' | 'error
   )
 }
 
+function CitationBlock({ message }: { message: WorkspaceConversationMessage }) {
+  const citations = message.citations ?? []
+  const [open, setOpen] = useState(false)
+  if (citations.length === 0) return null
+
+  return (
+    <div className="mt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-[11px] font-semibold uppercase tracking-[0.06em] text-emerald-700 hover:text-emerald-800"
+      >
+        Sources ({citations.length}) {open ? '▾' : '▸'}
+      </button>
+      {open ? (
+        <div className="mt-2 space-y-2">
+          {citations.slice(0, 4).map((c, i) => (
+            <div
+              key={`${c.chunk_id ?? c.record_id ?? i}`}
+              className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-[13px] leading-relaxed text-slate-600"
+            >
+              {(c.source_type || c.record_id) && (
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                  {[c.source_type, c.record_id].filter(Boolean).join(' · ')}
+                </p>
+              )}
+              {c.snippet?.trim() || '—'}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function MessageBubble({ message }: { message: WorkspaceConversationMessage }) {
   const isUser = message.role === 'user'
   const isLoading = message.status === 'typing'
@@ -116,63 +160,79 @@ export function MessageBubble({ message }: { message: WorkspaceConversationMessa
 
   if (isUser) {
     return (
-      <div className="flex gap-3">
-        <span
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11px] font-semibold text-slate-700"
-          aria-hidden
-        >
-          You
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className="text-[14px] font-semibold text-slate-900">You</p>
-            <span className="shrink-0 text-[12px] text-slate-400">{message.timestamp}</span>
-          </div>
-          <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed text-slate-800">{message.body}</p>
+      <div className="flex justify-end" data-testid="workspace-chat-user-message">
+        <div className={CHAT_USER_BUBBLE}>
+          <p className="whitespace-pre-wrap">{message.body}</p>
+          <p className="mt-1.5 text-right text-[11px] text-slate-500">{message.timestamp}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex gap-3">
+    <div className="flex gap-3" data-testid="workspace-chat-assistant-message">
       <ZordAvatar />
       <div className="min-w-0 flex-1">
-        <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <p className="text-[14px] font-semibold text-slate-900">Zord</p>
-          {!isLoading ? <span className="text-[12px] text-slate-400">{message.timestamp}</span> : null}
+        <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+          <p className="text-[13px] font-semibold text-slate-900">Zord</p>
+          {!isLoading ? <span className="text-[11px] text-slate-400">{message.timestamp}</span> : null}
         </div>
         <div
           className={`mt-1 text-[15px] leading-relaxed ${
             isError ? 'text-red-800' : isLoading ? 'text-slate-500' : 'text-slate-700'
           }`}
         >
-          {isLoading ? null : <MarkdownMessage body={message.body} />}
-          {isLoading ? <AssistantLoadingIndicator phase={message.loadingPhase} /> : null}
+          {isLoading ? <AssistantLoadingIndicator phase={message.loadingPhase} /> : <MarkdownMessage body={message.body} />}
         </div>
-        {!isLoading && message.citations && message.citations.length > 0 ? (
-          <div className="mt-4 space-y-2">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">Sources</p>
-            {message.citations.slice(0, 4).map((c, i) => (
-              <div
-                key={`${c.chunk_id ?? c.record_id ?? i}`}
-                className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-[13px] leading-relaxed text-slate-600"
-              >
-                {(c.source_type || c.record_id) && (
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
-                    {[c.source_type, c.record_id].filter(Boolean).join(' · ')}
-                  </p>
-                )}
-                {c.snippet?.trim() || '—'}
-              </div>
-            ))}
-          </div>
-        ) : null}
+        {!isLoading ? <CitationBlock message={message} /> : null}
         {!isLoading && message.confidence ? (
           <span className="mt-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-emerald-800">
             {message.confidence}
           </span>
         ) : null}
+      </div>
+    </div>
+  )
+}
+
+export function WorkspaceChatStarterTurn({
+  question,
+  supporting,
+  answerBody,
+  answerStatus,
+}: {
+  question: string
+  supporting: string
+  answerBody: string
+  answerStatus: 'idle' | 'loading' | 'done' | 'error'
+}) {
+  const showAnswer = answerStatus === 'done' && answerBody.trim().length > 0
+  const isLoading = answerStatus === 'loading'
+
+  return (
+    <div className="flex gap-3" data-testid="workspace-chat-starter-turn">
+      <ZordAvatar />
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-slate-900">Zord</p>
+        <div className="mt-1 text-[15px] leading-relaxed text-slate-800">
+          <p className="font-medium text-[#111111]">{question}</p>
+          <p className="mt-2 text-[14px] text-slate-600">{supporting}</p>
+          {isLoading ? (
+            <div className="mt-4">
+              <AssistantLoadingIndicator phase="understanding" />
+            </div>
+          ) : null}
+          {showAnswer ? (
+            <div className="mt-4 border-t border-slate-200/80 pt-4" data-testid="workspace-chat-transcript-answer">
+              <MarkdownMessage body={answerBody} />
+            </div>
+          ) : null}
+          {answerStatus === 'error' ? (
+            <p className="mt-4 text-[13px] text-slate-500">
+              Could not load a grounded answer yet. Ask a specific question below.
+            </p>
+          ) : null}
+        </div>
       </div>
     </div>
   )

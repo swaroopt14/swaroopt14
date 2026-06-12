@@ -8,23 +8,19 @@ import {
 import {
   BATCH_FILTERS,
   JOURNAL_BORDER,
-  JOURNAL_PANEL_BG,
   batchQualityScore,
   confidencePctFromBatch,
   formatInrRupees,
+  BATCH_AGGREGATE_STATUS_GUIDE,
   resolveBatchHealthStatus,
   statusTone,
   usdCompact,
   type BatchFilter,
   type BatchRecord,
-  type SidebarMode,
 } from '../intentJournalSidebarUtils'
 
 export type IntentJournalBatchSidebarProps = {
   batches: BatchRecord[]
-  sourceCount: number
-  sidebarMode: SidebarMode
-  setSidebarMode: (mode: SidebarMode) => void
   batchFilter: BatchFilter
   setBatchFilter: (filter: BatchFilter) => void
   setSidebarPage: (updater: (page: number) => number) => void
@@ -42,9 +38,6 @@ export type IntentJournalBatchSidebarProps = {
 
 export function IntentJournalBatchSidebar({
   batches,
-  sourceCount,
-  sidebarMode,
-  setSidebarMode,
   batchFilter,
   setBatchFilter,
   setSidebarPage,
@@ -64,26 +57,8 @@ export function IntentJournalBatchSidebar({
           <div className="border-b border-[#E5E5E5] px-4 pb-3 pt-4">
             <h2 className={`text-[14px] font-medium ${HOME_TITLE_BLACK}`}>Batches</h2>
             <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
-              {batches.length} listed · {sourceCount} sources
+              {batches.length} batch{batches.length === 1 ? '' : 'es'}
             </p>
-            <div className={`mt-3 rounded-[10px] border ${JOURNAL_BORDER} ${JOURNAL_PANEL_BG} p-1`}>
-              <div className="grid grid-cols-2 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setSidebarMode('listed')}
-                  className={`rounded-[8px] px-3 py-1.5 text-[15px] font-medium transition ${sidebarMode === 'listed' ? 'bg-white text-[#0f172a] shadow-sm' : 'text-[#64748b] hover:text-[#0f172a]'}`}
-                >
-                  Listed <span className="ml-1 text-[#94a3b8]">{batches.length}</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSidebarMode('sectors')}
-                  className={`rounded-[8px] px-3 py-1.5 text-[15px] font-medium transition ${sidebarMode === 'sectors' ? 'bg-white text-[#0f172a] shadow-sm' : 'text-[#64748b] hover:text-[#0f172a]'}`}
-                >
-                  Sectors <span className="ml-1 text-[#94a3b8]">{sourceCount}</span>
-                </button>
-              </div>
-            </div>
             <div className="mt-3">
               <select
                 value={batchFilter}
@@ -115,14 +90,9 @@ export function IntentJournalBatchSidebar({
                 journalUsesBackendFeed && selected && liveBatchDetail?.batch?.batch_id === batch.batchId
                   ? liveBatchDetail.batch
                   : null
-              const liveSuccess =
-                journalUsesBackendFeed
-                  ? (detailRow?.success_count ?? batch.intelligenceCounts?.success_count ?? batch.confirmedCount ?? 0)
-                  : null
               const liveTotalRaw = journalUsesBackendFeed
                 ? (detailRow?.total_count ?? batch.transactions ?? 0)
                 : batch.transactions
-              const liveTotal = Math.max(liveTotalRaw, 0)
               const liveFinality = detailRow?.finality_status ?? batch.intelligenceCounts?.finality_status
               const dlqCount = selected
                 ? selectedDlqTotal
@@ -138,31 +108,13 @@ export function IntentJournalBatchSidebar({
                 intentCount,
                 finality: liveFinality,
               })
-              const sidebarScoreDisplay =
-                engineConfPct != null
-                  ? `${engineConfPct}%`
-                  : status === 'Critical' || status === 'Risk'
-                    ? status
-                    : journalUsesBackendFeed && liveSuccess !== null
-                      ? liveSuccess.toLocaleString('en-US')
-                      : String(score)
-              const progressWidthPct =
-                engineConfPct != null
-                  ? engineConfPct
-                  : status === 'Critical'
-                    ? Math.min(100, dlqCount > 0 ? 100 : 15)
-                    : status === 'Risk'
-                      ? 45
-                      : journalUsesBackendFeed && liveSuccess !== null
-                        ? liveTotal === 0
-                          ? 0
-                          : Math.min(100, Math.round((liveSuccess / liveTotal) * 100))
-                        : score
+              const sidebarScoreDisplay = engineConfPct != null ? `${engineConfPct}%` : '—'
+              const progressWidthPct = engineConfPct ?? score
               const tone = statusTone(status)
               const dotColor =
-                status === 'Strong' || status === 'Stable'
+                status === 'Stable'
                   ? 'bg-emerald-500'
-                  : status === 'Risk'
+                  : status === 'At Risk'
                     ? 'bg-amber-500'
                     : 'bg-rose-500'
 
@@ -193,17 +145,7 @@ export function IntentJournalBatchSidebar({
                     </div>
                     <span
                       className={`shrink-0 text-[15px] font-semibold tabular-nums ${tone.text}`}
-                      title={
-                        engineConfPct != null
-                          ? 'Avg aggregate confidence from intent-engine sidebar (0–1 API → percent)'
-                          : journalUsesBackendFeed
-                            ? batch.intelligenceCounts
-                              ? 'success_count from intelligence batch (detail when selected)'
-                              : batch.engineSidebar
-                                ? 'Confirmed-style count from intent-engine batch aggregates (sidebar)'
-                                : 'Batch quality score'
-                            : 'Batch quality score'
-                      }
+                      title={`Aggregate confidence · ${BATCH_AGGREGATE_STATUS_GUIDE}`}
                     >
                       {sidebarScoreDisplay}
                     </span>
@@ -228,35 +170,39 @@ export function IntentJournalBatchSidebar({
                       {intentCount.toLocaleString('en-US')} intents
                     </span>
                   </div>
-                  {journalUsesBackendFeed && liveFinality ? (
-                    <p className="mt-0.5 pl-4 text-[13px] font-medium uppercase tracking-wide text-slate-500">
-                      {String(liveFinality).replace(/_/g, ' ')}
-                    </p>
-                  ) : null}
+                  <div className="mt-1 flex flex-wrap items-center gap-2 pl-4">
+                    <div
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold ${tone.text} ${
+                        status === 'At Risk'
+                          ? 'bg-amber-100'
+                          : status === 'Critical'
+                            ? 'bg-rose-100'
+                            : 'bg-emerald-100'
+                      }`}
+                      title={BATCH_AGGREGATE_STATUS_GUIDE}
+                    >
+                      {status}
+                    </div>
+                    {journalUsesBackendFeed && liveFinality ? (
+                      <span className="text-[12px] font-medium uppercase tracking-wide text-slate-500">
+                        {String(liveFinality).replace(/_/g, ' ')}
+                      </span>
+                    ) : null}
+                  </div>
 
-                  {/* Selected = expanded score-bar + status pill */}
                   {selected ? (
-                    <div className="mt-2 space-y-1.5 pl-4">
+                    <div className="mt-2 pl-4">
                       <div className="h-1 w-full overflow-hidden rounded-full bg-[#E5E5E5]">
                         <div
                           className={`h-full rounded-full ${
-                            status === 'Strong' || status === 'Stable'
+                            status === 'Stable'
                               ? 'bg-emerald-500'
-                              : status === 'Risk'
+                              : status === 'At Risk'
                                 ? 'bg-amber-500'
                                 : 'bg-rose-500'
                           }`}
                           style={{ width: `${progressWidthPct}%` }}
                         />
-                      </div>
-                      <div className={`inline-flex items-center rounded-full px-2 py-0.5 text-[13px] font-semibold ${tone.text} ${
-                        status === 'Risk'
-                          ? 'bg-amber-100'
-                          : status === 'Critical'
-                            ? 'bg-rose-100'
-                            : 'bg-emerald-100'
-                      }`}>
-                        {status}
                       </div>
                     </div>
                   ) : null}

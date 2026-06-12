@@ -18,6 +18,15 @@ function formatJournalExecutionAt(iso: string | undefined): string {
   })
 }
 
+function coerceQualityScore(raw: unknown): number | null {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string' && raw.trim()) {
+    const n = Number.parseFloat(raw)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
 function formatConfidenceLabel(score: number | undefined): string {
   if (score == null || !Number.isFinite(score)) return '—'
   const pct = score <= 1 ? score * 100 : score
@@ -102,7 +111,6 @@ function syntheticRequestId(batchId: string, index: number, item: IntentJournalP
   if (apiTrimmedString(item.intent_id)) return apiTrimmedString(item.intent_id)!
   const sourceRowNum = parseSourceRowNum(item.source_row_num)
   if (sourceRowNum != null) return `${batchId}-src-${sourceRowNum}`
-  if (apiTrimmedString(item.envelope_id)) return apiTrimmedString(item.envelope_id)!
   return `${batchId}-row-${index + 1}`
 }
 
@@ -115,10 +123,7 @@ export function mapPaymentIntentListItemToRow(
 ): JournalIntentRow {
   const amount = parseAmount(item.amount)
   const sourceRowNum = parseSourceRowNum(item.source_row_num)
-  const qualityScore =
-    typeof item.intent_quality_score === 'number' && Number.isFinite(item.intent_quality_score)
-      ? item.intent_quality_score
-      : null
+  const qualityScore = coerceQualityScore(item.intent_quality_score)
   const status: JournalIntentStatus = 'Ready to Process'
   const provider = resolveProviderHint(item)
   const rail = resolveRailHint(item)
@@ -126,8 +131,7 @@ export function mapPaymentIntentListItemToRow(
   const zordId = buildZordId(requestId, batchId, index)
   const paymentRef = apiTrimmedString(item.client_payout_ref)
   const clientBatchRef = apiTrimmedString(item.client_batch_ref) || apiTrimmedString(item.batch_id) || batchId
-  const referenceFallback =
-    sourceRowNum != null ? `SRC-${sourceRowNum}` : apiTrimmedString(item.envelope_id) || requestId
+  const referenceFallback = sourceRowNum != null ? `SRC-${sourceRowNum}` : requestId
 
   return {
     batchId,

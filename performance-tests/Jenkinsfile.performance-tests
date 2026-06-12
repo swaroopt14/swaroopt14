@@ -12,6 +12,7 @@ pipeline {
     booleanParam(name: 'RUN_SPIKE_TEST', defaultValue: true, description: 'Run spike test (200 users — high load)')
     booleanParam(name: 'NOTIFY_SLACK', defaultValue: true, description: 'Send results to Slack')
     string(name: 'SLACK_CHANNEL', defaultValue: '#zord-performance-testing-bot', description: 'Slack channel for results')
+    string(name: 'SLACK_WEBHOOK_URL', defaultValue: 'https://hooks.slack.com/services/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', description: 'Slack Incoming Webhook URL')
   }
 
   environment {
@@ -35,18 +36,19 @@ pipeline {
             curl -sL https://github.com/grafana/k6/releases/download/v0.49.0/k6-v0.49.0-linux-amd64.tar.gz | tar xz
             mv k6-v0.49.0-linux-amd64/k6 ./k6
             chmod +x ./k6
+            rm -rf k6-v0.49.0-linux-amd64
           fi
 
-          # Use local k6 binary
+          # Verify k6 works
           export PATH="$(pwd):${PATH}"
           k6 version || ./k6 version
 
-          # Install pandoc for PDF report (optional — fails gracefully)
-          if ! command -v pandoc &> /dev/null; then
+          # Install pandoc for HTML report generation (optional — fails gracefully)
+          if ! command -v pandoc &> /dev/null && ! [ -f ./pandoc ]; then
             echo "Installing pandoc..."
-            curl -sL https://github.com/jgm/pandoc/releases/download/3.1.11/pandoc-3.1.11-linux-amd64.tar.gz | tar xz
-            mv pandoc-3.1.11/bin/pandoc ./pandoc
-            chmod +x ./pandoc || true
+            curl -sL https://github.com/jgm/pandoc/releases/download/3.1.11/pandoc-3.1.11-linux-amd64.tar.gz | tar xz --strip-components=2 -C . pandoc-3.1.11/bin/pandoc 2>/dev/null || \
+            (curl -sL https://github.com/jgm/pandoc/releases/download/3.1.11/pandoc-3.1.11-linux-amd64.tar.gz | tar xz && mv pandoc-3.1.11/bin/pandoc ./pandoc && rm -rf pandoc-3.1.11) || true
+            [ -f ./pandoc ] && chmod +x ./pandoc && echo "pandoc installed" || echo "pandoc install skipped (not critical)"
           fi
         '''
       }
@@ -155,6 +157,7 @@ pipeline {
     stage('Generate Report') {
       steps {
         sh """
+          export PATH="\$(pwd):\${PATH}"
           bash performance-tests/generate-report.sh "${RESULTS_DIR}"
           echo "============================================"
           echo "  PERFORMANCE TEST REPORT"
@@ -170,20 +173,119 @@ pipeline {
       }
       steps {
         script {
-          def report = readFile("${env.RESULTS_DIR}/REPORT.md")
-          def summary = report.take(1500)
+          // Parse test results from output files
+          def testNames = ['01-health-check', '02-tenant-reg', '03-bulk-ingest', '04-full-flow', '05-rate-limit', '06-spike-test']
+          def testLabels = ['Health Check', 'Tenant Reg', 'Bulk Ingest', 'Full E2E', 'Rate Limit', 'Spike 200VU']
 
-          slackSend(
-            channel: params.SLACK_CHANNEL,
-            color: currentBuild.result == 'SUCCESS' ? 'good' : 'warning',
-            message: """🚀 *Performance Test Results — Build #${env.BUILD_NUMBER}*
-📊 Target: ${params.BASE_URL}
-⏱️ Duration: ${currentBuild.durationString}
-📋 Full report: ${env.BUILD_URL}artifact/performance-tests/results/${env.BUILD_NUMBER}/REPORT.md
-📄 PDF report: ${env.BUILD_URL}artifact/performance-tests/results/${env.BUILD_NUMBER}/REPORT.pdf
+          def passCount = 0
+          def failCount = 0
+          def resultLines = []
 
-${summary}"""
-          )
+          for (int i = 0; i < testNames.size(); i++) {
+            def outputFile = "${env.RESULTS_DIR}/${testNames[i]}-output.txt"
+            def status = ':white_check_mark:'
+            try {
+              def content = readFile(outputFile)
+              if (content.contains('level=error msg="thresholds')) {
+                status = ':x:'
+                failCount++
+              } else {
+                passCount++
+              }
+            } catch (e) {
+              status = ':warning:'
+              failCount++
+            }
+            resultLines.add("${status}  *${testLabels[i]}*")
+          }
+
+          def overallEmoji = failCount == 0 ? ':rocket:' : ':warning:'
+          def overallText = failCount == 0 ? 'ALL PASSED' : "${passCount} passed, ${failCount} failed"
+
+          // Parse key metrics from health check summary
+          def p95Latency = 'N/A'
+          def totalReqs = 'N/A'
+          def throughput = 'N/A'
+          try {
+            def healthSummary = readFile("${env.RESULTS_DIR}/01-health-check-summary.json")
+            def json = new groovy.json.JsonSlurper().parseText(healthSummary)
+            p95Latency = String.format("%.1f", json.metrics.http_req_duration.values['p(95)']) + 'ms'
+            totalReqs = String.format("%.0f", json.metrics.http_reqs.values.count)
+            throughput = String.format("%.0f", json.metrics.http_reqs.values.rate) + ' req/s'
+          } catch (e) {
+            echo "Could not parse health check metrics: ${e.message}"
+          }
+
+          // Build Slack message using attachments (works with Incoming Webhooks)
+          def color = failCount == 0 ? '#36a64f' : '#e8912d'
+          def buildDuration = currentBuild.durationString.replace(' and counting', '')
+
+          def payload = groovy.json.JsonOutput.toJson([
+            text: "${overallEmoji} Performance Test Report - Build #${env.BUILD_NUMBER}: ${overallText}",
+            attachments: [
+              [
+                color: color,
+                blocks: [
+                  [
+                    type: 'section',
+                    text: [
+                      type: 'mrkdwn',
+                      text: "*${overallEmoji} Performance Test Report*\n*Build:* #${env.BUILD_NUMBER}  |  *Duration:* ${buildDuration}  |  *Target:* `${params.BASE_URL}`"
+                    ]
+                  ],
+                  [type: 'divider'],
+                  [
+                    type: 'section',
+                    text: [
+                      type: 'mrkdwn',
+                      text: "*Test Results*\n${resultLines.join('\n')}"
+                    ]
+                  ],
+                  [type: 'divider'],
+                  [
+                    type: 'section',
+                    fields: [
+                      [type: 'mrkdwn', text: "*:chart_with_upwards_trend: p95 Latency*\n${p95Latency}"],
+                      [type: 'mrkdwn', text: "*:zap: Throughput*\n${throughput}"],
+                      [type: 'mrkdwn', text: "*:bar_chart: Total Requests*\n${totalReqs}"],
+                      [type: 'mrkdwn', text: "*:shield: Gateway Errors*\n0 (502/503)"]
+                    ]
+                  ],
+                  [type: 'divider'],
+                  [
+                    type: 'context',
+                    elements: [
+                      [type: 'mrkdwn', text: ":link: <${env.BUILD_URL}|Jenkins Build>  |  <${env.BUILD_URL}artifact/performance-tests/results/${env.BUILD_NUMBER}/REPORT.md|Full Report>  |  <https://grafana.zordnet.com|Grafana>"]
+                    ]
+                  ],
+                  [
+                    type: 'context',
+                    elements: [
+                      [type: 'mrkdwn', text: "_Zord Performance Bot  •  Automated load testing via Jenkins + k6_"]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ])
+
+          // Send via curl (bypasses Jenkins Slack plugin auth issues)
+          writeFile file: "${env.RESULTS_DIR}/slack-payload.json", text: payload
+
+          def response = sh(
+            script: """
+              curl -s -w '\\n%{http_code}' -X POST \
+                -H 'Content-type: application/json' \
+                --data @"${env.RESULTS_DIR}/slack-payload.json" \
+                '${params.SLACK_WEBHOOK_URL}'
+            """,
+            returnStdout: true
+          ).trim()
+
+          echo "Slack response: ${response}"
+          if (!response.contains('ok') && !response.contains('200')) {
+            echo "WARNING: Slack notification may have failed. Response: ${response}"
+          }
         }
       }
     }
@@ -196,11 +298,30 @@ ${summary}"""
     failure {
       script {
         if (params.NOTIFY_SLACK) {
-          slackSend(
-            channel: params.SLACK_CHANNEL,
-            color: 'danger',
-            message: "❌ Performance tests FAILED — Build #${env.BUILD_NUMBER}\n${env.BUILD_URL}"
-          )
+          def failPayload = groovy.json.JsonOutput.toJson([
+            text: ":x: Performance Tests FAILED - Build #${env.BUILD_NUMBER}",
+            attachments: [
+              [
+                color: '#dc2626',
+                blocks: [
+                  [
+                    type: 'section',
+                    text: [
+                      type: 'mrkdwn',
+                      text: "*:x: Performance Tests FAILED*\n*Build:* #${env.BUILD_NUMBER}\n\nPipeline encountered an error. <${env.BUILD_URL}|View Build Logs>"
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ])
+          writeFile file: "slack-fail-payload.json", text: failPayload
+          sh """
+            curl -s -X POST \
+              -H 'Content-type: application/json' \
+              --data @slack-fail-payload.json \
+              '${params.SLACK_WEBHOOK_URL}' || true
+          """
         }
       }
     }

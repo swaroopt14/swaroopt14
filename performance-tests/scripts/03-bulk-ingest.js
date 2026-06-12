@@ -9,7 +9,7 @@ export const options = {
     ],
     thresholds: {
         http_req_duration: ['p(95)<5000'],
-        http_req_failed: ['rate<0.40'],
+        'checks': ['rate>=0.60'],  // Allow some CSV format rejections
     },
 };
 

@@ -8,9 +8,8 @@ export const options = {
         { duration: '1m', target: 0 },
     ],
     thresholds: {
-        // Relaxed: accept up to 50% failures (auth issues, service not ready, etc.)
         http_req_duration: ['p(95)<5000'],
-        http_req_failed: ['rate<0.50'],
+        checks: ['rate>=0.90'],
     },
 };
 

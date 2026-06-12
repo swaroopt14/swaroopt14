@@ -37,7 +37,6 @@ func NewLiveSQLRetriever(edgeDB, intentDB, relayDB, intelligenceDB, evidenceDB, 
 		intelligenceDB: intelligenceDB,
 		outcomeDB:      outcomeDB, // outcomeDB is not used in current retrieval logic but can be added similarly if needed
 		evidenceDB:     evidenceDB,
-		outcomeDB:      outcomeDB,
 		timeout:        4 * time.Second,
 	}
 }

@@ -222,21 +222,22 @@ func (h *IntentHandler) ListPaymentIntentLiteByBatch(w http.ResponseWriter, r *h
 		return
 	}
 
-	// Full batch scope — no pagination cap; journal hero totals must sum every row for batchid.
-	items, total, err := h.queryRepo.ListPaymentIntentsByBatch(ctx, tenantID, batchID, 1, 0)
+	// Lite query includes intent_quality_score; returns every row for batchid (no pagination cap).
+	items, err := h.queryRepo.ListPaymentIntentLiteByBatch(ctx, tenantID, batchID)
 	if err != nil {
 		respondError(w, "DATABASE_ERROR", "Failed to fetch payment intent data", http.StatusInternalServerError, err)
 		return
 	}
 	if items == nil {
-		items = []models.CanonicalIntent{}
+		items = []models.PaymentIntentLite{}
 	}
+	total := len(items)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(struct {
-		Items      []models.CanonicalIntent `json:"items"`
-		Pagination TablePagination          `json:"pagination"`
+		Items      []models.PaymentIntentLite `json:"items"`
+		Pagination TablePagination            `json:"pagination"`
 	}{
 		Items: items,
 		Pagination: TablePagination{

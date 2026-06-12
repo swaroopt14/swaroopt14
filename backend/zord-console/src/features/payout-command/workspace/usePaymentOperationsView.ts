@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
+import { useDlqManualReviewCount } from '../intent-journal/hooks/useDlqManualReviewCount'
 import { commandPeriodToDateRange } from '../command-center/commandCenterPeriod'
 import { fmtInrFromMinorExact, parseMinorField } from '../command-center/commandCenterFormat'
 import { derivePaymentCommandDataState } from '../command-center/paymentCommandDataState'
@@ -55,6 +56,10 @@ export function usePaymentOperationsView(batchId?: string): {
   loading: boolean
 } {
   const { tenantReady } = useSessionTenant()
+  const { displayCount: manualReviewCount, loading: manualReviewLoading } = useDlqManualReviewCount(
+    tenantReady,
+    batchId,
+  )
   const dateQuery = useMemo(() => commandPeriodToDateRange('month'), [])
 
   const intelligence = useIntelligenceKpis({ tenantReady, batchId, dateQuery })
@@ -192,16 +197,19 @@ export function usePaymentOperationsView(batchId?: string): {
       })
     }
 
-    const itemsCount = recommendationsOk
-      ? recommendations.total_actions
-      : ambiguityOk
-        ? ambiguity.ambiguous_intent_count
-        : patternsOk
-          ? patterns.pending_count
-          : 0
+    const itemsCount =
+      manualReviewCount != null
+        ? manualReviewCount
+        : recommendationsOk
+          ? recommendations.total_actions
+          : ambiguityOk
+            ? ambiguity.ambiguous_intent_count
+            : patternsOk
+              ? patterns.pending_count
+              : 0
 
     const hasLiveData =
-      leakageOk || ambiguityOk || defensibilityOk || patternsOk || recommendationsOk
+      leakageOk || ambiguityOk || defensibilityOk || patternsOk || recommendationsOk || manualReviewCount != null
 
     return {
       summary: {
@@ -247,7 +255,14 @@ export function usePaymentOperationsView(batchId?: string): {
       clarityState,
       healthBrief: {
         cleanCount: patternsOk ? formatCount(patterns.success_count) : '—',
-        needsReview: ambiguityOk ? formatCount(ambiguity.ambiguous_intent_count) : '—',
+        needsReview:
+          manualReviewLoading && manualReviewCount == null
+            ? '…'
+            : manualReviewCount != null
+              ? formatCount(manualReviewCount)
+              : ambiguityOk
+                ? formatCount(ambiguity.ambiguous_intent_count)
+                : '—',
         proofReady:
           disputeReady != null && patternsOk
             ? formatCount(Math.round(patterns.success_count * disputeReady))
@@ -272,7 +287,14 @@ export function usePaymentOperationsView(batchId?: string): {
           },
         ],
       },
-      itemsNeedingReview: hasLiveData ? formatCount(itemsCount) : '—',
+      itemsNeedingReview:
+        manualReviewLoading && manualReviewCount == null
+          ? '…'
+          : manualReviewCount != null
+            ? formatCount(manualReviewCount)
+            : hasLiveData
+              ? formatCount(itemsCount)
+              : '—',
       reviewBreakdown,
       showRoutingNotice: true,
       lastUpdatedIso,
@@ -284,7 +306,8 @@ export function usePaymentOperationsView(batchId?: string): {
       },
       hasLiveData,
       reviewMinor,
-      ambiguousIntentCount: ambiguityOk ? ambiguity.ambiguous_intent_count : 0,
+      ambiguousIntentCount:
+        manualReviewCount != null ? manualReviewCount : ambiguityOk ? ambiguity.ambiguous_intent_count : 0,
       matchConfidencePct: matchConf != null ? matchConf * 100 : null,
       refCompletenessPct: refCompleteness != null ? refCompleteness * 100 : null,
     }
@@ -301,10 +324,12 @@ export function usePaymentOperationsView(batchId?: string): {
     defensibilityOk,
     patternsOk,
     recommendationsOk,
+    manualReviewCount,
+    manualReviewLoading,
   ])
 
   return {
     viewModel,
-    loading: intelligence.loading || dataSources.loading,
+    loading: intelligence.loading || dataSources.loading || manualReviewLoading,
   }
 }

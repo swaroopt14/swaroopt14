@@ -593,7 +593,6 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                           { key: 'batch', label: 'Batch', icon: 'reference' as const },
                             { key: 'rownum', label: 'Row #', icon: 'reference' as const },
                           { key: 'amount', label: 'Amount', icon: 'amount' as const },
-                          { key: 'method', label: 'Method', icon: 'payment' as const },
                           { key: 'connector', label: 'Connector', icon: 'payment' as const },
                           { key: 'reason', label: 'Failure Reason', icon: 'status' as const },
                           { key: 'status', label: 'Status', icon: 'status' as const },
@@ -611,7 +610,7 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     <tbody>
                       {failurePageRows.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="px-4 py-12 text-center text-[14px] text-[#64748b]">
+                          <td colSpan={7} className="px-4 py-12 text-center text-[14px] text-[#64748b]">
                             No failures match your filters for this batch.
                           </td>
                         </tr>
@@ -626,31 +625,26 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                             {row.sourceRowNum ?? '—'}
                           </td>
                           <td className="px-3 py-2.5 tabular-nums">
-                            {row.amount > 0
+                            {Number.isFinite(row.amount)
                               ? formatJournalMoney(row.amount, row.currency ?? 'INR')
                               : '—'}
                           </td>
-                          <td className="px-3 py-2.5">{row.method}</td>
                           <td className="px-3 py-2.5">
-                            <div className="inline-flex items-center gap-2 rounded-lg border border-[#e6ebf2] bg-white px-2 py-1">
-                              {row.paymentPartner && row.paymentPartner !== '—' ? (
-                                <EntityLogo name={row.paymentPartner} kind="psp" size={18} />
-                              ) : null}
-                              <span className="text-[15px] font-medium text-[#334155]">{row.paymentPartner}</span>
-                            </div>
+                            {row.paymentPartner && row.paymentPartner !== '—' ? (
+                              <EntityLogo name={row.paymentPartner} kind="psp" size={18} />
+                            ) : (
+                              '—'
+                            )}
                           </td>
                           <td className="px-3 py-2.5 text-rose-700">{row.failureReason}</td>
                           <td className="px-3 py-2.5 min-w-[9.5rem]">
-                            <div className="flex flex-col items-start gap-1.5">
-                              <span className="text-[13px] font-medium text-[#334155]">{row.dlqStatusLabel ?? '—'}</span>
-                              <button
-                                type="button"
-                                onClick={() => setManualReviewRow(row)}
-                                className="inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-lg border border-[#0f172a] bg-[#0f172a] px-3 text-[12px] font-medium text-white transition hover:bg-[#1e293b]"
-                              >
-                                Manual review
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setManualReviewRow(row)}
+                              className="inline-flex h-8 shrink-0 items-center whitespace-nowrap rounded-lg border border-[#0f172a] bg-[#0f172a] px-3 text-[12px] font-medium text-white transition hover:bg-[#1e293b]"
+                            >
+                              Manual review
+                            </button>
                           </td>
                           <td className="px-3 py-2.5 text-[#64748b]">{row.lastUpdated}</td>
                         </tr>

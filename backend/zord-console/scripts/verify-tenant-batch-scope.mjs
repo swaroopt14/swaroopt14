@@ -59,6 +59,34 @@ const checks = [
     mustInclude: ['BFF injects tenant from session', 'batch_id: bid'],
     label: 'intelligence KPI client is session-scoped',
   },
+  {
+    file: 'app/api/prod/intelligence/leakage/route.ts',
+    mustInclude: ['forwardIntelligence'],
+    label: 'leakage BFF forwards query params (batch_id)',
+  },
+  {
+    file: 'app/api/prod/intelligence/ambiguity/route.ts',
+    mustInclude: ['forwardIntelligence'],
+    label: 'ambiguity BFF forwards query params (batch_id)',
+  },
+  {
+    file: 'app/api/prod/intelligence/timeseries/leakage/route.ts',
+    mustInclude: ['forwardIntelligence'],
+    label: 'leakage timeseries BFF forwards query params (batch_id)',
+  },
+  {
+    file: 'src/features/payout-command/hooks/useIntelligenceBatchUrlSync.ts',
+    mustInclude: ["params.set('batch_id'", "params.delete('batch_id')"],
+    label: 'leakage/ambiguity URL sync for batch_id',
+  },
+  {
+    file: 'src/features/payout-command/intent-journal/intentJournalSidebarUtils.ts',
+    mustInclude: [
+      'if (confPct != null)',
+      'return batchStatusFromConfidencePct(confPct)',
+    ],
+    label: 'sidebar health tier from aggregate score when present',
+  },
 ]
 
 let failed = 0

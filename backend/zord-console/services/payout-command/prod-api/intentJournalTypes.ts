@@ -16,6 +16,8 @@ export type IntentJournalPaymentIntentItem = {
   provider_hint?: string
   rail_hint?: string
   intent_quality_score?: number | null
+  confidence_score?: number | null
+  mapping_confidence_score?: number | null
   /** Batch-level aggregate confidence (same value on every intent in the batch). */
   aggregate_confidence_score?: number | null
   intent_id?: string

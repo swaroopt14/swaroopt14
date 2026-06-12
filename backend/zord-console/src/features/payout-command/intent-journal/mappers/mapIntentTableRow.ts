@@ -1,6 +1,7 @@
 import type { IntentJournalPaymentIntentItem } from '@/services/payout-command/prod-api/intentJournalTypes'
 import type { JournalIntentRow, JournalIntentStatus } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
+import { readIntentQualityScore } from '@/services/payout-command/prod-api/resolveIntentQualityScore'
 
 export const READINESS_REVIEW_THRESHOLD = 0.7
 
@@ -18,14 +19,6 @@ function formatJournalExecutionAt(iso: string | undefined): string {
   })
 }
 
-function coerceQualityScore(raw: unknown): number | null {
-  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
-  if (typeof raw === 'string' && raw.trim()) {
-    const n = Number.parseFloat(raw)
-    return Number.isFinite(n) ? n : null
-  }
-  return null
-}
 
 function formatConfidenceLabel(score: number | undefined): string {
   if (score == null || !Number.isFinite(score)) return '—'
@@ -123,7 +116,7 @@ export function mapPaymentIntentListItemToRow(
 ): JournalIntentRow {
   const amount = parseAmount(item.amount)
   const sourceRowNum = parseSourceRowNum(item.source_row_num)
-  const qualityScore = coerceQualityScore(item.intent_quality_score)
+  const qualityScore = readIntentQualityScore(item)
   const status: JournalIntentStatus = 'Ready to Process'
   const provider = resolveProviderHint(item)
   const rail = resolveRailHint(item)

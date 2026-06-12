@@ -28,7 +28,9 @@ export function ManualReviewEscalationModal({
   const [error, setError] = useState<string | null>(null)
 
   const beneficiary = row.beneficiaryName?.trim() || row.paymentPartner?.trim() || '—'
-  const amountLabel = row.amount > 0 ? formatJournalMoney(row.amount, row.currency ?? 'INR') : '—'
+  const amountLabel = Number.isFinite(row.amount)
+    ? formatJournalMoney(row.amount, row.currency ?? 'INR')
+    : '—'
   const errorDetail = row.failureReason?.trim() || '—'
 
   const handleSendToSupport = () => {

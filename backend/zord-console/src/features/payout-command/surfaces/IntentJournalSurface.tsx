@@ -24,6 +24,7 @@ import {
   engineDispatchConfidencePct,
   formatInrRupees,
   resolveBatchHealthStatus,
+  mergeBatchAggregateScore,
   type BatchFilter,
   type BatchRecord,
   type BatchStatus,
@@ -32,6 +33,7 @@ import { useJournalSidebarBatches } from '../intent-journal/hooks/useJournalSide
 import { useJournalIntentRows } from '../intent-journal/hooks/useJournalIntentRows'
 import { useJournalFailureRows } from '../intent-journal/hooks/useJournalFailureRows'
 import { useJournalIntelligenceBatch } from '../intent-journal/hooks/useJournalIntelligenceBatch'
+import { useJournalBatchMetrics } from '../intent-journal/hooks/useJournalBatchMetrics'
 import { downloadCsv, failuresToCsv, intentsToCsv, downloadFailuresCsv } from '../intent-journal/journalExport'
 import { LIVE_JOURNAL_POLL_MS } from '../intent-journal/journalConstants'
 import type { PaymentIntentRecord } from '@/services/payout-command/prod-api/getProdIntentEngineBatches'
@@ -364,6 +366,10 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     selectedBatchId,
     journalUsesBackendFeed && tenantReady,
   )
+  const { batch: selectedMetricsBatch } = useJournalBatchMetrics(
+    selectedBatchId,
+    journalUsesBackendFeed && tenantReady,
+  )
 
   const liveIntentRows = intentFeed.rows
   const liveFailureRows = failureFeed.rows
@@ -518,7 +524,12 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
   const selectedBatchHealth = useMemo((): BatchStatus => {
     if (!selectedBatch) return 'Stable'
-    return resolveBatchHealthStatus(selectedBatch, {
+    const batchForHealth = mergeBatchAggregateScore(selectedBatch, {
+      isSelected: true,
+      detailAggregateScore: liveBatchDetail?.batch_health?.aggregate_score,
+      metricsBatch: selectedMetricsBatch,
+    })
+    return resolveBatchHealthStatus(batchForHealth, {
       dlqCount: selectedBatchId.trim() ? selectedDlqTotal : 0,
       intentCount: selectedBatchId.trim() ? selectedEngineIntentTotal : 0,
       finality:
@@ -530,6 +541,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     selectedDlqTotal,
     selectedEngineIntentTotal,
     liveBatchDetail?.batch?.finality_status,
+    liveBatchDetail?.batch_health?.aggregate_score,
+    selectedMetricsBatch,
   ])
 
   useEffect(() => {
@@ -822,6 +835,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           safeSidebarPage={safeSidebarPage}
           sidebarTotalPages={sidebarTotalPages}
           needsAttentionCount={needsAttentionCount}
+          selectedMetricsBatch={selectedMetricsBatch}
         />
 
         <main className="flex h-full min-w-0 flex-col overflow-hidden">

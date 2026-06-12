@@ -25,6 +25,7 @@ import { BatchIngestSuccessDialog } from './BatchIngestSuccessDialog'
 import { BatchProgressPanel } from './BatchProgressPanel'
 import { PaymentStatusBreakdown } from './PaymentStatusBreakdown'
 import { ReviewItemsTable } from './ReviewItemsTable'
+import type { BatchRow } from '@/services/payout-command/batch-model'
 import { mapPaymentStatusBreakdown } from '../mappers/mapBatchReviewKpis'
 
 function summaryFromEngineRows(
@@ -70,6 +71,8 @@ export default function BatchCommandCenterClient() {
     settlementBatchId: null,
   })
   const [ingestDialog, setIngestDialog] = useState<IngestDialogState>(null)
+  const [intentFilePreviewRows, setIntentFilePreviewRows] = useState<BatchRow[]>([])
+  const [settlementFilePreviewRows, setSettlementFilePreviewRows] = useState<BatchRow[]>([])
   const [uploadStatus, setUploadStatus] = useState<BatchUploadStatus>({ state: 'idle', message: null })
   const [toolbarNotice, setToolbarNotice] = useState<string | null>(null)
   const [shareBusy, setShareBusy] = useState(false)
@@ -130,6 +133,7 @@ export default function BatchCommandCenterClient() {
   const onIntentIngestSuccess = useCallback(
     (payload: IntentIngestSuccessPayload) => {
       const batchId = payload.effectiveBatch ?? payload.batchId
+      setIntentFilePreviewRows(payload.parsedRows)
       setIngestDialog({ kind: 'intent', batchId, fileName: payload.fileName })
       void feed.refreshBatchFeed()
     },
@@ -138,6 +142,7 @@ export default function BatchCommandCenterClient() {
 
   const onSettlementIngestSuccess = useCallback(
     (payload: SettlementIngestSuccessPayload) => {
+      setSettlementFilePreviewRows(payload.parsedRows)
       setIngestDialog({ kind: 'settlement', batchId: payload.batchId, fileName: payload.fileName })
       void feed.refreshBatchFeed()
     },
@@ -372,6 +377,9 @@ export default function BatchCommandCenterClient() {
         <ReviewItemsTable
           failures={feed.failureRows}
           intents={feed.intentRows}
+          settlementRows={feed.settlementObservationRows}
+          intentFileRows={intentFilePreviewRows}
+          settlementFileRows={settlementFilePreviewRows}
           failuresTabHref={failuresTabHref}
           loading={feed.detailLoading && !feed.feedLoaded}
         />

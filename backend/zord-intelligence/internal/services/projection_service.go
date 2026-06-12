@@ -776,9 +776,9 @@ func (s *ProjectionService) HandleDLQItem(
 	// This is the primary intelligence input for the "Fix Source Export" recommendation.
 	if e.SourceSystem != "" {
 		dlqDelta := persistence.SourceQualityDelta{
-			ManualReviewCount:      1,
+			ManualReviewCount:       1,
 			ManualReviewAmountMinor: e.AmountMinor,
-			ManualReviewReasonCode: e.ReasonCode,
+			ManualReviewReasonCode:  e.ReasonCode,
 		}
 		if err := s.projRepo.AtomicUpsertSourceQuality(
 			ctx, e.TenantID, e.SourceSystem, dlqDelta, window.start, window.end,
@@ -839,6 +839,7 @@ func (s *ProjectionService) HandleDLQEvent(
 	}
 	return nil
 }
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 type windowBounds struct {
@@ -1162,8 +1163,8 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		return nil
 	}
 
-	log.Printf("[attachment.decision.created] RECEIVED event_id=%s tenant=%s decision=%s intent=%s batch=%s confidence=%.2f candidate_set=%d",
-		e.EventID, e.TenantID, e.DecisionType, e.IntentID, e.BatchID, e.ConfidenceScore, e.CandidateSetSize)
+	log.Printf("[attachment.decision.created] RECEIVED event_id=%s tenant=%s decision=%s intent=%s batch=%s confidence=%.2f candidate_set=%d provider_id=%s",
+		e.EventID, e.TenantID, e.DecisionType, e.IntentID, e.BatchID, e.ConfidenceScore, e.CandidateSetSize, e.ProviderID)
 
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
 	if err != nil {
@@ -1295,7 +1296,8 @@ func (s *ProjectionService) HandleAttachmentDecision(
 
 	// NOTE: Provider/source grouping for ambiguity patterns comes exclusively from
 	// CanonicalSettlementCreatedEvent (5B) via HandleSettlementCreated.
-	// AttachmentDecisionCreatedEvent (5C) does not carry provider/source fields.
+	// AttachmentDecisionCreatedEvent (5C) carries ProviderID (source_system) for
+	// logging/diagnostics only — it does not feed provider-quality projections here.
 
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleAttachmentDecision MarkProcessed event_id=%s: %w", e.EventID, err)
@@ -1368,8 +1370,8 @@ func (s *ProjectionService) HandleVarianceRecord(
 		return nil
 	}
 
-	log.Printf("[variance.record.created] RECEIVED event_id=%s tenant=%s variance=%s type=%s amount=%s batch=%s intent=%s whitelisted=%v",
-		e.EventID, e.TenantID, e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.BatchID, e.IntentID, e.IsWhitelisted)
+	log.Printf("[variance.record.created] RECEIVED event_id=%s tenant=%s variance=%s type=%s amount=%s batch=%s intent=%s whitelisted=%v provider_id=%s",
+		e.EventID, e.TenantID, e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.BatchID, e.IntentID, e.IsWhitelisted, e.ProviderID)
 
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
 	if err != nil {

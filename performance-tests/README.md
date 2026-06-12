@@ -152,3 +152,220 @@ k6 run --env BASE_URL="https://api.zordnet.com" --env ADMIN_KEY="zord123" perfor
 1. New Item → Pipeline → `performance-tests`
 2. Pipeline script from SCM → Git → `performance-tests/Jenkinsfile.performance-tests`
 3. Build Triggers → Build periodically → `H 3 * * 6` (Saturday 3AM)
+
+---
+
+## Step-by-Step Deployment Guide (From Zero)
+
+Follow these steps exactly. Nothing is assumed.
+
+---
+
+### Step 1: Push Code to GitHub
+
+Push the `performance-tests/` folder to your repository so Jenkins can pull it.
+
+**What this does:** Uploads all 9 test scripts, Jenkinsfile, report generator, and README to GitHub so Jenkins can pull them.
+
+---
+
+### Step 2: Create Slack Incoming Webhook
+
+1. Open your browser → go to: `https://api.slack.com/apps`
+2. Click your app **"Zord Performance Bot"** (or create one if you don't have it)
+3. Left sidebar → click **"Incoming Webhooks"**
+4. Toggle it **ON** if not already
+5. Scroll down → click **"Add New Webhook to Workspace"**
+6. Select channel: **#zord-performance-testing-bot**
+7. Click **"Allow"**
+8. Copy the new webhook URL (starts with `https://hooks.slack.com/services/T.../B.../...`)
+9. **Save this URL** — you'll paste it in Jenkins credentials
+
+**What this does:** Gives Jenkins permission to send messages to your Slack channel.
+
+---
+
+### Step 3: Add Webhook as Jenkins Credential
+
+1. Jenkins → **Manage Jenkins** → **Credentials**
+2. Click **(global)** domain → **Add Credentials**
+3. Fill in:
+   - Kind: **Secret text**
+   - Secret: paste your webhook URL
+   - ID: `slack-webhook`
+   - Description: `Slack webhook for performance bot`
+4. Click **Save**
+
+**What this does:** Stores the webhook URL securely in Jenkins. The pipeline reads it using `credentials('slack-webhook')` — the URL never appears in code or logs.
+
+---
+
+### Step 3: Create Jenkins Pipeline Job
+
+1. Open Jenkins in your browser (your Jenkins URL)
+2. Click **"New Item"** (top left)
+3. Enter name: `performance-tests`
+4. Select: **"Pipeline"**
+5. Click **"OK"**
+
+Now you're on the job configuration page:
+
+---
+
+### Step 4: Configure Pipeline Source
+
+Scroll down to the **"Pipeline"** section:
+
+1. **Definition:** select `Pipeline script from SCM`
+2. **SCM:** select `Git`
+3. **Repository URL:** `https://github.com/Arealis-network/Arealis-Zord-intent.git`
+4. **Credentials:** select your GitHub PAT credential (`github-pat`)
+5. **Branch Specifier:** `*/main`
+6. **Script Path:** `performance-tests/Jenkinsfile.performance-tests`
+
+**What this does:** Tells Jenkins where to find the pipeline code.
+
+---
+
+### Step 5: Configure Build Triggers (Automatic Weekly Run)
+
+Still on the same config page, scroll to **"Build Triggers"**:
+
+1. Check the box: **"Build periodically"**
+2. In the Schedule field, type: `H 3 * * 6`
+
+```
+H 3 * * 6
+│ │ │ │ │
+│ │ │ │ └── Day of week (6 = Saturday)
+│ │ │ └──── Month (any)
+│ │ └────── Day of month (any)
+│ └──────── Hour (3 AM)
+└────────── Minute (random, chosen by Jenkins)
+```
+
+**What this does:** Runs the test automatically every Saturday at 3 AM.
+
+---
+
+### Step 6: Save and Run First Build
+
+1. Click **"Save"** at the bottom of the config page
+2. Click **"Build with Parameters"** (left sidebar)
+3. You'll see these parameters pre-filled:
+   - BASE_URL: `https://api.zordnet.com`
+   - ADMIN_KEY: `zord123`
+   - RUN_SPIKE_TEST: ✓ checked
+   - RUN_AI_TEST: ✓ checked
+   - NOTIFY_SLACK: ✓ checked
+4. Click **"Build"**
+
+**What this does:** Runs all 9 performance tests against your production API. The Slack webhook is pulled automatically from Jenkins credentials.
+
+---
+
+### Step 7: Watch the Build
+
+1. Click on the running build number (e.g., `#6`)
+2. Click **"Console Output"** to watch live
+3. You'll see each stage run:
+   ```
+   [Pipeline] stage (Install Tools)
+   [Pipeline] stage (Test 1: Health Check)
+   [Pipeline] stage (Test 2: Tenant Registration)
+   ...
+   [Pipeline] stage (Notify Slack)
+   ```
+4. Total runtime: ~20-25 minutes
+
+---
+
+### Step 8: Check Results
+
+After the build finishes:
+
+| Where to Look | What You'll See |
+|---|---|
+| **Slack** (`#zord-performance-testing-bot`) | Beautiful card with all 9 test results + metrics + links |
+| **Jenkins → Build → Artifacts** | Download REPORT.md, all test output files |
+| **Grafana** (click link in Slack) | CPU/memory/latency graphs during test window |
+| **Kibana** (click link in Slack) | Any 5xx error logs during test window |
+| **Jaeger** (click link in Slack) | Request traces with X-Request-Id correlation |
+
+---
+
+### Step 9: (Optional) Configure kubectl on Jenkins Agent
+
+If you want cluster state (HPA, pod CPU/memory) in the report:
+
+```bash
+# SSH into your Jenkins agent
+ssh jenkins-agent
+
+# Install AWS CLI (if not present)
+curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+unzip awscliv2.zip && sudo ./aws/install
+
+# Configure AWS credentials
+aws configure
+# Enter: Access Key, Secret Key, Region: ap-south-1, Output: json
+
+# Install kubectl
+curl -LO "https://dl.k8s.io/release/v1.29.0/bin/linux/amd64/kubectl"
+chmod +x kubectl && sudo mv kubectl /usr/local/bin/
+
+# Connect to your EKS cluster
+aws eks update-kubeconfig --name <your-cluster-name> --region ap-south-1
+
+# Verify
+kubectl get pods -n zord
+```
+
+**What this does:** Allows the Jenkins agent to run `kubectl` commands to capture cluster state before/after tests.
+
+---
+
+### Step 10: (Optional) Rotate Your Slack Webhook
+
+Since the old webhook URL was shared in chat:
+
+1. Go to: `https://api.slack.com/apps` → your app → **Incoming Webhooks**
+2. Find the old webhook → click the **trash icon** to delete it
+3. Click **"Add New Webhook to Workspace"** → select `#zord-performance-testing-bot`
+4. Copy the new URL
+5. Update in Jenkins: **Build with Parameters** → paste new URL in `SLACK_WEBHOOK_URL`
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Build says "k6: command not found" | The pipeline installs it automatically. Check internet access from Jenkins agent |
+| All tests show 0 requests | Jenkins agent can't reach `api.zordnet.com`. Check DNS/firewall |
+| Slack notification not received | Check webhook URL is correct. Run `curl -X POST -H 'Content-type: application/json' --data '{"text":"test"}' YOUR_WEBHOOK_URL` from Jenkins agent |
+| Tests show 100% failure (http_req_failed) | This is normal — k6 counts 401 auth responses as "failed". Check `checks` instead |
+| Report shows "kubectl unavailable" | kubectl not configured on Jenkins agent (see Step 10) |
+| Grafana link shows "Dashboard not found" | The dashboard UID is `zord-platform-health`. Verify it exists in Grafana |
+| Pipeline timeout (>45 min) | AI copilot test may be slow. Set `RUN_AI_TEST` to false |
+| Slack shows "invalid_payload" | Check the webhook URL doesn't have extra spaces or line breaks |
+
+---
+
+## Quick Reference
+
+| Item | Value |
+|------|-------|
+| Jenkins Job Name | `performance-tests` |
+| Script Path | `performance-tests/Jenkinsfile.performance-tests` |
+| Schedule | `H 3 * * 6` (Saturday 3 AM) |
+| Target URL | `https://api.zordnet.com` |
+| Admin Key | `zord123` |
+| Slack Channel | `#zord-performance-testing-bot` |
+| Grafana | `https://grafana.zordnet.com/d/zord-platform-health` |
+| Kibana | `https://kibana.zordnet.com` |
+| Jaeger | `https://jaeger.zordnet.com` |
+| Kong Admin | `https://kong-admin.zordnet.com` |
+| Total Tests | 9 |
+| Total Runtime | ~20-25 minutes |
+| Jenkins Artifacts | `performance-tests/results/<build-number>/` |

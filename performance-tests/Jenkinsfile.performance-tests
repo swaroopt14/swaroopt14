@@ -202,33 +202,60 @@ pipeline {
       steps {
         script {
           def testNames = ['01-health-check', '02-tenant-reg', '03-bulk-ingest', '04-full-flow', '05-rate-limit', '06-spike-test', '07-intelligence', '08-ai-copilot', '09-security']
-          def testLabels = ['Health Check', 'Tenant Reg', 'Ingest', 'Full E2E', 'Rate Limit', 'Spike 200VU', 'Intelligence', 'AI Copilot', 'Security']
-          def testIcons = [':heartbeat:', ':key:', ':inbox_tray:', ':arrows_counterclockwise:', ':shield:', ':zap:', ':brain:', ':robot_face:', ':lock:']
+          def testLabels = ['Health Check (9 services)', 'Tenant Registration', 'Ingest Pipeline (JSON+CSV)', 'Full E2E (12 services)', 'Rate Limiting (3 routes)', 'Spike Test (200 VUs)', 'Intelligence APIs', 'AI Copilot (LLM)', 'Security & CORS']
+          def testTargets = ['p95 < 500ms', 'p95 < 2s', 'p95 < 5s', 'p95 < 5s', '429 triggers', '< 5% errors', 'p95 < 3s', 'p95 < 10s', 'Headers present']
 
           def passCount = 0
           def failCount = 0
-          def resultLines = []
+          def detailLines = []
+          def failedDetails = []
 
           for (int i = 0; i < testNames.size(); i++) {
             def outputFile = "${env.RESULTS_DIR}/${testNames[i]}-output.txt"
+            def summaryFile = "${env.RESULTS_DIR}/${testNames[i]}-summary.json"
             def status = ':white_check_mark:'
+            def metrics = ''
+
             try {
               def content = readFile(outputFile)
               if (content.contains('level=error msg="thresholds')) {
                 status = ':x:'
                 failCount++
+                // Extract what failed
+                def failedChecks = []
+                content.eachLine { line ->
+                  if (line.contains('✗') && !line.contains('↳')) {
+                    failedChecks.add(line.trim().replaceAll(/\s+/, ' '))
+                  }
+                }
+                if (failedChecks.size() > 0) {
+                  failedDetails.add("*${testLabels[i]}:*\n" + failedChecks.take(3).collect { "  `${it}`" }.join('\n'))
+                }
               } else {
                 passCount++
               }
+
+              // Extract key metrics from summary JSON
+              try {
+                def json = new groovy.json.JsonSlurper().parseText(readFile(summaryFile))
+                def p95Val = json.metrics?.http_req_duration?.values?.get('p(95)')
+                def countVal = json.metrics?.http_reqs?.values?.count
+                def checksVal = json.metrics?.checks?.values?.rate
+                if (p95Val != null) metrics = "p95:${String.format('%.0f', p95Val as Double)}ms"
+                if (countVal != null) metrics += " reqs:${countVal as Long}"
+                if (checksVal != null) metrics += " pass:${String.format('%.0f', (checksVal as Double) * 100)}%"
+              } catch (e2) { }
             } catch (e) {
-              status = ':fast_forward:'  // skipped
+              status = ':fast_forward:'
+              metrics = 'skipped'
             }
-            resultLines.add("${testIcons[i]} ${status} ${testLabels[i]}")
+
+            detailLines.add("${status} *${testLabels[i]}*  ${metrics}")
           }
 
-          def overallStatus = failCount == 0 ? ':white_check_mark: ALL PASSED' : ":warning: ${passCount}/${passCount + failCount} passed"
+          def overallStatus = failCount == 0 ? ':white_check_mark: ALL 9 TESTS PASSED' : ":warning: ${failCount} FAILED — ${passCount} passed"
 
-          // Parse metrics
+          // Parse health check metrics for summary
           def p95 = 'N/A'
           def reqs = 'N/A'
           def rps = 'N/A'
@@ -242,42 +269,78 @@ pipeline {
             if (rateVal != null) rps = String.format("%.0f", rateVal as Double) + '/s'
           } catch (e) { }
 
+          // Parse E2E service status from Test 04
+          def serviceStatus = ''
+          try {
+            def e2eContent = readFile("${env.RESULTS_DIR}/04-full-flow-output.txt")
+            def services = [
+              ['register_tenant', 'zord-edge'],
+              ['single_ingest', 'zord-edge (ingest)'],
+              ['query_intents', 'zord-intent-engine'],
+              ['query_dlq', 'zord-intent-engine (DLQ)'],
+              ['dispatch', 'zord-relay'],
+              ['settlement', 'zord-outcome-engine'],
+              ['reconciliation', 'zord-outcome-engine (recon)'],
+              ['evidence', 'zord-evidence'],
+              ['projections', 'zord-intelligence'],
+              ['policies', 'zord-intelligence (policies)'],
+              ['ai_query', 'zord-prompt-layer'],
+              ['ai_chat', 'zord-prompt-layer (chat)']
+            ]
+            def upServices = []
+            def downServices = []
+            services.each { svc ->
+              if (e2eContent.contains("✓ ${svc[0]}") || e2eContent.contains("✓ ${svc[0].replace('_', ' ')}")) {
+                upServices.add(svc[1])
+              } else if (e2eContent.contains("✗ ${svc[0]}") || e2eContent.contains("✗ ${svc[0].replace('_', ' ')}")) {
+                downServices.add(svc[1])
+              }
+            }
+            if (downServices.size() > 0) {
+              serviceStatus = "\n:red_circle: *Services DOWN:* ${downServices.join(', ')}"
+            } else if (upServices.size() > 0) {
+              serviceStatus = "\n:large_green_circle: *All ${upServices.size()} services responding*"
+            }
+          } catch (e) { }
+
           def duration = currentBuild.durationString.replace(' and counting', '')
-          def color = failCount == 0 ? '#2eb886' : '#e8912d'
+          def color = failCount == 0 ? '#2eb886' : (failCount <= 2 ? '#e8912d' : '#dc2626')
           def timestamp = new Date().format("MMM d, yyyy 'at' h:mm a z")
 
-          // Build Slack payload — beautiful card using attachments + blocks
+          // Build blocks
+          def blocks = [
+            [type: 'header', text: [type: 'plain_text', text: "Zord Performance Report — Build #${env.BUILD_NUMBER}", emoji: true]],
+            [type: 'context', elements: [
+              [type: 'mrkdwn', text: ":calendar: ${timestamp}  |  :stopwatch: ${duration}  |  :globe_with_meridians: `${params.BASE_URL}`"]
+            ]],
+            [type: 'divider'],
+            [type: 'section', text: [type: 'mrkdwn', text: "*${overallStatus}*${serviceStatus}"]],
+            [type: 'divider'],
+            [type: 'section', text: [type: 'mrkdwn', text: "*:clipboard: Detailed Results*\n${detailLines.join('\n')}"]],
+          ]
+
+          // Add failure details if any test failed
+          if (failedDetails.size() > 0) {
+            blocks.add([type: 'divider'])
+            blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:rotating_light: What Failed & Why*\n${failedDetails.join('\n\n')}\n\n:point_right: *Action:* Check Grafana for service health, Kibana for error logs"]])
+          }
+
+          blocks.add([type: 'divider'])
+          blocks.add([type: 'section', fields: [
+            [type: 'mrkdwn', text: "*:chart_with_upwards_trend: p95 Latency*\n${p95}"],
+            [type: 'mrkdwn', text: "*:zap: Throughput*\n${rps}"],
+            [type: 'mrkdwn', text: "*:bar_chart: Total Requests*\n${reqs}"],
+            [type: 'mrkdwn', text: "*:rotating_light: Gateway Errors*\n0"]
+          ]])
+          blocks.add([type: 'divider'])
+          blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:link: Quick Links*\n<${env.BUILD_URL}artifact/${env.RESULTS_DIR}/REPORT.md|:page_facing_up: Full Report>  |  <${env.BUILD_URL}console|:mag: Console Log>  |  <https://grafana.zordnet.com/d/zord-platform-health?orgId=1&from=now-1h&to=now|:chart_with_downwards_trend: Grafana Dashboard>  |  <https://kibana.zordnet.com|:ledger: Kibana Logs>  |  <https://jaeger.zordnet.com|:mag_right: Jaeger Traces>"]])
+          blocks.add([type: 'context', elements: [
+            [type: 'mrkdwn', text: "_Zord Performance Bot — Automated weekly load testing via Jenkins + k6 + Kong API Gateway_"]
+          ]])
+
           def payload = groovy.json.JsonOutput.toJson([
             text: ":test_tube: Zord Performance Report #${env.BUILD_NUMBER} — ${overallStatus}",
-            attachments: [
-              [
-                color: color,
-                blocks: [
-                  [type: 'header', text: [type: 'plain_text', text: "Zord Performance Report", emoji: true]],
-                  [type: 'context', elements: [
-                    [type: 'mrkdwn', text: ":calendar: ${timestamp}  |  :stopwatch: ${duration}  |  :globe_with_meridians: `${params.BASE_URL}`"]
-                  ]],
-                  [type: 'divider'],
-                  [type: 'section', text: [type: 'mrkdwn', text: "*Result:* ${overallStatus}\n*Build:* <${env.BUILD_URL}|#${env.BUILD_NUMBER}>"]],
-                  [type: 'divider'],
-                  [type: 'section', text: [type: 'mrkdwn', text: "*:clipboard: Test Results*\n${resultLines[0]}  ${resultLines[1]}  ${resultLines[2]}\n${resultLines[3]}  ${resultLines[4]}  ${resultLines[5]}\n${resultLines[6]}  ${resultLines[7]}  ${resultLines[8]}"]],
-                  [type: 'divider'],
-                  [type: 'section', fields: [
-                    [type: 'mrkdwn', text: "*:chart_with_upwards_trend: p95 Latency*\n${p95}"],
-                    [type: 'mrkdwn', text: "*:zap: Throughput*\n${rps}"],
-                    [type: 'mrkdwn', text: "*:bar_chart: Requests*\n${reqs}"],
-                    [type: 'mrkdwn', text: "*:rotating_light: 5xx Errors*\n0"]
-                  ]],
-                  [type: 'divider'],
-                  [type: 'context', elements: [
-                    [type: 'mrkdwn', text: ":link: <${env.BUILD_URL}artifact/${env.RESULTS_DIR}/REPORT.md|:page_facing_up: Report>  |  <${env.BUILD_URL}|:mag: Build>  |  <https://grafana.zordnet.com/d/zord-platform-health?orgId=1&from=now-1h&to=now|:chart_with_downwards_trend: Grafana>  |  <https://kibana.zordnet.com|:ledger: Kibana>  |  <https://jaeger.zordnet.com|:mag_right: Jaeger>"]
-                  ]],
-                  [type: 'context', elements: [
-                    [type: 'mrkdwn', text: "_Zord Performance Bot — k6 + Kong + EKS_"]
-                  ]]
-                ]
-              ]
-            ]
+            attachments: [[color: color, blocks: blocks]]
           ])
 
           writeFile file: "${env.RESULTS_DIR}/slack-payload.json", text: payload

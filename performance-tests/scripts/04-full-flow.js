@@ -164,11 +164,14 @@ export default function () {
     // ── 11. AI Copilot Query ───────────────────────────────────────────────
     group('11_ai_query', function () {
         const start = Date.now();
+        const aiHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': apiKey ? `Bearer ${apiKey}` : 'Bearer test-key',
+            'X-Tenant-Id': tid,
+        };
         const res = http.post(`${BASE_URL}/v1/query`, JSON.stringify({
             query: 'show me payout summary for today',
-        }), {
-            headers: { ...authHeaders, 'X-Tenant-Id': tid },
-        });
+        }), { headers: aiHeaders });
         groupLatency.add(Date.now() - start, { group: 'ai_query' });
         check(res, { 'ai query reachable': (r) => r.status < 500 });
     });
@@ -178,11 +181,14 @@ export default function () {
     // ── 12. AI Chat ────────────────────────────────────────────────────────
     group('12_ai_chat', function () {
         const start = Date.now();
+        const chatHeaders = {
+            'Content-Type': 'application/json',
+            'Authorization': apiKey ? `Bearer ${apiKey}` : 'Bearer test-key',
+            'X-Tenant-Id': tid,
+        };
         const res = http.post(`${BASE_URL}/v1/chat`, JSON.stringify({
             message: 'what is my failure rate this week?',
-        }), {
-            headers: { ...authHeaders, 'X-Tenant-Id': tid },
-        });
+        }), { headers: chatHeaders });
         groupLatency.add(Date.now() - start, { group: 'ai_chat' });
         check(res, { 'ai chat reachable': (r) => r.status < 500 });
     });

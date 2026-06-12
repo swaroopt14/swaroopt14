@@ -34,6 +34,5 @@ export function enrichBatchRecordWithMetrics(
     transactions: metrics.instructionCount,
     totalValue: metrics.intendedValue,
     aggregateConfidenceScore: metrics.batchAggregateConfidenceScore ?? undefined,
-    unresolvedCount: metrics.reviewCount,
   }
 }

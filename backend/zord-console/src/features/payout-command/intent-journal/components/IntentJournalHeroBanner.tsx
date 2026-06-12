@@ -6,8 +6,9 @@ import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
 import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
 import { fmtInrFromMinorExact } from '../../command-center/commandCenterFormat'
+import { formatConfidencePct } from '../intentJournalSidebarUtils'
+import { useDlqManualReviewCount } from '../hooks/useDlqManualReviewCount'
 import { IntentJournalExportMenu } from './IntentJournalExportMenu'
-import { useDlqTerminalCount } from '../hooks/useDlqTerminalCount'
 
 type IntentJournalHeroBannerProps = {
   onExportIntents: () => void
@@ -27,19 +28,22 @@ export function IntentJournalHeroBanner({
   const { selectedBatchId, journalEnabled } = useJournalBatchSelection()
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, journalEnabled)
   const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, journalEnabled)
-  const { count: terminalDlqCount, loading: terminalLoading } = useDlqTerminalCount(journalEnabled)
+  const { displayCount: manualReviewCount, loading: manualReviewLoading } = useDlqManualReviewCount(
+    journalEnabled,
+    selectedBatchId,
+  )
 
   const valueLabel = fmtInrFromMinorExact(metrics?.intendedValue ?? batch?.totalValue ?? 0)
   const instructionCount = metrics?.instructionCount ?? batch?.transactions ?? 0
-  const readinessPct = metrics?.avgReadinessPct != null ? `${metrics.avgReadinessPct.toFixed(0)}%` : '—'
-  const needsReview =
-    terminalDlqCount != null ? terminalDlqCount : terminalLoading ? null : 0
+  const qualityPct = formatConfidencePct(metrics?.batchAggregateConfidenceScore ?? null)
   const needsReviewDisplay =
-    needsReview != null ? needsReview.toLocaleString('en-IN') : '—'
+    manualReviewCount != null ? manualReviewCount.toLocaleString('en-IN') : manualReviewLoading ? '…' : '—'
   const needsReviewSub =
-    terminalDlqCount != null
-      ? 'Terminal DLQ items (tenant-wide)'
-      : 'Terminal DLQ count loading…'
+    manualReviewCount != null
+      ? 'Items in manual-review DLQ queue'
+      : manualReviewLoading
+        ? 'Loading manual-review count…'
+        : '—'
   const finalityLabel = intelDetail?.batch?.finality_status
     ? intelDetail.batch.finality_status.replace(/_/g, ' ')
     : 'Awaiting finality'
@@ -65,8 +69,8 @@ export function IntentJournalHeroBanner({
     },
     {
       label: intentJournalCopy.kpi.readiness,
-      value: readinessPct,
-      sub: finalityLabel === 'Awaiting finality' ? 'Average intent quality score' : `Batch finality · ${finalityLabel}`,
+      value: qualityPct,
+      sub: 'Batch aggregate confidence score',
     },
     {
       label: intentJournalCopy.kpi.needsReview,

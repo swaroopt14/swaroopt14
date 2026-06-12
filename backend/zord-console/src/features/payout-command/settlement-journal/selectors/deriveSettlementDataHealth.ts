@@ -32,7 +32,11 @@ export function deriveSettlementDataHealth(rows: SettlementObservationTableRow[]
   }
   const withBankRef = rows.filter((r) => hasRef(r.bankRef)).length
   const withClientRef = rows.filter((r) => hasRef(r.clientRef)).length
-  const matchedCount = rows.filter((r) => mapMatchStatus(r) === 'Matched').length
+  const matchedCount = rows.filter((r) => {
+    const linkedIntentId = (r.matchedIntentId ?? '').trim()
+    if (linkedIntentId && linkedIntentId !== '—') return true
+    return mapMatchStatus(r) === 'Matched'
+  }).length
   const unmatchedOrphanValue = rows
     .filter((r) => !hasRef(r.clientRef))
     .reduce((sum, r) => sum + r.amount, 0)

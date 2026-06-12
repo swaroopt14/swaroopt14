@@ -12,6 +12,7 @@ import {
   confidencePctFromBatch,
   formatInrRupees,
   BATCH_AGGREGATE_STATUS_GUIDE,
+  mergeBatchAggregateScore,
   resolveBatchHealthStatus,
   statusTone,
   usdCompact,
@@ -34,6 +35,8 @@ export type IntentJournalBatchSidebarProps = {
   safeSidebarPage: number
   sidebarTotalPages: number
   needsAttentionCount: number
+  /** Selected batch enriched with payment-intent aggregate score. */
+  selectedMetricsBatch?: BatchRecord | null
 }
 
 export function IntentJournalBatchSidebar({
@@ -51,6 +54,7 @@ export function IntentJournalBatchSidebar({
   safeSidebarPage,
   sidebarTotalPages,
   needsAttentionCount,
+  selectedMetricsBatch,
 }: IntentJournalBatchSidebarProps) {
   return (
         <aside className={`flex h-full flex-col overflow-hidden border-r ${JOURNAL_BORDER} bg-white`}>
@@ -85,11 +89,16 @@ export function IntentJournalBatchSidebar({
             ) : null}
             {sidebarPageRows.map((batch) => {
               const selected = batch.batchId === selectedBatchId
-              const score = batchQualityScore(batch)
               const detailRow =
                 journalUsesBackendFeed && selected && liveBatchDetail?.batch?.batch_id === batch.batchId
                   ? liveBatchDetail.batch
                   : null
+              const batchForHealth = mergeBatchAggregateScore(batch, {
+                isSelected: selected,
+                detailAggregateScore: liveBatchDetail?.batch_health?.aggregate_score,
+                metricsBatch: selected ? selectedMetricsBatch : null,
+              })
+              const score = batchQualityScore(batchForHealth)
               const liveTotalRaw = journalUsesBackendFeed
                 ? (detailRow?.total_count ?? batch.transactions ?? 0)
                 : batch.transactions
@@ -102,8 +111,8 @@ export function IntentJournalBatchSidebar({
                 : batch.engineSidebar
                   ? Math.max(batch.confirmedCount, batch.transactions, liveTotalRaw)
                   : batch.transactions
-              const engineConfPct = confidencePctFromBatch(batch)
-              const status = resolveBatchHealthStatus(batch, {
+              const engineConfPct = confidencePctFromBatch(batchForHealth)
+              const status = resolveBatchHealthStatus(batchForHealth, {
                 dlqCount,
                 intentCount,
                 finality: liveFinality,

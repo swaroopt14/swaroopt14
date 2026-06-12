@@ -5,6 +5,7 @@ import {
   requireSessionTenantForProdProxy,
   TENANT_MISMATCH_BODY,
 } from '@/services/auth/resolvePayoutTenant.server'
+import { readIntentQualityScore } from '@/services/payout-command/prod-api/resolveIntentQualityScore'
 
 export const dynamic = 'force-dynamic'
 
@@ -130,7 +131,7 @@ export async function GET(request: NextRequest) {
         currency: item.currency ?? 'INR',
         intended_execution_at: item.intended_execution_at ?? null,
         provider_hint: item.provider_hint ?? null,
-        intent_quality_score: coerceScore(item.intent_quality_score),
+        intent_quality_score: readIntentQualityScore(item),
         aggregate_confidence_score: coerceScore(item.aggregate_confidence_score),
         intent_id: item.intent_id ?? null,
         batch_id: resolvedBatchId,

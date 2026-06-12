@@ -13,7 +13,6 @@ import type { SettlementObservationTableRow } from '@/services/payout-command/pr
 import {
   AMOUNT_RANGE_OPTIONS,
   DATE_RANGE_OPTIONS,
-  settlementStatusBadgeClass,
   type AmountRangeFilter,
   type DateRangePreset,
 } from '../settlementJournalSidebarUtils'
@@ -21,8 +20,6 @@ import { settlementJournalCopy } from '../copy/settlementJournalCopy'
 import {
   formatClientRefDisplay,
   formatMappingConfidenceLabel,
-  mapMatchStatus,
-  matchStatusBadgeClass,
 } from '../mappers/mapMatchStatus'
 
 const JOURNAL_FILTER_LABEL =
@@ -37,7 +34,7 @@ const filterSelectClass =
 const ROW_SIZE_OPTIONS = [25, 50, 100, 200] as const
 const TABLE_TH =
   'px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-[#888888] whitespace-nowrap'
-const TABLE_COL_COUNT = 11
+const TABLE_COL_COUNT = 8
 
 export type SettlementJournalActivityViewModel = {
   tableSearch: string
@@ -277,8 +274,6 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
             settlementJournalCopy.table.observedAmount,
             settlementJournalCopy.table.netSettled,
             settlementJournalCopy.table.fee,
-            settlementJournalCopy.table.sourceStatus,
-            settlementJournalCopy.table.matchStatus,
             settlementJournalCopy.table.matchConfidence,
             settlementJournalCopy.table.observedAt,
           ].map((h) => (
@@ -329,12 +324,6 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-[#64748b]">
                     {formatJournalMoney(row.feeAmount, row.currency)}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className={settlementStatusBadgeClass(row.statusRaw)}>{row.status}</span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className={matchStatusBadgeClass(mapMatchStatus(row))}>{mapMatchStatus(row)}</span>
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-[13px] text-[#64748b]">
                     {formatMappingConfidenceLabel(row)}

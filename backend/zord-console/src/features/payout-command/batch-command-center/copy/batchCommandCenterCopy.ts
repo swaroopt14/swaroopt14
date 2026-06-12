@@ -204,6 +204,12 @@ export const BATCH_REVIEW_COPY = {
     actions: { review: 'Review' },
   },
 
+  filePreview: {
+    title: 'Uploaded file preview',
+    subtitle: 'Rows parsed from the customer file before ingest (invoice blank when not in file).',
+    empty: 'Upload an intent or settlement file to preview parsed rows here.',
+  },
+
   manualPayment: {
     title: 'Create payment manually',
     back: '← Back to batch intake',

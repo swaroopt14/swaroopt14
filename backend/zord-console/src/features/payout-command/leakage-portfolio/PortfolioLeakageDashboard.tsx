@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { LiveDataHint } from '../shared'
@@ -15,6 +15,7 @@ import { RiskAdjustedLeakageCard } from './components/RiskAdjustedLeakageCard'
 import { AllocationPerformanceCard } from './components/AllocationPerformanceCard'
 import { RiskScoreGauge } from './components/RiskScoreGauge'
 import { SystemInsightsCard } from './components/SystemInsightsCard'
+import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
 
 type PortfolioLeakageDashboardProps = {
   tenantReady: boolean
@@ -26,6 +27,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     initialBatchId?.trim() || undefined,
   )
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
+  const handleSelectBatch = useBatchSelectWithUrl('leakage', setSelectedBatchId)
 
   const { batchHealth, loading: batchHealthLoading } = useIntelligenceBatchHealth(
     tenantReady,
@@ -73,7 +75,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
         riskTier={displayData?.riskTier ?? 'N/A'}
         batches={batches}
         selectedBatchId={selectedBatchId}
-        onSelectBatch={setSelectedBatchId}
+        onSelectBatch={handleSelectBatch}
       />
       <LiveDataHint isLive={showLiveHint} source="intelligence" />
 
@@ -112,7 +114,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
             tenantReady={tenantReady}
             batches={batches}
             selectedBatchId={selectedBatchId}
-            onSelectBatch={setSelectedBatchId}
+            onSelectBatch={handleSelectBatch}
           />
 
           <section className="grid gap-4 lg:grid-cols-3">

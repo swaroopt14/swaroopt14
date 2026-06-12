@@ -52,7 +52,9 @@ export function SettlementJournalHeroBanner({
       sub:
         outcome.failed > 0
           ? `${outcome.failed.toLocaleString('en-IN')} failed · ${rows.length.toLocaleString('en-IN')} total rows`
-          : `${outcome.settledPct ?? 0}% of rows marked settled in source`,
+          : outcome.settledPct != null
+            ? `${outcome.settledPct}% of rows marked settled in source`
+            : '—',
     },
     { label: copy.netSettled, value: netSettled.value, sub: netSettled.sub },
     { label: copy.matchedToIntents, value: matchedDisplay, sub: matchedSub },

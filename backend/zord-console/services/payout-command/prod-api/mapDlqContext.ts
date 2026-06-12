@@ -19,6 +19,18 @@ function parseDlqAmount(raw: unknown): number {
   return 0
 }
 
+/** Map connector/source labels to EntityLogo registry names. */
+export function normalizePspDisplayName(raw: string | null | undefined): string {
+  const name = apiTrimmedString(raw)
+  if (!name) return '—'
+  const lower = name.toLowerCase()
+  if (lower.includes('razor')) return 'Razorpay'
+  if (lower.includes('cashfree')) return 'Cashfree'
+  if (lower.includes('payu')) return 'PayU'
+  if (lower.includes('stripe')) return 'Stripe'
+  return name
+}
+
 export function parseDlqIntentContext(raw: unknown): ParsedDlqIntentContext {
   if (!raw || typeof raw !== 'object') {
     return {

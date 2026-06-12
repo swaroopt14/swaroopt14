@@ -11,7 +11,7 @@ export const settlementJournalCopy = {
     recordsMarkedSettled: 'Records Marked Settled',
     netSettled: 'Net Settled Value',
     matchedToIntents: 'Matched to Payment Intents',
-    matchedFromIntentId: 'From matched_intent_id on observations',
+    matchedFromIntentId: 'Linked via client ref or intent id (payment-intents API)',
     matchedAwaitingPipeline:
       'Matching pipeline has not linked settlement rows to intents yet',
   },

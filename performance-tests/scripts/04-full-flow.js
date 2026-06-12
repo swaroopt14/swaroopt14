@@ -1,5 +1,26 @@
+/**
+ * Test 04: Full End-to-End Flow — All Services
+ * 
+ * Simulates a complete payment lifecycle:
+ *   1. Register tenant (zord-edge)
+ *   2. Single payment ingest (zord-edge)
+ *   3. Query intents (zord-intent-engine)
+ *   4. Query DLQ (zord-intent-engine)
+ *   5. Check dispatch status (zord-relay)
+ *   6. Upload settlement (zord-outcome-engine)
+ *   7. Query reconciliation (zord-outcome-engine)
+ *   8. Generate evidence pack (zord-evidence)
+ *   9. Query projections (zord-intelligence)
+ *   10. Query policies (zord-intelligence)
+ *   11. AI copilot query (zord-prompt-layer)
+ *   12. AI chat (zord-prompt-layer)
+ */
+
 import http from 'k6/http';
 import { check, sleep, group } from 'k6';
+import { Trend } from 'k6/metrics';
+
+const groupLatency = new Trend('group_latency', true);
 
 export const options = {
     stages: [
@@ -8,8 +29,8 @@ export const options = {
         { duration: '1m', target: 0 },
     ],
     thresholds: {
-        http_req_duration: ['p(95)<5000'],
         checks: ['rate>=0.90'],
+        http_req_duration: ['p(95)<5000'],
     },
 };
 
@@ -19,78 +40,152 @@ const ADMIN_KEY = __ENV.ADMIN_KEY || 'zord123';
 export default function () {
     let apiKey, tenantId;
 
+    // ── 1. Register Tenant ─────────────────────────────────────────────────
     group('01_register_tenant', function () {
+        const start = Date.now();
         const res = http.post(
             `${BASE_URL}/v1/admin/tenantReg`,
-            JSON.stringify({ name: `flow-${Date.now()}-${__VU}-${__ITER}` }),
+            JSON.stringify({ name: `e2e-${Date.now()}-${__VU}-${__ITER}` }),
             { headers: { 'Content-Type': 'application/json', 'X-Zord-ADMIN-KEY': ADMIN_KEY } }
         );
-        // Accept 201 (created) or 401/403 (auth issue — still proves gateway routing works)
+        groupLatency.add(Date.now() - start, { group: 'register_tenant' });
         check(res, { 'tenant endpoint reachable': (r) => r.status < 500 });
         if (res.status === 201) {
             try {
                 const body = JSON.parse(res.body);
                 apiKey = body.APIKEY;
                 tenantId = body.TenantId;
-            } catch (e) {
-                console.log(`Failed to parse tenant response: ${res.body}`);
-            }
+            } catch (e) { }
         }
     });
 
-    sleep(1);
+    sleep(0.5);
 
-    // If tenant registration failed (wrong admin key, service down), still test other endpoints
     const authHeaders = apiKey
         ? { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` }
         : { 'Content-Type': 'application/json', 'Authorization': 'Bearer test-key' };
+    const tid = tenantId || 'test-tenant';
 
+    // ── 2. Single Payment Ingest ───────────────────────────────────────────
     group('02_single_ingest', function () {
-        const res = http.post(
-            `${BASE_URL}/v1/ingest`,
-            JSON.stringify({
-                amount: 50000,
-                currency: 'INR',
-                beneficiary_name: `PerfUser${__VU}`,
-                beneficiary_account: `${1000000000 + __ITER}`,
-                beneficiary_ifsc: 'HDFC0001234',
-                purpose: 'salary',
-            }),
-            { headers: authHeaders }
-        );
-        // Accept any non-5xx — 200/201 (success) or 401 (auth) both prove routing works
-        check(res, { 'ingest endpoint reachable': (r) => r.status < 500 });
+        const start = Date.now();
+        const res = http.post(`${BASE_URL}/v1/ingest`, JSON.stringify({
+            amount: 50000, currency: 'INR',
+            beneficiary_name: `E2E-User-${__VU}`,
+            beneficiary_account: `${1000000000 + __ITER}`,
+            beneficiary_ifsc: 'HDFC0001234', purpose: 'salary',
+        }), { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'single_ingest' });
+        check(res, { 'ingest reachable': (r) => r.status < 500 });
     });
 
-    sleep(1);
+    sleep(0.5);
 
+    // ── 3. Query Intents ───────────────────────────────────────────────────
     group('03_query_intents', function () {
-        const tid = tenantId || 'test-tenant';
-        const res = http.get(
-            `${BASE_URL}/v1/intents?tenant_id=${tid}&limit=5`,
-            { headers: authHeaders }
-        );
-        check(res, { 'intents endpoint reachable': (r) => r.status < 500 });
+        const start = Date.now();
+        const res = http.get(`${BASE_URL}/v1/intents?tenant_id=${tid}&limit=5`, { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'query_intents' });
+        check(res, { 'intents reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 4. Query DLQ ───────────────────────────────────────────────────────
+    group('04_query_dlq', function () {
+        const start = Date.now();
+        const res = http.get(`${BASE_URL}/v1/dlq?tenant_id=${tid}&limit=5`, { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'query_dlq' });
+        check(res, { 'dlq reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 5. Check Dispatch Status ───────────────────────────────────────────
+    group('05_dispatch_status', function () {
+        const start = Date.now();
+        const res = http.get(`${BASE_URL}/v1/dispatch?tenant_id=${tid}`, { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'dispatch' });
+        check(res, { 'dispatch reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 6. Settlement Query ────────────────────────────────────────────────
+    group('06_settlement', function () {
+        const start = Date.now();
+        const res = http.get(`${BASE_URL}/v1/settlement/supported-psps`, { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'settlement' });
+        check(res, { 'settlement reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 7. Reconciliation Query ────────────────────────────────────────────
+    group('07_reconciliation', function () {
+        const start = Date.now();
+        const res = http.get(`${BASE_URL}/v1/reconciliation?tenant_id=${tid}`, { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'reconciliation' });
+        check(res, { 'reconciliation reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 8. Evidence Packs ──────────────────────────────────────────────────
+    group('08_evidence', function () {
+        const start = Date.now();
+        const res = http.get(`${BASE_URL}/v1/evidence/packs?tenant_id=${tid}`, { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'evidence' });
+        check(res, { 'evidence reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 9. Intelligence Projections ────────────────────────────────────────
+    group('09_projections', function () {
+        const start = Date.now();
+        const res = http.get(`${BASE_URL}/v1/projections?tenant_id=${tid}`, { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'projections' });
+        check(res, { 'projections reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 10. Intelligence Policies ──────────────────────────────────────────
+    group('10_policies', function () {
+        const start = Date.now();
+        const res = http.get(`${BASE_URL}/v1/policies?tenant_id=${tid}`, { headers: authHeaders });
+        groupLatency.add(Date.now() - start, { group: 'policies' });
+        check(res, { 'policies reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 11. AI Copilot Query ───────────────────────────────────────────────
+    group('11_ai_query', function () {
+        const start = Date.now();
+        const res = http.post(`${BASE_URL}/v1/query`, JSON.stringify({
+            query: 'show me payout summary for today',
+        }), {
+            headers: { ...authHeaders, 'X-Tenant-Id': tid },
+        });
+        groupLatency.add(Date.now() - start, { group: 'ai_query' });
+        check(res, { 'ai query reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 12. AI Chat ────────────────────────────────────────────────────────
+    group('12_ai_chat', function () {
+        const start = Date.now();
+        const res = http.post(`${BASE_URL}/v1/chat`, JSON.stringify({
+            message: 'what is my failure rate this week?',
+        }), {
+            headers: { ...authHeaders, 'X-Tenant-Id': tid },
+        });
+        groupLatency.add(Date.now() - start, { group: 'ai_chat' });
+        check(res, { 'ai chat reachable': (r) => r.status < 500 });
     });
 
     sleep(1);
-
-    group('04_ai_copilot', function () {
-        const tid = tenantId || 'test-tenant';
-        const res = http.post(
-            `${BASE_URL}/v1/query`,
-            JSON.stringify({ query: 'show me payout summary' }),
-            {
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Tenant-Id': tid,
-                    'Authorization': apiKey ? `Bearer ${apiKey}` : 'Bearer test-key',
-                },
-            }
-        );
-        // AI service may return 401, 403, or 200 — all prove routing works
-        check(res, { 'ai endpoint reachable': (r) => r.status < 500 });
-    });
-
-    sleep(2);
 }

@@ -1,161 +1,118 @@
 # Performance Testing — Zord Platform
 
----
-
-## What This Does
-
-Jenkins automatically runs load tests against your production platform every week and sends results to Slack.
-
-```
-Every Saturday 3 AM:
-  Jenkins → Installs k6 + pandoc → Runs 6 load tests → Generates REPORT.md + REPORT.pdf → Sends to Slack → Archives results
-```
+Automated end-to-end load testing for all 9 backend microservices via Kong API Gateway.
 
 ---
 
-## 6 Tests That Run
+## Architecture
 
-| # | Test | What it does | Virtual Users | Duration |
-|---|------|-------------|---------------|----------|
-| 1 | Health Check | Hits all 8 service health endpoints | 100 | 3.5 min |
-| 2 | Tenant Registration | Creates tenants via admin API | 20 | 3 min |
-| 3 | Bulk CSV Ingest | Uploads payment CSV files | 10 | 3 min |
-| 4 | Full End-to-End Flow | Register → Ingest → Query Intents → AI Copilot | 20 | 5 min |
-| 5 | Rate Limiting | Verifies Kong blocks after 30 req/min | 1 | 20 sec |
-| 6 | Spike Test | 0 → 200 users sudden burst | 200 | 1 min |
+```
+Jenkins (Saturday 3AM) → k6 → Kong Gateway → 9 Backend Services
+                                    ↓
+                           Slack + Grafana + Kibana
+```
+
+---
+
+## 9 Tests — Complete Coverage
+
+| # | Test | Services Tested | VUs | Duration |
+|---|------|----------------|-----|----------|
+| 1 | Health Check | All 9 service health endpoints | 100 | 3.5 min |
+| 2 | Tenant Registration | zord-edge (admin API) | 20 | 3 min |
+| 3 | Ingest Pipeline | zord-edge (single + bulk CSV) | 10 | 3 min |
+| 4 | Full E2E Flow | ALL services (12-step journey) | 20 | 5 min |
+| 5 | Rate Limiting | Kong plugins (bulk, settlement, AI) | 5+3+5 | 30 sec |
+| 6 | Spike Test | All Kong routes simultaneously | 200 | 55 sec |
+| 7 | Intelligence Surface | zord-intelligence + evidence + outcome | 15 | 3 min |
+| 8 | AI Copilot | zord-prompt-layer (query + chat) | 10 | 3 min |
+| 9 | Security & CORS | Kong security headers + CORS + rate headers | 20 | 2 min |
+
+---
+
+## What Gets Tested (Every Endpoint)
+
+### zord-edge (Port 8080)
+- `POST /v1/admin/tenantReg` — Create tenant
+- `GET  /v1/admin/tenants` — List tenants
+- `GET  /v1/admin/tenants/:id` — Get tenant
+- `POST /v1/ingest` — Single payment JSON
+- `POST /v1/bulk-ingest` — Bulk CSV upload
+- `GET  /edge/health` — Health check
+
+### zord-intent-engine (Port 8083)
+- `GET /v1/intents` — Query intents
+- `GET /v1/dlq` — Dead letter queue
+- `GET /v1/etl` — ETL run status
+- `GET /intent/health` — Health check
+
+### zord-relay (Port 8082)
+- `GET /v1/dispatch` — Dispatch status
+- `GET /relay/health` — Health check
+
+### zord-outcome-engine (Port 8081)
+- `GET  /v1/settlement/supported-psps` — List PSPs
+- `GET  /v1/settlement/observations/batches` — Batch observations
+- `GET  /v1/reconciliation` — Reconciliation results
+- `GET  /outcome/health` — Health check
+
+### zord-evidence (Port 8088)
+- `GET  /v1/evidence/packs` — List evidence packs
+- `GET  /v1/verify` — Merkle verification
+- `GET  /evidence/health` — Health check
+
+### zord-intelligence (Port 8089)
+- `GET /v1/projections` — Risk scores / KPIs
+- `GET /v1/policies` — Policy rules
+- `GET /v1/rca` — Root cause analysis
+- `GET /intelligence/health` — Health check
+
+### zord-prompt-layer (Port 8086)
+- `POST /v1/query` — AI natural language query
+- `POST /v1/chat` — AI conversation
+- `GET  /prompt/health` — Health check
+
+### zord-token-enclave (Port 8087)
+- `GET /token/health` — Health check
+
+### zord-console (Port 3000)
+- `GET /` — Frontend dashboard
 
 ---
 
 ## Performance Targets
 
-| Test | Metric | Pass Condition |
-|------|--------|---------------|
-| Health Check | p95 latency | < 500ms |
-| Tenant Registration | p95 latency | < 2s |
-| Bulk Ingest | p95 latency | < 5s |
-| Full Flow | p95 latency | < 3s |
-| All Tests | Error rate | < 5% |
-| Rate Limiting | HTTP 429 returned | After 30 requests |
-| Spike Test | Error rate | < 20% |
+| Metric | Target |
+|--------|--------|
+| Health check p95 latency | < 500ms |
+| Tenant registration p95 | < 2s |
+| Ingest pipeline p95 | < 5s |
+| Full E2E flow p95 | < 5s |
+| Intelligence APIs p95 | < 3s |
+| AI copilot p95 | < 10s (LLM) |
+| Spike test (200 users) | < 5% gateway errors |
+| Rate limiting | 429 returned after limit |
+| Security headers | All present on every response |
 
 ---
 
-## Jenkins Job Setup
+## Slack Notification
 
-1. Jenkins → **New Item**
-2. Name: `performance-tests`
-3. Type: **Pipeline**
-4. Click **OK**
-5. Scroll to **Pipeline**:
-   - Definition: **Pipeline script from SCM**
-   - SCM: **Git**
-   - Repository URL: `https://github.com/Arealis-network/Arealis-Zord-intent.git`
-   - Credentials: `github-pat`
-   - Branch: `*/main`
-   - Script Path: `performance-tests/Jenkinsfile.performance-tests`
-6. Scroll to **Build Triggers**:
-   - Check **Build periodically**
-   - Schedule: `H 3 * * 6`
-7. Click **Save**
+Beautiful card with:
+- Pass/fail status for all 9 tests (with emoji icons)
+- Key metrics (p95, throughput, total requests)
+- Direct links to: Jenkins Build, Full Report, Grafana Dashboard, Kibana Logs
+- Color-coded: green (all pass), orange (partial), red (pipeline error)
 
 ---
 
-## Slack Notification Setup
+## Grafana Dashboard Links
 
-### Step 1: Create Slack Incoming Webhook
-
-1. Open: `https://api.slack.com/apps`
-2. Click **Create New App** → From scratch
-3. Name: `Zord Performance Bot`
-4. Select your workspace → Create App
-5. Left sidebar → **Incoming Webhooks** → Toggle ON
-6. Click **Add New Webhook to Workspace**
-7. Select channel: `#zord-performance-testing-bot`
-8. Click **Allow**
-9. Copy the webhook URL
-
-### Step 2: Add to Jenkins
-
-1. Jenkins → **Manage Jenkins** → **Plugins** → Install **Slack Notification**
-2. Jenkins → **Manage Jenkins** → **Credentials** → **Add Credentials**:
-   - Kind: **Secret text**
-   - Secret: paste webhook URL
-   - ID: `slack-webhook`
-   - Save
-3. Jenkins → **Manage Jenkins** → **System** → Scroll to **Slack**:
-   - Workspace: your workspace name (any name)
-   - Credential: `slack-webhook`
-   - Default channel: `#zord-performance-testing-bot`
-   - Click **Test Connection** → must show "Success"
-   - Save
-
----
-
-## What Gets Delivered
-
-### In Slack (`#zord-performance-testing-bot`):
-
-```
-🚀 Performance Test Results — Build #12
-📊 Target: https://api.zordnet.com
-⏱️ Duration: 16 min
-📋 Full report in Jenkins artifacts
-
-# Zord Platform — Performance Test Report
-Date: Sat Jun 14 03:15:00 UTC 2026
-Environment: Production (EKS)
-
-| # | Test | Status |
-| 01 | health-check | ✅ PASS |
-| 02 | tenant-reg | ✅ PASS |
-| 03 | bulk-ingest | ✅ PASS |
-| 04 | full-flow | ❌ FAIL |
-| 05 | rate-limit | ✅ PASS |
-| 06 | spike-test | ✅ PASS |
-```
-
-### In Jenkins Artifacts (downloadable):
-
-- `REPORT.md` — full markdown report
-- `REPORT.pdf` — PDF version (shareable with founders/team)
-- `01-health-check-output.txt` — detailed k6 output
-- `01-health-check-summary.json` — machine-readable metrics
-- `pre-test-nodes.txt` — cluster CPU/memory before tests
-- `post-test-pods.txt` — pod status after tests
-- `post-test-hpa.txt` — HPA scaling during tests
-
----
-
-## What Jenkins Pipeline Does (Automatically)
-
-```
-1. Checkout code from GitHub
-2. Install k6 (load testing tool) — auto, no manual
-3. Install pandoc (PDF generator) — auto, no manual
-4. Capture cluster state BEFORE tests (kubectl top nodes/pods)
-5. Run Test 1: Health Check (100 users)
-6. Run Test 2: Tenant Registration (20 users)
-7. Run Test 3: Bulk Ingest (10 users)
-8. Run Test 4: Full End-to-End Flow (20 users)
-9. Run Test 5: Rate Limiting
-10. Run Test 6: Spike Test (200 users)
-11. Capture cluster state AFTER tests
-12. Generate REPORT.md
-13. Generate REPORT.pdf
-14. Send Slack notification with summary
-15. Archive all results as build artifacts
-```
-
----
-
-## View Results After Run
-
-| Where | What you see |
-|-------|-------------|
-| **Slack** | Summary notification (pass/fail per test) |
-| **Jenkins → Build → Artifacts** | Download REPORT.md, REPORT.pdf, all outputs |
-| **Grafana** (`grafana.zordnet.com`) | Check Kong + Cluster dashboards for the test time period |
-| **Kibana** (`kibana.zordnet.com`) | Filter logs by test time period → see any errors |
+| Dashboard | URL | UID |
+|-----------|-----|-----|
+| Platform Health & Alerts | https://grafana.zordnet.com/d/zord-platform-health | zord-platform-health |
+| PostgreSQL & Kafka | https://grafana.zordnet.com/d/zord-data-layer | zord-data-layer |
+| Node & Infrastructure | https://grafana.zordnet.com/d/zord-nodes-infra | zord-nodes-infra |
 
 ---
 
@@ -163,39 +120,35 @@ Environment: Production (EKS)
 
 ```
 performance-tests/
-├── README.md                         ← this file
-├── Jenkinsfile.performance-tests     ← Jenkins pipeline
-├── run-all.sh                        ← alternative: run from CLI
-├── generate-report.sh                ← generates REPORT.md + REPORT.pdf
+├── README.md
+├── Jenkinsfile.performance-tests
+├── generate-report.sh
+├── run-all.sh
 └── scripts/
     ├── 01-health-check.js
     ├── 02-tenant-registration.js
     ├── 03-bulk-ingest.js
     ├── 04-full-flow.js
     ├── 05-rate-limit.js
-    └── 06-spike-test.js
+    ├── 06-spike-test.js
+    ├── 07-intelligence-surface.js
+    ├── 08-ai-copilot.js
+    └── 09-security-headers.js
 ```
 
 ---
 
-## Troubleshooting
+## Run Locally
 
-| Problem | Fix |
-|---------|-----|
-| Job not triggering | Check Build Triggers → `H 3 * * 6` is set |
-| k6 install fails | Pipeline has fallback (downloads binary directly) |
-| All tests timeout | Check if Jenkins agent can reach `api.zordnet.com` |
-| 100% failure rate | Check Kong + app pods are running |
-| Slack not received | Check: Manage Jenkins → System → Slack → Test Connection |
-| PDF not generated | pandoc install failed — .md report still works |
-| Rate limit test fails | Kong rate-limiting plugin might be disabled |
+```bash
+# Install k6: https://k6.io/docs/get-started/installation/
+k6 run --env BASE_URL="https://api.zordnet.com" --env ADMIN_KEY="zord123" performance-tests/scripts/01-health-check.js
+```
 
 ---
 
-## Prerequisites
+## Jenkins Setup
 
-- Jenkins running with Pipeline plugin
-- GitHub PAT credential (`github-pat`) configured
-- Internet access from Jenkins agent (for k6 + pandoc install)
-- `api.zordnet.com` reachable from Jenkins agent
-- (Optional) Slack Notification Plugin for Slack alerts
+1. New Item → Pipeline → `performance-tests`
+2. Pipeline script from SCM → Git → `performance-tests/Jenkinsfile.performance-tests`
+3. Build Triggers → Build periodically → `H 3 * * 6` (Saturday 3AM)

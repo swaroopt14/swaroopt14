@@ -1035,6 +1035,7 @@ func computeBatchSummary(
 
 	for _, d := range decisions {
 		summary.AggregateScore += d.ConfidenceScore
+		summary.AggregateMatchConfidence += d.MatchConfidence
 		summary.AmbiguityScore += d.AmbiguityScore
 		switch d.DecisionType {
 		case models.DecisionMatchExact:
@@ -1072,9 +1073,11 @@ func computeBatchSummary(
 	if total == 0 {
 		summary.BatchAttachmentStatus = models.BatchStatusFailed
 		summary.AggregateScore = 0
+		summary.AggregateMatchConfidence = 0
 		summary.AmbiguityScore = 0
 	} else {
 		summary.AggregateScore = summary.AggregateScore / float64(total)
+		summary.AggregateMatchConfidence = summary.AggregateMatchConfidence / float64(total)
 		summary.AmbiguityScore = summary.AmbiguityScore / float64(total)
 		strongCount := summary.ExactMatchCount + summary.HighConfidenceCount
 		ratio := float64(strongCount) / float64(total)
@@ -1283,16 +1286,16 @@ func persistAttachmentOutputs(
 			total_intent_count, exact_match_count, high_confidence_count,
 			ambiguous_count, unresolved_count, conflicted_count,
 			total_intended_amount, total_observed_amount, total_variance,
-			batch_attachment_status, aggregate_score, ambiguity_score, created_at, updated_at
+			batch_attachment_status, aggregate_score, aggregate_match_confidence, ambiguity_score, created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
 		) ON CONFLICT DO NOTHING`,
 		batchSummary.BatchAttachmentSummaryID, batchSummary.TenantID, batchSummary.BatchID, batchSummary.SourceReference,
 		batchSummary.AttachmentJobID,
 		batchSummary.TotalIntentCount, batchSummary.ExactMatchCount, batchSummary.HighConfidenceCount,
 		batchSummary.AmbiguousCount, batchSummary.UnresolvedCount, batchSummary.ConflictedCount,
 		batchSummary.TotalIntendedAmount, batchSummary.TotalObservedAmount, batchSummary.TotalVariance,
-		batchSummary.BatchAttachmentStatus, batchSummary.AggregateScore, batchSummary.AmbiguityScore,
+		batchSummary.BatchAttachmentStatus, batchSummary.AggregateScore, batchSummary.AggregateMatchConfidence, batchSummary.AmbiguityScore,
 		batchSummary.CreatedAt, batchSummary.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("persistAttachmentOutputs: insert batch summary: %w", err)

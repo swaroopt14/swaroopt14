@@ -296,10 +296,11 @@ type BatchAttachmentSummary struct {
 	TotalVariance       decimal.Decimal `json:"total_variance" db:"total_variance"`
 
 	// Derived status
-	BatchAttachmentStatus string    `json:"batch_attachment_status" db:"batch_attachment_status"`
-	AggregateScore        float64   `json:"aggregate_score" db:"aggregate_score"`
-	AmbiguityScore        float64   `json:"ambiguity_score" db:"ambiguity_score"`
-	CreatedAt             time.Time `json:"created_at" db:"created_at"`
+	BatchAttachmentStatus    string    `json:"batch_attachment_status" db:"batch_attachment_status"`
+	AggregateScore           float64   `json:"aggregate_score" db:"aggregate_score"`
+	AggregateMatchConfidence float64   `json:"aggregate_match_confidence" db:"aggregate_match_confidence"`
+	AmbiguityScore           float64   `json:"ambiguity_score" db:"ambiguity_score"`
+	CreatedAt                time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
 }
 

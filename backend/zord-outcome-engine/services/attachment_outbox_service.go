@@ -469,7 +469,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		SELECT 
 			batch_id, source_reference, total_intended_amount, 
 			total_observed_amount, total_variance, batch_attachment_status,
-			ambiguity_score
+			ambiguity_score, aggregate_match_confidence
 		FROM batch_attachment_summaries 
 		WHERE attachment_job_id = $1 
 		LIMIT 1`,
@@ -478,7 +478,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 	var summaryBatchID *string
 	var summarySourceRef string
 	var summaryAmbiguity float64
-	if err := row.Scan(&summaryBatchID, &summarySourceRef, &totalIntendedAmount, &totalConfirmedAmount, &totalVariance, &finalityStatus, &summaryAmbiguity); err == nil {
+	var summaryMatchConfidence float64
+	if err := row.Scan(&summaryBatchID, &summarySourceRef, &totalIntendedAmount, &totalConfirmedAmount, &totalVariance, &finalityStatus, &summaryAmbiguity, &summaryMatchConfidence); err == nil {
 		if summaryBatchID != nil {
 			batchID = *summaryBatchID
 		}
@@ -547,6 +548,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"total_confirmed_amount_minor": totalConfirmedAmount.String(),
 		"total_variance_minor":         totalVariance.String(),
 		"ambiguity_score":              aggregateAmbiguity,
+		"aggregate_match_confidence":   summaryMatchConfidence,
 		"batch_finality_status":        finalityStatus,
 		"job_status":                   job.Status,
 	}

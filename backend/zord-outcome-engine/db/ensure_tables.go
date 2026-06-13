@@ -555,6 +555,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			batch_attachment_status     TEXT NOT NULL,
 			aggregate_score             NUMERIC(10,4) NOT NULL DEFAULT 0,
 			ambiguity_score             NUMERIC(10,4) NOT NULL DEFAULT 0,
+			aggregate_match_confidence  NUMERIC(10,4) NOT NULL DEFAULT 0,
 			created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,

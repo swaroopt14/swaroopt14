@@ -393,7 +393,18 @@ pipeline {
 
           // Message 2: "Why not 100%?" details (separate message so it's always visible)
           def hasDetails = (notFullyPassedDetails.size() > 0 || failedDetails.size() > 0)
-          if (hasDetails) {
+          echo "notFullyPassedDetails size: ${notFullyPassedDetails.size()}, failedDetails size: ${failedDetails.size()}"
+          if (notFullyPassedDetails.size() > 0) {
+            echo "Why not 100% content: ${notFullyPassedDetails}"
+          }
+
+          // Always send second message if ANY test is not exactly 100%
+          def testsBelow100 = tableRows.findAll { it.checks != '-' && it.checks != '100%' && it.checks != '100.00%' }
+          echo "Tests below 100%: ${testsBelow100.collect { it.name + '=' + it.checks }}"
+
+          if (hasDetails || testsBelow100.size() > 0) {
+            sleep 2  // Wait 2 seconds so Slack doesn't deduplicate
+
             def blocks2 = []
 
             if (failedDetails.size() > 0) {
@@ -402,10 +413,14 @@ pipeline {
 
             if (notFullyPassedDetails.size() > 0) {
               blocks2.add([type: 'section', text: [type: 'mrkdwn', text: "*:mag: Why not 100%? (Build #${env.BUILD_NUMBER})*\n${notFullyPassedDetails.take(4).join('\n\n')}"]])
+            } else if (testsBelow100.size() > 0) {
+              // Fallback: show which tests are below 100% even if detailed parse failed
+              def fallbackLines = testsBelow100.collect { ":small_orange_diamond: *${it.name}* — ${it.checks}" }.join('\n')
+              blocks2.add([type: 'section', text: [type: 'mrkdwn', text: "*:mag: Why not 100%? (Build #${env.BUILD_NUMBER})*\n${fallbackLines}"]])
             }
 
             blocks2.add([type: 'context', elements: [
-              [type: 'mrkdwn', text: "_Details from performance test run — for devops investigation_"]
+              [type: 'mrkdwn', text: "_Details from performance test run — check console log for full k6 output_"]
             ]])
 
             def payload2 = groovy.json.JsonOutput.toJson([
@@ -416,6 +431,8 @@ pipeline {
             writeFile file: "${env.RESULTS_DIR}/slack-payload2.json", text: payload2
             def resp2 = sh(script: """curl -s -w '\\n%{http_code}' -X POST -H 'Content-type: application/json' --data @"${env.RESULTS_DIR}/slack-payload2.json" '${env.SLACK_WEBHOOK_URL}'""", returnStdout: true).trim()
             echo "Slack Message 2: ${resp2}"
+          } else {
+            echo "All tests at 100% — no second message needed"
           }
         }
       }

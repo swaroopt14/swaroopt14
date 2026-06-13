@@ -315,10 +315,10 @@ pipeline {
           def serviceStatus = ''
           try {
             def e2eContent = readFile("${env.RESULTS_DIR}/04-full-flow-output.txt")
-            def serviceChecks = ['tenant endpoint reachable', 'ingest reachable', 'intents reachable', 'dlq reachable', 'dispatch reachable', 'settlement reachable', 'reconciliation reachable', 'evidence reachable', 'projections reachable', 'policies reachable', 'ai query reachable', 'ai chat reachable']
+            def serviceChecks = ['tenant endpoint reachable', 'ingest reachable', 'intents reachable', 'dlq reachable', 'dispatch reachable', 'settlement psps reachable', 'settlement upload reachable', 'evidence reachable', 'projections reachable', 'policies reachable', 'ai query reachable', 'ai chat reachable']
             def upCount = 0
             def downServices = []
-            def checkLabels = ['zord-edge', 'zord-edge (ingest)', 'zord-intent-engine', 'zord-intent-engine (DLQ)', 'zord-relay', 'zord-outcome-engine', 'zord-outcome-engine (recon)', 'zord-evidence', 'zord-intelligence', 'zord-intelligence (policies)', 'zord-prompt-layer', 'zord-prompt-layer (chat)']
+            def checkLabels = ['zord-edge', 'zord-edge (ingest)', 'zord-intent-engine', 'zord-intent-engine (DLQ)', 'zord-relay', 'zord-outcome-engine', 'zord-outcome-engine (upload)', 'zord-evidence', 'zord-intelligence', 'zord-intelligence (policies)', 'zord-prompt-layer', 'zord-prompt-layer (chat)']
 
             for (int j = 0; j < serviceChecks.size(); j++) {
               if (e2eContent.contains(serviceChecks[j])) {

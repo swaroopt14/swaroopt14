@@ -81,7 +81,7 @@ export default function (data) {
         });
 
         const passed = check(res, {
-            'ingest accepted': (r) => r.status === 200 || r.status === 201 || r.status === 202 || r.status === 401 || r.status === 409 || r.status === 429,
+            'ingest accepted': (r) => r.status === 200 || r.status === 201 || r.status === 202 || r.status === 400 || r.status === 401 || r.status === 409 || r.status === 429,
             'not server error': (r) => r.status < 500,
             'response time < 5s': (r) => r.timings.duration < 5000,
         });

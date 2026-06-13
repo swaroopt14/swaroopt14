@@ -86,9 +86,11 @@ export default function () {
 
     sleep(0.5);
 
-    // Test 3: Rate limit headers visible
+    // Test 3: Rate limit headers visible (use a route that has rate limiting applied)
     group('rate_limit_headers', function () {
-        const res = http.get(`${BASE_URL}/edge/health`);
+        const res = http.post(`${BASE_URL}/v1/bulk-ingest`, null, {
+            headers: { 'Authorization': 'Bearer rate-check-key' },
+        });
 
         check(res, {
             'rate limit headers present': (r) => {

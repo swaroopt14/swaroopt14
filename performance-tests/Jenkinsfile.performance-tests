@@ -379,20 +379,8 @@ pipeline {
             [type: 'section', text: [type: 'mrkdwn', text: fullTable]],
           ]
 
-          // Add failure details if any test failed threshold
-          if (failedDetails.size() > 0) {
-            blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:rotating_light: Threshold Failures:*\n${failedDetails.join('\n\n')}\n\n:point_right: *Action:* Check Grafana + Kibana"]])
-          }
-
-          // Add "why not 100%?" section — always show if any test below 100%
-          if (notFullyPassedDetails.size() > 0) {
-            blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:mag: Why not 100%?*\n${notFullyPassedDetails.take(3).join('\n\n')}"]])
-          }
-
-          blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:link: Quick Links*\n<${env.BUILD_URL}artifact/${env.RESULTS_DIR}/REPORT.md|:page_facing_up: Full Report>  |  <${env.BUILD_URL}console|:mag: Console Log>  |  <https://grafana.zordnet.com/d/zord-platform-health?orgId=1&from=now-1h&to=now|:chart_with_downwards_trend: Grafana Dashboard>  |  <https://kibana.zordnet.com|:ledger: Kibana Logs>  |  <https://jaeger.zordnet.com|:mag_right: Jaeger Traces>"]])
-          blocks.add([type: 'context', elements: [
-            [type: 'mrkdwn', text: "_Zord Performance Bot — Automated weekly load testing via Jenkins + k6 + Kong API Gateway_"]
-          ]])
+          // Message 1: Main results (services + test table + links)
+          blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:link: Quick Links*\n<${env.BUILD_URL}artifact/${env.RESULTS_DIR}/REPORT.md|:page_facing_up: Report>  |  <${env.BUILD_URL}console|:mag: Console>  |  <https://grafana.zordnet.com/d/zord-platform-health?orgId=1&from=now-1h&to=now|:chart_with_downwards_trend: Grafana>  |  <https://kibana.zordnet.com|:ledger: Kibana>  |  <https://jaeger.zordnet.com|:mag_right: Jaeger>"]])
 
           def payload = groovy.json.JsonOutput.toJson([
             text: ":test_tube: Zord Performance Report #${env.BUILD_NUMBER} — ${overallStatus}",
@@ -401,7 +389,34 @@ pipeline {
 
           writeFile file: "${env.RESULTS_DIR}/slack-payload.json", text: payload
           def resp = sh(script: """curl -s -w '\\n%{http_code}' -X POST -H 'Content-type: application/json' --data @"${env.RESULTS_DIR}/slack-payload.json" '${env.SLACK_WEBHOOK_URL}'""", returnStdout: true).trim()
-          echo "Slack: ${resp}"
+          echo "Slack Message 1: ${resp}"
+
+          // Message 2: "Why not 100%?" details (separate message so it's always visible)
+          def hasDetails = (notFullyPassedDetails.size() > 0 || failedDetails.size() > 0)
+          if (hasDetails) {
+            def blocks2 = []
+
+            if (failedDetails.size() > 0) {
+              blocks2.add([type: 'section', text: [type: 'mrkdwn', text: "*:rotating_light: Threshold Failures (Build #${env.BUILD_NUMBER}):*\n${failedDetails.join('\n\n')}\n\n:point_right: *Action:* Check Grafana + Kibana"]])
+            }
+
+            if (notFullyPassedDetails.size() > 0) {
+              blocks2.add([type: 'section', text: [type: 'mrkdwn', text: "*:mag: Why not 100%? (Build #${env.BUILD_NUMBER})*\n${notFullyPassedDetails.take(4).join('\n\n')}"]])
+            }
+
+            blocks2.add([type: 'context', elements: [
+              [type: 'mrkdwn', text: "_Details from performance test run — for devops investigation_"]
+            ]])
+
+            def payload2 = groovy.json.JsonOutput.toJson([
+              text: ":mag: Why not 100%? — Build #${env.BUILD_NUMBER}",
+              attachments: [[color: '#f0ad4e', blocks: blocks2]]
+            ])
+
+            writeFile file: "${env.RESULTS_DIR}/slack-payload2.json", text: payload2
+            def resp2 = sh(script: """curl -s -w '\\n%{http_code}' -X POST -H 'Content-type: application/json' --data @"${env.RESULTS_DIR}/slack-payload2.json" '${env.SLACK_WEBHOOK_URL}'""", returnStdout: true).trim()
+            echo "Slack Message 2: ${resp2}"
+          }
         }
       }
     }

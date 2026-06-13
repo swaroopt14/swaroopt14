@@ -22,7 +22,7 @@ export const settlementJournalCopy = {
     selectBatch: 'Select a batch from the sidebar',
   },
   tabs: {
-    observations: 'Settlement observations',
+    observations: 'Settlement Observations',
     parseErrors: 'Review Items',
   },
   table: {

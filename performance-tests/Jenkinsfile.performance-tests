@@ -368,21 +368,19 @@ pipeline {
 
           def fullTable = "```${tableHeader}\n${tableDivider}\n${tableBody}\n${summaryLine}```"
 
-          // Build blocks — keep compact to avoid Slack "Show more" truncation
+          // Build blocks — minimize block count to avoid Slack "Show more" truncation
           def blocks = [
             [type: 'header', text: [type: 'plain_text', text: "Zord Performance Report — Build #${env.BUILD_NUMBER}", emoji: true]],
             [type: 'context', elements: [
               [type: 'mrkdwn', text: ":calendar: ${timestamp}  |  :stopwatch: ${duration}  |  :globe_with_meridians: `${params.BASE_URL}`"]
             ]],
-            [type: 'divider'],
-            [type: 'section', text: [type: 'mrkdwn', text: "*${overallStatus}*${serviceStatus}"]],
-            [type: 'divider'],
+            [type: 'section', text: [type: 'mrkdwn', text: "*${overallStatus}*"]],
+            [type: 'section', text: [type: 'mrkdwn', text: "${serviceStatus}"]],
             [type: 'section', text: [type: 'mrkdwn', text: fullTable]],
           ]
 
           // Add failure details if any test failed threshold
           if (failedDetails.size() > 0) {
-            blocks.add([type: 'divider'])
             blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:rotating_light: Threshold Failures:*\n${failedDetails.join('\n\n')}\n\n:point_right: *Action:* Check Grafana + Kibana"]])
           }
 
@@ -403,11 +401,9 @@ pipeline {
               }
             }
             whyTable += "```"
-            blocks.add([type: 'divider'])
             blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:mag: Why not 100%?*\n${whyTable}"]])
           }
 
-          blocks.add([type: 'divider'])
           blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:link: Quick Links*\n<${env.BUILD_URL}artifact/${env.RESULTS_DIR}/REPORT.md|:page_facing_up: Full Report>  |  <${env.BUILD_URL}console|:mag: Console Log>  |  <https://grafana.zordnet.com/d/zord-platform-health?orgId=1&from=now-1h&to=now|:chart_with_downwards_trend: Grafana Dashboard>  |  <https://kibana.zordnet.com|:ledger: Kibana Logs>  |  <https://jaeger.zordnet.com|:mag_right: Jaeger Traces>"]])
           blocks.add([type: 'context', elements: [
             [type: 'mrkdwn', text: "_Zord Performance Bot — Automated weekly load testing via Jenkins + k6 + Kong API Gateway_"]

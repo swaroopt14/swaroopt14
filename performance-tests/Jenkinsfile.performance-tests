@@ -347,9 +347,16 @@ pipeline {
           }.join('\n')
 
           // Calculate totals from table data
-          def totalReqs = tableRows.collect { it.reqs != '-' ? (it.reqs as Long) : 0 }.sum()
-          def avgP95 = tableRows.findAll { it.p95 != '-' }.collect { (it.p95.replace('ms','') as Double) }
-          def overallP95 = avgP95.size() > 0 ? String.format("%.0f", avgP95.max()) + 'ms' : 'N/A'
+          def totalReqs = 0L
+          def maxP95 = 0.0
+          tableRows.each { row ->
+            if (row.reqs != '-') totalReqs += (row.reqs as Long)
+            if (row.p95 != '-') {
+              def val = row.p95.replace('ms','') as Double
+              if (val > maxP95) maxP95 = val
+            }
+          }
+          def overallP95 = maxP95 > 0 ? String.format("%.0f", maxP95) + 'ms' : 'N/A'
           def summaryLine = "──  ────────────────────────  ──────  ─────────  ───────  ──────\n    TOTAL                             ${String.format('%9s', totalReqs)}  ${String.format('%7s', overallP95)}  ${passCount}/${passCount + failCount} pass"
 
           def fullTable = "```${tableHeader}\n${tableDivider}\n${tableBody}\n${summaryLine}```"

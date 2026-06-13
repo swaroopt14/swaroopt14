@@ -29,8 +29,8 @@ export const options = {
         },
         settlement_burst: {
             executor: 'shared-iterations',
-            vus: 3,
-            iterations: 30,
+            vus: 5,
+            iterations: 50,
             maxDuration: '30s',
             startTime: '5s',
             exec: 'burstSettlement',
@@ -69,9 +69,9 @@ export function burstBulkIngest() {
     });
 }
 
-// Burst /v1/settlement (limit: 20/min)
+// Burst /v1/settlement/upload (limit: 20/min)
 export function burstSettlement() {
-    const res = http.get(`${BASE_URL}/v1/settlement/supported-psps`, {
+    const res = http.post(`${BASE_URL}/v1/settlement/upload?tenant_id=rate-test-tenant&psp=razorpay`, null, {
         headers: { 'Authorization': 'Bearer rate-limit-test-key' },
     });
 

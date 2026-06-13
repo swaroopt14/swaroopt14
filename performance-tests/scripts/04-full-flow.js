@@ -111,12 +111,34 @@ export default function () {
 
     sleep(0.5);
 
-    // ── 6. Settlement Query ────────────────────────────────────────────────
-    group('06_settlement', function () {
+    // ── 6. Settlement: Supported PSPs ─────────────────────────────────────
+    group('06_settlement_psps', function () {
         const start = Date.now();
         const res = http.get(`${BASE_URL}/v1/settlement/supported-psps`, { headers: authHeaders });
-        groupLatency.add(Date.now() - start, { group: 'settlement' });
-        check(res, { 'settlement reachable': (r) => r.status < 500 });
+        groupLatency.add(Date.now() - start, { group: 'settlement_psps' });
+        check(res, { 'settlement psps reachable': (r) => r.status < 500 });
+    });
+
+    sleep(0.5);
+
+    // ── 6b. Settlement: Upload CSV ─────────────────────────────────────────
+    group('06b_settlement_upload', function () {
+        const start = Date.now();
+        // Use real settlement CSV format matching zord_settlement data
+        const settlementCsv = [
+            'utr,amount,status,beneficiary_name,beneficiary_account,ifsc,payment_mode,transaction_date',
+            `UTR${Date.now()}${__VU}0,50000.00,SUCCESS,PerfSettle User1,271541000001,AXIS0001239,NEFT,2026-06-12`,
+            `UTR${Date.now()}${__VU}1,25000.00,SUCCESS,PerfSettle User2,634212000002,UBIN0001241,IMPS,2026-06-12`,
+            `UTR${Date.now()}${__VU}2,75000.00,FAILED,PerfSettle User3,414201000003,SBIN0001236,RTGS,2026-06-12`,
+        ].join('\n');
+
+        const res = http.post(
+            `${BASE_URL}/v1/settlement/upload?tenant_id=${tid}&psp=razorpay`,
+            { file: http.file(settlementCsv, 'settlement-perf.csv', 'text/csv') },
+            { headers: { 'Authorization': authHeaders['Authorization'] } }
+        );
+        groupLatency.add(Date.now() - start, { group: 'settlement_upload' });
+        check(res, { 'settlement upload reachable': (r) => r.status < 500 });
     });
 
     sleep(0.5);

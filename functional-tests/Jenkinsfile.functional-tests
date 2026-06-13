@@ -1,0 +1,100 @@
+pipeline {
+  agent any
+
+  options {
+    timestamps()
+    timeout(time: 10, unit: 'MINUTES')
+  }
+
+  parameters {
+    string(name: 'BASE_URL', defaultValue: 'https://api.zordnet.com', description: 'API base URL')
+    string(name: 'ADMIN_KEY', defaultValue: 'zord123', description: 'Admin key (X-Zord-ADMIN-KEY)')
+    booleanParam(name: 'NOTIFY_SLACK', defaultValue: true, description: 'Send results to Slack')
+  }
+
+  environment {
+    RESULTS_DIR = "functional-tests/results/${BUILD_NUMBER}"
+    SLACK_WEBHOOK_URL = credentials('slack-webhook')
+  }
+
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    stage('Run Functional Tests') {
+      steps {
+        sh """
+          mkdir -p "${RESULTS_DIR}"
+          chmod +x functional-tests/run-tests.sh
+          bash functional-tests/run-tests.sh "${params.BASE_URL}" "${params.ADMIN_KEY}" "${RESULTS_DIR}" 2>&1 | tee "${RESULTS_DIR}/full-output.txt"
+        """
+      }
+    }
+
+    stage('Notify Slack') {
+      when { expression { return params.NOTIFY_SLACK } }
+      steps {
+        script {
+          def report = readFile("${env.RESULTS_DIR}/results.json")
+          def json = new groovy.json.JsonSlurper().parseText(report)
+
+          def passCount = json.tests.count { it.status == 'PASS' }
+          def failCount = json.tests.count { it.status == 'FAIL' }
+          def totalCount = json.tests.size()
+          def overallStatus = failCount == 0 ? ':white_check_mark: ALL FUNCTIONAL TESTS PASSED' : ":x: ${failCount}/${totalCount} FAILED"
+          def color = failCount == 0 ? '#2eb886' : '#dc2626'
+
+          // Build table
+          def tableHeader = '#   Test                           Status  Details'
+          def tableDivider = '──  ─────────────────────────────  ──────  ───────────────────────'
+          def tableBody = json.tests.collect { t ->
+            def statusIcon = t.status == 'PASS' ? '✅' : '❌'
+            def detail = t.status == 'PASS' ? t.detail : t.error.take(40)
+            String.format("%-3s %-33s %-6s  %s", t.num, t.name.take(33), statusIcon, detail.take(40))
+          }.join('\n')
+          def fullTable = "```${tableHeader}\n${tableDivider}\n${tableBody}```"
+
+          // Failed details
+          def failSection = ''
+          def failedTests = json.tests.findAll { it.status == 'FAIL' }
+          if (failedTests.size() > 0) {
+            failSection = "\n\n:rotating_light: *Failures:*\n" + failedTests.collect { t ->
+              "`${t.name}` → ${t.error}"
+            }.join('\n')
+          }
+
+          def duration = currentBuild.durationString.replace(' and counting', '')
+          def timestamp = new Date().format("MMM d, yyyy 'at' h:mm a z")
+
+          def payload = groovy.json.JsonOutput.toJson([
+            text: ":test_tube: Functional Tests #${env.BUILD_NUMBER} — ${overallStatus}",
+            attachments: [[
+              color: color,
+              blocks: [
+                [type: 'header', text: [type: 'plain_text', text: "Functional Integration Tests — Build #${env.BUILD_NUMBER}", emoji: true]],
+                [type: 'context', elements: [[type: 'mrkdwn', text: ":calendar: ${timestamp}  |  :stopwatch: ${duration}  |  :globe_with_meridians: `${params.BASE_URL}`"]]],
+                [type: 'divider'],
+                [type: 'section', text: [type: 'mrkdwn', text: "*${overallStatus}*\n${passCount}/${totalCount} checks passed${failSection}"]],
+                [type: 'divider'],
+                [type: 'section', text: [type: 'mrkdwn', text: fullTable]],
+                [type: 'divider'],
+                [type: 'context', elements: [[type: 'mrkdwn', text: ":link: <${env.BUILD_URL}console|:mag: Console Log>  |  <${env.BUILD_URL}artifact/${env.RESULTS_DIR}/results.json|:page_facing_up: JSON Report>  |  <https://grafana.zordnet.com/d/zord-platform-health?orgId=1&from=now-30m&to=now|:chart_with_downwards_trend: Grafana>  |  <https://kibana.zordnet.com|:ledger: Kibana>"]]],
+                [type: 'context', elements: [[type: 'mrkdwn', text: "_Zord Functional Test Bot — Verifies business logic after every deployment_"]]]
+              ]
+            ]]
+          ])
+
+          writeFile file: "${env.RESULTS_DIR}/slack-payload.json", text: payload
+          sh """curl -s -X POST -H 'Content-type: application/json' --data @"${env.RESULTS_DIR}/slack-payload.json" '${env.SLACK_WEBHOOK_URL}' || true"""
+        }
+      }
+    }
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: "functional-tests/results/${BUILD_NUMBER}/**", allowEmptyArchive: true
+    }
+  }
+}

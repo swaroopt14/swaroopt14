@@ -100,11 +100,11 @@ export function WorkspaceIntelligencePanel({
   }
 
   const footerHint = !tenantReady
-    ? 'Resolving session tenant…'
+    ? 'Resolving your workspace…'
     : !tenantId.trim()
-      ? 'Sign in so Ask Zord can scope answers to your tenant.'
+      ? 'Sign in so Ask Zord can focus answers on your workspace.'
       : workspace.isSubmitting
-        ? 'Querying prompt-layer for your session tenant…'
+        ? "Searching your workspace's payment data…"
         : 'Shift+Enter for new line · Enter to send'
 
   return (

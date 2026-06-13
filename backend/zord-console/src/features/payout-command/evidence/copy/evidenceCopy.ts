@@ -40,11 +40,12 @@ export const PROOF_SCORE_TOOLTIP =
 
 export const evidenceCopy = {
   pageTitle: 'Evidence & Dispute Resolution',
-  pageSubtitle: 'Build, verify, and export proof for payments, settlements, disputes, and audit review.',
+  pageSubtitle:
+    'Build, verify, and export proof for payments, settlements, disputes, and audit review — one structured Evidence Pack instead of screenshots and PSP log chases.',
   mainDescription:
-    'Zord links the original payment instruction, settlement record, match decision, and final outcome into one evidence pack. Use this page to see what is proof-ready, what is incomplete, and what can be exported.',
+    'Zord links the original payment instruction, settlement record, match decision, and final outcome into one Evidence Pack. Use this page to see what is proof-ready, what is incomplete, and what can be exported.',
   salesLine:
-    'Zord replaces screenshots, manual follow-ups, and scattered logs with one structured proof pack.',
+    'Zord replaces screenshots, manual follow-ups, and scattered logs with one structured Evidence Pack.',
   trustNote:
     'Sensitive payment data is masked or tokenized in evidence views. Full raw records are controlled by access permissions and audit logs.',
   dataUsed: 'Payment instructions, settlement records, match decisions, and evidence packs',

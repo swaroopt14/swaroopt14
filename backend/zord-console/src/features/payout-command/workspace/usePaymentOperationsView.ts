@@ -160,7 +160,7 @@ export function usePaymentOperationsView(batchId?: string): {
         issue: sourceIssue(dataSources.bankStatementStatus),
       },
       {
-        source: 'Evidence packs',
+        source: 'Evidence Packs',
         type: 'Proof',
         status: STATUS_DISPLAY[dataSources.evidenceStatus],
         lastReceived: dataSources.evidenceStatus !== 'missing' ? 'Available' : '—',

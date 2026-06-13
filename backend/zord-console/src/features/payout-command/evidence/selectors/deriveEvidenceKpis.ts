@@ -52,10 +52,9 @@ export function deriveEvidenceKpis(input: {
   const defScore = defensibility ? defensibility.defensibility_score.toFixed(1) : '—'
   const evidencePct = defensibility ? formatPercentLabel(defensibility.evidence_pack_rate) : '—'
   const govPct = defensibility ? formatPercentLabel(defensibility.governance_coverage_pct) : '—'
-  const replayPct = defensibility ? formatPercentLabel(defensibility.replayability_pct) : '—'
   const disputePct = defensibility ? formatPercentLabel(defensibility.dispute_ready_pct) : '—'
   let readinessSub = defensibility
-    ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct} · Dispute-ready: ${disputePct}`
+    ? `Evidence Packs: ${evidencePct} · Dispute-ready: ${disputePct}`
     : '—'
   if (defensibility) readinessSub += ` · ${evidenceCopy.defensibilityScaleNote}`
 

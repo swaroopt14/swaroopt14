@@ -969,7 +969,7 @@ export function MerkleGraphSurface({
 
       {!tenantReady && useLive ? (
         <section className="rounded-[16px] border border-slate-200 bg-white p-6 text-[15px] text-slate-600">
-          Sign in to load evidence packs from your session tenant. Demo graph data is not shown in live mode.
+          Sign in to load evidence packs from your workspace. Demo graph data is not shown in live mode.
         </section>
       ) : null}
 

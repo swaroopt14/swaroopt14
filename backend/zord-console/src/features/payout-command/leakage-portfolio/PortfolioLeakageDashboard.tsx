@@ -94,20 +94,20 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
 
       {!tenantReady ? (
         <p className="rounded-2xl border border-slate-100 bg-white p-8 text-center text-[14px] text-slate-500 shadow-sm">
-          Sign in to load payment gap intelligence for your tenant.
+          Sign in to load payment gap intelligence for your workspace.
         </p>
       ) : !displayData ? (
         <p className="rounded-2xl border border-slate-100 bg-white p-8 text-center text-[14px] text-slate-500 shadow-sm">
           {selectedBatchId
             ? 'No batch health projection yet for this batch. Run matching/settlement to populate payment gaps.'
-            : 'No tenant-wide leakage snapshot yet. Select a batch or wait for intelligence projections.'}
+            : 'No workspace-wide leakage snapshot yet. Select a batch or wait for intelligence projections.'}
         </p>
       ) : (
         <>
           {selectedBatchId && batchScopedData ? (
             <p className="text-[12px] font-medium text-slate-600">
               Batch variance projection for <span className="font-mono">{selectedBatchId}</span>
-              {leak ? ' · leakage breakdown from tenant snapshot' : ''}
+              {leak ? ' · leakage breakdown from workspace snapshot' : ''}
             </p>
           ) : null}
           <div className="grid gap-4 lg:grid-cols-3">

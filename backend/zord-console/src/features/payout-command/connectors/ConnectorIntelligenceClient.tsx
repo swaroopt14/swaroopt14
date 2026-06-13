@@ -21,6 +21,8 @@ import { COMMAND_CENTER_KPI_CARD, COMMAND_CENTER_LABEL_GREEN } from '@/features/
 import { JournalIntelligenceKpiHero } from '@/features/payout-command/command-center/JournalIntelligenceKpiHero'
 import { EntityLogo } from '@/features/payout-command/entity-logo'
 import { fmtInrFromMinorExact } from '../command-center/commandCenterFormat'
+import { ClientChart } from '../shared'
+import { connectorsCopy } from './copy/connectorsCopy'
 import { getRoutingIntelligenceAdapter } from './routingDataAdapter'
 import { rankRoutes } from './scoring'
 import type {
@@ -43,9 +45,9 @@ const TIME_WINDOWS: Array<{ value: RoutingTimeWindow; label: string }> = [
 const LEAKAGE_COLORS = ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa']
 
 function trendArrow(trend: TrendDirection): string {
-  if (trend === 'up') return '↑ Stable'
-  if (trend === 'down') return '↓ Drop'
-  return '→ Flat'
+  if (trend === 'up') return '↑ Improving'
+  if (trend === 'down') return '↓ Declining'
+  return '→ Stable'
 }
 
 function statusTone(status: ConnectorHealthRow['status']): string {
@@ -164,9 +166,9 @@ export default function ConnectorIntelligenceClient() {
         className="rounded-2xl border border-rose-200 bg-rose-50 px-6 py-10 text-center"
         data-testid="routing-error-state"
       >
-        <p className="text-[16px] font-semibold text-rose-900">Could not load routing intelligence</p>
+        <p className="text-[16px] font-semibold text-rose-900">{connectorsCopy.states.loadErrorTitle}</p>
         <p className="mx-auto mt-2 max-w-md text-[14px] text-rose-800">
-          The intelligence APIs did not respond. Check your connection and try again.
+          {connectorsCopy.states.loadErrorBody}
         </p>
         <button
           type="button"
@@ -185,10 +187,9 @@ export default function ConnectorIntelligenceClient() {
         className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-12 text-center"
         data-testid="routing-empty-state"
       >
-        <p className="text-[18px] font-semibold text-slate-900">No routing intelligence yet</p>
+        <p className="text-[18px] font-semibold text-slate-900">{connectorsCopy.states.emptyTitle}</p>
         <p className="mx-auto mt-2 max-w-lg text-[14px] leading-relaxed text-slate-600">
-          Ingest payment events and run intelligence snapshots to see connector health, leakage composition, and
-          provider quality signals here.
+          {connectorsCopy.states.emptyBody}
         </p>
       </section>
     )
@@ -199,8 +200,12 @@ export default function ConnectorIntelligenceClient() {
   const lowConfidenceExists = topRoutes.some((route) => route.confidence === 'Low')
   const kpis = buildKpis(snapshot)
   const windowLabel = TIME_WINDOWS.find((item) => item.value === window)?.label ?? 'Last 24h'
-  const showNetworkTrend = snapshot.networkHealthTrend.length > 0
-  const showLeakageComposition = snapshot.leakageComposition.length > 0
+  const hasNetworkTrend = snapshot.networkHealthTrend.length > 0
+  const hasLeakageComposition = snapshot.leakageComposition.length > 0
+  const networkHealthTitle =
+    snapshot.networkHealthTrend.length <= 1
+      ? connectorsCopy.charts.networkHealthSnapshot
+      : connectorsCopy.charts.networkHealthTrend
   const showRecommendedRoutes = snapshot.routeCandidates.length > 0
   const showCorrelationInsights = snapshot.correlationInsights.length > 0
   const impactSeries = buildImpactSeries(snapshot)
@@ -209,34 +214,37 @@ export default function ConnectorIntelligenceClient() {
   const showConnectorGrid = snapshot.connectors.length > 0
   const routingBuckets = [
     {
-      label: 'Total volume routed',
+      label: connectorsCopy.kpi.totalVolumeProcessed,
       value: fmtInrFromMinorExact(kpis.totalVolumeMinor),
-      sub: 'Across active connector network',
+      sub: connectorsCopy.kpi.totalVolumeProcessedSub,
     },
     {
-      label: 'Success rate',
+      label: connectorsCopy.kpi.successRate,
       value: `${kpis.successRate.toFixed(1)}%`,
-      sub: 'Weighted by routed volume',
+      sub: connectorsCopy.kpi.successRateSub,
     },
     {
-      label: 'Money at risk',
+      label: connectorsCopy.kpi.unconfirmedExposure,
       value: fmtInrFromMinorExact(kpis.moneyAtRiskMinor),
-      sub: 'Current unresolved exposure',
+      sub: connectorsCopy.kpi.unconfirmedExposureSub,
     },
     {
-      label: 'Preventable leakage',
+      label: connectorsCopy.kpi.preventableLeakage,
       value: fmtInrFromMinorExact(kpis.preventableLeakageMinor),
-      sub: `${kpis.preventablePct.toFixed(1)}% of routed volume`,
+      sub: connectorsCopy.kpi.preventableLeakageSub(kpis.preventablePct.toFixed(1)),
     },
     {
-      label: 'Active connectors',
+      label: connectorsCopy.kpi.activeConnectors,
       value: String(kpis.activeConnectors),
-      sub: 'PSP, bank, and rail endpoints',
+      sub: connectorsCopy.kpi.activeConnectorsSub,
     },
     {
-      label: 'Degraded routes',
+      label: connectorsCopy.kpi.connectorsNeedingAttention,
       value: String(kpis.degradedRoutes),
-      sub: 'Needs immediate routing attention',
+      sub:
+        kpis.degradedRoutes > 0
+          ? connectorsCopy.kpi.needReview
+          : connectorsCopy.kpi.allConnectorsHealthy,
     },
   ] as const
   const isStale = Date.now() - new Date(snapshot.generatedAtIso).getTime() > snapshot.staleAfterMinutes * 60 * 1000
@@ -256,89 +264,125 @@ export default function ConnectorIntelligenceClient() {
     <div className="space-y-5 pb-6 text-[15px] leading-[1.55]">
       {isStale ? (
         <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900" data-testid="routing-stale-banner">
-          Metrics are stale. Refresh connector telemetry before making routing decisions.
+          {connectorsCopy.states.staleBanner}
         </section>
       ) : null}
 
       <section>
         <JournalIntelligenceKpiHero
-          eyebrow="Routing intelligence overview"
+          eyebrow={connectorsCopy.overview.eyebrow}
           value={fmtInrFromMinorExact(kpis.totalVolumeMinor)}
           deltaPill={`Success ${kpis.successRate.toFixed(1)}%`}
-          subcopy={`Window: ${windowLabel} · Money at risk ${fmtInrFromMinorExact(kpis.moneyAtRiskMinor)}`}
+          subcopy={connectorsCopy.overview.subcopy(
+            windowLabel,
+            fmtInrFromMinorExact(kpis.moneyAtRiskMinor),
+          )}
           buckets={routingBuckets}
           testId="routing-kpi-bar"
         />
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {showNetworkTrend ? (
         <section className={COMMAND_CENTER_KPI_CARD} data-testid="network-health-chart">
           <CommandCenterCardGlow />
-          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Network Health Trend</p>
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{networkHealthTitle}</p>
           <div className="relative mt-3 h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={snapshot.networkHealthTrend}>
-                <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
-                <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 12 }} />
-                <YAxis yAxisId="left" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
-                <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
-                <Tooltip
-                  formatter={(value: number, name: string) =>
-                    name === 'successPct'
-                      ? `${Number(value).toFixed(1)}%`
-                      : name === 'latencyIndex'
-                        ? Number(value).toFixed(1)
-                        : String(value)
-                  }
-                />
-                <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="successPct" stroke="#1d4ed8" strokeWidth={2.5} name="Success %" />
-                <Line yAxisId="right" type="monotone" dataKey="latencyIndex" stroke="#0f172a" strokeWidth={2.2} name="Latency index" />
-              </LineChart>
-            </ResponsiveContainer>
+            {hasNetworkTrend ? (
+              <ClientChart className="h-full w-full">
+                <ResponsiveContainer width="100%" height={260} minWidth={0}>
+                  <LineChart data={snapshot.networkHealthTrend}>
+                    <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
+                    <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 12 }} />
+                    <YAxis yAxisId="left" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
+                    <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
+                    <Tooltip
+                      formatter={(value: number, name: string) =>
+                        name === 'successPct'
+                          ? `${Number(value).toFixed(1)}%`
+                          : name === 'latencyIndex'
+                            ? Number(value).toFixed(1)
+                            : String(value)
+                      }
+                    />
+                    <Legend />
+                    <Line
+                      yAxisId="left"
+                      type="monotone"
+                      dataKey="successPct"
+                      stroke="#1d4ed8"
+                      strokeWidth={2.5}
+                      name="Success %"
+                      dot={{ r: 3 }}
+                    />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="latencyIndex"
+                      stroke="#0f172a"
+                      strokeWidth={2.2}
+                      name="Latency index"
+                      dot={{ r: 3 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </ClientChart>
+            ) : (
+              <p className="flex h-full items-center justify-center text-center text-[14px] text-slate-600">
+                {connectorsCopy.charts.networkHealthEmpty}
+              </p>
+            )}
           </div>
         </section>
-        ) : null}
 
-        {showLeakageComposition ? (
         <section className={COMMAND_CENTER_KPI_CARD} data-testid="leakage-composition-chart">
           <CommandCenterCardGlow />
-          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Leakage Composition</p>
-          <div className="relative mt-3 grid gap-3 md:grid-cols-[1fr_180px]">
-            <div className="h-[240px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={snapshot.leakageComposition}
-                    dataKey="amountMinor"
-                    nameKey="label"
-                    innerRadius={62}
-                    outerRadius={96}
-                    paddingAngle={2}
-                  >
-                    {snapshot.leakageComposition.map((slice, index) => (
-                      <Cell key={slice.key} fill={LEAKAGE_COLORS[index % LEAKAGE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => fmtInrFromMinorExact(value)} />
-                </PieChart>
-              </ResponsiveContainer>
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{connectorsCopy.charts.leakageComposition}</p>
+          {hasLeakageComposition ? (
+            <div className="relative mt-3 grid gap-3 md:grid-cols-[1fr_180px]">
+              <div className="h-[240px]">
+                <ClientChart className="h-full w-full">
+                  <ResponsiveContainer width="100%" height={240} minWidth={0}>
+                    <PieChart>
+                      <Pie
+                        data={snapshot.leakageComposition}
+                        dataKey="amountMinor"
+                        nameKey="label"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={62}
+                        outerRadius={96}
+                        paddingAngle={2}
+                      >
+                        {snapshot.leakageComposition.map((slice, index) => (
+                          <Cell key={slice.key} fill={LEAKAGE_COLORS[index % LEAKAGE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => fmtInrFromMinorExact(value)} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </ClientChart>
+              </div>
+              <div className="space-y-2">
+                {snapshot.leakageComposition.map((slice, index) => (
+                  <div key={slice.key} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[13px]">
+                    <p className="font-semibold text-slate-700">
+                      <span
+                        className="mr-2 inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: LEAKAGE_COLORS[index % LEAKAGE_COLORS.length] }}
+                      />
+                      {slice.label}
+                    </p>
+                    <p className="mt-1 font-semibold tabular-nums text-slate-900">{fmtInrFromMinorExact(slice.amountMinor)}</p>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="space-y-2">
-              {snapshot.leakageComposition.map((slice, index) => (
-                <div key={slice.key} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[13px]">
-                  <p className="font-semibold text-slate-700">
-                    <span className="mr-2 inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: LEAKAGE_COLORS[index % LEAKAGE_COLORS.length] }} />
-                    {slice.label}
-                  </p>
-                  <p className="mt-1 font-semibold tabular-nums text-slate-900">{fmtInrFromMinorExact(slice.amountMinor)}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          ) : (
+            <p className="relative mt-3 flex h-[240px] items-center justify-center text-center text-[14px] text-slate-600">
+              {connectorsCopy.charts.leakageEmpty}
+            </p>
+          )}
         </section>
-        ) : null}
       </div>
 
       {showRecommendedRoutes ? (
@@ -376,7 +420,7 @@ export default function ConnectorIntelligenceClient() {
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="connector-grid">
         <CommandCenterCardGlow />
         <div className="relative flex flex-wrap items-center justify-between gap-3">
-          <p className={COMMAND_CENTER_LABEL_GREEN}>Connector Grid</p>
+          <p className={COMMAND_CENTER_LABEL_GREEN}>{connectorsCopy.grid.title}</p>
           <div className="flex flex-wrap items-center gap-2">
             {TYPE_FILTERS.map((item) => (
               <button
@@ -445,7 +489,7 @@ export default function ConnectorIntelligenceClient() {
       {showCorrelationInsights ? (
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="correlation-insights">
         <CommandCenterCardGlow />
-        <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Detected Patterns</p>
+        <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{connectorsCopy.sections.detectedPatterns}</p>
         <ul className="relative mt-3 list-disc space-y-2 pl-5 text-[14px] text-slate-800">
           {snapshot.correlationInsights.map((insight) => (
             <li key={insight.id}>{insight.text}</li>
@@ -457,9 +501,10 @@ export default function ConnectorIntelligenceClient() {
       {showImpactChart ? (
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="preventable-leakage-impact">
         <CommandCenterCardGlow />
-        <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Preventable Leakage Impact</p>
+        <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{connectorsCopy.sections.preventableLeakageImpact}</p>
         <div className="relative mt-3 h-[270px]">
-          <ResponsiveContainer width="100%" height="100%">
+          <ClientChart className="h-full w-full">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <BarChart data={impactSeries}>
               <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
               <XAxis dataKey="action" tick={{ fill: '#64748b', fontSize: 11 }} />
@@ -474,6 +519,7 @@ export default function ConnectorIntelligenceClient() {
               <Bar dataKey="preventableMinor" fill="#0f172a" name="Preventable leakage" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          </ClientChart>
         </div>
       </section>
       ) : null}
@@ -481,7 +527,7 @@ export default function ConnectorIntelligenceClient() {
       {showActionEngine ? (
       <section className={COMMAND_CENTER_KPI_CARD} data-testid="action-engine">
         <CommandCenterCardGlow />
-        <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Recommended Actions</p>
+        <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{connectorsCopy.sections.recommendedActions}</p>
         <ol className="relative mt-3 space-y-2">
           {snapshot.actionRecommendations.map((action, index) => (
             <li key={action.id} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-[14px]">
@@ -515,7 +561,8 @@ export default function ConnectorIntelligenceClient() {
             <div>
               <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-slate-500">Success trend (7 days)</p>
               <div className="mt-2 h-[180px]">
-                <ResponsiveContainer width="100%" height="100%">
+                <ClientChart className="h-full w-full">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart data={selectedDrilldown.successTrend7d}>
                     <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
                     <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 11 }} />
@@ -524,6 +571,7 @@ export default function ConnectorIntelligenceClient() {
                     <Line type="monotone" dataKey="successPct" stroke="#1d4ed8" strokeWidth={2.4} />
                   </LineChart>
                 </ResponsiveContainer>
+                </ClientChart>
               </div>
             </div>
 

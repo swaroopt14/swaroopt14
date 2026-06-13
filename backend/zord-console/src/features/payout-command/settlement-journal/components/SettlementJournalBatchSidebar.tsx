@@ -56,7 +56,7 @@ export function SettlementJournalBatchSidebar({
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {!tenantReady ? (
           <p className="rounded-xl border border-dashed border-slate-200/90 bg-slate-50 px-3 py-4 text-center text-[14px] text-[#64748b]">
-            Sign in to load settlement batches for your session tenant.
+            Sign in to load settlement batches for your workspace.
           </p>
         ) : feedLoaded && clientBatches.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-200/90 bg-slate-50 px-3 py-4 text-center text-[14px] leading-relaxed text-[#64748b]">

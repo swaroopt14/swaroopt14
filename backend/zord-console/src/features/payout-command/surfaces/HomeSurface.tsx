@@ -626,14 +626,14 @@ export function HomeSurface({
                   <span className={`font-semibold ${HOME_TITLE_BLACK}`}>No trend data in this range</span>
                   <span className={`max-w-md ${HOME_BODY_IMPERIAL}`}>
                     Try Week, Month, Quarter, or Year — or wait until intents exist in the selected window. The chart
-                    will populate automatically once disbursements appear.
+                    will populate automatically once payments appear.
                   </span>
                 </>
               ) : (
                 <>
                   <span className={`font-semibold ${HOME_TITLE_BLACK}`}>Workspace required</span>
                   <span className={`max-w-md ${HOME_BODY_IMPERIAL}`}>
-                    Sign in and select a tenant to plot disbursement and confirmation from the intent ledger. This
+                    Sign in and select a workspace to plot intended and confirmed value from the intent ledger. This
                     preview stays empty until a workspace is active.
                   </span>
                 </>
@@ -762,9 +762,9 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            cleanlyMatchedValue={observedMinor !== null ? fmtInrFromMinorExact(observedMinor) : loading ? '…' : '—'}
-            cleanlyMatchedSub="Payment value matched between instruction and confirmation."
-            cleanlyMatchedFooter="Cleanly matched means Zord can link the original payment instruction to a bank or settlement outcome."
+            fullyMatchedValue={observedMinor !== null ? fmtInrFromMinorExact(observedMinor) : loading ? '…' : '—'}
+            fullyMatchedSub="Payment value matched between instruction and confirmation."
+            fullyMatchedFooter="Fully matched means Zord can link the original payment instruction to a bank or settlement outcome."
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={
@@ -802,9 +802,6 @@ export function HomeSurface({
               defData
                 ? `${Math.max(0, 100 - Math.round((defData.evidence_pack_rate ?? 0) * 100))}% incomplete`
                 : '—'
-            }
-            replayReadyRow={
-              defData ? `${Math.round((defData.replayability_pct ?? 0) * 100)}% replay-ready` : '—'
             }
             proofHref="/payout-command-view/today?dock=proof"
             nextActions={{ actions: nextActions, completionHint }}

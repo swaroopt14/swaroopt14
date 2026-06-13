@@ -40,6 +40,14 @@ import type {
   RoutingKpiSnapshot,
   RoutingTimeWindow,
 } from './types'
+import {
+  formatPatternBatchInsight,
+  formatRcaConcentration,
+  formatRecommendationImpactLabel,
+  formatRecommendationTitle,
+  formatRiskSignalInsight,
+  isDeferredRecommendation,
+} from './copy/formatRoutingIntelligence'
 
 const STALE_AFTER_MINUTES = 15
 
@@ -62,11 +70,6 @@ function clamp(value: number, min: number, max: number): number {
 function pct(value: number | undefined | null): number | null {
   if (value == null || !Number.isFinite(value)) return null
   return clamp(value * 100, 0, 100)
-}
-
-function scoreLabel(value: number | undefined | null, digits = 2): string {
-  if (value == null || !Number.isFinite(value)) return '—'
-  return value.toFixed(digits)
 }
 
 function dateOnly(date: Date): string {
@@ -125,6 +128,11 @@ function buildCardLookup(cards: RecommendationCard[]): Map<string, Recommendatio
   return byTarget
 }
 
+function connectorGridAction(status: ConnectorStatus, degradedAction: string): string {
+  if (status === 'Healthy' || status === 'Reliable' || status === 'Stable') return 'No action needed'
+  return degradedAction
+}
+
 function resolveExposureTotals(
   leakage: LeakageKpiResponse | null,
   ambiguity: AmbiguityKpiResponse | null,
@@ -132,18 +140,35 @@ function resolveExposureTotals(
   recommendation: RecommendationSnapshotData | null,
 ) {
   const totalIntendedMinor = isDataAvailable(leakage) ? readMinor(leakage.total_intended_amount_minor) : 0
-  const moneyAtRiskMinor = isDataAvailable(leakage)
-    ? readMinor(leakage.unmatched_amount_minor)
-    : isDataAvailable(ambiguity)
-      ? readMinor(ambiguity.value_at_risk_minor)
-      : readMinor(recommendation?.total_amount_at_stake_minor)
+
+  let unconfirmedExposureMinor = 0
+  if (isDataAvailable(leakage)) {
+    unconfirmedExposureMinor =
+      readMinor(leakage.unmatched_amount_minor) +
+      readMinor(leakage.under_settlement_amount_minor) +
+      readMinor(leakage.orphan_amount_minor) +
+      readMinor(leakage.reversal_exposure_minor)
+  }
+  if (unconfirmedExposureMinor === 0 && isDataAvailable(ambiguity)) {
+    unconfirmedExposureMinor = readMinor(ambiguity.value_at_risk_minor)
+  }
+  if (unconfirmedExposureMinor === 0 && recommendation) {
+    unconfirmedExposureMinor = readMinor(recommendation.total_amount_at_stake_minor)
+  }
+  if (unconfirmedExposureMinor === 0 && recommendation?.cards?.length) {
+    unconfirmedExposureMinor = recommendation.cards.reduce(
+      (sum, card) => sum + readMinor(card.amount_at_stake_minor),
+      0,
+    )
+  }
+
   const recommendationImpact =
     readMinor(recommendation?.recommendation_impact_estimate_minor) ||
     (isDataAvailable(recommendations)
       ? readMinor(recommendations.recommendation_impact_estimate_minor)
       : 0)
-  const preventableLeakageMinor = recommendationImpact || moneyAtRiskMinor * 0.65
-  return { totalIntendedMinor, moneyAtRiskMinor, preventableLeakageMinor }
+  const preventableLeakageMinor = recommendationImpact || unconfirmedExposureMinor * 0.65
+  return { totalIntendedMinor, moneyAtRiskMinor: unconfirmedExposureMinor, preventableLeakageMinor }
 }
 
 function applyLiveExposure(
@@ -192,6 +217,7 @@ function providerRows(
       const failurePct = pct(Math.max(provider.orphan_rate ?? 0, provider.ambiguity_rate ?? 0)) ?? 0
       const successPct = pct(provider.avg_parse_confidence) ?? clamp(100 - failurePct, 0, 100)
       const card = cardLookup.get(connectorKey(provider.provider_id || ''))
+      const status = severityToStatus(provider.severity)
       return {
         id: connectorKey(provider.provider_id || 'provider'),
         connector: providerLabel(provider.provider_id || 'Provider'),
@@ -199,15 +225,17 @@ function providerRows(
         successPct,
         avgTimeSec: provider.settlement_delay_p95_days ?? 0,
         failurePct,
-        status: severityToStatus(provider.severity),
+        status,
         trend: failurePct > 10 ? 'down' : 'flat',
-        recommendedAction:
+        recommendedAction: connectorGridAction(
+          status,
           card?.title?.trim() ||
-          ((provider.severity || '').toUpperCase() === 'CRITICAL'
-            ? 'Strengthen provider contract'
-            : failurePct > 15
-              ? 'Request stronger carrier refs'
-              : 'Monitor provider quality'),
+            ((provider.severity || '').toUpperCase() === 'CRITICAL'
+              ? 'Strengthen provider contract'
+              : failurePct > 15
+                ? 'Request stronger carrier refs'
+                : 'Review provider quality signals'),
+        ),
         volumeMinor: 0,
         moneyAtRiskMinor: 0,
         preventableLeakageMinor: 0,
@@ -227,6 +255,7 @@ function sourceRows(
       const failurePct = pct(source.missing_client_ref_rate) ?? 0
       const successPct = clamp(100 - manualReviewPct, 0, 100)
       const card = cardLookup.get(connectorKey(source.source_system || ''))
+      const status = severityToStatus(source.severity)
       return {
         id: `source-${connectorKey(source.source_system || 'source')}`,
         connector: providerLabel(source.source_system || 'Source'),
@@ -234,15 +263,17 @@ function sourceRows(
         successPct,
         avgTimeSec: 0,
         failurePct,
-        status: severityToStatus(source.severity),
+        status,
         trend: failurePct > 25 ? 'down' : failurePct > 10 ? 'flat' : 'up',
-        recommendedAction:
+        recommendedAction: connectorGridAction(
+          status,
           card?.title?.trim() ||
-          (manualReviewPct > 20
-            ? 'Escalate source quality issues'
-            : failurePct > 10
-              ? `Request source patch · ${source.source_system}`
-              : 'Monitor source quality'),
+            (manualReviewPct > 20
+              ? 'Escalate source quality issues'
+              : failurePct > 10
+                ? `Request source patch · ${source.source_system}`
+                : 'Review source quality signals'),
+        ),
         volumeMinor: readMinor(source.manual_review_amount_minor),
         moneyAtRiskMinor: readMinor(source.manual_review_amount_minor),
         preventableLeakageMinor: 0,
@@ -260,13 +291,26 @@ function buildLeakageComposition(leakage: LeakageKpiResponse | null): LeakageCom
   ].filter((slice) => slice.amountMinor > 0)
 }
 
+/** When leakage KPI buckets are empty, allocate connector-level money-at-risk for the pie chart. */
+function buildLeakageCompositionFromConnectors(connectors: ConnectorHealthRow[]): LeakageCompositionSlice[] {
+  return connectors
+    .filter((row) => row.moneyAtRiskMinor > 0 || row.preventableLeakageMinor > 0)
+    .sort((left, right) => right.moneyAtRiskMinor - left.moneyAtRiskMinor)
+    .slice(0, 6)
+    .map((row) => ({
+      key: row.id,
+      label: row.connector,
+      amountMinor: row.moneyAtRiskMinor > 0 ? row.moneyAtRiskMinor : row.preventableLeakageMinor,
+    }))
+}
+
 function riskSignalInsights(signals: BatchRiskSignal[] | null | undefined): CorrelationInsight[] {
   return (signals ?? [])
     .filter((signal) => signal.signal)
     .slice(0, 3)
     .map((signal) => ({
       id: `risk-${signal.signal}`,
-      text: `${signal.signal} (${signal.severity ?? 'INFO'}) — value ${scoreLabel(signal.value)} vs threshold ${scoreLabel(signal.threshold)}`,
+      text: formatRiskSignalInsight(signal),
     }))
 }
 
@@ -281,7 +325,7 @@ function buildInsights(
   if (pattern?.batch_id) {
     insights.push({
       id: 'pattern-batch',
-      text: `Latest pattern snapshot for batch ${pattern.batch_id} · risk ${pattern.risk_tier ?? '—'}.`,
+      text: formatPatternBatchInsight(pattern.batch_id, pattern.risk_tier),
     })
   }
 
@@ -327,7 +371,7 @@ function buildInsights(
   if (isDataAvailable(rca) && rca.rca_concentration > 0) {
     insights.push({
       id: 'rca-concentration',
-      text: `RCA concentration is ${(rca.rca_concentration * 100).toFixed(1)}% across source defects.`,
+      text: formatRcaConcentration(rca.rca_concentration),
     })
   }
 
@@ -343,18 +387,10 @@ function preventableShare(confidence: string | undefined): number {
   return CONFIDENCE_PREVENTABLE_SHARE[(confidence || '').toUpperCase()] ?? 0.65
 }
 
-function cardImpactLabel(card: RecommendationCard): string {
-  const parts = [
-    card.priority ? `Priority ${card.priority}` : null,
-    card.expected_improvement?.trim() || null,
-    card.action_owner?.trim() ? `Owner: ${card.action_owner.trim()}` : null,
-  ].filter(Boolean)
-  return parts.join(' · ') || card.reason?.trim() || 'Recommendation'
-}
-
 /** Ranked recommendation cards → Recommended Actions list. */
 function actionsFromCards(cards: RecommendationCard[]): ActionRecommendation[] {
   return [...cards]
+    .filter((card) => !isDeferredRecommendation(card))
     .sort((a, b) => {
       const pa = PRIORITY_ORDER[(a.priority || '').toUpperCase()] ?? 4
       const pb = PRIORITY_ORDER[(b.priority || '').toUpperCase()] ?? 4
@@ -364,12 +400,13 @@ function actionsFromCards(cards: RecommendationCard[]): ActionRecommendation[] {
     .filter((card) => card.title?.trim() || card.action?.trim())
     .map((card, index) => {
       const impactMinor = readMinor(card.amount_at_stake_minor)
+      const title = formatRecommendationTitle(card)
       return {
         id: card.card_id || `rec-card-${index}`,
-        title: card.title?.trim() || card.action?.trim() || 'Recommendation',
+        title,
         impactMinor,
         preventableMinor: impactMinor * preventableShare(card.confidence),
-        impactLabel: cardImpactLabel(card),
+        impactLabel: formatRecommendationImpactLabel(card),
       }
     })
 }
@@ -420,6 +457,7 @@ function buildActions(
 function buildTrend(
   patternHistory: PatternHistoryResponse | null,
   heatmap: AmbiguityHeatmapResponse | null,
+  pattern: PatternSnapshotData | null,
 ): RoutingKpiSnapshot['networkHealthTrend'] {
   // Only snapshots carrying real batch volume — tenant-scope snapshots have no
   // success/total counts and would plot as misleading 0% points.
@@ -484,7 +522,35 @@ function buildTrend(
     ]
   }
 
+  if (pattern && (pattern.total_count ?? 0) > 0) {
+    const total = Math.max(1, pattern.total_count ?? 1)
+    const successPct = clamp(((pattern.success_count ?? 0) / total) * 100, 0, 100)
+    const risk = pattern.batch_risk_score ?? pattern.ambiguity_score ?? 0
+    return [
+      {
+        label: pattern.batch_id?.slice(-6) || 'Latest',
+        successPct,
+        latencyIndex: clamp(90 - risk * 50, 40, 90),
+      },
+    ]
+  }
+
   return []
+}
+
+/** When pattern history and heatmap lack trend points, derive a snapshot from live connector rows. */
+function buildTrendFromConnectors(connectors: ConnectorHealthRow[]): RoutingKpiSnapshot['networkHealthTrend'] {
+  if (!connectors.length) return []
+
+  return connectors
+    .slice()
+    .sort((left, right) => right.volumeMinor - left.volumeMinor)
+    .slice(0, 7)
+    .map((row) => ({
+      label: row.connector.length > 12 ? `${row.connector.slice(0, 12)}…` : row.connector,
+      successPct: row.successPct,
+      latencyIndex: clamp(100 - row.avgTimeSec * 8 - row.failurePct * 0.5, 40, 95),
+    }))
 }
 
 export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise<RoutingKpiSnapshot | null> {
@@ -544,7 +610,10 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
   ]
   const apiTotals = resolveExposureTotals(leakage, ambiguity, recommendations, recommendation)
   const connectors = applyLiveExposure(gridRows, leakage, ambiguity, recommendations, recommendation)
-  const leakageComposition = buildLeakageComposition(leakage)
+  const leakageComposition = (() => {
+    const fromLeakage = buildLeakageComposition(leakage)
+    return fromLeakage.length > 0 ? fromLeakage : buildLeakageCompositionFromConnectors(connectors)
+  })()
 
   return {
     apiTotals,
@@ -566,7 +635,10 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     correlationInsights: buildInsights(pattern, leakage, ambiguity, rca),
     actionRecommendations: buildActions(pattern, recommendation, recommendations),
     leakageComposition,
-    networkHealthTrend: buildTrend(patternHistory, heatmap),
+    networkHealthTrend: (() => {
+      const trend = buildTrend(patternHistory, heatmap, pattern)
+      return trend.length > 0 ? trend : buildTrendFromConnectors(connectors)
+    })(),
     drilldowns: [],
   }
 }

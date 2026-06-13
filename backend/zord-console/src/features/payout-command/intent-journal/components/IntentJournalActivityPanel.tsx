@@ -571,7 +571,7 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     </p>
                     {journalUsesBackendFeed && failureTotal === 0 ? (
                       <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>
-                        No DLQ rows for this batch. DLQ from your upload may use a different batch id or tenant than the
+                        No DLQ rows for this batch. DLQ from your upload may use a different batch id or workspace than the
                         session scope above.
                       </p>
                     ) : null}

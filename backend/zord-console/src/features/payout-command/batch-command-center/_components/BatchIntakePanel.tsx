@@ -131,7 +131,7 @@ export function BatchIntakePanel({
   const settlementBlockedReason = useMemo(() => {
     if (settlementCredentialsReady) return null
     if (!tenantReady) return 'Resolving session…'
-    if (!tenantId.trim()) return 'Sign in or open Advanced details to set your tenant scope.'
+    if (!tenantId.trim()) return 'Sign in or open Advanced details to set your workspace scope.'
     if (!psp.trim()) return 'Enter payment source / partner (e.g. razorpay or cashfree).'
     if (!settlementBatchIdResolved) return 'Complete Step 1 or enter a batch reference above.'
     if (!intentIngestOk && !hasManualOrServerBatchId) {

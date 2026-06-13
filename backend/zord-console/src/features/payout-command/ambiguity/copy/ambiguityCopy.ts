@@ -8,7 +8,7 @@ export { mapReviewPriorityLabel, mapReviewPriorityShort }
 export const ambiguityCopy = {
   pageTitle: 'Matching Confidence',
   pageSubtitle:
-    'Payments Zord cannot yet confidently connect to bank or settlement outcomes. Review unclear matches, missing references, and batches that need attention.',
+    'See where Zord cannot confidently connect payment instructions to bank, PSP, or settlement outcomes.',
   linkPaymentGaps: 'See payment gaps in rupees',
   kpi: {
     paymentsNeedingReview: 'Payments Needing Match Review',

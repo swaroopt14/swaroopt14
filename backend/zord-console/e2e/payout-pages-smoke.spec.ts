@@ -21,7 +21,7 @@ const DOCK_CASES: { dock: string; title: string }[] = [
   { dock: 'monitoring', title: 'Post-Disbursal Monitoring' },
   { dock: 'grid', title: 'Intent Journal' },
   { dock: 'settlement', title: 'Settlement Journal' },
-  { dock: 'connectors', title: 'Routing & Network Intelligence' },
+  { dock: 'connectors', title: 'Connector Performance & Leakage' },
   { dock: 'proof', title: 'Evidence & Dispute Resolution' },
   { dock: 'billing', title: 'Billing' },
 ]
@@ -872,10 +872,12 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     })
 
     await page.goto('/payout-command-view/today?dock=connectors')
-    await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'Connector Performance & Leakage', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
     await expect(page.getByTestId('routing-kpi-bar')).toBeVisible({ timeout: 25_000 })
+    await expect(page.getByTestId('network-health-chart')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByTestId('leakage-composition-chart')).toBeVisible({ timeout: 15_000 })
     await expect(page.getByTestId('connector-grid')).toContainText('Cashfree', { timeout: 15_000 })
     await expect(page.getByTestId('connector-grid')).toContainText('Strengthen provider contract')
     await expect(page.getByTestId('recommended-routes')).toHaveCount(0)
@@ -902,7 +904,7 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     })
 
     await page.goto('/payout-command-view/today?dock=connectors')
-    await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'Connector Performance & Leakage', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
     await expect(page.getByTestId('routing-empty-state')).toBeVisible({ timeout: 20_000 })

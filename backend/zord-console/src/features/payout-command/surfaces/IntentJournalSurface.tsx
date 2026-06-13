@@ -898,7 +898,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           <div className="flex-1 overflow-y-auto p-4 sm:p-5">
             {journalUsesBackendFeed && !tenantReady ? (
               <p className={`mb-4 rounded-xl border border-slate-200/90 bg-slate-50 px-3.5 py-2.5 ${HOME_BODY_IMPERIAL_SM}`}>
-                Resolving session tenant…
+                Resolving your workspace…
               </p>
             ) : null}
 
@@ -1042,7 +1042,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 <CommandCenterCardGlow />
                 <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>Intent journal</p>
                 <p className={`relative mx-auto mt-2 max-w-xl ${HOME_BODY_IMPERIAL_SM}`}>
-                  Select a batch from the sidebar to view batch totals, intents, and DLQ rows for your session tenant.
+                  Select a batch from the sidebar to view batch totals, intents, and DLQ rows for your workspace.
                 </p>
               </section>
             )}

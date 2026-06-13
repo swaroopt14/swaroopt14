@@ -119,7 +119,7 @@ export function EvidencePackBrowser({
               value={batchId}
               onChange={onBatchChange}
               options={batchPickerOptions}
-              placeholder={!tenantReady ? 'Sign in (tenant)' : 'Select batch'}
+              placeholder={!tenantReady ? 'Sign in (workspace)' : 'Select batch'}
               emptyState="No batches — ingest intents first"
               searchPlaceholder="Search batch id…"
               recentStorageKey="zord:evidence:recent-batches"

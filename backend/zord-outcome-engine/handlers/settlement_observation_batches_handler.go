@@ -194,6 +194,7 @@ func (h *Handler) GetSettlementObservationBatchesHandler(c *gin.Context) {
 		WHERE tenant_id = $1
 		  AND client_batch_id = $2
 		ORDER BY NULLIF(source_row_ref, '')::int ASC NULLS LAST, created_at ASC
+		LIMIT $3 OFFSET $4
 	`
 
 	rows, err := db.DB.QueryContext(c.Request.Context(), q, tenantID, clientBatchID, pageSize, offset)

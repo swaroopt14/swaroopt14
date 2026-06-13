@@ -14,6 +14,7 @@ export const connectorsCopy = {
     totalVolumeProcessedSub: 'Across connected PSPs, banks, and rails',
     successRate: 'Success rate',
     successRateSub: 'Weighted by payment volume',
+    successRatePatternsSub: 'Attachment decisions settled at intended amount',
     unconfirmedExposure: 'Unconfirmed exposure',
     unconfirmedExposureSub: 'Value not yet matched to a settlement',
     preventableLeakage: 'Preventable leakage',

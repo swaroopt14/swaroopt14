@@ -214,7 +214,7 @@ function SettlementJournalSurfaceContent({
     setParseErrorsLoading(true)
     try {
       const res = await getSettlementParseErrorsForClientBatch(bid)
-      setParseErrors(res.data ?? [])
+      setParseErrors(res.data?.items ?? [])
     } finally {
       setParseErrorsLoading(false)
     }

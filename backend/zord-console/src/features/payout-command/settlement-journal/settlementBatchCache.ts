@@ -17,8 +17,13 @@ import {
 import type { IntentJournalPaymentIntentItem } from '@/services/payout-command/prod-api/intentJournalTypes'
 
 const listInflight = new Map<string, Promise<string[]>>()
-const detailInflight = new Map<string, Promise<SettlementObservationTableRow[]>>()
+const detailInflight = new Map<string, Promise<SettlementObservationsFetchResult>>()
 const intentsInflight = new Map<string, Promise<IntentJournalPaymentIntentItem[]>>()
+
+export type SettlementObservationsFetchResult = {
+  rows: SettlementObservationTableRow[]
+  total: number | null
+}
 
 function mergeBatchIds(apiIds: string[], pinned?: string): string[] {
   const out = [...apiIds]
@@ -64,11 +69,11 @@ async function fetchPaymentIntentsForBatch(clientBatchId: string): Promise<Inten
   return promise
 }
 
-export async function fetchSettlementObservations(
+export async function fetchSettlementObservationsWithMeta(
   clientBatchId: string,
-): Promise<SettlementObservationTableRow[]> {
+): Promise<SettlementObservationsFetchResult> {
   const bid = clientBatchId.trim()
-  if (!bid) return []
+  if (!bid) return { rows: [], total: null }
 
   const existing = detailInflight.get(bid)
   if (existing) return existing
@@ -78,17 +83,29 @@ export async function fetchSettlementObservations(
       getSettlementObservationsForClientBatch(bid),
       fetchPaymentIntentsForBatch(bid),
     ])
-    if (!obsRes.ok || !obsRes.data?.items?.length) return []
+    if (!obsRes.ok || !obsRes.data?.items?.length) {
+      return { rows: [], total: obsRes.data?.total ?? null }
+    }
     const rows = obsRes.data.items.map((it, rowIndex) =>
       mapObservationToTableRow(it, { clientBatchId: bid, rowIndex }),
     )
-    return enrichSettlementRowsWithPaymentIntentMatches(rows, paymentIntents)
+    return {
+      rows: enrichSettlementRowsWithPaymentIntentMatches(rows, paymentIntents),
+      total: obsRes.data.total,
+    }
   })().finally(() => {
     detailInflight.delete(bid)
   })
 
   detailInflight.set(bid, promise)
   return promise
+}
+
+export async function fetchSettlementObservations(
+  clientBatchId: string,
+): Promise<SettlementObservationTableRow[]> {
+  const result = await fetchSettlementObservationsWithMeta(clientBatchId)
+  return result.rows
 }
 
 export type { SettlementObservationDetailResponse }

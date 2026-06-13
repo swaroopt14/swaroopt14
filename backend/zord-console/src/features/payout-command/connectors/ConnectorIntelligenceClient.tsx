@@ -67,7 +67,9 @@ function buildKpis(snapshot: RoutingKpiSnapshot) {
     snapshot.apiTotals?.totalIntendedMinor ??
     snapshot.connectors.reduce((sum, row) => sum + row.volumeMinor, 0)
   const weightedSuccessSum = snapshot.connectors.reduce((sum, row) => sum + row.successPct * row.volumeMinor, 0)
-  const successRate = totalVolumeMinor > 0 ? weightedSuccessSum / totalVolumeMinor : 0
+  const weightedSuccessRate = totalVolumeMinor > 0 ? weightedSuccessSum / totalVolumeMinor : 0
+  const successRate = snapshot.patternsDecisionSuccessRate ?? weightedSuccessRate
+  const successRateFromPatterns = snapshot.patternsDecisionSuccessRate != null
   const moneyAtRiskMinor =
     snapshot.apiTotals?.moneyAtRiskMinor ??
     snapshot.connectors.reduce((sum, row) => sum + row.moneyAtRiskMinor, 0)
@@ -82,6 +84,7 @@ function buildKpis(snapshot: RoutingKpiSnapshot) {
   return {
     totalVolumeMinor,
     successRate,
+    successRateFromPatterns,
     moneyAtRiskMinor,
     preventableLeakageMinor,
     preventablePct,
@@ -221,7 +224,9 @@ export default function ConnectorIntelligenceClient() {
     {
       label: connectorsCopy.kpi.successRate,
       value: `${kpis.successRate.toFixed(1)}%`,
-      sub: connectorsCopy.kpi.successRateSub,
+      sub: kpis.successRateFromPatterns
+        ? connectorsCopy.kpi.successRatePatternsSub
+        : connectorsCopy.kpi.successRateSub,
     },
     {
       label: connectorsCopy.kpi.unconfirmedExposure,

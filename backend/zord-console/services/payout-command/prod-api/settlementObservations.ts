@@ -5,8 +5,15 @@ export type SettlementObservationBatchListItem = {
   client_batch_id: string
 }
 
+export type SettlementPagination = {
+  page?: number
+  page_size?: number
+  total?: number
+}
+
 export type SettlementObservationBatchListResponse = {
   items: SettlementObservationBatchListItem[]
+  pagination?: SettlementPagination
 }
 
 /** Canonical settlement observation row (mode 2) — mirrors outcome-engine JSON. */
@@ -71,6 +78,17 @@ export type CanonicalSettlementObservation = {
 
 export type SettlementObservationDetailResponse = {
   items: CanonicalSettlementObservation[]
+  pagination?: SettlementPagination
+}
+
+export type SettlementObservationsForBatchResult = {
+  items: CanonicalSettlementObservation[]
+  total: number | null
+}
+
+export type SettlementParseErrorsResult = {
+  items: SettlementParseErrorRow[]
+  total: number | null
 }
 
 /** Mode-2 rows from outcome-engine (canonical columns needed by Settlement Journal). */
@@ -160,27 +178,34 @@ export async function getSettlementObservationBatchesForSession(): Promise<
 
 export async function getSettlementObservationsForClientBatch(
   clientBatchId: string,
-): Promise<ProdJsonGetResult<SettlementObservationDetailResponse>> {
+): Promise<ProdJsonGetResult<SettlementObservationsForBatchResult>> {
   const bid = clientBatchId.trim()
   if (!bid) {
-    return { data: { items: [] }, ok: true, status: 200, url: observationsUrl() }
+    return { data: { items: [], total: null }, ok: true, status: 200, url: observationsUrl() }
   }
-  return fetchProdJsonGetWithMeta<SettlementObservationDetailResponse>(observationsUrl(bid))
+  const res = await fetchProdJsonGetWithMeta<SettlementObservationDetailResponse>(observationsUrl(bid))
+  if (!res.ok || !res.data) {
+    return { ...res, data: { items: [], total: null } }
+  }
+  const total = res.data.pagination?.total ?? null
+  return { ...res, data: { items: res.data.items ?? [], total } }
 }
 
 export async function getSettlementParseErrorsForClientBatch(
   clientBatchId: string,
-): Promise<ProdJsonGetResult<SettlementParseErrorRow[]>> {
+): Promise<ProdJsonGetResult<SettlementParseErrorsResult>> {
   const bid = clientBatchId.trim()
   if (!bid) {
-    return { data: [], ok: true, status: 200, url: settlementParseErrorsUrl() }
+    return { data: { items: [], total: null }, ok: true, status: 200, url: settlementParseErrorsUrl() }
   }
-  const res = await fetchProdJsonGetWithMeta<SettlementParseErrorRow[] | { items?: SettlementParseErrorRow[] }>(
-    settlementParseErrorsUrl(bid),
-  )
-  if (!res.ok) return { ...res, data: [] }
-  const data = Array.isArray(res.data) ? res.data : res.data?.items ?? []
-  return { ...res, data }
+  const res = await fetchProdJsonGetWithMeta<
+    SettlementParseErrorRow[] | { items?: SettlementParseErrorRow[]; pagination?: SettlementPagination }
+  >(settlementParseErrorsUrl(bid))
+  if (!res.ok) return { ...res, data: { items: [], total: null } }
+  const payload = res.data
+  const items = Array.isArray(payload) ? payload : payload?.items ?? []
+  const total = Array.isArray(payload) ? items.length : (payload?.pagination?.total ?? null)
+  return { ...res, data: { items, total } }
 }
 
 export type SettlementObservationTableRow = {

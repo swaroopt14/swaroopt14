@@ -7,11 +7,12 @@ import {
   HOME_TITLE_BLACK,
 } from '../../command-center/homeCommandCenterTokens'
 import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
+import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
 import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
+import { useSettlementBatchIntelligence } from '../hooks/useSettlementBatchIntelligence'
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
-import { deriveNetSettledDisplay } from '../selectors/deriveNetSettledDisplay'
-import { deriveSettlementDataHealth } from '../selectors/deriveSettlementDataHealth'
+import { derivePaymentPartnerLabel } from '../selectors/derivePaymentPartnerLabel'
 
 function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
@@ -26,21 +27,31 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub: str
   )
 }
 
+function formatVarianceAmount(value: number | null): string {
+  if (value == null) return '—'
+  const prefix = value > 0 ? '+' : ''
+  return `${prefix}${formatJournalMoney(value)}`
+}
+
 type SettlementJournalKpiStripProps = {
   filteredCount: number
   filtersActive: boolean
 }
 
 export function SettlementJournalKpiStrip({ filteredCount, filtersActive }: SettlementJournalKpiStripProps) {
-  const { selectedClientBatchId } = useSettlementBatchSelection()
-  const { rows, loading, outcome, totalAmount, totalSettled } = useSettlementBatchSummary()
+  const { selectedClientBatchId, journalEnabled, tenantReady } = useSettlementBatchSelection()
+  const { rows, loading, observationTotal } = useSettlementBatchSummary()
+  const { kpis, loading: intelligenceLoading } = useSettlementBatchIntelligence(
+    selectedClientBatchId,
+    journalEnabled && tenantReady,
+  )
 
   const copy = settlementJournalCopy.kpi
 
   if (!selectedClientBatchId) {
     return (
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {[copy.linkedBatch, copy.recordsReceived, copy.recordsMarkedSettled, copy.netSettled, copy.matchedToIntents].map(
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[copy.paymentPartner, copy.recordsReceived, copy.settlementValueMatched, copy.amountVariance].map(
           (label) => (
             <KpiCard key={label} label={label} value="—" sub={settlementJournalCopy.sidebar.selectBatch} />
           ),
@@ -57,39 +68,40 @@ export function SettlementJournalKpiStrip({ filteredCount, filtersActive }: Sett
     )
   }
 
-  const total = rows.length
-  const netSettled = deriveNetSettledDisplay(totalAmount, totalSettled, outcome.settled, total)
-  const health = deriveSettlementDataHealth(rows)
-  const explicitMatches = rows.filter((r) => r.matchedIntentId && r.matchedIntentId !== '—').length
-  const matchedDisplay =
-    explicitMatches > 0 ? explicitMatches.toLocaleString('en-IN') : health.matchedCount.toLocaleString('en-IN')
-  const matchedSub =
-    explicitMatches > 0
-      ? copy.matchedFromIntentId
-      : total > 0 && health.matchedCount === 0
-        ? copy.matchedAwaitingPipeline
-        : 'Heuristic match status until upstream match IDs ship'
+  const recordsTotal = observationTotal ?? rows.length
+  const paymentPartner = derivePaymentPartnerLabel(rows)
   const obsSub = filtersActive
-    ? `${filteredCount.toLocaleString('en-IN')} filtered · ${total.toLocaleString('en-IN')} total`
-    : `${total.toLocaleString('en-IN')} settlement records`
+    ? `${filteredCount.toLocaleString('en-IN')} filtered · ${recordsTotal.toLocaleString('en-IN')} total`
+    : copy.recordsReceivedSub(recordsTotal.toLocaleString('en-IN'))
 
   return (
-    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-      <KpiCard label={copy.linkedBatch} value={selectedClientBatchId} sub={`Outcome · ${outcome.label}`} />
-      <KpiCard label={copy.recordsReceived} value={filteredCount.toLocaleString('en-IN')} sub={obsSub} />
+    <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <KpiCard label={copy.paymentPartner} value={paymentPartner} sub={copy.paymentPartnerSub} />
       <KpiCard
-        label={copy.recordsMarkedSettled}
-        value={outcome.settled.toLocaleString('en-IN')}
-        sub={
-          outcome.failed > 0
-            ? `${outcome.failed.toLocaleString('en-IN')} failed · ${total.toLocaleString('en-IN')} total rows`
-            : outcome.settledPct != null
-              ? `${outcome.settledPct}% of rows marked settled in source`
+        label={copy.recordsReceived}
+        value={recordsTotal.toLocaleString('en-IN')}
+        sub={obsSub}
+      />
+      <KpiCard
+        label={copy.settlementValueMatched}
+        value={
+          intelligenceLoading && kpis.settlementValueMatched == null
+            ? '—'
+            : kpis.settlementValueMatched != null
+              ? formatJournalMoney(kpis.settlementValueMatched)
               : '—'
         }
+        sub={copy.settlementValueMatchedSub}
       />
-      <KpiCard label={copy.netSettled} value={netSettled.value} sub={netSettled.sub} />
-      <KpiCard label={copy.matchedToIntents} value={matchedDisplay} sub={matchedSub} />
+      <KpiCard
+        label={copy.amountVariance}
+        value={
+          intelligenceLoading && kpis.varianceAmount == null
+            ? '—'
+            : formatVarianceAmount(kpis.varianceAmount)
+        }
+        sub={kpis.varianceAmount != null ? copy.amountVarianceSub : copy.amountVarianceAwaiting}
+      />
     </div>
   )
 }

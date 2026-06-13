@@ -4,9 +4,9 @@ import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntellig
 import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
 import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
+import { useSettlementBatchIntelligence } from '../hooks/useSettlementBatchIntelligence'
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
-import { deriveNetSettledDisplay } from '../selectors/deriveNetSettledDisplay'
-import { deriveSettlementDataHealth } from '../selectors/deriveSettlementDataHealth'
+import { derivePaymentPartnerLabel } from '../selectors/derivePaymentPartnerLabel'
 
 type SettlementJournalHeroBannerProps = {
   onExport: () => void
@@ -15,49 +15,59 @@ type SettlementJournalHeroBannerProps = {
   filtersActive: boolean
 }
 
+function formatVarianceAmount(value: number | null): string {
+  if (value == null) return '—'
+  const prefix = value > 0 ? '+' : ''
+  return `${prefix}${formatJournalMoney(value)}`
+}
+
 export function SettlementJournalHeroBanner({
   onExport,
   exportDisabled,
   filteredCount,
   filtersActive,
 }: SettlementJournalHeroBannerProps) {
-  const { selectedClientBatchId } = useSettlementBatchSelection()
-  const { totalAmount, totalSettled, loading, rows, outcome } = useSettlementBatchSummary()
+  const { selectedClientBatchId, journalEnabled, tenantReady } = useSettlementBatchSelection()
+  const { totalAmount, loading, rows, outcome, observationTotal } = useSettlementBatchSummary()
+  const { kpis, loading: intelligenceLoading } = useSettlementBatchIntelligence(
+    selectedClientBatchId,
+    journalEnabled && tenantReady,
+  )
 
   const copy = settlementJournalCopy.kpi
-  const netSettled = deriveNetSettledDisplay(totalAmount, totalSettled, outcome.settled, rows.length)
   const observedValue =
     loading && !rows.length ? '—' : rows.length === 0 ? '—' : formatJournalMoney(totalAmount)
-  const countLine = rows.length.toLocaleString('en-IN')
-  const health = deriveSettlementDataHealth(rows)
-  const explicitMatches = rows.filter((r) => r.matchedIntentId && r.matchedIntentId !== '—').length
-  const matchedDisplay =
-    explicitMatches > 0 ? explicitMatches.toLocaleString('en-IN') : health.matchedCount.toLocaleString('en-IN')
-  const matchedSub =
-    explicitMatches > 0
-      ? copy.matchedFromIntentId
-      : rows.length > 0 && health.matchedCount === 0
-        ? copy.matchedAwaitingPipeline
-        : 'Heuristic match status until upstream match IDs ship'
+  const recordsTotal = observationTotal ?? rows.length
+  const countLine = recordsTotal.toLocaleString('en-IN')
+  const paymentPartner = derivePaymentPartnerLabel(rows)
+  const recordsReceivedDisplay =
+    loading && recordsTotal === 0 ? '—' : recordsTotal.toLocaleString('en-IN')
+  const settlementMatchedDisplay =
+    intelligenceLoading && kpis.settlementValueMatched == null
+      ? '—'
+      : kpis.settlementValueMatched != null
+        ? formatJournalMoney(kpis.settlementValueMatched)
+        : '—'
+  const varianceDisplay =
+    intelligenceLoading && kpis.varianceAmount == null
+      ? '—'
+      : formatVarianceAmount(kpis.varianceAmount)
+  const varianceSub =
+    kpis.varianceAmount != null ? copy.amountVarianceSub : copy.amountVarianceAwaiting
+
   const obsSub = filtersActive
-    ? `${filteredCount.toLocaleString('en-IN')} filtered · ${rows.length.toLocaleString('en-IN')} total`
-    : `${rows.length.toLocaleString('en-IN')} settlement records`
+    ? `${filteredCount.toLocaleString('en-IN')} filtered · ${recordsTotal.toLocaleString('en-IN')} total`
+    : copy.recordsReceivedSub(recordsTotal.toLocaleString('en-IN'))
 
   const buckets = [
-    { label: copy.linkedBatch, value: selectedClientBatchId || '—', sub: `Outcome · ${outcome.label}` },
-    { label: copy.recordsReceived, value: filteredCount.toLocaleString('en-IN'), sub: obsSub },
+    { label: copy.paymentPartner, value: paymentPartner, sub: copy.paymentPartnerSub },
+    { label: copy.recordsReceived, value: recordsReceivedDisplay, sub: obsSub },
     {
-      label: copy.recordsMarkedSettled,
-      value: outcome.settled.toLocaleString('en-IN'),
-      sub:
-        outcome.failed > 0
-          ? `${outcome.failed.toLocaleString('en-IN')} failed · ${rows.length.toLocaleString('en-IN')} total rows`
-          : outcome.settledPct != null
-            ? `${outcome.settledPct}% of rows marked settled in source`
-            : '—',
+      label: copy.settlementValueMatched,
+      value: settlementMatchedDisplay,
+      sub: copy.settlementValueMatchedSub,
     },
-    { label: copy.netSettled, value: netSettled.value, sub: netSettled.sub },
-    { label: copy.matchedToIntents, value: matchedDisplay, sub: matchedSub },
+    { label: copy.amountVariance, value: varianceDisplay, sub: varianceSub },
   ] as const
 
   return (

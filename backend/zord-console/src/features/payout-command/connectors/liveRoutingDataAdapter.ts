@@ -28,6 +28,8 @@ import type {
   AmbiguityKpiResponse,
   LeakageKpiResponse,
   MinorAmountField,
+  PatternsKpiResponse,
+  ProviderDecisionStats,
   RcaKpiResponse,
   RecommendationsKpiResponse,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
@@ -70,6 +72,21 @@ function clamp(value: number, min: number, max: number): number {
 function pct(value: number | undefined | null): number | null {
   if (value == null || !Number.isFinite(value)) return null
   return clamp(value * 100, 0, 100)
+}
+
+function parseRateField(value: number | string | undefined | null): number | null {
+  if (value == null) return null
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value <= 1 ? value * 100 : value
+  }
+  const trimmed = String(value).trim().replace('%', '')
+  const n = Number.parseFloat(trimmed)
+  return Number.isFinite(n) ? n : null
+}
+
+function parseDecisionSuccessRate(patterns: PatternsKpiResponse | null): number | null {
+  if (!patterns) return null
+  return parseRateField(patterns.decision_success_rate)
 }
 
 function dateOnly(date: Date): string {
@@ -235,6 +252,46 @@ function providerRows(
               : failurePct > 15
                 ? 'Request stronger carrier refs'
                 : 'Review provider quality signals'),
+        ),
+        volumeMinor: 0,
+        moneyAtRiskMinor: 0,
+        preventableLeakageMinor: 0,
+      }
+    })
+}
+
+/** Patterns dashboard by_provider → PSP rows when pattern detail lacks quality arrays. */
+function providerRowsFromPatterns(
+  byProvider: Record<string, ProviderDecisionStats> | undefined,
+): ConnectorHealthRow[] {
+  if (!byProvider) return []
+
+  return Object.entries(byProvider)
+    .filter(([, stats]) => (stats.total_decisions ?? 0) > 0)
+    .map(([providerId, stats]): ConnectorHealthRow => {
+      const successPct = parseRateField(stats.decision_success_rate) ?? 0
+      const orphanPct = parseRateField(stats.orphan_rate) ?? 0
+      const ambiguityPct = parseRateField(stats.ambiguity_rate) ?? 0
+      const failurePct = clamp(Math.max(orphanPct, ambiguityPct), 0, 100)
+      const status: ConnectorStatus =
+        failurePct >= 25 || successPct < 50
+          ? 'Risk'
+          : failurePct >= 15 || successPct < 70
+            ? 'Degraded'
+            : 'Healthy'
+
+      return {
+        id: connectorKey(providerId),
+        connector: providerLabel(providerId),
+        type: 'PSP',
+        successPct,
+        avgTimeSec: 0,
+        failurePct,
+        status,
+        trend: failurePct > 10 ? 'down' : 'flat',
+        recommendedAction: connectorGridAction(
+          status,
+          failurePct > 15 ? 'Review connector match quality' : 'No action needed',
         ),
         volumeMinor: 0,
         moneyAtRiskMinor: 0,
@@ -590,7 +647,9 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     isDataAvailable(rca) ||
     isDataAvailable(heatmap) ||
     Boolean(pattern) ||
-    Boolean(recommendation)
+    Boolean(recommendation) ||
+    parseDecisionSuccessRate(patterns) != null ||
+    Boolean(patterns?.by_provider && Object.keys(patterns.by_provider).length > 0)
   if (!hasLiveSignal) return null
 
   const cardLookup = buildCardLookup(recommendation?.cards ?? [])
@@ -604,12 +663,16 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     : ((patternHistory?.snapshots ?? [])
         .map((snapshot) => snapshot.snapshot_json)
         .find((json) => hasQualityArrays(json)) ?? pattern)
+  const patternProviderRows = providerRowsFromPatterns(patterns?.by_provider)
   const gridRows = [
-    ...providerRows(gridPattern?.provider_quality_patterns, cardLookup),
+    ...(patternProviderRows.length
+      ? patternProviderRows
+      : providerRows(gridPattern?.provider_quality_patterns, cardLookup)),
     ...sourceRows(gridPattern?.source_quality_patterns, cardLookup),
   ]
   const apiTotals = resolveExposureTotals(leakage, ambiguity, recommendations, recommendation)
   const connectors = applyLiveExposure(gridRows, leakage, ambiguity, recommendations, recommendation)
+  const patternsDecisionSuccessRate = parseDecisionSuccessRate(patterns)
   const leakageComposition = (() => {
     const fromLeakage = buildLeakageComposition(leakage)
     return fromLeakage.length > 0 ? fromLeakage : buildLeakageCompositionFromConnectors(connectors)
@@ -617,6 +680,7 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
 
   return {
     apiTotals,
+    patternsDecisionSuccessRate: patternsDecisionSuccessRate ?? undefined,
     generatedAtIso: generatedAtFrom([
       isDataAvailable(leakage) ? leakage.computed_at : null,
       isDataAvailable(ambiguity) ? ambiguity.computed_at : null,

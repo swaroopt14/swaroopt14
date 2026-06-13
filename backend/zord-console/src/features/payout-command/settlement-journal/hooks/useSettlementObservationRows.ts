@@ -1,7 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { fetchSettlementObservations } from '../settlementBatchCache'
+import {
+  fetchSettlementObservationsWithMeta,
+  type SettlementObservationsFetchResult,
+} from '../settlementBatchCache'
 import { LIVE_SETTLEMENT_POLL_MS } from '../settlementConstants'
 import type { SettlementObservationTableRow } from '@/services/payout-command/prod-api/settlementObservations'
 
@@ -12,31 +15,40 @@ export function useSettlementObservationRows(
   pollMs = LIVE_SETTLEMENT_POLL_MS,
 ) {
   const [rows, setRows] = useState<SettlementObservationTableRow[]>([])
+  const [observationTotal, setObservationTotal] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const applyResult = useCallback((result: SettlementObservationsFetchResult) => {
+    setRows(result.rows)
+    setObservationTotal(result.total)
+  }, [])
 
   const load = useCallback(async () => {
     const bid = clientBatchId.trim()
     if (!bid || !enabled) {
       setRows([])
+      setObservationTotal(null)
       return
     }
     setLoading(true)
     setError(null)
     try {
-      const data = await fetchSettlementObservations(bid)
-      setRows(data)
+      const result = await fetchSettlementObservationsWithMeta(bid)
+      applyResult(result)
     } catch {
       setError('Could not load settlement observations.')
       setRows([])
+      setObservationTotal(null)
     } finally {
       setLoading(false)
     }
-  }, [clientBatchId, enabled])
+  }, [applyResult, clientBatchId, enabled])
 
   useEffect(() => {
     if (!enabled || !clientBatchId.trim()) {
       setRows([])
+      setObservationTotal(null)
       return
     }
     void load()
@@ -44,5 +56,5 @@ export function useSettlementObservationRows(
     return () => window.clearInterval(id)
   }, [enabled, clientBatchId, load, pollMs])
 
-  return { rows, loading, error, refetch: load }
+  return { rows, observationTotal, loading, error, refetch: load }
 }

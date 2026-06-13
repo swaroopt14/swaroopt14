@@ -28,7 +28,8 @@ export const PAYMENT_OPERATIONS = {
   composerPlaceholder: 'Ask anything or search',
   composerHint: 'Ask: "Which payments need review?" or "What data is missing?"',
   footerLabel: 'Ask Zord about payments, gaps, or proof',
-  routingTabDisabled: 'Routing — Coming after bank/PSP dispatch integration',
+  routingTabDisabled:
+    'Model is still in training phase, please make sure to include words like intent and settlement before use.',
 } as const
 
 export const WORKSPACE_HERO_COPY = {

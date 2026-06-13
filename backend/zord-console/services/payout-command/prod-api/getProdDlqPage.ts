@@ -15,7 +15,7 @@ export async function getAllProdDlqRows(pageSize = PROD_DLQ_PAGE_CHUNK): Promise
   const firstItems = first?.items ?? []
   if (firstItems.length === 0) return []
 
-  const total = first.pagination?.total ?? firstItems.length
+  const total = first?.pagination?.total ?? firstItems.length
   if (firstItems.length >= total) return firstItems
 
   const all = [...firstItems]

@@ -126,7 +126,7 @@ export function WorkspaceIntelligencePanel({
             </button>
           ))}
           <span
-            className="cursor-not-allowed rounded-full border border-dashed border-black/15 bg-[#fafafa] px-4 py-2.5 text-[13px] font-medium text-[#8a8a86]"
+            className="max-w-full cursor-not-allowed rounded-full border border-amber-300 bg-amber-50 px-4 py-2.5 text-[13px] font-semibold leading-snug text-amber-950 shadow-sm"
             title={PAYMENT_OPERATIONS.routingTabDisabled}
             data-testid="workspace-routing-tab-disabled"
           >

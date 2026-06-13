@@ -46,6 +46,8 @@ type ProjectionService struct {
 	policyService *PolicyService
 	slaRepo       *persistence.SLATimerRepo
 	batchRepo     *persistence.BatchContractRepo
+	intentRepo    *persistence.IntentBridgeRepo
+	outcomeRepo   *persistence.OutcomeIntentBridgeRepo
 
 	// ── Phase 4: Six intelligence layer services ──────────────────────────
 	leakageSvc        *LeakageIntelligenceService
@@ -79,6 +81,8 @@ func NewProjectionService(
 	rcaSvc *RCAIntelligenceService,
 	patternSvc *PatternIntelligenceService,
 	recommendationSvc *RecommendationIntelligenceService,
+	intentRepo *persistence.IntentBridgeRepo,
+	outcomeRepo *persistence.OutcomeIntentBridgeRepo,
 	mode models.IntelligenceMode, // PHASE 6
 ) *ProjectionService {
 	// Normalise empty string to GRADE_A so handlers can safely call IsGradeB()
@@ -97,6 +101,8 @@ func NewProjectionService(
 		rcaSvc:            rcaSvc,
 		patternSvc:        patternSvc,
 		recommendationSvc: recommendationSvc,
+		intentRepo:        intentRepo,
+		outcomeRepo:       outcomeRepo,
 		mode:              mode, // PHASE 6
 	}
 }
@@ -157,6 +163,11 @@ func (s *ProjectionService) HandleIntentCreated(
 		return nil
 	}
 	window := todayWindow(e.CreatedAt)
+
+	if err := s.syncOutcomeCanonicalIntentFromEvent(ctx, e); err != nil {
+		log.Printf("HandleIntentCreated: outcome canonical intent mirror failed intent=%s batch=%s: %v",
+			e.IntentID, e.ClientBatchRef, err)
+	}
 
 	if intendedMinor, err := decimal.NewFromString(e.Amount); err != nil {
 		log.Printf("HandleIntentCreated: could not parse amount=%q intent=%s tenant=%s: %v",
@@ -1215,6 +1226,19 @@ func (s *ProjectionService) HandleAttachmentDecision(
 
 	window := todayWindow(e.OccurredAt)
 	supportingCarriers := supportingCarrierNames(e.SupportingCarriers)
+	batchIDForAttribution := s.resolveRuntimeBatchID(ctx, e.TenantID, e.IntentID, e.BatchID)
+	intendedAmountMinor := e.IntendedAmountMinor
+	if strings.EqualFold(e.DecisionType, "MATCH_UNRESOLVED") && !intendedAmountMinor.IsPositive() {
+		recoveredAmount, recoverErr := s.resolveAttachmentIntendedAmount(ctx, e)
+		if recoverErr != nil {
+			log.Printf("HandleAttachmentDecision: intended amount recovery failed decision=%s intent=%s batch=%s: %v",
+				e.DecisionID, e.IntentID, e.BatchID, recoverErr)
+		} else if recoveredAmount.IsPositive() {
+			intendedAmountMinor = recoveredAmount
+			log.Printf("HandleAttachmentDecision: recovered intended amount=%s for unresolved decision=%s intent=%s batch=%s",
+				intendedAmountMinor, e.DecisionID, e.IntentID, e.BatchID)
+		}
+	}
 
 	// ── Step 1: Update LEAKAGE projection for MATCH_UNRESOLVED ───────────
 	// A MATCH_UNRESOLVED decision means a settlement observation exists but
@@ -1225,7 +1249,7 @@ func (s *ProjectionService) HandleAttachmentDecision(
 			ctx,
 			e.TenantID,
 			"UNMATCHED_INTENT",
-			e.IntendedAmountMinor,
+			intendedAmountMinor,
 			decimal.Zero,
 			window.start, window.end,
 		); err != nil {
@@ -1233,12 +1257,12 @@ func (s *ProjectionService) HandleAttachmentDecision(
 				e.DecisionID, err)
 		}
 		// Per-batch attribution: unmatched intent amount
-		if e.BatchID != "" && e.IntendedAmountMinor.IsPositive() {
+		if batchIDForAttribution != "" && intendedAmountMinor.IsPositive() {
 			if batchErr := s.batchRepo.AtomicAddBatchUnmatchedAmount(
-				ctx, e.BatchID, e.TenantID, e.IntendedAmountMinor,
+				ctx, batchIDForAttribution, e.TenantID, intendedAmountMinor,
 			); batchErr != nil {
 				log.Printf("HandleAttachmentDecision: AtomicAddBatchUnmatchedAmount failed decision=%s batch=%s: %v",
-					e.DecisionID, e.BatchID, batchErr)
+					e.DecisionID, batchIDForAttribution, batchErr)
 			}
 		}
 	}
@@ -1246,7 +1270,7 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	// ── L7b: Confirmed duplicate exposure for MATCH_DUPLICATE ────────────
 	if strings.EqualFold(e.DecisionType, "MATCH_DUPLICATE") {
 		if err := s.projRepo.AtomicIncrementLeakageConfirmedDuplicate(
-			ctx, e.TenantID, e.IntendedAmountMinor, window.start, window.end,
+			ctx, e.TenantID, intendedAmountMinor, window.start, window.end,
 		); err != nil {
 			log.Printf("HandleAttachmentDecision: AtomicIncrementLeakageConfirmedDuplicate failed decision=%s: %v",
 				e.DecisionID, err)
@@ -1272,7 +1296,7 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		e.TenantID,
 		e.DecisionType,
 		e.ConfidenceScore,
-		e.IntendedAmountMinor,
+		intendedAmountMinor,
 		supportingCarriers,
 		isLowConfidence,
 		hasCollision,
@@ -1348,14 +1372,14 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	}
 
 	// Accumulate attachment signals into RCA fragment for this intent.
-	if e.BatchID != "" && e.IntentID != "" {
+	if batchIDForAttribution != "" && e.IntentID != "" {
 		sigA := AttachmentSignals{
 			DecisionType:    e.DecisionType,
 			AmbiguityScore:  e.AmbiguityScore,
 			ConfidenceScore: e.ConfidenceScore,
 			CandidateCount:  e.CandidateSetSize,
 		}
-		if err := s.rcaSvc.AccumulateAttachmentFragment(ctx, e.TenantID, e.BatchID, e.IntentID, sigA); err != nil {
+		if err := s.rcaSvc.AccumulateAttachmentFragment(ctx, e.TenantID, batchIDForAttribution, e.IntentID, sigA); err != nil {
 			log.Printf("HandleAttachmentDecision: AccumulateAttachmentFragment failed decision=%s: %v", e.DecisionID, err)
 		}
 	}
@@ -1386,6 +1410,84 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	return nil
 }
 
+func (s *ProjectionService) syncOutcomeCanonicalIntentFromEvent(
+	ctx context.Context,
+	e models.IntentCreatedEvent,
+) error {
+	if s == nil || s.outcomeRepo == nil || e.IntentID == "" || e.TenantID == "" {
+		return nil
+	}
+	amount, err := decimal.NewFromString(e.Amount)
+	if err != nil || !amount.IsPositive() {
+		return err
+	}
+	record := persistence.OutcomeCanonicalIntentRecord{
+		IntentID:               e.IntentID,
+		TenantID:               e.TenantID,
+		ContractID:             e.ContractID,
+		ClientPayoutRef:        e.ClientPayoutRef,
+		ClientBatchRef:         e.ClientBatchRef,
+		BusinessIdempotencyKey: e.BusinessIdempotencyKey,
+		Amount:                 amount,
+		CurrencyCode:           e.Currency,
+		IntendedExecutionAt:    e.IntendedExecutionAt,
+		PayoutType:             e.IntentType,
+		ProviderHint:           e.ProviderHint,
+		Corridor:               e.CorridorID,
+		ProofReadinessScore:    e.ProofReadinessScore,
+		MatchabilityScore:      e.MatchabilityScore,
+		CanonicalHash:          e.CanonicalHash,
+		GovernanceState:        e.GovernanceState,
+		BeneficiaryFingerprint: e.BeneficiaryFingerprint,
+		ZordSignatureCarrier:   e.ClientPayoutRef,
+		CreatedAt:              e.CreatedAt,
+	}
+	return s.outcomeRepo.UpsertBatch(ctx, []persistence.OutcomeCanonicalIntentRecord{record})
+}
+
+func (s *ProjectionService) resolveAttachmentIntendedAmount(
+	ctx context.Context,
+	e models.AttachmentDecisionCreatedEvent,
+) (decimal.Decimal, error) {
+	if s == nil || s.intentRepo == nil {
+		return decimal.Zero, nil
+	}
+	if amount, ok, err := s.intentRepo.ResolveIntentAmountByIntentID(ctx, e.TenantID, e.IntentID); err != nil {
+		return decimal.Zero, err
+	} else if ok {
+		return amount, nil
+	}
+
+	clientRef := extractClientPayoutRefCandidate(e.SupportingCarriers)
+	if clientRef == "" {
+		return decimal.Zero, nil
+	}
+	amount, ok, err := s.intentRepo.ResolveIntentAmountByClientPayoutRef(ctx, e.TenantID, e.BatchID, clientRef)
+	if err != nil || !ok {
+		return amount, err
+	}
+	return amount, nil
+}
+
+func (s *ProjectionService) resolveRuntimeBatchID(
+	ctx context.Context,
+	tenantID, intentID, fallbackBatchID string,
+) string {
+	if s == nil || s.intentRepo == nil {
+		return fallbackBatchID
+	}
+	batchID, ok, err := s.intentRepo.ResolveBatchIDByIntentID(ctx, tenantID, intentID)
+	if err != nil {
+		log.Printf("projection_service: resolve runtime batch failed tenant=%s intent=%s fallback_batch=%s: %v",
+			tenantID, intentID, fallbackBatchID, err)
+		return fallbackBatchID
+	}
+	if ok && batchID != "" {
+		return batchID
+	}
+	return fallbackBatchID
+}
+
 func supportingCarrierNames(raw json.RawMessage) []string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -1409,6 +1511,42 @@ func supportingCarrierNames(raw json.RawMessage) []string {
 	}
 
 	return nil
+}
+
+func extractClientPayoutRefCandidate(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return ""
+	}
+
+	var carrierMap map[string]interface{}
+	if err := json.Unmarshal(raw, &carrierMap); err != nil {
+		return ""
+	}
+	for _, key := range []string{
+		"client_reference_candidate",
+		"client_payout_ref",
+		"client_ref",
+		"client_reference",
+	} {
+		if ref := normalizeCarrierString(carrierMap[key]); ref != "" {
+			return ref
+		}
+	}
+	return ""
+}
+
+func normalizeCarrierString(value interface{}) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case map[string]interface{}:
+		for _, nestedKey := range []string{"value", "candidate", "reference", "ref"} {
+			if nested := normalizeCarrierString(typed[nestedKey]); nested != "" {
+				return nested
+			}
+		}
+	}
+	return ""
 }
 
 // HandleVarianceRecord processes a financial variance record from Service 5C.
@@ -1463,28 +1601,29 @@ func (s *ProjectionService) HandleVarianceRecord(
 	}
 
 	window := todayWindow(e.OccurredAt)
+	batchIDForAttribution := s.resolveRuntimeBatchID(ctx, e.TenantID, e.IntentID, e.BatchID)
 
 	// ── Per-batch attribution: reversal exposure ─────────────────────────────
-	if e.VarianceType == "REVERSAL" && e.BatchID != "" {
+	if e.VarianceType == "REVERSAL" && batchIDForAttribution != "" {
 		if batchErr := s.batchRepo.AtomicAddBatchReversalExposure(
-			ctx, e.BatchID, e.TenantID, e.VarianceAmountMinor.Abs(),
+			ctx, batchIDForAttribution, e.TenantID, e.VarianceAmountMinor.Abs(),
 		); batchErr != nil {
 			log.Printf("HandleVarianceRecord: AtomicAddBatchReversalExposure failed variance=%s batch=%s: %v",
-				e.VarianceID, e.BatchID, batchErr)
+				e.VarianceID, batchIDForAttribution, batchErr)
 		}
 	}
 
 	// ── Per-batch attribution: variance breakdown (explained vs unexplained) + missing refs
-	if e.VarianceType != "OVER_SETTLEMENT" && e.VarianceType != "REVERSAL" && e.BatchID != "" {
+	if e.VarianceType != "OVER_SETTLEMENT" && e.VarianceType != "REVERSAL" && batchIDForAttribution != "" {
 		missingRef := e.ProviderRefMissingFlag || e.BankRefMissingFlag
 		if batchErr := s.batchRepo.AtomicAddBatchVarianceBreakdown(
-			ctx, e.BatchID, e.TenantID,
+			ctx, batchIDForAttribution, e.TenantID,
 			e.VarianceAmountMinor.Abs(),
 			e.IsWhitelisted,
 			missingRef,
 		); batchErr != nil {
 			log.Printf("HandleVarianceRecord: AtomicAddBatchVarianceBreakdown failed variance=%s batch=%s: %v",
-				e.VarianceID, e.BatchID, batchErr)
+				e.VarianceID, batchIDForAttribution, batchErr)
 		}
 	}
 
@@ -1608,14 +1747,14 @@ func (s *ProjectionService) HandleVarianceRecord(
 		e.VarianceID, e.VarianceType, e.VarianceAmountMinor, e.CorridorID, e.BatchID, e.IntendedAmountMinor, e.SettledAmountMinor, e.DeductionReason, e.IsWhitelisted, e.CrossPeriodFlag, e.TenantID)
 
 	// Accumulate variance signals into RCA fragment for this intent.
-	if e.BatchID != "" && e.IntentID != "" {
+	if batchIDForAttribution != "" && e.IntentID != "" {
 		sigV := VarianceSignals{
 			VarianceType:        e.VarianceType,
 			AmountVarianceMinor: e.VarianceAmountMinor.IntPart(),
 			ValueDateMismatch:   e.ExpectedValueDate != "" && e.ActualValueDate != "" && e.ExpectedValueDate != e.ActualValueDate,
 			CrossPeriodFlag:     e.CrossPeriodFlag,
 		}
-		if err := s.rcaSvc.AccumulateVarianceFragment(ctx, e.TenantID, e.BatchID, e.IntentID, sigV); err != nil {
+		if err := s.rcaSvc.AccumulateVarianceFragment(ctx, e.TenantID, batchIDForAttribution, e.IntentID, sigV); err != nil {
 			log.Printf("HandleVarianceRecord: AccumulateVarianceFragment failed variance=%s: %v", e.VarianceID, err)
 		}
 	}
@@ -1736,12 +1875,19 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		return fmt.Errorf("HandleBatchSummaryUpdated batchRepo.Upsert batch=%s: %w", e.BatchID, err)
 	}
 
+	// Re-score leakage once the authoritative batch summary lands.
+	// This is the most reliable point in the live flow because the batch row
+	// definitely exists and the Batch API reads from this contract table.
+	if s.leakagePredSvc != nil {
+		s.leakagePredSvc.ScoreBatchAsync(ctx, e.TenantID, e.BatchID, window.start, window.end)
+	}
+
 	// If batch reached a terminal state, the true ambiguity outcome is now known.
 	// Feed it back to the LR model as a labeled training example (online SGD).
 	if e.BatchFinalityStatus == "FULLY_SETTLED" || e.BatchFinalityStatus == "FAILED" {
 		s.ambiguitySvc.TrainOnLabel(ctx, e.TenantID, e.BatchID, e.AmbiguityScore, window.start, window.end)
 	}
-	if e.BatchFinalityStatus == "FULLY_SETTLED" || e.BatchFinalityStatus == "FAILED" || e.BatchFinalityStatus == "CLOSED" {
+	if e.BatchFinalityStatus == "FULLY_SETTLED" || e.BatchFinalityStatus == "FAILED" || e.BatchFinalityStatus == "CLOSED" || e.PendingCount == 0 {
 		if s.leakagePredSvc != nil {
 			s.leakagePredSvc.TrainOnLabel(ctx, e.TenantID, e.BatchID)
 		}

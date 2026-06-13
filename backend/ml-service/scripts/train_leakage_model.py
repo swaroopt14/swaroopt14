@@ -82,6 +82,12 @@ CATEGORICAL_COLUMNS = [
     "provider_key",
 ]
 
+SEGMENT_LEVELS = [
+    ("source_system",),
+    ("source_system", "rail"),
+    ("source_system", "rail", "provider_key"),
+]
+
 TARGET_COLUMN = "predicted_leakage_rate"
 GROUP_COLUMN = "parent_batch_id"
 WEIGHT_COLUMN = "sample_weight"
@@ -89,6 +95,8 @@ AMOUNT_COLUMN = "batch_total_intended_amount_minor"
 FAMILY_COLUMN = "scenario_family"
 ROW_ID_COLUMN = "row_id"
 BATCH_ID_COLUMN = "batch_id"
+
+MISSING_CATEGORY_TOKENS = {"", "unknown", "na", "n/a", "null", "none"}
 
 
 @dataclass(frozen=True)
@@ -135,7 +143,20 @@ def validate_columns(df: pd.DataFrame) -> None:
 def load_dataset(path: Path) -> pd.DataFrame:
     df = pd.read_csv(path)
     validate_columns(df)
-    return df.copy()
+    normalized = df.copy()
+    for col in CATEGORICAL_COLUMNS:
+        normalized[col] = normalized[col].map(normalize_categorical_value)
+        normalized[col] = normalized[col].fillna("unknown")
+    return normalized
+
+
+def normalize_categorical_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in MISSING_CATEGORY_TOKENS:
+        return None
+    return text
 
 
 def build_model(config: CandidateConfig) -> CatBoostRegressor:
@@ -394,6 +415,7 @@ def build_summary(
 def build_model_bundle(
     model: CatBoostRegressor,
     summary: dict[str, object],
+    priors: dict[str, object],
 ) -> dict[str, object]:
     return {
         "bundle_version": MODEL_BUNDLE_VERSION,
@@ -401,9 +423,75 @@ def build_model_bundle(
         "target_column": TARGET_COLUMN,
         "feature_columns": FEATURE_COLUMNS,
         "categorical_columns": CATEGORICAL_COLUMNS,
+        "missing_category_tokens": sorted(MISSING_CATEGORY_TOKENS),
+        "segment_levels": [list(level) for level in SEGMENT_LEVELS],
+        "fallback_priors": priors,
         "clip_range": [0.0, 1.0],
         "training_summary": summary,
         "model": model,
+    }
+
+
+def _mode_or_default(series: pd.Series, default: str = "unknown") -> str:
+    cleaned = [str(value).strip() for value in series.tolist() if str(value).strip()]
+    if not cleaned:
+        return default
+    return pd.Series(cleaned).mode(dropna=True).iloc[0]
+
+
+def _segment_key(row: pd.Series | dict[str, object], columns: tuple[str, ...]) -> str | None:
+    values: list[str] = []
+    for col in columns:
+        value = normalize_categorical_value((row[col] if isinstance(row, dict) else row[col]))
+        if value is None:
+            return None
+        values.append(value)
+    return "||".join(values)
+
+
+def build_fallback_priors(df: pd.DataFrame) -> dict[str, object]:
+    numeric_columns = [col for col in FEATURE_COLUMNS if col not in CATEGORICAL_COLUMNS]
+
+    global_numeric = {
+        col: float(pd.to_numeric(df[col], errors="coerce").dropna().median())
+        for col in numeric_columns
+    }
+    global_categorical = {
+        col: _mode_or_default(df[col], default="unknown")
+        for col in CATEGORICAL_COLUMNS
+    }
+
+    segments: dict[str, dict[str, dict[str, object]]] = {}
+    for level in SEGMENT_LEVELS:
+        level_key = "__".join(level)
+        level_segments: dict[str, dict[str, object]] = {}
+        grouped = df.groupby(list(level), dropna=False, sort=False)
+        for group_values, group_df in grouped:
+            if not isinstance(group_values, tuple):
+                group_values = (group_values,)
+            normalized_values = [normalize_categorical_value(value) for value in group_values]
+            if any(value is None for value in normalized_values):
+                continue
+            segment_key = "||".join(str(value) for value in normalized_values)
+            level_segments[segment_key] = {
+                "numeric": {
+                    col: float(pd.to_numeric(group_df[col], errors="coerce").dropna().median())
+                    for col in numeric_columns
+                },
+                "categorical": {
+                    col: _mode_or_default(group_df[col], default=global_categorical[col])
+                    for col in CATEGORICAL_COLUMNS
+                },
+                "row_count": int(len(group_df)),
+            }
+        segments[level_key] = level_segments
+
+    return {
+        "global": {
+            "numeric": global_numeric,
+            "categorical": global_categorical,
+        },
+        "segments": segments,
     }
 
 
@@ -431,6 +519,7 @@ def main() -> None:
     baseline_metrics = baseline_cross_validate(df, n_splits=n_splits)
     final_model = train_final_model(df, best_config)
     importance_df = feature_importance_rows(final_model)
+    priors = build_fallback_priors(df)
     summary = build_summary(
         df=df,
         input_path=input_path,
@@ -445,15 +534,18 @@ def main() -> None:
 
     model_path = output_dir / "leakage_catboost_regressor.cbm"
     bundle_path = output_dir / "leakage_prediction_bundle.joblib"
+    priors_path = output_dir / "leakage_feature_priors.json"
     final_model.save_model(str(model_path))
-    joblib.dump(build_model_bundle(final_model, summary), bundle_path)
+    joblib.dump(build_model_bundle(final_model, summary, priors), bundle_path)
     importance_df.to_csv(output_dir / "feature_importance.csv", index=False)
     oof_df.to_csv(output_dir / "oof_predictions.csv", index=False)
     (output_dir / "training_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+    priors_path.write_text(json.dumps(priors, indent=2), encoding="utf-8")
 
     print(json.dumps({
         "model_path": str(model_path.relative_to(ROOT)),
         "bundle_path": str(bundle_path.relative_to(ROOT)),
+        "priors_path": str(priors_path.relative_to(ROOT)),
         "cv_rate_weighted_mae": round(cv_metrics["rate_weighted_mae"], 6),
         "cv_rate_rmse": round(cv_metrics["rate_rmse"], 6),
         "cv_amount_weighted_mae_minor": round(cv_metrics["amount_weighted_mae_minor"], 2),

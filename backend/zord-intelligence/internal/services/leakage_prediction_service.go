@@ -21,11 +21,13 @@ const leakageFeatureVersion = "leakage_batch_features_v1"
 const leakagePredictionModelID = "leakage_prediction_v1"
 
 type LeakagePredictionService struct {
-	batchRepo *persistence.BatchContractRepo
-	projRepo  *persistence.ProjectionRepo
-	mlRepo    *persistence.MLFeatureStoreRepo
-	predRepo  *persistence.MLPredictionRepo
-	mlClient  *mlclient.Client
+	batchRepo         *persistence.BatchContractRepo
+	projRepo          *persistence.ProjectionRepo
+	mlRepo            *persistence.MLFeatureStoreRepo
+	predRepo          *persistence.MLPredictionRepo
+	mlClient          *mlclient.Client
+	intentRepo        *persistence.IntentBridgeRepo
+	outcomeIntentRepo *persistence.OutcomeIntentBridgeRepo
 }
 
 func NewLeakagePredictionService(
@@ -34,14 +36,60 @@ func NewLeakagePredictionService(
 	mlRepo *persistence.MLFeatureStoreRepo,
 	predRepo *persistence.MLPredictionRepo,
 	mlClient *mlclient.Client,
+	intentRepo *persistence.IntentBridgeRepo,
+	outcomeIntentRepo *persistence.OutcomeIntentBridgeRepo,
 ) *LeakagePredictionService {
 	return &LeakagePredictionService{
-		batchRepo: batchRepo,
-		projRepo:  projRepo,
-		mlRepo:    mlRepo,
-		predRepo:  predRepo,
-		mlClient:  mlClient,
+		batchRepo:         batchRepo,
+		projRepo:          projRepo,
+		mlRepo:            mlRepo,
+		predRepo:          predRepo,
+		mlClient:          mlClient,
+		intentRepo:        intentRepo,
+		outcomeIntentRepo: outcomeIntentRepo,
 	}
+}
+
+func (s *LeakagePredictionService) SyncIntentPredictionIfStale(
+	ctx context.Context,
+	tenantID, batchID string,
+) error {
+	if s == nil || s.intentRepo == nil || tenantID == "" || batchID == "" {
+		return nil
+	}
+
+	snapshot, err := s.intentRepo.GetBatchSnapshot(ctx, tenantID, batchID)
+	if err != nil {
+		return err
+	}
+	if snapshot == nil {
+		return nil
+	}
+	if err := s.syncOutcomeCanonicalIntents(ctx, tenantID, batchID); err != nil {
+		return err
+	}
+
+	current, err := s.batchRepo.GetByID(ctx, batchID)
+	if err != nil {
+		return err
+	}
+	if current != nil && intentPredictionCurrent(current, snapshot) {
+		return nil
+	}
+
+	if err := s.batchRepo.UpsertIntentSnapshot(ctx, snapshot.ToBatchContract()); err != nil {
+		return err
+	}
+
+	anchor := time.Now().UTC()
+	if snapshot.BusinessBatchAt != nil {
+		anchor = snapshot.BusinessBatchAt.UTC()
+	} else if snapshot.FirstIntentCreatedAt != nil {
+		anchor = snapshot.FirstIntentCreatedAt.UTC()
+	}
+	window := todayWindow(anchor)
+	s.ScoreBatchAsync(ctx, tenantID, batchID, window.start, window.end)
+	return nil
 }
 
 func (s *LeakagePredictionService) ScoreBatchAsync(
@@ -109,6 +157,9 @@ func (s *LeakagePredictionService) ScoreBatchAsync(
 			"algorithm":                leakagePredictionModelID,
 			"feature_contract_version": leakageFeatureVersion,
 			"risk_tier":                result.RiskTier,
+			"fallback_feature_count":   result.FallbackFeatureCount,
+			"fallback_features":        result.FallbackFeatures,
+			"fallback_segment_level":   result.FallbackSegmentLevel,
 			"features":                 features,
 		})
 		featureRef := featureRowID
@@ -220,6 +271,23 @@ func (s *LeakagePredictionService) TrainOnLabel(
 	})
 }
 
+func (s *LeakagePredictionService) syncOutcomeCanonicalIntents(
+	ctx context.Context,
+	tenantID, batchID string,
+) error {
+	if s == nil || s.intentRepo == nil || s.outcomeIntentRepo == nil {
+		return nil
+	}
+	records, err := s.intentRepo.ListOutcomeCanonicalIntents(ctx, tenantID, batchID)
+	if err != nil {
+		return err
+	}
+	if len(records) == 0 {
+		return nil
+	}
+	return s.outcomeIntentRepo.UpsertBatch(ctx, records)
+}
+
 func (s *LeakagePredictionService) buildFeatureRow(
 	ctx context.Context,
 	tenantID, batchID string,
@@ -230,6 +298,18 @@ func (s *LeakagePredictionService) buildFeatureRow(
 	}
 	if batch == nil {
 		return nil, nil, nil
+	}
+
+	var snapshot *persistence.IntentBatchSnapshot
+	if s.intentRepo != nil && shouldHydrateLeakageIntentSnapshot(batch) {
+		intentSnapshot, snapshotErr := s.intentRepo.GetBatchSnapshot(ctx, tenantID, batchID)
+		if snapshotErr != nil {
+			log.Printf("leakage_prediction_svc: intent snapshot fallback failed tenant=%s batch=%s: %v",
+				tenantID, batchID, snapshotErr)
+		} else if intentSnapshot != nil {
+			snapshot = intentSnapshot
+			batch = mergeBatchWithIntentSnapshot(batch, snapshot)
+		}
 	}
 
 	var density models.PatternBatchIntentDensityValue
@@ -251,6 +331,15 @@ func (s *LeakagePredictionService) buildFeatureRow(
 
 	count := batch.IntentRowCount
 	total := batch.IntentTotalAmountMinor
+	usedSummaryFallback := false
+	if count <= 0 && batch.TotalCount > 0 {
+		count = batch.TotalCount
+		usedSummaryFallback = true
+	}
+	if total.LessThanOrEqual(decimal.Zero) && batch.TotalIntendedAmountMinor.GreaterThan(decimal.Zero) {
+		total = batch.TotalIntendedAmountMinor
+		usedSummaryFallback = true
+	}
 	if count <= 0 || total.LessThanOrEqual(decimal.Zero) {
 		return nil, batch, nil
 	}
@@ -258,25 +347,86 @@ func (s *LeakagePredictionService) buildFeatureRow(
 	minAmount := batch.IntentMinAmountMinor
 	maxAmount := batch.IntentMaxAmountMinor
 	avgAmount := total.Div(decimal.NewFromInt(int64(count)))
-	stddev := computeIntentStddev(batch.IntentAmountSquareSum, total, count)
-	coverageRate := float64(batch.ClientPayoutRefPresentCount) / float64(count)
+	if minAmount.LessThanOrEqual(decimal.Zero) {
+		minAmount = avgAmount
+	}
+	if maxAmount.LessThanOrEqual(decimal.Zero) {
+		maxAmount = avgAmount
+	}
+	stddev := 0.0
+	if batch.IntentAmountSquareSum.GreaterThan(decimal.Zero) && batch.IntentRowCount > 0 {
+		stddev = computeIntentStddev(batch.IntentAmountSquareSum, batch.IntentTotalAmountMinor, batch.IntentRowCount)
+	}
+
+	var coverageRate any
+	var requiredFieldCompleteness any
+	var missingRequiredFieldRate any
+	if batch.IntentRowCount > 0 {
+		coverage := float64(batch.ClientPayoutRefPresentCount) / float64(batch.IntentRowCount)
+		coverageRate = clampLeakage01(coverage)
+		requiredFieldCompleteness = coverageRate
+		missingRequiredFieldRate = clampLeakage01(1.0 - coverage)
+	}
 
 	createdAt := time.Now().UTC()
 	if batch.FirstIntentCreatedAt != nil {
 		createdAt = batch.FirstIntentCreatedAt.UTC()
+	} else if usedSummaryFallback {
+		createdAt = batch.CreatedAt.UTC()
 	}
 
-	parseSuccessRate := fallbackUnitRate(providerQuality.AvgParseConfidence)
-	mappingConfidenceScore := fallbackUnitRate(providerQuality.AvgMappingConfidence)
-	requiredFieldCompleteness := clampLeakage01(coverageRate)
-	missingRequiredFieldRate := clampLeakage01(1.0 - requiredFieldCompleteness)
-	canonicalizationErrorRate := clampLeakage01(1.0 - parseSuccessRate)
-	invalidAmountRate := 0.0
-	invalidBeneficiaryRate := clampLeakage01(sourceQuality.LowMatchabilityRate)
-	unknownColumnCount := 0.0
+	parseSuccessRate := nullableUnitRate(providerQuality.AvgParseConfidence, providerQuality.ParseConfidenceCount > 0)
+	mappingConfidenceScore := nullableUnitRate(providerQuality.AvgMappingConfidence, providerQuality.MappingConfidenceCount > 0)
+	var canonicalizationErrorRate any
+	if parseSuccessRate != nil {
+		canonicalizationErrorRate = clampLeakage01(1.0 - *parseSuccessRate)
+	}
+	var invalidAmountRate any
+	var invalidBeneficiaryRate any
+	if sourceQuality.TotalIntentCount > 0 {
+		invalidBeneficiaryRate = clampLeakage01(sourceQuality.LowMatchabilityRate)
+	}
+	var unknownColumnCount any
+	var sameBeneficiaryDensity any
+	var maxPairCount any
+	if density.MaxPairCount > 0 || density.SameBeneficiaryAmountDensity > 0 {
+		sameBeneficiaryDensity = clampLeakage01(density.SameBeneficiaryAmountDensity)
+		maxPairCount = density.MaxPairCount
+	}
+	if snapshot != nil {
+		if snapshot.ParseSuccessRate != nil {
+			parseSuccessRate = snapshot.ParseSuccessRate
+			canonicalizationErrorRate = clampLeakage01(1.0 - clampLeakage01(*snapshot.ParseSuccessRate))
+		}
+		if snapshot.AvgMappingConfidenceScore != nil {
+			mappingConfidenceScore = snapshot.AvgMappingConfidenceScore
+		}
+		if snapshot.AvgSchemaCompletenessScore != nil {
+			requiredFieldCompleteness = clampLeakage01(*snapshot.AvgSchemaCompletenessScore)
+		}
+		if snapshot.MissingRequiredFieldRate != nil {
+			missingRequiredFieldRate = clampLeakage01(*snapshot.MissingRequiredFieldRate)
+		}
+		if snapshot.UnknownColumnCount != nil {
+			unknownColumnCount = *snapshot.UnknownColumnCount
+		}
+		if snapshot.InvalidAmountRate != nil {
+			invalidAmountRate = clampLeakage01(*snapshot.InvalidAmountRate)
+		}
+		if snapshot.InvalidBeneficiaryRate != nil {
+			invalidBeneficiaryRate = clampLeakage01(*snapshot.InvalidBeneficiaryRate)
+		}
+		if snapshot.ReceivedCount > 0 {
+			canonicalizationErrorRate = clampLeakage01(1.0 - clampLeakage01(snapshot.CanonicalizationSuccessRate))
+		}
+		if snapshot.MaxPairCount > 0 || snapshot.SameBeneficiaryAmountDensity > 0 {
+			sameBeneficiaryDensity = clampLeakage01(snapshot.SameBeneficiaryAmountDensity)
+			maxPairCount = snapshot.MaxPairCount
+		}
+	}
 
-	settlementP50 := 0.0
-	settlementP95 := 0.0
+	var settlementP50 any
+	var settlementP95 any
 	if patternSummary != nil {
 		settlementP50 = patternSummary.SettlementDelayP50Days
 		settlementP95 = patternSummary.SettlementDelayP95Days
@@ -289,9 +439,9 @@ func (s *LeakagePredictionService) buildFeatureRow(
 		"batch_max_amount_minor":                maxAmount.InexactFloat64(),
 		"batch_min_amount_minor":                minAmount.InexactFloat64(),
 		"batch_amount_stddev":                   stddev,
-		"batch_same_beneficiary_amount_density": clampLeakage01(density.SameBeneficiaryAmountDensity),
-		"batch_max_pair_count":                  density.MaxPairCount,
-		"client_payout_ref_coverage_rate":       clampLeakage01(coverageRate),
+		"batch_same_beneficiary_amount_density": sameBeneficiaryDensity,
+		"batch_max_pair_count":                  maxPairCount,
+		"client_payout_ref_coverage_rate":       coverageRate,
 		"currency":                              derefOr(batch.BatchCurrency, "UNKNOWN"),
 		"source_system":                         derefOr(batch.BatchSourceSystem, "UNKNOWN"),
 		"rail":                                  derefOr(batch.BatchRail, "UNKNOWN"),
@@ -308,10 +458,10 @@ func (s *LeakagePredictionService) buildFeatureRow(
 		"invalid_amount_rate":                   invalidAmountRate,
 		"invalid_beneficiary_rate":              invalidBeneficiaryRate,
 		"provider_key":                          derefOr(batch.BatchProviderKey, "UNKNOWN"),
-		"provider_missing_provider_ref_rate":    ratio(providerQuality.MissingProviderRefCount, providerQuality.TotalSettlementCount),
-		"provider_missing_client_ref_rate":      ratio(providerQuality.MissingClientRefCount, providerQuality.TotalSettlementCount),
-		"provider_settlement_delay_p50_days":    providerQuality.SettlementDelayP50Days,
-		"provider_settlement_delay_p95_days":    providerQuality.SettlementDelayP95Days,
+		"provider_missing_provider_ref_rate":    nullableRatio(providerQuality.MissingProviderRefCount, providerQuality.TotalSettlementCount),
+		"provider_missing_client_ref_rate":      nullableRatio(providerQuality.MissingClientRefCount, providerQuality.TotalSettlementCount),
+		"provider_settlement_delay_p50_days":    nullableFloat(providerQuality.SettlementDelayP50Days, providerQuality.TotalSettlementCount > 0),
+		"provider_settlement_delay_p95_days":    nullableFloat(providerQuality.SettlementDelayP95Days, providerQuality.TotalSettlementCount > 0),
 		"settlement_delay_p50_days":             settlementP50,
 		"settlement_delay_p95_days":             settlementP95,
 	}
@@ -343,11 +493,26 @@ func ratio(numerator, denominator int) float64 {
 	return clampLeakage01(float64(numerator) / float64(denominator))
 }
 
-func fallbackUnitRate(v float64) float64 {
-	if v <= 0 {
-		return 1.0
+func nullableRatio(numerator, denominator int) any {
+	if denominator <= 0 {
+		return nil
 	}
-	return clampLeakage01(v)
+	return clampLeakage01(float64(numerator) / float64(denominator))
+}
+
+func nullableUnitRate(v float64, available bool) *float64 {
+	if !available {
+		return nil
+	}
+	clamped := clampLeakage01(v)
+	return &clamped
+}
+
+func nullableFloat(v float64, available bool) any {
+	if !available {
+		return nil
+	}
+	return v
 }
 
 func derefOr(v *string, fallback string) string {
@@ -382,4 +547,109 @@ func boolInt(v bool) int {
 		return 1
 	}
 	return 0
+}
+
+func shouldHydrateLeakageIntentSnapshot(batch *persistence.BatchContract) bool {
+	if batch == nil {
+		return false
+	}
+	if batch.IntentRowCount <= 0 || batch.IntentTotalAmountMinor.LessThanOrEqual(decimal.Zero) {
+		return true
+	}
+	if batch.BatchCurrency == nil || strings.TrimSpace(*batch.BatchCurrency) == "" {
+		return true
+	}
+	if batch.BatchSourceSystem == nil || strings.TrimSpace(*batch.BatchSourceSystem) == "" {
+		return true
+	}
+	if batch.BatchRail == nil || strings.TrimSpace(*batch.BatchRail) == "" {
+		return true
+	}
+	if batch.BatchIntentType == nil || strings.TrimSpace(*batch.BatchIntentType) == "" {
+		return true
+	}
+	if batch.BatchProviderKey == nil || strings.TrimSpace(*batch.BatchProviderKey) == "" {
+		return true
+	}
+	return batch.PredictedLeakageRate == nil && batch.BatchFinalityStatus == "PROCESSING"
+}
+
+func mergeBatchWithIntentSnapshot(
+	batch *persistence.BatchContract,
+	snapshot *persistence.IntentBatchSnapshot,
+) *persistence.BatchContract {
+	if batch == nil || snapshot == nil {
+		return batch
+	}
+	merged := *batch
+	if merged.IntentRowCount <= 0 {
+		merged.IntentRowCount = snapshot.IntentRowCount
+	}
+	if merged.IntentTotalAmountMinor.LessThanOrEqual(decimal.Zero) {
+		merged.IntentTotalAmountMinor = snapshot.IntentTotalAmountMinor
+	}
+	if merged.IntentAmountSquareSum.LessThanOrEqual(decimal.Zero) {
+		merged.IntentAmountSquareSum = snapshot.IntentAmountSquareSum
+	}
+	if merged.IntentMinAmountMinor.LessThanOrEqual(decimal.Zero) {
+		merged.IntentMinAmountMinor = snapshot.IntentMinAmountMinor
+	}
+	if merged.IntentMaxAmountMinor.LessThanOrEqual(decimal.Zero) {
+		merged.IntentMaxAmountMinor = snapshot.IntentMaxAmountMinor
+	}
+	if merged.ClientPayoutRefPresentCount <= 0 {
+		merged.ClientPayoutRefPresentCount = snapshot.ClientPayoutRefPresentCount
+	}
+	if merged.TotalCount <= 0 {
+		merged.TotalCount = snapshot.IntentRowCount
+	}
+	if merged.PendingCount <= 0 && merged.BatchFinalityStatus == "PROCESSING" {
+		merged.PendingCount = snapshot.IntentRowCount
+	}
+	if merged.TotalIntendedAmountMinor.LessThanOrEqual(decimal.Zero) {
+		merged.TotalIntendedAmountMinor = snapshot.IntentTotalAmountMinor
+	}
+	if merged.BatchCurrency == nil || strings.TrimSpace(*merged.BatchCurrency) == "" {
+		currency := snapshot.Currency
+		merged.BatchCurrency = &currency
+	}
+	if merged.BatchSourceSystem == nil || strings.TrimSpace(*merged.BatchSourceSystem) == "" {
+		sourceSystem := snapshot.SourceSystem
+		merged.BatchSourceSystem = &sourceSystem
+	}
+	if merged.BatchRail == nil || strings.TrimSpace(*merged.BatchRail) == "" {
+		rail := snapshot.Rail
+		merged.BatchRail = &rail
+	}
+	if merged.BatchIntentType == nil || strings.TrimSpace(*merged.BatchIntentType) == "" {
+		intentType := snapshot.IntentType
+		merged.BatchIntentType = &intentType
+	}
+	if merged.BatchProviderKey == nil || strings.TrimSpace(*merged.BatchProviderKey) == "" {
+		providerKey := snapshot.ProviderKey
+		merged.BatchProviderKey = &providerKey
+	}
+	if merged.FirstIntentCreatedAt == nil && snapshot.FirstIntentCreatedAt != nil {
+		merged.FirstIntentCreatedAt = snapshot.FirstIntentCreatedAt
+	}
+	return &merged
+}
+
+func intentPredictionCurrent(
+	batch *persistence.BatchContract,
+	snapshot *persistence.IntentBatchSnapshot,
+) bool {
+	if batch == nil || snapshot == nil || batch.PredictedAt == nil {
+		return false
+	}
+	if batch.IntentRowCount != snapshot.IntentRowCount {
+		return false
+	}
+	if !batch.IntentTotalAmountMinor.Equal(snapshot.IntentTotalAmountMinor) {
+		return false
+	}
+	if batch.BatchSourceSystem == nil || strings.TrimSpace(*batch.BatchSourceSystem) == "" {
+		return false
+	}
+	return true
 }

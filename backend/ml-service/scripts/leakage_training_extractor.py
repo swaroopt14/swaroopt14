@@ -243,11 +243,13 @@ def create_runtime_replay_files(source: BatchSourceData) -> None:
     source.runtime_intent_rows = intent_rows
 
 
-def load_batch_sources() -> list[BatchSourceData]:
+def load_batch_sources(selected_batch_ids: set[str] | None = None) -> list[BatchSourceData]:
     rows = read_csv_rows(BATCH_INDEX_PATH)
     result: list[BatchSourceData] = []
     for row in rows:
         batch_id = row["batch_id"]
+        if selected_batch_ids and batch_id not in selected_batch_ids:
+            continue
         batch_dir = BATCHES_ROOT / batch_id
         batch_manifest = json.loads((batch_dir / "batch_manifest.json").read_text(encoding="utf-8"))
         result.append(
@@ -1109,10 +1111,14 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--email", help="resume against an existing tenant session email")
     parser.add_argument("--password", default=SIGNUP_PASSWORD, help="password for --email login")
+    parser.add_argument("--batch-ids", help="comma-separated batch ids to ingest, e.g. LEAK_BATCH_001,LEAK_BATCH_006")
     args = parser.parse_args()
 
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    batches = load_batch_sources()
+    selected_batch_ids = None
+    if args.batch_ids:
+        selected_batch_ids = {item.strip() for item in args.batch_ids.split(",") if item.strip()}
+    batches = load_batch_sources(selected_batch_ids)
     extractor = Extractor()
     try:
         if args.email:

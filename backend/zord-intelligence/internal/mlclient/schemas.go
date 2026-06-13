@@ -220,6 +220,9 @@ type LeakagePredictionResult struct {
 	PredictedLeakageRate  float64
 	PredictedLeakageMinor float64
 	RiskTier              string
+	FallbackFeatureCount  int
+	FallbackFeatures      []string
+	FallbackSegmentLevel  string
 }
 
 // LeakageTrainRequest sends one newly labeled batch back to the Python service.

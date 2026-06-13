@@ -267,7 +267,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 			"bank_reference":               bankRef,
 			"client_reference":             clientRefCandidate,
 			"attachment_decision":          d.DecisionType,
-			"match_confidence":             d.ConfidenceScore,
+			"match_confidence":             d.MatchConfidence,
 			"value_date_check":             valueDateCheck,
 			"amount_match":                 amountMatch,
 		}

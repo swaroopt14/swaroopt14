@@ -667,6 +667,33 @@ func ComputeConfidenceScore(
 	return math.Min(score, 1.0)
 }
 
+// ComputeMatchConfidence calculates the native similarity between the observation and intent
+// without environmental modifiers (like parse confidence or source strength).
+func ComputeMatchConfidence(cs CandidateScore) float64 {
+	// Sum only the match-specific components (ignore quality modifiers, source strength, etc.)
+	nativeScore := cs.Breakdown.ExactCarrierScore +
+		cs.Breakdown.BusinessReferenceScore +
+		cs.Breakdown.ProviderBankReferenceScore +
+		cs.Breakdown.PartyAmountScore +
+		cs.Breakdown.BatchContextScore +
+		cs.Breakdown.TimingScore
+
+	// Theoretical max based on current v1 scoring weights for a perfect match
+	// ExactRef/Zord(120) + ClientRef(100) + Amount(30) + Batch(90) + Time(20) = 360
+	// We'll use 215.0 as a reasonable denominator that represents a "very strong" match
+	// allowing for some flexibility in how refs are weighted.
+	const maxTheoreticalScore = 215.0
+
+	matchConfidence := nativeScore / maxTheoreticalScore
+	if matchConfidence > 1.0 {
+		return 1.0
+	}
+	if matchConfidence < 0.0 {
+		return 0.0
+	}
+	return matchConfidence
+}
+
 // abs64 is a simple absolute value for int64.
 func abs64(x int64) int64 {
 	if x < 0 {

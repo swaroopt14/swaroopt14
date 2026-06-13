@@ -185,7 +185,7 @@ func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
 			decision_type, decision_reason_code, decision_reason_detail_json,
 			matching_ruleset_version,
 			winning_score, runner_up_score, score_margin, relative_score_margin,
-			confidence_score, ambiguity_score,
+			confidence_score, match_confidence, ambiguity_score,
 			supporting_carriers_json, candidate_set_hash,
 			created_at, updated_at
 		FROM attachment_decisions
@@ -202,7 +202,7 @@ func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
 		&d.DecisionType, &d.DecisionReasonCode, &d.DecisionReasonDetailJSON,
 		&d.MatchingRulesetVersion,
 		&d.WinningScore, &d.RunnerUpScore, &d.ScoreMargin,
-		&d.RelativeScoreMargin, &d.ConfidenceScore, &d.AmbiguityScore,
+		&d.RelativeScoreMargin, &d.ConfidenceScore, &d.MatchConfidence, &d.AmbiguityScore,
 		&d.SupportingCarriersJSON, &d.CandidateSetHash,
 		&d.CreatedAt, &d.UpdatedAt,
 	)

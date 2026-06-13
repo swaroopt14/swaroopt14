@@ -447,6 +447,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			relative_score_margin       NUMERIC(8,4),
 			confidence_score            NUMERIC(5,4) NOT NULL DEFAULT 0,
 			ambiguity_score             NUMERIC(5,4) NOT NULL DEFAULT 0,
+			match_confidence            NUMERIC(5,4) NOT NULL DEFAULT 0,
 			supporting_carriers_json    JSONB,
 			candidate_set_hash          TEXT NOT NULL,
 			candidate_set_snapshot_ref  TEXT,

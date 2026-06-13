@@ -66,7 +66,6 @@ services:
       - RCA_MODEL_PATH=/data/rca_model.pkl
       - LEAKAGE_MODEL_PATH=/data/leakage_prediction_bundle.joblib
       - LEAKAGE_BOOTSTRAP_MODEL_PATH=/app/model_artifacts/leakage_prediction_bundle.joblib
-      - LEAKAGE_BOOTSTRAP_DATASET_PATH=/app/model_artifacts/combined_model_ready_378.csv
       - LEAKAGE_TRAINING_BUFFER_PATH=/data/leakage_training_rows.jsonl
       - RCA_RETRAIN_THRESHOLD=50
       - LEAKAGE_RETRAIN_THRESHOLD=5

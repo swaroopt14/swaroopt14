@@ -23,7 +23,7 @@ export const settlementJournalCopy = {
   },
   tabs: {
     observations: 'Settlement observations',
-    parseErrors: 'Settlement parse errors',
+    parseErrors: 'Review Items',
   },
   table: {
     sourceRow: 'Source Row',

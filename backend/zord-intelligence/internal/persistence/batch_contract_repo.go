@@ -53,6 +53,13 @@ type BatchContract struct {
 	MissingRefCount              int             `json:"missing_ref_count"`
 	UnexplainedVarianceMinor     decimal.Decimal `json:"unexplained_variance_minor"`
 	WhitelistedDeductionMinor    decimal.Decimal `json:"whitelisted_deduction_minor"`
+
+	// ── Bank reference coverage (Pattern Intelligence) ────────────────────────
+	// SettlementRefCount: total settlement observations seen for this batch.
+	// BankRefPresentCount: of those, how many had bank_ref/UTR/RRN populated.
+	// bank_reference_coverage = BankRefPresentCount / SettlementRefCount.
+	SettlementRefCount   int `json:"settlement_ref_count"`
+	BankRefPresentCount  int `json:"bank_ref_present_count"`
 }
 
 // BatchContractRepo provides Upsert and Read operations for batch_contracts.
@@ -185,7 +192,8 @@ func (r *BatchContractRepo) GetByID(
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
-		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
+		       settlement_ref_count, bank_ref_present_count
 		FROM   batch_contracts
 		WHERE  batch_id = $1
 	`
@@ -221,7 +229,8 @@ func (r *BatchContractRepo) ListByTenant(
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
-		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
+		       settlement_ref_count, bank_ref_present_count
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		ORDER  BY last_updated_at DESC
@@ -274,7 +283,8 @@ func (r *BatchContractRepo) ListTopByAmount(
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
-		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
+		       settlement_ref_count, bank_ref_present_count
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		ORDER  BY batch_contracts.total_intended_amount_minor DESC NULLS LAST
@@ -318,7 +328,8 @@ func (r *BatchContractRepo) ListRequiringReview(
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
-		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
+		       settlement_ref_count, bank_ref_present_count
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		  AND  (
@@ -367,7 +378,8 @@ func (r *BatchContractRepo) ListByFinalityStatus(
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
-		       unexplained_variance_minor::text, whitelisted_deduction_minor::text
+		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
+		       settlement_ref_count, bank_ref_present_count
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		  AND  batch_finality_status = $2
@@ -421,6 +433,8 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 		&bc.MissingRefCount,
 		&unexplained,
 		&whitelisted,
+		&bc.SettlementRefCount,
+		&bc.BankRefPresentCount,
 	)
 	if err != nil {
 		return nil, err
@@ -489,6 +503,8 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 		&bc.MissingRefCount,
 		&unexplained,
 		&whitelisted,
+		&bc.SettlementRefCount,
+		&bc.BankRefPresentCount,
 	)
 	if err != nil {
 		return nil, err
@@ -696,6 +712,39 @@ func (r *BatchContractRepo) AtomicIncrementBatchMissingRef(
 	`, batchID, tenantID, count)
 	if err != nil {
 		return fmt.Errorf("batch_contract_repo.AtomicIncrementBatchMissingRef batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+// AtomicAddBatchBankRefStats records one settlement observation for a batch,
+// tracking whether it carried a bank-side reference (BankRef, UTR, or RRN).
+//
+// Called from HandleSettlementCreated for every CanonicalSettlementCreatedEvent
+// that carries a BatchID — regardless of match status.
+//
+// bank_reference_coverage = bank_ref_present_count / settlement_ref_count.
+func (r *BatchContractRepo) AtomicAddBatchBankRefStats(
+	ctx context.Context,
+	batchID, tenantID string,
+	hasBankRef bool,
+) error {
+	if batchID == "" {
+		return nil
+	}
+	bankRefIncr := 0
+	if hasBankRef {
+		bankRefIncr = 1
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (batch_id, tenant_id, settlement_ref_count, bank_ref_present_count)
+		VALUES ($1, $2, 1, $3)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			settlement_ref_count   = batch_contracts.settlement_ref_count + 1,
+			bank_ref_present_count = batch_contracts.bank_ref_present_count + EXCLUDED.bank_ref_present_count,
+			last_updated_at        = now()
+	`, batchID, tenantID, bankRefIncr)
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicAddBatchBankRefStats batch=%s: %w", batchID, err)
 	}
 	return nil
 }

@@ -190,6 +190,7 @@ type AttachmentDecision struct {
 	ScoreMargin              *float64        `json:"score_margin,omitempty" db:"score_margin"`
 	RelativeScoreMargin      *float64        `json:"relative_score_margin,omitempty" db:"relative_score_margin"`
 	ConfidenceScore          float64         `json:"confidence_score" db:"confidence_score"`
+	MatchConfidence          float64         `json:"match_confidence" db:"match_confidence"`
 	AmbiguityScore           float64         `json:"ambiguity_score" db:"ambiguity_score"`
 	SupportingCarriersJSON   json.RawMessage `json:"supporting_carriers_json" db:"supporting_carriers_json"`
 	CandidateSetHash         string          `json:"candidate_set_hash" db:"candidate_set_hash"`
@@ -295,10 +296,11 @@ type BatchAttachmentSummary struct {
 	TotalVariance       decimal.Decimal `json:"total_variance" db:"total_variance"`
 
 	// Derived status
-	BatchAttachmentStatus string    `json:"batch_attachment_status" db:"batch_attachment_status"`
-	AggregateScore        float64   `json:"aggregate_score" db:"aggregate_score"`
-	AmbiguityScore        float64   `json:"ambiguity_score" db:"ambiguity_score"`
-	CreatedAt             time.Time `json:"created_at" db:"created_at"`
+	BatchAttachmentStatus    string    `json:"batch_attachment_status" db:"batch_attachment_status"`
+	AggregateScore           float64   `json:"aggregate_score" db:"aggregate_score"`
+	AggregateMatchConfidence float64   `json:"aggregate_match_confidence" db:"aggregate_match_confidence"`
+	AmbiguityScore           float64   `json:"ambiguity_score" db:"ambiguity_score"`
+	CreatedAt                time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
 }
 

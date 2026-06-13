@@ -774,7 +774,7 @@ func deriveVarianceLabel(pack *models.EvidencePack) string {
 // the payment's current proof state, suitable for display in Finance Summary.
 func deriveFinanceExplanation(pack *models.EvidencePack, score models.ProofScoreResult) string {
 	if score.Score == 100 {
-		return fmt.Sprintf("Payment fully verified — matched and variance-free. Proof score: 100/100.")
+		return "Payment fully verified — matched and variance-free. Proof score: 100/100."
 	}
 	// Find the first failing component and explain it
 	for _, c := range score.Components {

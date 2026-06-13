@@ -1127,6 +1127,18 @@ func (s *ProjectionService) HandleSettlementCreated(
 		}
 	}
 
+	// ── Pattern Intelligence: Bank reference coverage (per-batch) ─────────────
+	// Tracks how many settlement observations for this batch carried a
+	// bank-side reference (BankRef, UTR, or RRN), regardless of match status.
+	// bank_reference_coverage = bank_ref_present_count / settlement_ref_count.
+	if e.BatchID != "" {
+		hasBankRef := e.BankRef != "" || e.UTR != "" || e.RRN != ""
+		if err := s.batchRepo.AtomicAddBatchBankRefStats(ctx, e.BatchID, e.TenantID, hasBankRef); err != nil {
+			log.Printf("HandleSettlementCreated: AtomicAddBatchBankRefStats failed settlement=%s batch=%s: %v",
+				e.SettlementID, e.BatchID, err)
+		}
+	}
+
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleSettlementCreated MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
@@ -1163,8 +1175,8 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		return nil
 	}
 
-	log.Printf("[attachment.decision.created] RECEIVED event_id=%s tenant=%s decision=%s intent=%s batch=%s confidence=%.2f candidate_set=%d provider_id=%s",
-		e.EventID, e.TenantID, e.DecisionType, e.IntentID, e.BatchID, e.ConfidenceScore, e.CandidateSetSize, e.ProviderID)
+	log.Printf("[attachment.decision.created] RECEIVED event_id=%s tenant=%s decision=%s intent=%s batch=%s confidence=%.2f candidate_set=%d provider_id=%s client_refernce=%s",
+		e.EventID, e.TenantID, e.DecisionType, e.IntentID, e.BatchID, e.ConfidenceScore, e.CandidateSetSize, e.ProviderID, e.ClientReference)
 
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
 	if err != nil {
@@ -1608,7 +1620,7 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		return nil
 	}
 	log.Printf(
-		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f batch_finality_status=%s",
+		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f match_confidence=%f batch_finality_status=%s",
 		e.TenantID,
 		e.EventID,
 		e.BatchID,
@@ -1626,6 +1638,7 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		e.TotalConfirmedAmountMinor.String(),
 		e.TotalVarianceMinor.String(),
 		e.AmbiguityScore,
+		e.MatchConfidence,
 		e.BatchFinalityStatus,
 	)
 	occurredAt := e.OccurredAt

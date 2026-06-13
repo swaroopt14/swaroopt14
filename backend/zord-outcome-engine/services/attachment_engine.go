@@ -334,6 +334,7 @@ func (e *AttachmentEngine) runAttachment(
 			runnerUpScore  *float64
 			scoreMargin    *float64
 			confScore      float64
+			matchConf      float64
 			relMargin      *float64
 		)
 
@@ -343,6 +344,7 @@ func (e *AttachmentEngine) runAttachment(
 			winningScore = scored[0].Total
 			// Updated signature: pass full ranked list, obs, and policy.
 			confScore = ComputeConfidenceScore(scored[0], decisionType, scored, obs, policy)
+			matchConf = ComputeMatchConfidence(scored[0])
 		}
 
 		// For AMBIGUOUS / CONFLICTED decisions — do NOT set winnerIntentID.
@@ -422,6 +424,7 @@ func (e *AttachmentEngine) runAttachment(
 			ScoreMargin:              scoreMargin,
 			RelativeScoreMargin:      relMargin,
 			ConfidenceScore:          confScore,
+			MatchConfidence:          matchConf,
 			AmbiguityScore:           ambiguityScore,
 			SupportingCarriersJSON:   carriersJSON,
 			CandidateSetHash:         candidateSetHash,
@@ -1032,6 +1035,7 @@ func computeBatchSummary(
 
 	for _, d := range decisions {
 		summary.AggregateScore += d.ConfidenceScore
+		summary.AggregateMatchConfidence += d.MatchConfidence
 		summary.AmbiguityScore += d.AmbiguityScore
 		switch d.DecisionType {
 		case models.DecisionMatchExact:
@@ -1047,17 +1051,16 @@ func computeBatchSummary(
 		}
 	}
 
+	// FIX: build the attached-observation set in O(M) before the outer loop.
+	// Original code did this with a nested loop → O(N×M).
+	attachedObsIDs := make(map[uuid.UUID]bool, len(variances))
+	for _, v := range variances {
+		attachedObsIDs[v.SettlementObservationID] = true
+	}
+
+	// Now O(N) — one map lookup per observation.
 	for _, obs := range observations {
-		// Only add to TotalObservedAmount if this observation was successfully matched to an intent.
-		// We can check this by looking for a variance record (which only exists for attached pairs).
-		isAttached := false
-		for _, v := range variances {
-			if v.SettlementObservationID == obs.SettlementObservationID {
-				isAttached = true
-				break
-			}
-		}
-		if isAttached {
+		if attachedObsIDs[obs.SettlementObservationID] && obs.SettledAmount != nil {
 			summary.TotalObservedAmount = summary.TotalObservedAmount.Add(*obs.SettledAmount)
 		}
 	}
@@ -1070,9 +1073,11 @@ func computeBatchSummary(
 	if total == 0 {
 		summary.BatchAttachmentStatus = models.BatchStatusFailed
 		summary.AggregateScore = 0
+		summary.AggregateMatchConfidence = 0
 		summary.AmbiguityScore = 0
 	} else {
 		summary.AggregateScore = summary.AggregateScore / float64(total)
+		summary.AggregateMatchConfidence = summary.AggregateMatchConfidence / float64(total)
 		summary.AmbiguityScore = summary.AmbiguityScore / float64(total)
 		strongCount := summary.ExactMatchCount + summary.HighConfidenceCount
 		ratio := float64(strongCount) / float64(total)
@@ -1183,11 +1188,11 @@ func persistAttachmentOutputs(
 				decision_type, decision_reason_code, decision_reason_detail_json,
 				matching_ruleset_version,
 				winning_score, runner_up_score, score_margin,relative_score_margin,
-				confidence_score, ambiguity_score,
+				confidence_score, match_confidence, ambiguity_score,
 				supporting_carriers_json, candidate_set_hash, candidate_set_size,
 				created_at, updated_at
 			) VALUES (
-				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
 			) ON CONFLICT (settlement_observation_id, attachment_job_id) DO UPDATE SET
 				decision_type              = EXCLUDED.decision_type,
 				decision_reason_code       = EXCLUDED.decision_reason_code,
@@ -1197,6 +1202,7 @@ func persistAttachmentOutputs(
 				score_margin               = EXCLUDED.score_margin,
 				relative_score_margin      = EXCLUDED.relative_score_margin,
 				confidence_score           = EXCLUDED.confidence_score,
+				match_confidence           = EXCLUDED.match_confidence,
 				ambiguity_score            = EXCLUDED.ambiguity_score,
 				supporting_carriers_json   = EXCLUDED.supporting_carriers_json,
 				candidate_set_hash         = EXCLUDED.candidate_set_hash,
@@ -1208,7 +1214,7 @@ func persistAttachmentOutputs(
 			d.DecisionType, d.DecisionReasonCode, d.DecisionReasonDetailJSON,
 			d.MatchingRulesetVersion,
 			d.WinningScore, d.RunnerUpScore, d.ScoreMargin, d.RelativeScoreMargin,
-			d.ConfidenceScore, d.AmbiguityScore,
+			d.ConfidenceScore, d.MatchConfidence, d.AmbiguityScore,
 			d.SupportingCarriersJSON, d.CandidateSetHash, d.CandidateSetSize,
 			d.CreatedAt, d.UpdatedAt,
 		); err != nil {
@@ -1280,16 +1286,16 @@ func persistAttachmentOutputs(
 			total_intent_count, exact_match_count, high_confidence_count,
 			ambiguous_count, unresolved_count, conflicted_count,
 			total_intended_amount, total_observed_amount, total_variance,
-			batch_attachment_status, aggregate_score, ambiguity_score, created_at, updated_at
+			batch_attachment_status, aggregate_score, aggregate_match_confidence, ambiguity_score, created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20
 		) ON CONFLICT DO NOTHING`,
 		batchSummary.BatchAttachmentSummaryID, batchSummary.TenantID, batchSummary.BatchID, batchSummary.SourceReference,
 		batchSummary.AttachmentJobID,
 		batchSummary.TotalIntentCount, batchSummary.ExactMatchCount, batchSummary.HighConfidenceCount,
 		batchSummary.AmbiguousCount, batchSummary.UnresolvedCount, batchSummary.ConflictedCount,
 		batchSummary.TotalIntendedAmount, batchSummary.TotalObservedAmount, batchSummary.TotalVariance,
-		batchSummary.BatchAttachmentStatus, batchSummary.AggregateScore, batchSummary.AmbiguityScore,
+		batchSummary.BatchAttachmentStatus, batchSummary.AggregateScore, batchSummary.AggregateMatchConfidence, batchSummary.AmbiguityScore,
 		batchSummary.CreatedAt, batchSummary.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("persistAttachmentOutputs: insert batch summary: %w", err)

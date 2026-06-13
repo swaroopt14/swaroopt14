@@ -409,13 +409,14 @@ type AttachmentDecisionCreatedEvent struct {
 	OccurredAt time.Time `json:"occurred_at"`
 
 	// ── Decision identity ─────────────────────────────────────────────────────
-	DecisionID   string `json:"attachment_decision_id"`
-	SettlementID string `json:"settlement_observation_id"`
-	IntentID     string `json:"intent_id"`
-	ContractID   string `json:"contract_id"`
-	CorridorID   string `json:"corridor_id"`
-	BatchID      string `json:"batch_id"`
-	ProviderID   string `json:"source_system"`
+	DecisionID      string `json:"attachment_decision_id"`
+	SettlementID    string `json:"settlement_observation_id"`
+	IntentID        string `json:"intent_id"`
+	ContractID      string `json:"contract_id"`
+	CorridorID      string `json:"corridor_id"`
+	BatchID         string `json:"batch_id"`
+	ProviderID      string `json:"source_system"`
+	ClientReference string `json:"client_reference"`
 
 	// ── Decision outcome ──────────────────────────────────────────────────────
 	DecisionType string `json:"decision_type"`
@@ -584,6 +585,8 @@ type BatchSummaryUpdatedEvent struct {
 	// ── Intelligence scores ───────────────────────────────────────────────────
 	AmbiguityScore float64 `json:"ambiguity_score"` // 0.0–1.0 computed by Service 5C
 	// High ambiguity = many same-amount payouts, weak carrier references
+
+	MatchConfidence float64 `json:"aggregate_match_confidence"` // 0.0–1.0 computed by Service 5C
 
 	BatchFinalityStatus string `json:"batch_finality_status"` // "PROCESSING", "FULLY_SETTLED", etc.
 	// matches batch_contracts.batch_finality_status values from Phase 1 schema

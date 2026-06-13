@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 	"zord-outcome-engine/db"
 
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,7 @@ func SettlementParseErrors(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "batch_id query parameter is required"})
 		return
 	}
+
 	rawtenantid := c.Query("tenant_id")
 	tenantid, err := uuid.Parse(rawtenantid)
 	if err != nil {
@@ -21,15 +23,20 @@ func SettlementParseErrors(c *gin.Context) {
 		return
 	}
 
-	query := `SELECT source_row_ref,error_stage,reason_code,
-	severity FROM settlement_parse_errors WHERE client_batch_id = $1 AND tenant_id =$2`
-
-	rows, err := db.DB.QueryContext(c.Request.Context(), query, batchid, tenantid)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+	page, err := strconv.Atoi(c.DefaultQuery("page", "1"))
+	if err != nil || page <= 0 {
+		page = 1
 	}
-	defer rows.Close()
+
+	pageSize, err := strconv.Atoi(c.DefaultQuery("page_size", "20"))
+	if err != nil || pageSize <= 0 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
+
+	offset := (page - 1) * pageSize
 
 	type ParseErrorRow struct {
 		SourceRowRef *string `json:"source_row_ref"`
@@ -37,6 +44,44 @@ func SettlementParseErrors(c *gin.Context) {
 		ReasonCode   string  `json:"reason_code"`
 		Severity     string  `json:"severity"`
 	}
+
+	type Pagination struct {
+		Page     int `json:"page"`
+		PageSize int `json:"page_size"`
+		Total    int `json:"total"`
+	}
+
+	type SettlementParseErrorsResponse struct {
+		Items      []ParseErrorRow `json:"items"`
+		Pagination Pagination      `json:"pagination"`
+	}
+
+	countQuery := `
+		SELECT COUNT(*)
+		FROM settlement_parse_errors
+		WHERE client_batch_id = $1 AND tenant_id = $2
+	`
+
+	var total int
+	if err := db.DB.QueryRowContext(c.Request.Context(), countQuery, batchid, tenantid).Scan(&total); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	query := `
+		SELECT source_row_ref, error_stage, reason_code, severity
+		FROM settlement_parse_errors
+		WHERE client_batch_id = $1 AND tenant_id = $2
+		ORDER BY created_at DESC
+		LIMIT $3 OFFSET $4
+	`
+
+	rows, err := db.DB.QueryContext(c.Request.Context(), query, batchid, tenantid, pageSize, offset)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
 
 	errors := []ParseErrorRow{}
 	for rows.Next() {
@@ -53,5 +98,17 @@ func SettlementParseErrors(c *gin.Context) {
 		errors = append(errors, row)
 	}
 
-	c.JSON(http.StatusOK, errors)
+	if err := rows.Err(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, SettlementParseErrorsResponse{
+		Items: errors,
+		Pagination: Pagination{
+			Page:     page,
+			PageSize: pageSize,
+			Total:    total,
+		},
+	})
 }

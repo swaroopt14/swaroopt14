@@ -755,6 +755,14 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     -- Sum of variance_amount_minor for whitelisted (pre-agreed) deductions.
     -- PSP fees, TDS, commissions — expected and approved, NOT real leakage.
 
+    settlement_ref_count        INT          NOT NULL DEFAULT 0,
+    -- Total settlement observations (CanonicalSettlementCreatedEvent) seen for
+    -- this batch. Denominator for bank_reference_coverage.
+
+    bank_ref_present_count      INT          NOT NULL DEFAULT 0,
+    -- Count of settlement observations where bank_ref, UTR, or RRN is present.
+    -- Numerator for bank_reference_coverage = bank_ref_present_count / settlement_ref_count.
+
     last_updated_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
     created_at                  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
@@ -973,6 +981,14 @@ ALTER TABLE action_contracts
 
 ALTER TABLE action_contracts
     ADD COLUMN IF NOT EXISTS severity TEXT;
+
+-- Per-batch bank reference coverage (settlement_ref_count / bank_ref_present_count).
+-- Added for existing databases where batch_contracts predates these columns.
+ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS settlement_ref_count INT NOT NULL DEFAULT 0;
+
+ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS bank_ref_present_count INT NOT NULL DEFAULT 0;
 
 -- "Which policies belong to the LEAKAGE family and fired today?"
 CREATE INDEX IF NOT EXISTS idx_ac_family_created

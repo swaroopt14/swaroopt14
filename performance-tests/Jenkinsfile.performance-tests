@@ -210,6 +210,7 @@ pipeline {
           def detailLines = []
           def failedDetails = []
           def tableRows = []
+          def notFullyPassedDetails = []
 
           for (int i = 0; i < testNames.size(); i++) {
             def outputFile = "${env.RESULTS_DIR}/${testNames[i]}-output.txt"
@@ -239,7 +240,7 @@ pipeline {
               }
 
               // Parse metrics from output text (reliable — always works)
-              def p95Match = (content =~ /http_req_duration[^p]+p\(95\)=([0-9.]+)(ms|µs|s)/)
+              def p95Match = (content =~ /p\(95\)=([0-9.]+)(ms|µs|s)/)
               def reqMatch = (content =~ /http_reqs[.\s:]+(\d+)/)
               def checksMatch = (content =~ /checks[.\s:]+([0-9.]+)%/)
               if (p95Match) {
@@ -251,6 +252,54 @@ pipeline {
               }
               if (reqMatch) testReqs = reqMatch[0][1]
               if (checksMatch) testChecks = checksMatch[0][1] + '%'
+
+              // If checks < 100%, extract which checks failed and explain why
+              def checksVal = checksMatch ? (checksMatch[0][1] as Double) : 100.0
+              if (checksVal < 100.0) {
+                def checkNames = []
+                def lines = content.split('\n')
+                for (int li = 0; li < lines.size(); li++) {
+                  if (lines[li].contains('✗') && !lines[li].contains('↳')) {
+                    def checkName = lines[li].trim().replaceAll(/✗\s*/, '').replaceAll(/\s+/, ' ').trim()
+                    def detailLine = (li + 1 < lines.size() && lines[li + 1].contains('↳')) ? lines[li + 1].trim() : ''
+                    // Extract pass/fail counts
+                    def countMatch = (detailLine =~ /✓\s*(\d+)\s*\/\s*✗\s*(\d+)/)
+                    def passN = countMatch ? countMatch[0][1] : '?'
+                    def failN = countMatch ? countMatch[0][2] : '?'
+
+                    // Translate to human-readable explanation with root cause + fix
+                    def explanation = ''
+                    if (checkName.contains('response time')) {
+                      explanation = "${failN} requests took longer than expected.\n      _Root cause:_ Service under heavy load or DB query slow.\n      _Fix:_ Check Grafana CPU/memory. Check DB slow query logs in Kibana."
+                    } else if (checkName.contains('tenant created') || checkName.contains('201')) {
+                      explanation = "${failN} tenant registrations failed.\n      _Root cause:_ DB connection timeout or duplicate name conflict.\n      _Fix:_ Check zord-edge pod logs in Kibana. Verify DB_HOST and EDGE_DB_PASSWORD secrets are correct."
+                    } else if (checkName.contains('ingest accepted') || checkName.contains('auth error')) {
+                      explanation = "${failN} ingest requests got unexpected status code.\n      _Root cause:_ The endpoint returned something other than 200/201/401/429. Likely 400 (bad payload format) or 422 (validation).\n      _Fix:_ Check if the ingest JSON schema changed. Verify X-Idempotency-Key header is being sent."
+                    } else if (checkName.contains('rate limit')) {
+                      explanation = "Kong is not sending X-RateLimit headers on this route.\n      _Root cause:_ Rate limiting plugin may not be applied to health endpoints, or hide_client_headers is set to true.\n      _Fix:_ Check Kong configmap — verify rate-limiting plugin has hide_client_headers: false."
+                    } else if (checkName.contains('server error') || checkName.contains('5xx') || checkName.contains('not server error')) {
+                      explanation = "${failN} requests got HTTP 500.\n      _Root cause:_ Backend service crashed or DB connection lost.\n      _Fix:_ Check pod logs in Kibana for panic/stack trace. Verify DB secrets and Kafka broker connectivity."
+                    } else if (checkName.contains('reachable') || checkName.contains('alive') || checkName.contains('502') || checkName.contains('503')) {
+                      explanation = "${failN} requests got 502/503 Bad Gateway.\n      _Root cause:_ Backend pod crashed, restarted, or not ready.\n      _Fix:_ Run kubectl get pods -n zord. Check if pod restarted. Check readiness probe path."
+                    } else if (checkName.contains('Server header')) {
+                      explanation = "Kong still returns Server header in responses.\n      _Root cause:_ The response-transformer plugin is not stripping it from all routes (or ALB adds its own).\n      _Fix:_ Edit Kong configmap → response-transformer → add Server to remove.headers for specific routes."
+                    } else if (checkName.contains('CORS') || checkName.contains('zordnet')) {
+                      explanation = "CORS Access-Control-Allow-Origin header missing.\n      _Root cause:_ The request Origin doesn't match Kong's allowed origins, or CORS plugin not applied globally.\n      _Fix:_ Check Kong configmap → cors plugin → verify origins list includes the tested domain."
+                    } else if (checkName.contains('HSTS') || checkName.contains('X-Frame') || checkName.contains('nosniff')) {
+                      explanation = "Security header missing from response.\n      _Root cause:_ response-transformer plugin not adding this header.\n      _Fix:_ Check Kong configmap → response-transformer → config.add.headers list."
+                    } else if (checkName.contains('body') || checkName.contains('present')) {
+                      explanation = "${failN} responses had empty body.\n      _Root cause:_ Service returned empty response — possibly timeout or connection reset.\n      _Fix:_ Check service logs for context deadline exceeded errors."
+                    } else {
+                      explanation = "${passN} passed, ${failN} failed.\n      _Fix:_ Check the full test output in Jenkins artifacts for details."
+                    }
+
+                    checkNames.add(":small_orange_diamond: *${checkName}* — ${explanation}")
+                  }
+                }
+                if (checkNames.size() > 0) {
+                  notFullyPassedDetails.add("*${testLabels[i]}* (${testChecks}):\n" + checkNames.take(4).join('\n'))
+                }
+              }
             } catch (e) {
               status = ':fast_forward:'
               testChecks = 'skip'
@@ -266,33 +315,23 @@ pipeline {
           def serviceStatus = ''
           try {
             def e2eContent = readFile("${env.RESULTS_DIR}/04-full-flow-output.txt")
-            def services = [
-              ['register_tenant', 'zord-edge'],
-              ['single_ingest', 'zord-edge (ingest)'],
-              ['query_intents', 'zord-intent-engine'],
-              ['query_dlq', 'zord-intent-engine (DLQ)'],
-              ['dispatch', 'zord-relay'],
-              ['settlement', 'zord-outcome-engine'],
-              ['reconciliation', 'zord-outcome-engine (recon)'],
-              ['evidence', 'zord-evidence'],
-              ['projections', 'zord-intelligence'],
-              ['policies', 'zord-intelligence (policies)'],
-              ['ai_query', 'zord-prompt-layer'],
-              ['ai_chat', 'zord-prompt-layer (chat)']
-            ]
-            def upServices = []
+            def serviceChecks = ['tenant endpoint reachable', 'ingest reachable', 'intents reachable', 'dlq reachable', 'dispatch reachable', 'settlement reachable', 'reconciliation reachable', 'evidence reachable', 'projections reachable', 'policies reachable', 'ai query reachable', 'ai chat reachable']
+            def upCount = 0
             def downServices = []
-            services.each { svc ->
-              if (e2eContent.contains("✓ ${svc[0]}") || e2eContent.contains("✓ ${svc[0].replace('_', ' ')}")) {
-                upServices.add(svc[1])
-              } else if (e2eContent.contains("✗ ${svc[0]}") || e2eContent.contains("✗ ${svc[0].replace('_', ' ')}")) {
-                downServices.add(svc[1])
+            def checkLabels = ['zord-edge', 'zord-edge (ingest)', 'zord-intent-engine', 'zord-intent-engine (DLQ)', 'zord-relay', 'zord-outcome-engine', 'zord-outcome-engine (recon)', 'zord-evidence', 'zord-intelligence', 'zord-intelligence (policies)', 'zord-prompt-layer', 'zord-prompt-layer (chat)']
+
+            for (int j = 0; j < serviceChecks.size(); j++) {
+              if (e2eContent.contains(serviceChecks[j])) {
+                upCount++
+              } else {
+                downServices.add(checkLabels[j])
               }
             }
+
             if (downServices.size() > 0) {
               serviceStatus = "\n:red_circle: *Services DOWN:* ${downServices.join(', ')}"
-            } else if (upServices.size() > 0) {
-              serviceStatus = "\n:large_green_circle: *All ${upServices.size()} services responding*"
+            } else if (upCount > 0) {
+              serviceStatus = "\n:large_green_circle: *All ${upCount} services responding*"
             }
           } catch (e) { }
 
@@ -327,10 +366,16 @@ pipeline {
             [type: 'section', text: [type: 'mrkdwn', text: fullTable]],
           ]
 
-          // Add failure details if any test failed
+          // Add failure details if any test failed threshold
           if (failedDetails.size() > 0) {
             blocks.add([type: 'divider'])
-            blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:rotating_light: What Failed & Why*\n${failedDetails.join('\n\n')}\n\n:point_right: *Action:* Check Grafana for service health, Kibana for error logs"]])
+            blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:rotating_light: Threshold Failures:*\n${failedDetails.join('\n\n')}\n\n:point_right: *Action:* Check Grafana + Kibana"]])
+          }
+
+          // Add "why not 100%?" section for tests that passed but had partial failures
+          if (notFullyPassedDetails.size() > 0) {
+            blocks.add([type: 'divider'])
+            blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:mag: Why not 100%?*\n${notFullyPassedDetails.join('\n\n')}"]])
           }
 
           blocks.add([type: 'divider'])

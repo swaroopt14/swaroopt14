@@ -369,3 +369,63 @@ Since the old webhook URL was shared in chat:
 | Total Tests | 9 |
 | Total Runtime | ~20-25 minutes |
 | Jenkins Artifacts | `performance-tests/results/<build-number>/` |
+
+
+
+Here's what Build #10 will look like in Slack:
+
+---
+
+**Zord Performance Report — Build #10**
+
+📅 Jun 12, 2026 at 4:54 PM UTC  |  ⏱ 24 min  |  🌐 `https://api.zordnet.com`
+
+---
+
+✅ **ALL 9 TESTS PASSED**
+🟢 **All 12 services responding**
+
+---
+
+```
+#   Test                      Status  Requests   p95      Checks
+──  ────────────────────────  ──────  ─────────  ───────  ──────
+01  Health Check (9 services) ✅       22530      11ms     100%
+02  Tenant Registration       ✅        1841      23ms     99%
+03  Ingest Pipeline (JSON+CS  ✅         465     101ms     80%
+04  Full E2E (12 services)    ✅        5484      16ms     99%
+05  Rate Limiting (3 routes)  ✅         160      31ms     100%
+06  Spike Test (200 VUs)      ✅       36882      10ms     100%
+07  Intelligence APIs         ✅        4375      11ms     100%
+08  AI Copilot (LLM)          ✅         379      13ms     100%
+09  Security & CORS           ✅        2223      10ms     89%
+──  ────────────────────────  ──────  ─────────  ───────  ──────
+    TOTAL                                76339     101ms   9/9 pass
+```
+
+---
+
+🔗 **Quick Links**
+📄 Full Report  |  🔍 Console Log  |  📉 Grafana Dashboard  |  📒 Kibana Logs  |  🔎 Jaeger Traces
+
+---
+
+_Zord Performance Bot — Automated weekly load testing via Jenkins + k6 + Kong API Gateway_
+
+---
+
+**If something fails, it adds this section:**
+
+---
+
+🚨 **What Failed & Why**
+
+**Full E2E (12 services):**
+  `✗ settlement reachable  ↳ 0% — ✓ 0 / ✗ 594`
+  `✗ reconciliation reachable  ↳ 0% — ✓ 0 / ✗ 594`
+
+👉 **Action:** Check Grafana for service health, Kibana for error logs
+
+---
+
+That's the final format. All values are real. Push and run.

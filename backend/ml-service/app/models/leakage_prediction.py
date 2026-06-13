@@ -27,14 +27,11 @@ class LeakagePredictionModel:
 
         self._model_path = Path(config.LEAKAGE_MODEL_PATH)
         self._bootstrap_model_path = Path(config.LEAKAGE_BOOTSTRAP_MODEL_PATH)
-        self._bootstrap_dataset_path = Path(config.LEAKAGE_BOOTSTRAP_DATASET_PATH)
         self._buffer_path = Path(config.LEAKAGE_TRAINING_BUFFER_PATH)
 
         local_artifacts_dir = Path(__file__).resolve().parents[2] / "model_artifacts"
         if not self._bootstrap_model_path.exists():
             self._bootstrap_model_path = local_artifacts_dir / "leakage_prediction_bundle.joblib"
-        if not self._bootstrap_dataset_path.exists():
-            self._bootstrap_dataset_path = local_artifacts_dir / "combined_model_ready_378.csv"
 
         self._ensure_bootstrap_model()
         self._load_bundle()
@@ -234,9 +231,6 @@ class LeakagePredictionModel:
                 self._retraining = False
 
     def _load_bootstrap_dataset(self, bundle: dict[str, Any]) -> pd.DataFrame:
-        if self._bootstrap_dataset_path.exists():
-            return pd.read_csv(self._bootstrap_dataset_path)
-
         feature_columns = bundle["feature_columns"]
         target_column = bundle["target_column"]
         columns = feature_columns + [target_column, "sample_weight", "row_id", "parent_batch_id", "batch_id", "scenario_family"]

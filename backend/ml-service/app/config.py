@@ -19,10 +19,6 @@ LEAKAGE_BOOTSTRAP_MODEL_PATH: str = os.getenv(
     "LEAKAGE_BOOTSTRAP_MODEL_PATH",
     "/app/model_artifacts/leakage_prediction_bundle.joblib",
 )
-LEAKAGE_BOOTSTRAP_DATASET_PATH: str = os.getenv(
-    "LEAKAGE_BOOTSTRAP_DATASET_PATH",
-    "/app/model_artifacts/combined_model_ready_378.csv",
-)
 LEAKAGE_TRAINING_BUFFER_PATH: str = os.getenv(
     "LEAKAGE_TRAINING_BUFFER_PATH",
     "/data/leakage_training_rows.jsonl",

@@ -718,6 +718,10 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     ambiguity_score             NUMERIC(4,3),
     -- 0.000–1.000 from Ambiguity Intelligence. NULL until computed.
 
+    match_confidence            NUMERIC(4,3),
+    -- 0.000–1.000 aggregate_match_confidence from BatchSummaryUpdatedEvent (Service 5C).
+    -- NULL until the first batch.summary.updated event for this batch.
+
     defensibility_tier          TEXT,
     CHECK (defensibility_tier IN ('STRONG', 'GOOD', 'WEAK', 'FRAGILE', NULL)),
 
@@ -762,6 +766,14 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     bank_ref_present_count      INT          NOT NULL DEFAULT 0,
     -- Count of settlement observations where bank_ref, UTR, or RRN is present.
     -- Numerator for bank_reference_coverage = bank_ref_present_count / settlement_ref_count.
+
+    decision_ref_count          INT          NOT NULL DEFAULT 0,
+    -- Total attachment decisions (AttachmentDecisionCreatedEvent) seen for
+    -- this batch. Denominator for client_reference_coverage.
+
+    client_ref_present_count    INT          NOT NULL DEFAULT 0,
+    -- Count of attachment decisions where client_reference is present.
+    -- Numerator for client_reference_coverage = client_ref_present_count / decision_ref_count.
 
     last_updated_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
     created_at                  TIMESTAMPTZ  NOT NULL DEFAULT now()
@@ -989,6 +1001,19 @@ ALTER TABLE batch_contracts
 
 ALTER TABLE batch_contracts
     ADD COLUMN IF NOT EXISTS bank_ref_present_count INT NOT NULL DEFAULT 0;
+
+-- Per-batch client reference coverage (decision_ref_count / client_ref_present_count).
+-- Added for existing databases where batch_contracts predates these columns.
+ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS decision_ref_count INT NOT NULL DEFAULT 0;
+
+ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS client_ref_present_count INT NOT NULL DEFAULT 0;
+
+-- aggregate_match_confidence from BatchSummaryUpdatedEvent (Service 5C).
+-- Added for existing databases where batch_contracts predates this column.
+ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS match_confidence NUMERIC(4,3);
 
 -- "Which policies belong to the LEAKAGE family and fired today?"
 CREATE INDEX IF NOT EXISTS idx_ac_family_created

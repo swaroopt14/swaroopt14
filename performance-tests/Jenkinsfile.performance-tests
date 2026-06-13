@@ -386,22 +386,7 @@ pipeline {
 
           // Add "why not 100%?" section — always show if any test below 100%
           if (notFullyPassedDetails.size() > 0) {
-            // Build a compact table for "why not 100%"
-            def whyTable = "```Test                 Checks   Why\n"
-            whyTable += "───────────────────  ───────  ─────────────────────────────────\n"
-            tableRows.each { row ->
-              if (row.checks != '-' && row.checks != '100%' && row.checks != '100.00%') {
-                def whyReason = ''
-                if (row.name.contains('Health')) whyReason = 'Few requests slow (network jitter). Normal.'
-                else if (row.name.contains('Tenant')) whyReason = 'Name collision at high concurrency. Normal.'
-                else if (row.name.contains('Ingest')) whyReason = 'Payload validation (400). Check schema.'
-                else if (row.name.contains('Security')) whyReason = 'Kong no rate headers on 429. Normal.'
-                else whyReason = 'Check console log for details.'
-                whyTable += String.format("%-19s  %7s  %s\n", row.name.take(19), row.checks, whyReason)
-              }
-            }
-            whyTable += "```"
-            blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:mag: Why not 100%?*\n${whyTable}"]])
+            blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:mag: Why not 100%?*\n${notFullyPassedDetails.take(3).join('\n\n')}"]])
           }
 
           blocks.add([type: 'section', text: [type: 'mrkdwn', text: "*:link: Quick Links*\n<${env.BUILD_URL}artifact/${env.RESULTS_DIR}/REPORT.md|:page_facing_up: Full Report>  |  <${env.BUILD_URL}console|:mag: Console Log>  |  <https://grafana.zordnet.com/d/zord-platform-health?orgId=1&from=now-1h&to=now|:chart_with_downwards_trend: Grafana Dashboard>  |  <https://kibana.zordnet.com|:ledger: Kibana Logs>  |  <https://jaeger.zordnet.com|:mag_right: Jaeger Traces>"]])

@@ -585,6 +585,8 @@ type BatchSummaryUpdatedEvent struct {
 	AmbiguityScore float64 `json:"ambiguity_score"` // 0.0–1.0 computed by Service 5C
 	// High ambiguity = many same-amount payouts, weak carrier references
 
+	MatchConfidence float64 `json:"aggregate_match_confidence"` // 0.0–1.0 computed by Service 5C
+
 	BatchFinalityStatus string `json:"batch_finality_status"` // "PROCESSING", "FULLY_SETTLED", etc.
 	// matches batch_contracts.batch_finality_status values from Phase 1 schema
 

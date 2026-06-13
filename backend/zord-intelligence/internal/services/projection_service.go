@@ -1608,7 +1608,7 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		return nil
 	}
 	log.Printf(
-		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f batch_finality_status=%s",
+		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f match_confidence=%f batch_finality_status=%s",
 		e.TenantID,
 		e.EventID,
 		e.BatchID,
@@ -1626,6 +1626,7 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		e.TotalConfirmedAmountMinor.String(),
 		e.TotalVarianceMinor.String(),
 		e.AmbiguityScore,
+		e.MatchConfidence,
 		e.BatchFinalityStatus,
 	)
 	occurredAt := e.OccurredAt

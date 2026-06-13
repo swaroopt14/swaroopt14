@@ -40,6 +40,7 @@ type BatchContract struct {
 	TotalVarianceMinor        decimal.Decimal `json:"total_variance_minor"`
 	BatchFinalityStatus       string          `json:"batch_finality_status"`
 	AmbiguityScore            *float64        `json:"ambiguity_score,omitempty"`
+	MatchConfidence           *float64        `json:"match_confidence,omitempty"`
 	DefensibilityTier         *string         `json:"defensibility_tier,omitempty"`
 	LastUpdatedAt             time.Time       `json:"last_updated_at"`
 	CreatedAt                 time.Time       `json:"created_at"`
@@ -60,6 +61,13 @@ type BatchContract struct {
 	// bank_reference_coverage = BankRefPresentCount / SettlementRefCount.
 	SettlementRefCount   int `json:"settlement_ref_count"`
 	BankRefPresentCount  int `json:"bank_ref_present_count"`
+
+	// ── Client reference coverage (Pattern Intelligence) ──────────────────────
+	// DecisionRefCount: total attachment decisions seen for this batch.
+	// ClientRefPresentCount: of those, how many had client_reference populated.
+	// client_reference_coverage = ClientRefPresentCount / DecisionRefCount.
+	DecisionRefCount      int `json:"decision_ref_count"`
+	ClientRefPresentCount int `json:"client_ref_present_count"`
 }
 
 // BatchContractRepo provides Upsert and Read operations for batch_contracts.
@@ -102,10 +110,10 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 			 total_count, success_count, failed_count, pending_count,
 			 reversed_count, partial_recon_count,
 			 total_intended_amount_minor, total_confirmed_amount_minor, total_variance_minor,
-			 batch_finality_status, ambiguity_score,
+			 batch_finality_status, ambiguity_score, match_confidence,
 			 last_updated_at, created_at)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, now(), now())
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), now())
 		ON CONFLICT (batch_id) DO UPDATE SET
 			source_reference              = EXCLUDED.source_reference,
 			total_count                   = EXCLUDED.total_count,
@@ -119,6 +127,7 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 			total_variance_minor          = EXCLUDED.total_variance_minor,
 			batch_finality_status         = EXCLUDED.batch_finality_status,
 			ambiguity_score               = EXCLUDED.ambiguity_score,
+			match_confidence              = EXCLUDED.match_confidence,
 			last_updated_at               = now()
 		-- NOTE: defensibility_tier is deliberately excluded from the ON CONFLICT
 		-- update clause. It is computed by the Defensibility service (Phase 4)
@@ -131,7 +140,7 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 		bc.TotalIntendedAmountMinor.String(),
 		bc.TotalConfirmedAmountMinor.String(),
 		bc.TotalVarianceMinor.String(),
-		bc.BatchFinalityStatus, bc.AmbiguityScore,
+		bc.BatchFinalityStatus, bc.AmbiguityScore, bc.MatchConfidence,
 	}
 	var err error
 	if r.bw != nil {
@@ -187,13 +196,14 @@ func (r *BatchContractRepo) GetByID(
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
-		       batch_finality_status, ambiguity_score, defensibility_tier,
+		       batch_finality_status, ambiguity_score, match_confidence, defensibility_tier,
 		       last_updated_at, created_at,
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
 		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
-		       settlement_ref_count, bank_ref_present_count
+		       settlement_ref_count, bank_ref_present_count,
+		       decision_ref_count, client_ref_present_count
 		FROM   batch_contracts
 		WHERE  batch_id = $1
 	`
@@ -224,13 +234,14 @@ func (r *BatchContractRepo) ListByTenant(
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
-		       batch_finality_status, ambiguity_score, defensibility_tier,
+		       batch_finality_status, ambiguity_score, match_confidence, defensibility_tier,
 		       last_updated_at, created_at,
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
 		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
-		       settlement_ref_count, bank_ref_present_count
+		       settlement_ref_count, bank_ref_present_count,
+		       decision_ref_count, client_ref_present_count
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		ORDER  BY last_updated_at DESC
@@ -278,13 +289,14 @@ func (r *BatchContractRepo) ListTopByAmount(
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
-		       batch_finality_status, ambiguity_score, defensibility_tier,
+		       batch_finality_status, ambiguity_score, match_confidence, defensibility_tier,
 		       last_updated_at, created_at,
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
 		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
-		       settlement_ref_count, bank_ref_present_count
+		       settlement_ref_count, bank_ref_present_count,
+		       decision_ref_count, client_ref_present_count
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		ORDER  BY batch_contracts.total_intended_amount_minor DESC NULLS LAST
@@ -323,13 +335,14 @@ func (r *BatchContractRepo) ListRequiringReview(
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
-		       batch_finality_status, ambiguity_score, defensibility_tier,
+		       batch_finality_status, ambiguity_score, match_confidence, defensibility_tier,
 		       last_updated_at, created_at,
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
 		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
-		       settlement_ref_count, bank_ref_present_count
+		       settlement_ref_count, bank_ref_present_count,
+		       decision_ref_count, client_ref_present_count
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		  AND  (
@@ -373,13 +386,14 @@ func (r *BatchContractRepo) ListByFinalityStatus(
 		       total_count, success_count, failed_count, pending_count,
 		       reversed_count, partial_recon_count,
 		       total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
-		       batch_finality_status, ambiguity_score, defensibility_tier,
+		       batch_finality_status, ambiguity_score, match_confidence, defensibility_tier,
 		       last_updated_at, created_at,
 		       unmatched_amount_minor::text, reversal_exposure_minor::text,
 		       orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
 		       missing_ref_count,
 		       unexplained_variance_minor::text, whitelisted_deduction_minor::text,
-		       settlement_ref_count, bank_ref_present_count
+		       settlement_ref_count, bank_ref_present_count,
+		       decision_ref_count, client_ref_present_count
 		FROM   batch_contracts
 		WHERE  tenant_id = $1
 		  AND  batch_finality_status = $2
@@ -423,6 +437,7 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 		&variance,
 		&bc.BatchFinalityStatus,
 		&bc.AmbiguityScore,
+		&bc.MatchConfidence,
 		&bc.DefensibilityTier,
 		&bc.LastUpdatedAt,
 		&bc.CreatedAt,
@@ -435,6 +450,8 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 		&whitelisted,
 		&bc.SettlementRefCount,
 		&bc.BankRefPresentCount,
+		&bc.DecisionRefCount,
+		&bc.ClientRefPresentCount,
 	)
 	if err != nil {
 		return nil, err
@@ -493,6 +510,7 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 		&variance,
 		&bc.BatchFinalityStatus,
 		&bc.AmbiguityScore,
+		&bc.MatchConfidence,
 		&bc.DefensibilityTier,
 		&bc.LastUpdatedAt,
 		&bc.CreatedAt,
@@ -505,6 +523,8 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 		&whitelisted,
 		&bc.SettlementRefCount,
 		&bc.BankRefPresentCount,
+		&bc.DecisionRefCount,
+		&bc.ClientRefPresentCount,
 	)
 	if err != nil {
 		return nil, err
@@ -745,6 +765,39 @@ func (r *BatchContractRepo) AtomicAddBatchBankRefStats(
 	`, batchID, tenantID, bankRefIncr)
 	if err != nil {
 		return fmt.Errorf("batch_contract_repo.AtomicAddBatchBankRefStats batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+// AtomicAddBatchClientRefStats records one attachment decision for a batch,
+// tracking whether it carried a client reference (ClientReference).
+//
+// Called from HandleAttachmentDecision for every AttachmentDecisionCreatedEvent
+// that carries a BatchID — regardless of decision type.
+//
+// client_reference_coverage = client_ref_present_count / decision_ref_count.
+func (r *BatchContractRepo) AtomicAddBatchClientRefStats(
+	ctx context.Context,
+	batchID, tenantID string,
+	hasClientRef bool,
+) error {
+	if batchID == "" {
+		return nil
+	}
+	clientRefIncr := 0
+	if hasClientRef {
+		clientRefIncr = 1
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (batch_id, tenant_id, decision_ref_count, client_ref_present_count)
+		VALUES ($1, $2, 1, $3)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			decision_ref_count       = batch_contracts.decision_ref_count + 1,
+			client_ref_present_count = batch_contracts.client_ref_present_count + EXCLUDED.client_ref_present_count,
+			last_updated_at          = now()
+	`, batchID, tenantID, clientRefIncr)
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicAddBatchClientRefStats batch=%s: %w", batchID, err)
 	}
 	return nil
 }

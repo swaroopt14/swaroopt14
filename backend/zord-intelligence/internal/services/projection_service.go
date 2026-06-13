@@ -1341,6 +1341,18 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	// via Step 2a above. Settlement-side stats (e.g. orphan_rate) for the same
 	// provider key come from CanonicalSettlementCreatedEvent (5B) via HandleSettlementCreated.
 
+	// ── Pattern Intelligence: Client reference coverage (per-batch) ───────────
+	// Tracks how many attachment decisions for this batch carried a
+	// client-side reference (ClientReference), regardless of decision type.
+	// client_reference_coverage = client_ref_present_count / decision_ref_count.
+	if e.BatchID != "" {
+		hasClientRef := e.ClientReference != ""
+		if err := s.batchRepo.AtomicAddBatchClientRefStats(ctx, e.BatchID, e.TenantID, hasClientRef); err != nil {
+			log.Printf("HandleAttachmentDecision: AtomicAddBatchClientRefStats failed decision=%s batch=%s: %v",
+				e.DecisionID, e.BatchID, err)
+		}
+	}
+
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleAttachmentDecision MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
@@ -1691,6 +1703,7 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		TotalVarianceMinor:        e.TotalVarianceMinor,
 		BatchFinalityStatus:       e.BatchFinalityStatus,
 		AmbiguityScore:            &e.AmbiguityScore,
+		MatchConfidence:           &e.MatchConfidence,
 		LastUpdatedAt:             time.Now(),
 		CreatedAt:                 time.Now(),
 	}

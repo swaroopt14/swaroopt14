@@ -20,8 +20,8 @@ import (
 	"github.com/zord/zord-intelligence/internal/persistence"
 	"github.com/zord/zord-intelligence/internal/services"
 	"github.com/zord/zord-intelligence/internal/worker"
-	"github.com/zord/zord-intelligence/tracing"
 	kafkapkg "github.com/zord/zord-intelligence/kafka"
+	"github.com/zord/zord-intelligence/tracing"
 )
 
 func init() {
@@ -91,6 +91,17 @@ func main() {
 	db.EnsureProductionIndexes(context.Background(), pool)
 	syncIntelligenceMode(context.Background(), pool, string(cfg.IntelligenceMode))
 
+	var intentPool *pgxpool.Pool
+	if cfg.IntentDatabaseURL != "" {
+		intentPool = connectAuxPool("intent_bridge", cfg.IntentDatabaseURL)
+		defer intentPool.Close()
+	}
+	var outcomePool *pgxpool.Pool
+	if cfg.OutcomeDatabaseURL != "" {
+		outcomePool = connectAuxPool("outcome_bridge", cfg.OutcomeDatabaseURL)
+		defer outcomePool.Close()
+	}
+
 	// ── Step 4: Create repositories ───────────────────────────────────────
 	projRepo := persistence.NewProjectionRepo(pool)
 	policyRepo := persistence.NewPolicyRepo(pool)
@@ -104,6 +115,14 @@ func main() {
 	mlRepo := persistence.NewMLFeatureStoreRepo(pool)
 	predRepo := persistence.NewMLPredictionRepo(pool)
 	explRepo := persistence.NewIntelligenceExplanationRepo(pool)
+	var intentRepo *persistence.IntentBridgeRepo
+	if intentPool != nil {
+		intentRepo = persistence.NewIntentBridgeRepo(intentPool)
+	}
+	var outcomeIntentRepo *persistence.OutcomeIntentBridgeRepo
+	if outcomePool != nil {
+		outcomeIntentRepo = persistence.NewOutcomeIntentBridgeRepo(outcomePool)
+	}
 
 	// ── Performance: BatchWriter (5ms flush window for high-volume INSERTs) ──
 	// Groups concurrent intelligence_snapshot, batch_contract, and projection_state
@@ -125,7 +144,8 @@ func main() {
 	policyService := services.NewPolicyService(policyRepo, projRepo, actionService)
 
 	// ── PHASE 4 & 7: Six intelligence layer services + Explanation ────────
-	leakageSvc := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
+	leakageSvc := services.NewLeakageIntelligenceService(projRepo, snapshotRepo, mlRepo, predRepo, mlClient, batchRepo)
+	leakagePredSvc := services.NewLeakagePredictionService(batchRepo, projRepo, mlRepo, predRepo, mlClient, intentRepo, outcomeIntentRepo)
 	ambiguitySvc := services.NewAmbiguityIntelligenceService(context.Background(), projRepo, snapshotRepo, mlRepo, predRepo, mlClient)
 	defensibilitySvc := services.NewDefensibilityIntelligenceService(projRepo, snapshotRepo, batchRepo)
 	rcaSvc := services.NewRCAIntelligenceService(projRepo, snapshotRepo, mlClient)
@@ -143,11 +163,14 @@ func main() {
 		policyService,
 		slaRepo,
 		leakageSvc,
+		leakagePredSvc,
 		ambiguitySvc,
 		defensibilitySvc,
 		rcaSvc,
 		patternSvc,
 		recommendationSvc,
+		intentRepo,
+		outcomeIntentRepo,
 		cfg.IntelligenceMode, // PHASE 6: inject mode
 	)
 
@@ -171,6 +194,15 @@ func main() {
 	outboxWorker := worker.NewOutboxWorker(outboxRepo, actionRepo, producer, cfg, projRepo)
 	slaWorker := worker.NewSLAWorker(slaRepo, actionService, projectionService)
 	cronWorker := worker.NewPolicyCronWorker(projRepo, policyService)
+	var intentBatchSyncWorker *worker.IntentBatchSyncWorker
+	if intentRepo != nil {
+		intentBatchSyncWorker = worker.NewIntentBatchSyncWorker(
+			intentRepo,
+			leakagePredSvc,
+			time.Duration(cfg.IntentBridgePollIntervalSeconds)*time.Second,
+			time.Duration(cfg.IntentBridgeLookbackHours)*time.Hour,
+		)
+	}
 
 	// ── Step 8: Create HTTP handlers ──────────────────────────────────────
 	healthHandler := handlers.NewHealthHandler()
@@ -193,6 +225,7 @@ func main() {
 	patternHandler := handlers.NewPatternHandler(intelBase)
 	recommendationHandler := handlers.NewRecommendationHandler(intelBase)
 	batchHandler := handlers.NewBatchHandler(batchRepo, projRepo, projectionService)
+	leakageTimeseriesHandler := handlers.NewLeakageTimeseriesHandler(batchRepo)
 	historyHandler := handlers.NewHistoryHandler(projectionService, snapshotRepo)
 	explanationHandler := handlers.NewExplanationHandler(explSvc)
 
@@ -221,6 +254,7 @@ func main() {
 		patternHandler,
 		recommendationHandler,
 		batchHandler,
+		leakageTimeseriesHandler,
 		historyHandler,
 		explanationHandler,
 		dashLeakageH,
@@ -250,7 +284,12 @@ func main() {
 	go outboxWorker.Start(ctx)
 	go slaWorker.Start(ctx)
 	go cronWorker.Start(ctx)
-	log.Println("main: background workers started (outbox + sla + policy-cron)")
+	if intentBatchSyncWorker != nil {
+		go intentBatchSyncWorker.Start(ctx)
+		log.Println("main: background workers started (outbox + sla + policy-cron + intent-bridge)")
+	} else {
+		log.Println("main: background workers started (outbox + sla + policy-cron)")
+	}
 
 	// ── Step 13: Start Kafka consumers ────────────────────────────────────
 	kafkapkg.StartConsumers(ctx, cfg, kafkaIngestionHandler)
@@ -399,4 +438,29 @@ func ensureTopicsWithRetry(
 		}
 	}
 	return fmt.Errorf("ensure topics failed after %d attempts: %w", maxAttempts, lastErr)
+}
+
+func connectAuxPool(name, databaseURL string) *pgxpool.Pool {
+	if databaseURL == "" {
+		return nil
+	}
+	ctx := context.Background()
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		log.Fatalf("main: failed to parse %s database url: %v", name, err)
+	}
+	cfg.MaxConns = 20
+	cfg.MinConns = 2
+	cfg.MaxConnLifetime = time.Hour
+	cfg.HealthCheckPeriod = time.Minute
+
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		log.Fatalf("main: failed to connect %s database: %v", name, err)
+	}
+	if err := pool.Ping(ctx); err != nil {
+		log.Fatalf("main: failed to ping %s database: %v", name, err)
+	}
+	log.Printf("main: connected auxiliary database %s", name)
+	return pool
 }

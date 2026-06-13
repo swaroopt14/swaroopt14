@@ -11,6 +11,32 @@ import (
 	"github.com/shopspring/decimal"
 )
 
+const batchContractSelectColumns = `
+		batch_id, tenant_id, source_reference,
+		total_count, success_count, failed_count, pending_count,
+		reversed_count, partial_recon_count,
+		total_intended_amount_minor::text, total_confirmed_amount_minor::text, total_variance_minor::text,
+		batch_finality_status, ambiguity_score, defensibility_tier,
+		last_updated_at, created_at,
+		intent_row_count,
+		intent_total_amount_minor::text,
+		intent_amount_square_sum::text,
+		COALESCE(intent_min_amount_minor::text, ''),
+		COALESCE(intent_max_amount_minor::text, ''),
+		client_payout_ref_present_count,
+		batch_currency, batch_source_system, batch_rail, batch_intent_type, batch_provider_key,
+		first_intent_created_at,
+		under_settlement_amount_minor::text,
+		COALESCE(predicted_leakage_rate::text, ''),
+		COALESCE(predicted_leakage_minor::text, ''),
+		predicted_leakage_model_id,
+		predicted_at,
+		unmatched_amount_minor::text, reversal_exposure_minor::text,
+		orphan_amount_minor::text, duplicate_risk_exposure_minor::text,
+		missing_ref_count,
+		unexplained_variance_minor::text, whitelisted_deduction_minor::text
+`
+
 // BatchContractRepo handles all DB operations for the batch_contracts table.
 //
 // WHAT IS batch_contracts?
@@ -45,22 +71,41 @@ type BatchContract struct {
 	LastUpdatedAt             time.Time       `json:"last_updated_at"`
 	CreatedAt                 time.Time       `json:"created_at"`
 
+	IntentRowCount              int             `json:"-"`
+	IntentTotalAmountMinor      decimal.Decimal `json:"-"`
+	IntentAmountSquareSum       decimal.Decimal `json:"-"`
+	IntentMinAmountMinor        decimal.Decimal `json:"-"`
+	IntentMaxAmountMinor        decimal.Decimal `json:"-"`
+	ClientPayoutRefPresentCount int             `json:"-"`
+	BatchCurrency               *string         `json:"currency,omitempty"`
+	BatchSourceSystem           *string         `json:"source_system,omitempty"`
+	BatchRail                   *string         `json:"rail,omitempty"`
+	BatchIntentType             *string         `json:"intent_type,omitempty"`
+	BatchProviderKey            *string         `json:"provider_key,omitempty"`
+	FirstIntentCreatedAt        *time.Time      `json:"first_intent_created_at,omitempty"`
+
+	UnderSettlementAmountMinor decimal.Decimal  `json:"under_settlement_amount_minor"`
+	PredictedLeakageRate       *decimal.Decimal `json:"predicted_leakage_rate,omitempty"`
+	PredictedLeakageMinor      *decimal.Decimal `json:"predicted_leakage_minor,omitempty"`
+	PredictedLeakageModelID    *string          `json:"predicted_leakage_model_id,omitempty"`
+	PredictedAt                *time.Time       `json:"predicted_at,omitempty"`
+
 	// ── Per-batch risk attribution (Pattern Intelligence) ─────────────────────
 	// Incremented by individual event handlers — NOT reset by BatchSummaryUpdatedEvent.
-	UnmatchedAmountMinor         decimal.Decimal `json:"unmatched_amount_minor"`
-	ReversalExposureMinor        decimal.Decimal `json:"reversal_exposure_minor"`
-	OrphanAmountMinor            decimal.Decimal `json:"orphan_amount_minor"`
-	DuplicateRiskExposureMinor   decimal.Decimal `json:"duplicate_risk_exposure_minor"`
-	MissingRefCount              int             `json:"missing_ref_count"`
-	UnexplainedVarianceMinor     decimal.Decimal `json:"unexplained_variance_minor"`
-	WhitelistedDeductionMinor    decimal.Decimal `json:"whitelisted_deduction_minor"`
+	UnmatchedAmountMinor       decimal.Decimal `json:"unmatched_amount_minor"`
+	ReversalExposureMinor      decimal.Decimal `json:"reversal_exposure_minor"`
+	OrphanAmountMinor          decimal.Decimal `json:"orphan_amount_minor"`
+	DuplicateRiskExposureMinor decimal.Decimal `json:"duplicate_risk_exposure_minor"`
+	MissingRefCount            int             `json:"missing_ref_count"`
+	UnexplainedVarianceMinor   decimal.Decimal `json:"unexplained_variance_minor"`
+	WhitelistedDeductionMinor  decimal.Decimal `json:"whitelisted_deduction_minor"`
 
 	// ── Bank reference coverage (Pattern Intelligence) ────────────────────────
 	// SettlementRefCount: total settlement observations seen for this batch.
 	// BankRefPresentCount: of those, how many had bank_ref/UTR/RRN populated.
 	// bank_reference_coverage = BankRefPresentCount / SettlementRefCount.
-	SettlementRefCount   int `json:"settlement_ref_count"`
-	BankRefPresentCount  int `json:"bank_ref_present_count"`
+	SettlementRefCount  int `json:"settlement_ref_count"`
+	BankRefPresentCount int `json:"bank_ref_present_count"`
 
 	// ── Client reference coverage (Pattern Intelligence) ──────────────────────
 	// DecisionRefCount: total attachment decisions seen for this batch.
@@ -68,6 +113,15 @@ type BatchContract struct {
 	// client_reference_coverage = ClientRefPresentCount / DecisionRefCount.
 	DecisionRefCount      int `json:"decision_ref_count"`
 	ClientRefPresentCount int `json:"client_ref_present_count"`
+}
+
+type LeakageWindowSummary struct {
+	TotalIntendedAmountMinor        decimal.Decimal
+	UnmatchedAmountMinor            decimal.Decimal
+	UnderSettlementAmountMinor      decimal.Decimal
+	OrphanAmountMinor               decimal.Decimal
+	ReversalExposureMinor           decimal.Decimal
+	TotalObservedSettledAmountMinor decimal.Decimal
 }
 
 // BatchContractRepo provides Upsert and Read operations for batch_contracts.
@@ -417,10 +471,116 @@ func (r *BatchContractRepo) ListByFinalityStatus(
 	return result, nil
 }
 
+// ListForLeakageExposure returns recent batches for the leakage comparison chart.
+// Ordered by the first intent timestamp when available, else row creation time.
+func (r *BatchContractRepo) ListForLeakageExposure(
+	ctx context.Context,
+	tenantID string,
+	batchID *string,
+	from time.Time,
+) ([]BatchContract, error) {
+	sql := `
+		SELECT ` + batchContractSelectColumns + `
+		FROM   batch_contracts
+		WHERE  tenant_id = $1
+		  AND  COALESCE(first_intent_created_at, created_at) >= $2
+	`
+	args := []any{tenantID, from}
+	if batchID != nil && *batchID != "" {
+		sql += ` AND batch_id = $3`
+		args = append(args, *batchID)
+	}
+	sql += `
+		ORDER  BY COALESCE(first_intent_created_at, created_at) ASC, batch_id ASC
+	`
+	rows, err := r.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.ListForLeakageExposure tenant=%s: %w", tenantID, err)
+	}
+	defer rows.Close()
+
+	var result []BatchContract
+	for rows.Next() {
+		bc, scanErr := scanBatchContractFromRows(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("batch_contract_repo.ListForLeakageExposure scan: %w", scanErr)
+		}
+		result = append(result, *bc)
+	}
+	return result, rows.Err()
+}
+
+func (r *BatchContractRepo) SummarizeLeakageForWindow(
+	ctx context.Context,
+	tenantID string,
+	windowStart, windowEnd time.Time,
+) (*LeakageWindowSummary, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(
+				CASE
+					WHEN intent_total_amount_minor > 0 THEN intent_total_amount_minor
+					ELSE total_intended_amount_minor
+				END
+			)::text, '0'),
+			COALESCE(SUM(unmatched_amount_minor)::text, '0'),
+			COALESCE(SUM(under_settlement_amount_minor)::text, '0'),
+			COALESCE(SUM(orphan_amount_minor)::text, '0'),
+			COALESCE(SUM(reversal_exposure_minor)::text, '0'),
+			COALESCE(SUM(total_confirmed_amount_minor)::text, '0')
+		FROM batch_contracts
+		WHERE tenant_id = $1
+		  AND COALESCE(first_intent_created_at, created_at) >= $2
+		  AND COALESCE(first_intent_created_at, created_at) < $3
+	`, tenantID, windowStart, windowEnd)
+
+	var (
+		summary                   LeakageWindowSummary
+		totalText                 string
+		unmatchedText             string
+		underText                 string
+		orphanText                string
+		reversalText              string
+		observedSettledAmountText string
+		err                       error
+	)
+	if err = row.Scan(
+		&totalText,
+		&unmatchedText,
+		&underText,
+		&orphanText,
+		&reversalText,
+		&observedSettledAmountText,
+	); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow tenant=%s: %w", tenantID, err)
+	}
+	if summary.TotalIntendedAmountMinor, err = decimal.NewFromString(totalText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow total=%q: %w", totalText, err)
+	}
+	if summary.UnmatchedAmountMinor, err = decimal.NewFromString(unmatchedText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow unmatched=%q: %w", unmatchedText, err)
+	}
+	if summary.UnderSettlementAmountMinor, err = decimal.NewFromString(underText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow under=%q: %w", underText, err)
+	}
+	if summary.OrphanAmountMinor, err = decimal.NewFromString(orphanText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow orphan=%q: %w", orphanText, err)
+	}
+	if summary.ReversalExposureMinor, err = decimal.NewFromString(reversalText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow reversal=%q: %w", reversalText, err)
+	}
+	if summary.TotalObservedSettledAmountMinor, err = decimal.NewFromString(observedSettledAmountText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow settled=%q: %w", observedSettledAmountText, err)
+	}
+	return &summary, nil
+}
+
 // scanBatchContract scans one row from a QueryRow call.
 func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	var bc BatchContract
 	var intended, confirmed, variance string
+	var intentTotal, intentSquareSum, intentMin, intentMax string
+	var underSettlement, predictedRate, predictedMinor string
 	var unmatched, reversal, orphan, dupRisk, unexplained, whitelisted string
 	err := row.Scan(
 		&bc.BatchID,
@@ -441,6 +601,23 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 		&bc.DefensibilityTier,
 		&bc.LastUpdatedAt,
 		&bc.CreatedAt,
+		&bc.IntentRowCount,
+		&intentTotal,
+		&intentSquareSum,
+		&intentMin,
+		&intentMax,
+		&bc.ClientPayoutRefPresentCount,
+		&bc.BatchCurrency,
+		&bc.BatchSourceSystem,
+		&bc.BatchRail,
+		&bc.BatchIntentType,
+		&bc.BatchProviderKey,
+		&bc.FirstIntentCreatedAt,
+		&underSettlement,
+		&predictedRate,
+		&predictedMinor,
+		&bc.PredictedLeakageModelID,
+		&bc.PredictedAt,
 		&unmatched,
 		&reversal,
 		&orphan,
@@ -457,17 +634,47 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 		return nil, err
 	}
 	var parseErr error
-	bc.TotalIntendedAmountMinor, parseErr = decimal.NewFromString(intended)
-	if parseErr != nil {
+	if bc.TotalIntendedAmountMinor, parseErr = decimal.NewFromString(intended); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContract: invalid total_intended_amount_minor %q: %w", intended, parseErr)
 	}
-	bc.TotalConfirmedAmountMinor, parseErr = decimal.NewFromString(confirmed)
-	if parseErr != nil {
+	if bc.TotalConfirmedAmountMinor, parseErr = decimal.NewFromString(confirmed); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContract: invalid total_confirmed_amount_minor %q: %w", confirmed, parseErr)
 	}
-	bc.TotalVarianceMinor, parseErr = decimal.NewFromString(variance)
-	if parseErr != nil {
+	if bc.TotalVarianceMinor, parseErr = decimal.NewFromString(variance); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContract: invalid total_variance_minor %q: %w", variance, parseErr)
+	}
+	if bc.IntentTotalAmountMinor, parseErr = decimal.NewFromString(intentTotal); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid intent_total_amount_minor %q: %w", intentTotal, parseErr)
+	}
+	if bc.IntentAmountSquareSum, parseErr = decimal.NewFromString(intentSquareSum); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid intent_amount_square_sum %q: %w", intentSquareSum, parseErr)
+	}
+	if intentMin != "" {
+		if bc.IntentMinAmountMinor, parseErr = decimal.NewFromString(intentMin); parseErr != nil {
+			return nil, fmt.Errorf("scanBatchContract: invalid intent_min_amount_minor %q: %w", intentMin, parseErr)
+		}
+	}
+	if intentMax != "" {
+		if bc.IntentMaxAmountMinor, parseErr = decimal.NewFromString(intentMax); parseErr != nil {
+			return nil, fmt.Errorf("scanBatchContract: invalid intent_max_amount_minor %q: %w", intentMax, parseErr)
+		}
+	}
+	if bc.UnderSettlementAmountMinor, parseErr = decimal.NewFromString(underSettlement); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid under_settlement_amount_minor %q: %w", underSettlement, parseErr)
+	}
+	if predictedRate != "" {
+		rate, rateErr := decimal.NewFromString(predictedRate)
+		if rateErr != nil {
+			return nil, fmt.Errorf("scanBatchContract: invalid predicted_leakage_rate %q: %w", predictedRate, rateErr)
+		}
+		bc.PredictedLeakageRate = &rate
+	}
+	if predictedMinor != "" {
+		minor, minorErr := decimal.NewFromString(predictedMinor)
+		if minorErr != nil {
+			return nil, fmt.Errorf("scanBatchContract: invalid predicted_leakage_minor %q: %w", predictedMinor, minorErr)
+		}
+		bc.PredictedLeakageMinor = &minor
 	}
 	if bc.UnmatchedAmountMinor, parseErr = decimal.NewFromString(unmatched); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContract: invalid unmatched_amount_minor %q: %w", unmatched, parseErr)
@@ -494,6 +701,8 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	var bc BatchContract
 	var intended, confirmed, variance string
+	var intentTotal, intentSquareSum, intentMin, intentMax string
+	var underSettlement, predictedRate, predictedMinor string
 	var unmatched, reversal, orphan, dupRisk, unexplained, whitelisted string
 	err := rows.Scan(
 		&bc.BatchID,
@@ -514,6 +723,23 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 		&bc.DefensibilityTier,
 		&bc.LastUpdatedAt,
 		&bc.CreatedAt,
+		&bc.IntentRowCount,
+		&intentTotal,
+		&intentSquareSum,
+		&intentMin,
+		&intentMax,
+		&bc.ClientPayoutRefPresentCount,
+		&bc.BatchCurrency,
+		&bc.BatchSourceSystem,
+		&bc.BatchRail,
+		&bc.BatchIntentType,
+		&bc.BatchProviderKey,
+		&bc.FirstIntentCreatedAt,
+		&underSettlement,
+		&predictedRate,
+		&predictedMinor,
+		&bc.PredictedLeakageModelID,
+		&bc.PredictedAt,
 		&unmatched,
 		&reversal,
 		&orphan,
@@ -530,17 +756,47 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 		return nil, err
 	}
 	var parseErr error
-	bc.TotalIntendedAmountMinor, parseErr = decimal.NewFromString(intended)
-	if parseErr != nil {
+	if bc.TotalIntendedAmountMinor, parseErr = decimal.NewFromString(intended); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContractFromRows: invalid total_intended_amount_minor %q: %w", intended, parseErr)
 	}
-	bc.TotalConfirmedAmountMinor, parseErr = decimal.NewFromString(confirmed)
-	if parseErr != nil {
+	if bc.TotalConfirmedAmountMinor, parseErr = decimal.NewFromString(confirmed); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContractFromRows: invalid total_confirmed_amount_minor %q: %w", confirmed, parseErr)
 	}
-	bc.TotalVarianceMinor, parseErr = decimal.NewFromString(variance)
-	if parseErr != nil {
+	if bc.TotalVarianceMinor, parseErr = decimal.NewFromString(variance); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContractFromRows: invalid total_variance_minor %q: %w", variance, parseErr)
+	}
+	if bc.IntentTotalAmountMinor, parseErr = decimal.NewFromString(intentTotal); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid intent_total_amount_minor %q: %w", intentTotal, parseErr)
+	}
+	if bc.IntentAmountSquareSum, parseErr = decimal.NewFromString(intentSquareSum); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid intent_amount_square_sum %q: %w", intentSquareSum, parseErr)
+	}
+	if intentMin != "" {
+		if bc.IntentMinAmountMinor, parseErr = decimal.NewFromString(intentMin); parseErr != nil {
+			return nil, fmt.Errorf("scanBatchContractFromRows: invalid intent_min_amount_minor %q: %w", intentMin, parseErr)
+		}
+	}
+	if intentMax != "" {
+		if bc.IntentMaxAmountMinor, parseErr = decimal.NewFromString(intentMax); parseErr != nil {
+			return nil, fmt.Errorf("scanBatchContractFromRows: invalid intent_max_amount_minor %q: %w", intentMax, parseErr)
+		}
+	}
+	if bc.UnderSettlementAmountMinor, parseErr = decimal.NewFromString(underSettlement); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid under_settlement_amount_minor %q: %w", underSettlement, parseErr)
+	}
+	if predictedRate != "" {
+		rate, rateErr := decimal.NewFromString(predictedRate)
+		if rateErr != nil {
+			return nil, fmt.Errorf("scanBatchContractFromRows: invalid predicted_leakage_rate %q: %w", predictedRate, rateErr)
+		}
+		bc.PredictedLeakageRate = &rate
+	}
+	if predictedMinor != "" {
+		minor, minorErr := decimal.NewFromString(predictedMinor)
+		if minorErr != nil {
+			return nil, fmt.Errorf("scanBatchContractFromRows: invalid predicted_leakage_minor %q: %w", predictedMinor, minorErr)
+		}
+		bc.PredictedLeakageMinor = &minor
 	}
 	if bc.UnmatchedAmountMinor, parseErr = decimal.NewFromString(unmatched); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContractFromRows: invalid unmatched_amount_minor %q: %w", unmatched, parseErr)
@@ -573,6 +829,228 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 // IMPORTANT: None of these methods touch the fields managed by Upsert()
 // (total_count, success_count, total_intended_amount_minor, etc.).
 // The two write paths are completely orthogonal.
+
+// AtomicAccumulateIntentFeatures updates the intent-time batch feature state used
+// by the leakage prediction model. Safe to call before any batch summary exists.
+func (r *BatchContractRepo) AtomicAccumulateIntentFeatures(
+	ctx context.Context,
+	batchID, tenantID string,
+	amountMinor decimal.Decimal,
+	currency, sourceSystem, rail, intentType, providerKey string,
+	createdAt time.Time,
+	clientPayoutRefPresent bool,
+) error {
+	if batchID == "" || tenantID == "" || !amountMinor.IsPositive() {
+		return nil
+	}
+	refPresent := 0
+	if clientPayoutRefPresent {
+		refPresent = 1
+	}
+	amountSquared := amountMinor.Mul(amountMinor)
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (
+			batch_id, tenant_id,
+			intent_row_count, intent_total_amount_minor, intent_amount_square_sum,
+			intent_min_amount_minor, intent_max_amount_minor,
+			client_payout_ref_present_count,
+			batch_currency, batch_source_system, batch_rail, batch_intent_type, batch_provider_key,
+			first_intent_created_at, last_updated_at
+		)
+		VALUES ($1,$2,1,$3,$4,$3,$3,$5,$6,$7,$8,$9,$10,$11,now())
+		ON CONFLICT (batch_id) DO UPDATE SET
+			intent_row_count = batch_contracts.intent_row_count + 1,
+			intent_total_amount_minor = batch_contracts.intent_total_amount_minor + EXCLUDED.intent_total_amount_minor,
+			intent_amount_square_sum = batch_contracts.intent_amount_square_sum + EXCLUDED.intent_amount_square_sum,
+			intent_min_amount_minor = CASE
+				WHEN batch_contracts.intent_min_amount_minor IS NULL THEN EXCLUDED.intent_min_amount_minor
+				WHEN batch_contracts.intent_min_amount_minor > EXCLUDED.intent_min_amount_minor THEN EXCLUDED.intent_min_amount_minor
+				ELSE batch_contracts.intent_min_amount_minor
+			END,
+			intent_max_amount_minor = CASE
+				WHEN batch_contracts.intent_max_amount_minor IS NULL THEN EXCLUDED.intent_max_amount_minor
+				WHEN batch_contracts.intent_max_amount_minor < EXCLUDED.intent_max_amount_minor THEN EXCLUDED.intent_max_amount_minor
+				ELSE batch_contracts.intent_max_amount_minor
+			END,
+			client_payout_ref_present_count = batch_contracts.client_payout_ref_present_count + EXCLUDED.client_payout_ref_present_count,
+			batch_currency = COALESCE(batch_contracts.batch_currency, NULLIF(EXCLUDED.batch_currency, '')),
+			batch_source_system = COALESCE(batch_contracts.batch_source_system, NULLIF(EXCLUDED.batch_source_system, '')),
+			batch_rail = COALESCE(batch_contracts.batch_rail, NULLIF(EXCLUDED.batch_rail, '')),
+			batch_intent_type = COALESCE(batch_contracts.batch_intent_type, NULLIF(EXCLUDED.batch_intent_type, '')),
+			batch_provider_key = COALESCE(batch_contracts.batch_provider_key, NULLIF(EXCLUDED.batch_provider_key, '')),
+			first_intent_created_at = CASE
+				WHEN batch_contracts.first_intent_created_at IS NULL THEN EXCLUDED.first_intent_created_at
+				WHEN batch_contracts.first_intent_created_at > EXCLUDED.first_intent_created_at THEN EXCLUDED.first_intent_created_at
+				ELSE batch_contracts.first_intent_created_at
+			END,
+			last_updated_at = now()
+	`, batchID, tenantID, amountMinor.String(), amountSquared.String(), refPresent,
+		currency, sourceSystem, rail, intentType, providerKey, createdAt)
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.AtomicAccumulateIntentFeatures batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+// UpsertIntentSnapshot seeds or refreshes the intent-time portion of a batch row
+// from a full batch snapshot sourced from intent-engine.
+//
+// This is used when Kafka intent.created events never reached intelligence but we
+// still want an honest pre-settlement prediction based only on intent-side data.
+// It updates the intent feature fields and only fills operational totals in a
+// non-destructive way so later batch.summary.updated events remain authoritative.
+func (r *BatchContractRepo) UpsertIntentSnapshot(
+	ctx context.Context,
+	bc BatchContract,
+) error {
+	if bc.BatchID == "" || bc.TenantID == "" || bc.IntentRowCount <= 0 || !bc.IntentTotalAmountMinor.IsPositive() {
+		return nil
+	}
+
+	createdAt := bc.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (
+			batch_id, tenant_id,
+			total_count, pending_count,
+			total_intended_amount_minor, batch_finality_status,
+			intent_row_count, intent_total_amount_minor, intent_amount_square_sum,
+			intent_min_amount_minor, intent_max_amount_minor,
+			client_payout_ref_present_count,
+			batch_currency, batch_source_system, batch_rail, batch_intent_type, batch_provider_key,
+			first_intent_created_at,
+			last_updated_at, created_at
+		)
+		VALUES (
+			$1, $2,
+			$3, $4,
+			$5, $6,
+			$7, $8, $9,
+			$10, $11,
+			$12,
+			$13, $14, $15, $16, $17,
+			$18,
+			now(), $19
+		)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			total_count = GREATEST(batch_contracts.total_count, EXCLUDED.total_count),
+			pending_count = CASE
+				WHEN batch_contracts.batch_finality_status IN ('FULLY_SETTLED', 'PARTIALLY_SETTLED', 'FAILED', 'REQUIRES_REVIEW', 'CLOSED')
+					THEN batch_contracts.pending_count
+				ELSE GREATEST(batch_contracts.pending_count, EXCLUDED.pending_count)
+			END,
+			total_intended_amount_minor = GREATEST(
+				batch_contracts.total_intended_amount_minor,
+				EXCLUDED.total_intended_amount_minor
+			),
+			batch_finality_status = CASE
+				WHEN batch_contracts.batch_finality_status IN ('FULLY_SETTLED', 'PARTIALLY_SETTLED', 'FAILED', 'REQUIRES_REVIEW', 'CLOSED')
+					THEN batch_contracts.batch_finality_status
+				ELSE EXCLUDED.batch_finality_status
+			END,
+			intent_row_count = GREATEST(batch_contracts.intent_row_count, EXCLUDED.intent_row_count),
+			intent_total_amount_minor = GREATEST(
+				batch_contracts.intent_total_amount_minor,
+				EXCLUDED.intent_total_amount_minor
+			),
+			intent_amount_square_sum = GREATEST(
+				batch_contracts.intent_amount_square_sum,
+				EXCLUDED.intent_amount_square_sum
+			),
+			intent_min_amount_minor = CASE
+				WHEN batch_contracts.intent_min_amount_minor IS NULL THEN EXCLUDED.intent_min_amount_minor
+				WHEN EXCLUDED.intent_min_amount_minor IS NULL THEN batch_contracts.intent_min_amount_minor
+				WHEN batch_contracts.intent_min_amount_minor > EXCLUDED.intent_min_amount_minor THEN EXCLUDED.intent_min_amount_minor
+				ELSE batch_contracts.intent_min_amount_minor
+			END,
+			intent_max_amount_minor = CASE
+				WHEN batch_contracts.intent_max_amount_minor IS NULL THEN EXCLUDED.intent_max_amount_minor
+				WHEN EXCLUDED.intent_max_amount_minor IS NULL THEN batch_contracts.intent_max_amount_minor
+				WHEN batch_contracts.intent_max_amount_minor < EXCLUDED.intent_max_amount_minor THEN EXCLUDED.intent_max_amount_minor
+				ELSE batch_contracts.intent_max_amount_minor
+			END,
+			client_payout_ref_present_count = GREATEST(
+				batch_contracts.client_payout_ref_present_count,
+				EXCLUDED.client_payout_ref_present_count
+			),
+			batch_currency = COALESCE(batch_contracts.batch_currency, NULLIF(EXCLUDED.batch_currency, '')),
+			batch_source_system = COALESCE(batch_contracts.batch_source_system, NULLIF(EXCLUDED.batch_source_system, '')),
+			batch_rail = COALESCE(batch_contracts.batch_rail, NULLIF(EXCLUDED.batch_rail, '')),
+			batch_intent_type = COALESCE(batch_contracts.batch_intent_type, NULLIF(EXCLUDED.batch_intent_type, '')),
+			batch_provider_key = COALESCE(batch_contracts.batch_provider_key, NULLIF(EXCLUDED.batch_provider_key, '')),
+			first_intent_created_at = CASE
+				WHEN batch_contracts.first_intent_created_at IS NULL THEN EXCLUDED.first_intent_created_at
+				WHEN EXCLUDED.first_intent_created_at IS NULL THEN batch_contracts.first_intent_created_at
+				WHEN batch_contracts.first_intent_created_at > EXCLUDED.first_intent_created_at THEN EXCLUDED.first_intent_created_at
+				ELSE batch_contracts.first_intent_created_at
+			END,
+			last_updated_at = now()
+	`,
+		bc.BatchID,
+		bc.TenantID,
+		bc.TotalCount,
+		bc.PendingCount,
+		bc.TotalIntendedAmountMinor.String(),
+		bc.BatchFinalityStatus,
+		bc.IntentRowCount,
+		bc.IntentTotalAmountMinor.String(),
+		bc.IntentAmountSquareSum.String(),
+		nullableDecimalString(bc.IntentMinAmountMinor),
+		nullableDecimalString(bc.IntentMaxAmountMinor),
+		bc.ClientPayoutRefPresentCount,
+		bc.BatchCurrency,
+		bc.BatchSourceSystem,
+		bc.BatchRail,
+		bc.BatchIntentType,
+		bc.BatchProviderKey,
+		bc.FirstIntentCreatedAt,
+		createdAt,
+	)
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.UpsertIntentSnapshot batch=%s: %w", bc.BatchID, err)
+	}
+	return nil
+}
+
+// SetLeakagePrediction writes the latest model prediction for a batch.
+func (r *BatchContractRepo) SetLeakagePrediction(
+	ctx context.Context,
+	batchID, tenantID string,
+	rate decimal.Decimal,
+	amountMinor decimal.Decimal,
+	modelID string,
+	predictedAt time.Time,
+) error {
+	if batchID == "" || tenantID == "" {
+		return nil
+	}
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (
+			batch_id, tenant_id, predicted_leakage_rate, predicted_leakage_minor, predicted_leakage_model_id, predicted_at
+		)
+		VALUES ($1,$2,$3,$4,$5,$6)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			predicted_leakage_rate = EXCLUDED.predicted_leakage_rate,
+			predicted_leakage_minor = EXCLUDED.predicted_leakage_minor,
+			predicted_leakage_model_id = EXCLUDED.predicted_leakage_model_id,
+			predicted_at = EXCLUDED.predicted_at,
+			last_updated_at = now()
+	`, batchID, tenantID, rate.String(), amountMinor.String(), modelID, predictedAt)
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.SetLeakagePrediction batch=%s: %w", batchID, err)
+	}
+	return nil
+}
+
+func nullableDecimalString(v decimal.Decimal) any {
+	if v.Equal(decimal.Zero) {
+		return nil
+	}
+	return v.String()
+}
 
 // AtomicAddBatchUnmatchedAmount increments unmatched_amount_minor for a batch.
 // Called from HandleAttachmentDecision when DecisionType = MATCH_UNRESOLVED.
@@ -670,9 +1148,9 @@ func (r *BatchContractRepo) AtomicAddBatchDuplicateRiskExposure(
 // split and missing ref count for a batch.
 // Called from HandleVarianceRecord for every non-REVERSAL, non-OVER_SETTLEMENT variance.
 //
-//   isWhitelisted=true  → increments whitelisted_deduction_minor (PSP fees, TDS)
-//   isWhitelisted=false → increments unexplained_variance_minor (real leakage candidates)
-//   missingRef=true     → increments missing_ref_count by 1
+//	isWhitelisted=true  → increments whitelisted_deduction_minor (PSP fees, TDS)
+//	isWhitelisted=false → increments unexplained_variance_minor (real leakage candidates)
+//	missingRef=true     → increments missing_ref_count by 1
 func (r *BatchContractRepo) AtomicAddBatchVarianceBreakdown(
 	ctx context.Context,
 	batchID, tenantID string,
@@ -686,10 +1164,12 @@ func (r *BatchContractRepo) AtomicAddBatchVarianceBreakdown(
 
 	whitelisted := decimal.Zero
 	unexplained := decimal.Zero
+	underSettlement := decimal.Zero
 	if isWhitelisted {
 		whitelisted = amountMinor
 	} else {
 		unexplained = amountMinor
+		underSettlement = amountMinor
 	}
 	missingRefIncr := 0
 	if missingRef {
@@ -698,14 +1178,15 @@ func (r *BatchContractRepo) AtomicAddBatchVarianceBreakdown(
 
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO batch_contracts
-			(batch_id, tenant_id, whitelisted_deduction_minor, unexplained_variance_minor, missing_ref_count)
-		VALUES ($1, $2, $3, $4, $5)
+			(batch_id, tenant_id, whitelisted_deduction_minor, unexplained_variance_minor, under_settlement_amount_minor, missing_ref_count)
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (batch_id) DO UPDATE SET
 			whitelisted_deduction_minor = batch_contracts.whitelisted_deduction_minor + EXCLUDED.whitelisted_deduction_minor,
 			unexplained_variance_minor  = batch_contracts.unexplained_variance_minor  + EXCLUDED.unexplained_variance_minor,
+			under_settlement_amount_minor = batch_contracts.under_settlement_amount_minor + EXCLUDED.under_settlement_amount_minor,
 			missing_ref_count           = batch_contracts.missing_ref_count           + EXCLUDED.missing_ref_count,
 			last_updated_at             = now()
-	`, batchID, tenantID, whitelisted.String(), unexplained.String(), missingRefIncr)
+	`, batchID, tenantID, whitelisted.String(), unexplained.String(), underSettlement.String(), missingRefIncr)
 	if err != nil {
 		return fmt.Errorf("batch_contract_repo.AtomicAddBatchVarianceBreakdown batch=%s: %w", batchID, err)
 	}

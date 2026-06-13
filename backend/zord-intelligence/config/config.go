@@ -28,6 +28,7 @@ package config
 //   to GRADE_B is required — no accidental finality-grade exposure.
 
 import (
+	"fmt"
 	"log"
 	"os"
 
@@ -42,23 +43,25 @@ type Config struct {
 	Environment string
 
 	// ── Database ────────────────────────────────────────────────
-	DatabaseURL string
+	DatabaseURL        string
+	IntentDatabaseURL  string
+	OutcomeDatabaseURL string
 
 	// ── Kafka ───────────────────────────────────────────────────
 	KafkaBrokers string
 	KafkaGroupID string
 
 	// ── Kafka Input Topics (ZPI reads FROM these) ────────────────
-	TopicIntentCreated     string
-	TopicDispatchCreated   string
-	TopicOutcomeNormalized string
-	TopicFinalityCert      string
-	TopicFinalContract     string
-	TopicEvidenceReady     string
-	TopicDLQ               string
-	TopicStatementMatch    string
+	TopicIntentCreated      string
+	TopicDispatchCreated    string
+	TopicOutcomeNormalized  string
+	TopicFinalityCert       string
+	TopicFinalContract      string
+	TopicEvidenceReady      string
+	TopicDLQ                string
+	TopicStatementMatch     string
 	TopicCorridorHealthTick string
-	TopicSLATimerTick      string
+	TopicSLATimerTick       string
 
 	// ── Grade A Input Topics ────────────────────────────────────
 	TopicSettlementCreated  string
@@ -85,6 +88,9 @@ type Config struct {
 	// the request-reply lifecycle over these two topics.
 	TopicMLRequest string
 	TopicMLResult  string
+
+	IntentBridgePollIntervalSeconds int
+	IntentBridgeLookbackHours       int
 
 	// ── PHASE 6: Dual-Mode Architecture ─────────────────────────
 	//
@@ -114,7 +120,9 @@ func Load() *Config {
 		Environment: getWithDefault("ENVIRONMENT", "development"),
 
 		// ── Database ────────────────────────────────────────────
-		DatabaseURL: getRequired("DATABASE_URL"),
+		DatabaseURL:        getRequired("DATABASE_URL"),
+		IntentDatabaseURL:  getWithDefault("INTENT_DATABASE_URL", ""),
+		OutcomeDatabaseURL: getWithDefault("OUTCOME_DATABASE_URL", ""),
 
 		// ── Kafka ───────────────────────────────────────────────
 		KafkaBrokers: getRequired("KAFKA_BROKERS"),
@@ -149,8 +157,10 @@ func Load() *Config {
 		TopicActuationBatchPatch: getWithDefault("TOPIC_ACTUATION_BATCH_PATCH", "zpi.actuation.batch_patch"),
 
 		// ── ML Service Topics ────────────────────────────────────────
-		TopicMLRequest: getWithDefault("TOPIC_ML_REQUEST", "ml.request.events"),
-		TopicMLResult:  getWithDefault("TOPIC_ML_RESULT", "ml.result.events"),
+		TopicMLRequest:                  getWithDefault("TOPIC_ML_REQUEST", "ml.request.events"),
+		TopicMLResult:                   getWithDefault("TOPIC_ML_RESULT", "ml.result.events"),
+		IntentBridgePollIntervalSeconds: getIntWithDefault("INTENT_BRIDGE_POLL_INTERVAL_SECONDS", 2),
+		IntentBridgeLookbackHours:       getIntWithDefault("INTENT_BRIDGE_LOOKBACK_HOURS", 48),
 
 		// ── PHASE 6: Intelligence Mode ────────────────────────────
 		IntelligenceMode: mode,
@@ -188,4 +198,16 @@ func getWithDefault(key, defaultVal string) string {
 		return defaultVal
 	}
 	return value
+}
+
+func getIntWithDefault(key string, defaultVal int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultVal
+	}
+	var parsed int
+	if _, err := fmt.Sscanf(value, "%d", &parsed); err != nil || parsed <= 0 {
+		return defaultVal
+	}
+	return parsed
 }

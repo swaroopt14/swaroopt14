@@ -44,3 +44,13 @@ func FallbackRCAResult() RCAClusterResult {
 		FeatureContractVersion: "rca_v1",
 	}
 }
+
+// FallbackLeakagePredictionResult returns a conservative zero-leakage forecast
+// when the Python regression service is unavailable.
+func FallbackLeakagePredictionResult() LeakagePredictionResult {
+	return LeakagePredictionResult{
+		PredictedLeakageRate:  0.0,
+		PredictedLeakageMinor: 0.0,
+		RiskTier:              "LOW",
+	}
+}

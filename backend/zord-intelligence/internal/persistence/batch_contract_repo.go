@@ -115,6 +115,15 @@ type BatchContract struct {
 	ClientRefPresentCount int `json:"client_ref_present_count"`
 }
 
+type LeakageWindowSummary struct {
+	TotalIntendedAmountMinor        decimal.Decimal
+	UnmatchedAmountMinor            decimal.Decimal
+	UnderSettlementAmountMinor      decimal.Decimal
+	OrphanAmountMinor               decimal.Decimal
+	ReversalExposureMinor           decimal.Decimal
+	TotalObservedSettledAmountMinor decimal.Decimal
+}
+
 // BatchContractRepo provides Upsert and Read operations for batch_contracts.
 type BatchContractRepo struct {
 	pool *pgxpool.Pool
@@ -501,6 +510,71 @@ func (r *BatchContractRepo) ListForLeakageExposure(
 	return result, rows.Err()
 }
 
+func (r *BatchContractRepo) SummarizeLeakageForWindow(
+	ctx context.Context,
+	tenantID string,
+	windowStart, windowEnd time.Time,
+) (*LeakageWindowSummary, error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(
+				CASE
+					WHEN intent_total_amount_minor > 0 THEN intent_total_amount_minor
+					ELSE total_intended_amount_minor
+				END
+			)::text, '0'),
+			COALESCE(SUM(unmatched_amount_minor)::text, '0'),
+			COALESCE(SUM(under_settlement_amount_minor)::text, '0'),
+			COALESCE(SUM(orphan_amount_minor)::text, '0'),
+			COALESCE(SUM(reversal_exposure_minor)::text, '0'),
+			COALESCE(SUM(total_confirmed_amount_minor)::text, '0')
+		FROM batch_contracts
+		WHERE tenant_id = $1
+		  AND COALESCE(first_intent_created_at, created_at) >= $2
+		  AND COALESCE(first_intent_created_at, created_at) < $3
+	`, tenantID, windowStart, windowEnd)
+
+	var (
+		summary                   LeakageWindowSummary
+		totalText                 string
+		unmatchedText             string
+		underText                 string
+		orphanText                string
+		reversalText              string
+		observedSettledAmountText string
+		err                       error
+	)
+	if err = row.Scan(
+		&totalText,
+		&unmatchedText,
+		&underText,
+		&orphanText,
+		&reversalText,
+		&observedSettledAmountText,
+	); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow tenant=%s: %w", tenantID, err)
+	}
+	if summary.TotalIntendedAmountMinor, err = decimal.NewFromString(totalText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow total=%q: %w", totalText, err)
+	}
+	if summary.UnmatchedAmountMinor, err = decimal.NewFromString(unmatchedText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow unmatched=%q: %w", unmatchedText, err)
+	}
+	if summary.UnderSettlementAmountMinor, err = decimal.NewFromString(underText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow under=%q: %w", underText, err)
+	}
+	if summary.OrphanAmountMinor, err = decimal.NewFromString(orphanText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow orphan=%q: %w", orphanText, err)
+	}
+	if summary.ReversalExposureMinor, err = decimal.NewFromString(reversalText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow reversal=%q: %w", reversalText, err)
+	}
+	if summary.TotalObservedSettledAmountMinor, err = decimal.NewFromString(observedSettledAmountText); err != nil {
+		return nil, fmt.Errorf("batch_contract_repo.SummarizeLeakageForWindow settled=%q: %w", observedSettledAmountText, err)
+	}
+	return &summary, nil
+}
+
 // scanBatchContract scans one row from a QueryRow call.
 func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	var bc BatchContract
@@ -818,6 +892,129 @@ func (r *BatchContractRepo) AtomicAccumulateIntentFeatures(
 	return nil
 }
 
+// UpsertIntentSnapshot seeds or refreshes the intent-time portion of a batch row
+// from a full batch snapshot sourced from intent-engine.
+//
+// This is used when Kafka intent.created events never reached intelligence but we
+// still want an honest pre-settlement prediction based only on intent-side data.
+// It updates the intent feature fields and only fills operational totals in a
+// non-destructive way so later batch.summary.updated events remain authoritative.
+func (r *BatchContractRepo) UpsertIntentSnapshot(
+	ctx context.Context,
+	bc BatchContract,
+) error {
+	if bc.BatchID == "" || bc.TenantID == "" || bc.IntentRowCount <= 0 || !bc.IntentTotalAmountMinor.IsPositive() {
+		return nil
+	}
+
+	createdAt := bc.CreatedAt
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO batch_contracts (
+			batch_id, tenant_id,
+			total_count, pending_count,
+			total_intended_amount_minor, batch_finality_status,
+			intent_row_count, intent_total_amount_minor, intent_amount_square_sum,
+			intent_min_amount_minor, intent_max_amount_minor,
+			client_payout_ref_present_count,
+			batch_currency, batch_source_system, batch_rail, batch_intent_type, batch_provider_key,
+			first_intent_created_at,
+			last_updated_at, created_at
+		)
+		VALUES (
+			$1, $2,
+			$3, $4,
+			$5, $6,
+			$7, $8, $9,
+			$10, $11,
+			$12,
+			$13, $14, $15, $16, $17,
+			$18,
+			now(), $19
+		)
+		ON CONFLICT (batch_id) DO UPDATE SET
+			total_count = GREATEST(batch_contracts.total_count, EXCLUDED.total_count),
+			pending_count = CASE
+				WHEN batch_contracts.batch_finality_status IN ('FULLY_SETTLED', 'PARTIALLY_SETTLED', 'FAILED', 'REQUIRES_REVIEW', 'CLOSED')
+					THEN batch_contracts.pending_count
+				ELSE GREATEST(batch_contracts.pending_count, EXCLUDED.pending_count)
+			END,
+			total_intended_amount_minor = GREATEST(
+				batch_contracts.total_intended_amount_minor,
+				EXCLUDED.total_intended_amount_minor
+			),
+			batch_finality_status = CASE
+				WHEN batch_contracts.batch_finality_status IN ('FULLY_SETTLED', 'PARTIALLY_SETTLED', 'FAILED', 'REQUIRES_REVIEW', 'CLOSED')
+					THEN batch_contracts.batch_finality_status
+				ELSE EXCLUDED.batch_finality_status
+			END,
+			intent_row_count = GREATEST(batch_contracts.intent_row_count, EXCLUDED.intent_row_count),
+			intent_total_amount_minor = GREATEST(
+				batch_contracts.intent_total_amount_minor,
+				EXCLUDED.intent_total_amount_minor
+			),
+			intent_amount_square_sum = GREATEST(
+				batch_contracts.intent_amount_square_sum,
+				EXCLUDED.intent_amount_square_sum
+			),
+			intent_min_amount_minor = CASE
+				WHEN batch_contracts.intent_min_amount_minor IS NULL THEN EXCLUDED.intent_min_amount_minor
+				WHEN EXCLUDED.intent_min_amount_minor IS NULL THEN batch_contracts.intent_min_amount_minor
+				WHEN batch_contracts.intent_min_amount_minor > EXCLUDED.intent_min_amount_minor THEN EXCLUDED.intent_min_amount_minor
+				ELSE batch_contracts.intent_min_amount_minor
+			END,
+			intent_max_amount_minor = CASE
+				WHEN batch_contracts.intent_max_amount_minor IS NULL THEN EXCLUDED.intent_max_amount_minor
+				WHEN EXCLUDED.intent_max_amount_minor IS NULL THEN batch_contracts.intent_max_amount_minor
+				WHEN batch_contracts.intent_max_amount_minor < EXCLUDED.intent_max_amount_minor THEN EXCLUDED.intent_max_amount_minor
+				ELSE batch_contracts.intent_max_amount_minor
+			END,
+			client_payout_ref_present_count = GREATEST(
+				batch_contracts.client_payout_ref_present_count,
+				EXCLUDED.client_payout_ref_present_count
+			),
+			batch_currency = COALESCE(batch_contracts.batch_currency, NULLIF(EXCLUDED.batch_currency, '')),
+			batch_source_system = COALESCE(batch_contracts.batch_source_system, NULLIF(EXCLUDED.batch_source_system, '')),
+			batch_rail = COALESCE(batch_contracts.batch_rail, NULLIF(EXCLUDED.batch_rail, '')),
+			batch_intent_type = COALESCE(batch_contracts.batch_intent_type, NULLIF(EXCLUDED.batch_intent_type, '')),
+			batch_provider_key = COALESCE(batch_contracts.batch_provider_key, NULLIF(EXCLUDED.batch_provider_key, '')),
+			first_intent_created_at = CASE
+				WHEN batch_contracts.first_intent_created_at IS NULL THEN EXCLUDED.first_intent_created_at
+				WHEN EXCLUDED.first_intent_created_at IS NULL THEN batch_contracts.first_intent_created_at
+				WHEN batch_contracts.first_intent_created_at > EXCLUDED.first_intent_created_at THEN EXCLUDED.first_intent_created_at
+				ELSE batch_contracts.first_intent_created_at
+			END,
+			last_updated_at = now()
+	`,
+		bc.BatchID,
+		bc.TenantID,
+		bc.TotalCount,
+		bc.PendingCount,
+		bc.TotalIntendedAmountMinor.String(),
+		bc.BatchFinalityStatus,
+		bc.IntentRowCount,
+		bc.IntentTotalAmountMinor.String(),
+		bc.IntentAmountSquareSum.String(),
+		nullableDecimalString(bc.IntentMinAmountMinor),
+		nullableDecimalString(bc.IntentMaxAmountMinor),
+		bc.ClientPayoutRefPresentCount,
+		bc.BatchCurrency,
+		bc.BatchSourceSystem,
+		bc.BatchRail,
+		bc.BatchIntentType,
+		bc.BatchProviderKey,
+		bc.FirstIntentCreatedAt,
+		createdAt,
+	)
+	if err != nil {
+		return fmt.Errorf("batch_contract_repo.UpsertIntentSnapshot batch=%s: %w", bc.BatchID, err)
+	}
+	return nil
+}
+
 // SetLeakagePrediction writes the latest model prediction for a batch.
 func (r *BatchContractRepo) SetLeakagePrediction(
 	ctx context.Context,
@@ -846,6 +1043,13 @@ func (r *BatchContractRepo) SetLeakagePrediction(
 		return fmt.Errorf("batch_contract_repo.SetLeakagePrediction batch=%s: %w", batchID, err)
 	}
 	return nil
+}
+
+func nullableDecimalString(v decimal.Decimal) any {
+	if v.Equal(decimal.Zero) {
+		return nil
+	}
+	return v.String()
 }
 
 // AtomicAddBatchUnmatchedAmount increments unmatched_amount_minor for a batch.

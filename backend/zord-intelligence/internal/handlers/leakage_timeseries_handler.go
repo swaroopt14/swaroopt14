@@ -27,6 +27,9 @@ type leakageExposureResponse struct {
 	TenantID       string                 `json:"tenant_id"`
 	DataAvailable  bool                   `json:"data_available"`
 	Reason         string                 `json:"reason,omitempty"`
+	ComputedAt     time.Time              `json:"computed_at"`
+	WindowStart    time.Time              `json:"window_start"`
+	WindowEnd      time.Time              `json:"window_end"`
 	Granularity    string                 `json:"granularity,omitempty"`
 	BatchID        string                 `json:"batch_id,omitempty"`
 	ProjectStartAt *time.Time             `json:"project_start_at,omitempty"`
@@ -64,6 +67,9 @@ func (h *LeakageTimeseriesHandler) GetLeakageExposure(w http.ResponseWriter, r *
 
 	resp := leakageExposureResponse{
 		TenantID:    tenantID,
+		ComputedAt:  now,
+		WindowStart: from,
+		WindowEnd:   leakageSeriesWindowEnd(now, granularity),
 		Granularity: granularity,
 	}
 	if batchID != nil {
@@ -79,6 +85,7 @@ func (h *LeakageTimeseriesHandler) GetLeakageExposure(w http.ResponseWriter, r *
 
 	series := initLeakageSeriesBuckets(from, now, granularity)
 	indexByDate := make(map[string]int, len(series))
+	bucketCounts := make([]int, len(series))
 	for i := range series {
 		indexByDate[series[i].Date] = i
 	}
@@ -101,6 +108,7 @@ func (h *LeakageTimeseriesHandler) GetLeakageExposure(w http.ResponseWriter, r *
 		current := row.UnmatchedAmountMinor.Add(row.UnderSettlementAmountMinor).Add(row.ReversalExposureMinor)
 		series[idx].CurrentLeakageMinor = series[idx].CurrentLeakageMinor.Add(current)
 		series[idx].PredictedLeakageMinor = series[idx].PredictedLeakageMinor.Add(*row.PredictedLeakageMinor)
+		bucketCounts[idx]++
 	}
 
 	if !hasPrediction {
@@ -108,6 +116,18 @@ func (h *LeakageTimeseriesHandler) GetLeakageExposure(w http.ResponseWriter, r *
 		resp.Reason = "Predicted leakage is not available yet for this period"
 		writeJSON(w, http.StatusOK, resp)
 		return
+	}
+
+	trimmed := make([]leakageExposurePoint, 0, len(series))
+	for idx, point := range series {
+		if bucketCounts[idx] > 0 {
+			trimmed = append(trimmed, point)
+		}
+	}
+	if len(trimmed) > 0 {
+		resp.WindowStart = mustParseLeakageBucketDate(trimmed[0].Date)
+		resp.WindowEnd = mustParseLeakageBucketDate(trimmed[len(trimmed)-1].Date)
+		series = trimmed
 	}
 
 	resp.DataAvailable = true
@@ -126,6 +146,17 @@ func leakageSeriesStart(now time.Time, granularity string) time.Time {
 	default:
 		start := now.AddDate(0, 0, -29)
 		return time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+	}
+}
+
+func leakageSeriesWindowEnd(now time.Time, granularity string) time.Time {
+	switch granularity {
+	case "week":
+		return startOfISOWeek(now)
+	case "month":
+		return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	default:
+		return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	}
 }
 
@@ -175,4 +206,12 @@ func startOfISOWeek(ts time.Time) time.Time {
 	}
 	start := ts.AddDate(0, 0, -(weekday - 1))
 	return time.Date(start.Year(), start.Month(), start.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+func mustParseLeakageBucketDate(value string) time.Time {
+	parsed, err := time.Parse("2006-01-02", value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed.UTC()
 }

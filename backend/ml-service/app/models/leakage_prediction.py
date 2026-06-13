@@ -49,7 +49,7 @@ class LeakagePredictionModel:
                 "risk_tier": "LOW",
             }
 
-        frame = self._frame_from_features(raw_features, bundle)
+        frame, diagnostics = self._frame_from_features(raw_features, bundle)
         model = bundle["model"]
         rate = float(np.clip(model.predict(frame)[0], 0.0, 1.0))
         intended = float(frame["batch_total_intended_amount_minor"].iloc[0])
@@ -58,6 +58,9 @@ class LeakagePredictionModel:
             "predicted_leakage_rate": rate,
             "predicted_leakage_minor": amount,
             "risk_tier": _risk_tier(rate),
+            "fallback_feature_count": diagnostics["fallback_feature_count"],
+            "fallback_features": diagnostics["fallback_features"],
+            "fallback_segment_level": diagnostics["fallback_segment_level"],
         }
 
     def buffer_labeled_row(
@@ -73,7 +76,7 @@ class LeakagePredictionModel:
             logger.warning("leakage_model: no bundle loaded; skipping train buffer for batch=%s", batch_id)
             return
 
-        row = self._normalized_training_row(raw_features, bundle)
+        row, _ = self._normalized_training_row(raw_features, bundle)
         row["predicted_leakage_rate"] = float(np.clip(label_rate, 0.0, 1.0))
         row["target_leakage_amount_minor"] = float(max(label_amount, 0.0))
         row["sample_weight"] = float(sample_weight)
@@ -179,7 +182,7 @@ class LeakagePredictionModel:
 
             frame = train_df[feature_columns].copy()
             for col in categorical_columns:
-                frame[col] = frame[col].fillna("UNKNOWN").astype(str)
+                frame[col] = frame[col].map(lambda value: _normalize_categorical_value(value, bundle) or "unknown")
             for col in feature_columns:
                 if col not in categorical_columns:
                     frame[col] = pd.to_numeric(frame[col], errors="coerce").fillna(0.0)
@@ -205,6 +208,7 @@ class LeakagePredictionModel:
 
             updated_bundle = dict(bundle)
             updated_bundle["model"] = model
+            updated_bundle["fallback_priors"] = self._build_fallback_priors(train_df, feature_columns, categorical_columns)
             updated_bundle["training_summary"] = {
                 **dict(bundle.get("training_summary", {})),
                 "real_labeled_rows": int(len(self._real_rows)),
@@ -238,20 +242,187 @@ class LeakagePredictionModel:
         columns = feature_columns + [target_column, "sample_weight", "row_id", "parent_batch_id", "batch_id", "scenario_family"]
         return pd.DataFrame(columns=columns)
 
-    def _frame_from_features(self, raw_features: dict[str, Any], bundle: dict[str, Any]) -> pd.DataFrame:
-        row = self._normalized_training_row(raw_features, bundle)
-        return pd.DataFrame([row], columns=bundle["feature_columns"])
+    def _frame_from_features(self, raw_features: dict[str, Any], bundle: dict[str, Any]) -> tuple[pd.DataFrame, dict[str, Any]]:
+        row, diagnostics = self._normalized_training_row(raw_features, bundle)
+        return pd.DataFrame([row], columns=bundle["feature_columns"]), diagnostics
 
-    def _normalized_training_row(self, raw_features: dict[str, Any], bundle: dict[str, Any]) -> dict[str, Any]:
-        categorical_columns = set(bundle["categorical_columns"])
-        row: dict[str, Any] = {}
-        for col in bundle["feature_columns"]:
+    def _normalized_training_row(self, raw_features: dict[str, Any], bundle: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        feature_columns = bundle["feature_columns"]
+        categorical_columns = list(bundle["categorical_columns"])
+        categorical_set = set(categorical_columns)
+        priors = bundle.get("fallback_priors", {})
+
+        normalized: dict[str, Any] = {}
+        fallback_features: list[str] = []
+        fallback_level = "global"
+
+        for col in feature_columns:
             value = raw_features.get(col)
-            if col in categorical_columns:
-                row[col] = "UNKNOWN" if value in (None, "") else str(value)
+            if col in categorical_set:
+                normalized[col] = _normalize_categorical_value(value, bundle)
             else:
-                row[col] = _to_float(value)
-        return row
+                normalized[col] = _to_float_or_none(value)
+
+        normalized["source_system"], source_used, source_level = self._fill_categorical_with_prior(
+            normalized.get("source_system"),
+            "source_system",
+            normalized,
+            priors,
+            bundle,
+        )
+        if source_used:
+            fallback_features.append("source_system")
+            fallback_level = more_specific_level(fallback_level, source_level)
+
+        normalized["rail"], rail_used, rail_level = self._fill_categorical_with_prior(
+            normalized.get("rail"),
+            "rail",
+            normalized,
+            priors,
+            bundle,
+        )
+        if rail_used:
+            fallback_features.append("rail")
+            fallback_level = more_specific_level(fallback_level, rail_level)
+
+        normalized["provider_key"], provider_used, provider_level = self._fill_categorical_with_prior(
+            normalized.get("provider_key"),
+            "provider_key",
+            normalized,
+            priors,
+            bundle,
+        )
+        if provider_used:
+            fallback_features.append("provider_key")
+            fallback_level = more_specific_level(fallback_level, provider_level)
+
+        for col in categorical_columns:
+            if col in {"source_system", "rail", "provider_key"}:
+                continue
+            filled, used, level = self._fill_categorical_with_prior(normalized.get(col), col, normalized, priors, bundle)
+            normalized[col] = filled
+            if used:
+                fallback_features.append(col)
+                fallback_level = more_specific_level(fallback_level, level)
+        for col in feature_columns:
+            if col in categorical_set:
+                continue
+            if normalized[col] is None:
+                filled, level = self._fill_numeric_with_prior(col, normalized, priors, bundle)
+                normalized[col] = filled
+                fallback_level = more_specific_level(fallback_level, level)
+                fallback_features.append(col)
+            else:
+                normalized[col] = float(normalized[col])
+
+        for col in categorical_columns:
+            if normalized[col] is None:
+                normalized[col] = "unknown"
+
+        return normalized, {
+            "fallback_feature_count": len(fallback_features),
+            "fallback_features": sorted(set(fallback_features)),
+            "fallback_segment_level": fallback_level,
+        }
+
+    def _fill_categorical_with_prior(
+        self,
+        value: str | None,
+        feature: str,
+        row: dict[str, Any],
+        priors: dict[str, Any],
+        bundle: dict[str, Any],
+    ) -> tuple[str | None, bool, str]:
+        if value is not None:
+            return value, False, "global"
+        fallback, level = self._lookup_prior(feature, row, priors, bundle, "categorical")
+        return (_normalize_categorical_value(fallback, bundle) or "unknown"), True, level
+
+    def _fill_numeric_with_prior(
+        self,
+        feature: str,
+        row: dict[str, Any],
+        priors: dict[str, Any],
+        bundle: dict[str, Any],
+    ) -> tuple[float, str]:
+        fallback, level = self._lookup_prior(feature, row, priors, bundle, "numeric")
+        return float(0.0 if fallback is None else fallback), level
+
+    def _lookup_prior(
+        self,
+        feature: str,
+        row: dict[str, Any],
+        priors: dict[str, Any],
+        bundle: dict[str, Any],
+        family: str,
+    ) -> tuple[Any, str]:
+        segments = priors.get("segments", {})
+        segment_levels = bundle.get("segment_levels", [])
+        best_level = "global"
+        for level_columns in reversed(segment_levels):
+            level_key = "__".join(level_columns)
+            segment_key = _row_segment_key(row, level_columns)
+            if segment_key is None:
+                continue
+            level_map = segments.get(level_key, {})
+            values = level_map.get(segment_key, {})
+            family_values = values.get(family, {})
+            if feature in family_values:
+                return family_values[feature], level_key
+        return priors.get("global", {}).get(family, {}).get(feature), best_level
+
+    def _build_fallback_priors(
+        self,
+        train_df: pd.DataFrame,
+        feature_columns: list[str],
+        categorical_columns: list[str],
+    ) -> dict[str, Any]:
+        numeric_columns = [col for col in feature_columns if col not in categorical_columns]
+        frame = train_df.copy()
+        for col in categorical_columns:
+            frame[col] = frame[col].map(lambda value: _normalize_categorical_value(value, {"missing_category_tokens": []}) or "unknown")
+
+        global_numeric = {
+            col: float(pd.to_numeric(frame[col], errors="coerce").dropna().median())
+            for col in numeric_columns
+        }
+        global_categorical = {
+            col: _mode_or_default(frame[col], "unknown")
+            for col in categorical_columns
+        }
+
+        segments: dict[str, dict[str, dict[str, Any]]] = {}
+        for level_columns in (["source_system"], ["source_system", "rail"], ["source_system", "rail", "provider_key"]):
+            level_key = "__".join(level_columns)
+            level_segments: dict[str, dict[str, Any]] = {}
+            grouped = frame.groupby(level_columns, dropna=False, sort=False)
+            for group_values, group_df in grouped:
+                if not isinstance(group_values, tuple):
+                    group_values = (group_values,)
+                normalized_values = [str(value).strip().lower() for value in group_values]
+                if any(not value or value == "unknown" for value in normalized_values):
+                    continue
+                segment_key = "||".join(normalized_values)
+                level_segments[segment_key] = {
+                    "numeric": {
+                        col: float(pd.to_numeric(group_df[col], errors="coerce").dropna().median())
+                        for col in numeric_columns
+                    },
+                    "categorical": {
+                        col: _mode_or_default(group_df[col], global_categorical[col])
+                        for col in categorical_columns
+                    },
+                    "row_count": int(len(group_df)),
+                }
+            segments[level_key] = level_segments
+
+        return {
+            "global": {
+                "numeric": global_numeric,
+                "categorical": global_categorical,
+            },
+            "segments": segments,
+        }
 
 
 def _to_float(value: Any) -> float:
@@ -261,6 +432,54 @@ def _to_float(value: Any) -> float:
         return float(value)
     except Exception:
         return 0.0
+
+
+def _to_float_or_none(value: Any) -> float | None:
+    if value in (None, ""):
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _normalize_categorical_value(value: Any, bundle: dict[str, Any]) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    missing_tokens = set(bundle.get("missing_category_tokens", []))
+    if text in missing_tokens:
+        return None
+    return text
+
+
+def _row_segment_key(row: dict[str, Any], columns: list[str]) -> str | None:
+    values: list[str] = []
+    for col in columns:
+        value = row.get(col)
+        if value in (None, "", "unknown"):
+            return None
+        values.append(str(value))
+    return "||".join(values)
+
+
+def _mode_or_default(series: pd.Series, default: str) -> str:
+    cleaned = [str(value).strip() for value in series.tolist() if str(value).strip()]
+    if not cleaned:
+        return default
+    return pd.Series(cleaned).mode(dropna=True).iloc[0]
+
+
+def more_specific_level(current: str, candidate: str) -> str:
+    rank = {
+        "global": 0,
+        "source_system": 1,
+        "source_system__rail": 2,
+        "source_system__rail__provider_key": 3,
+    }
+    if rank.get(candidate, 0) > rank.get(current, 0):
+        return candidate
+    return current
 
 
 def _risk_tier(rate: float) -> str:

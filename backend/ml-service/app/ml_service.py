@@ -249,11 +249,13 @@ class MLService:
         result = self._leakage_model.predict(features)
         batch_id = payload.get("batch_id", "")
         logger.info(
-            "leakage_predict: ok tenant=%s batch=%s rate=%.6f amount=%.2f",
+            "leakage_predict: ok tenant=%s batch=%s rate=%.6f amount=%.2f fallback_count=%s level=%s",
             req.tenant_id,
             batch_id,
             result["predicted_leakage_rate"],
             result["predicted_leakage_minor"],
+            result.get("fallback_feature_count", 0),
+            result.get("fallback_segment_level", "global"),
         )
         return MLResult(
             event_id=req.event_id,

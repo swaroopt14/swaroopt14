@@ -225,6 +225,19 @@ func (c *Client) InvokeLeakagePrediction(
 	rate, _ := result.ModelOutputs["predicted_leakage_rate"].(float64)
 	amount, _ := result.ModelOutputs["predicted_leakage_minor"].(float64)
 	riskTier, _ := result.ModelOutputs["risk_tier"].(string)
+	fallbackFeatureCount := 0
+	if rawCount, ok := result.ModelOutputs["fallback_feature_count"].(float64); ok {
+		fallbackFeatureCount = int(rawCount)
+	}
+	fallbackSegmentLevel, _ := result.ModelOutputs["fallback_segment_level"].(string)
+	fallbackFeatures := make([]string, 0)
+	if rawFeatures, ok := result.ModelOutputs["fallback_features"].([]interface{}); ok {
+		for _, item := range rawFeatures {
+			if text, ok := item.(string); ok && text != "" {
+				fallbackFeatures = append(fallbackFeatures, text)
+			}
+		}
+	}
 	if riskTier == "" {
 		riskTier = "LOW"
 	}
@@ -232,6 +245,9 @@ func (c *Client) InvokeLeakagePrediction(
 		PredictedLeakageRate:  rate,
 		PredictedLeakageMinor: amount,
 		RiskTier:              riskTier,
+		FallbackFeatureCount:  fallbackFeatureCount,
+		FallbackFeatures:      fallbackFeatures,
+		FallbackSegmentLevel:  fallbackSegmentLevel,
 	}, nil
 }
 

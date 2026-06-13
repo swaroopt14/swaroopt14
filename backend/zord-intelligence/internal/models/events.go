@@ -409,13 +409,14 @@ type AttachmentDecisionCreatedEvent struct {
 	OccurredAt time.Time `json:"occurred_at"`
 
 	// ── Decision identity ─────────────────────────────────────────────────────
-	DecisionID   string `json:"attachment_decision_id"`
-	SettlementID string `json:"settlement_observation_id"`
-	IntentID     string `json:"intent_id"`
-	ContractID   string `json:"contract_id"`
-	CorridorID   string `json:"corridor_id"`
-	BatchID      string `json:"batch_id"`
-	ProviderID   string `json:"source_system"`
+	DecisionID      string `json:"attachment_decision_id"`
+	SettlementID    string `json:"settlement_observation_id"`
+	IntentID        string `json:"intent_id"`
+	ContractID      string `json:"contract_id"`
+	CorridorID      string `json:"corridor_id"`
+	BatchID         string `json:"batch_id"`
+	ProviderID      string `json:"source_system"`
+	ClientReference string `json:"client_reference"`
 
 	// ── Decision outcome ──────────────────────────────────────────────────────
 	DecisionType string `json:"decision_type"`

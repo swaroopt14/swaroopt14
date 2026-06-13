@@ -81,6 +81,7 @@ func NewRouter(
 	dashRecommendationH *DashboardRecommendationHandler,
 	dashRCAH            *DashboardRCAHandler,
 	dashBubbleMapH      *DashboardBubbleMapHandler,
+	dashBatchContractH  *DashboardBatchContractHandler,
 ) http.Handler {
 
 	r := chi.NewRouter()
@@ -195,6 +196,7 @@ func NewRouter(
 			r.Get("/recommendations", dashRecommendationH.GetRecommendationKPIs)
 			r.Get("/rca", dashRCAH.GetRCAKPIs)
 			r.Get("/bubble-map", dashBubbleMapH.GetBubbleMap)
+			r.Get("/batch_contract/{batch_id}", dashBatchContractH.GetBatchContract)
 		})
 
 		// ── Policy endpoints ───────────────────────────────────────────────

@@ -1127,6 +1127,18 @@ func (s *ProjectionService) HandleSettlementCreated(
 		}
 	}
 
+	// ── Pattern Intelligence: Bank reference coverage (per-batch) ─────────────
+	// Tracks how many settlement observations for this batch carried a
+	// bank-side reference (BankRef, UTR, or RRN), regardless of match status.
+	// bank_reference_coverage = bank_ref_present_count / settlement_ref_count.
+	if e.BatchID != "" {
+		hasBankRef := e.BankRef != "" || e.UTR != "" || e.RRN != ""
+		if err := s.batchRepo.AtomicAddBatchBankRefStats(ctx, e.BatchID, e.TenantID, hasBankRef); err != nil {
+			log.Printf("HandleSettlementCreated: AtomicAddBatchBankRefStats failed settlement=%s batch=%s: %v",
+				e.SettlementID, e.BatchID, err)
+		}
+	}
+
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleSettlementCreated MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
@@ -1163,8 +1175,8 @@ func (s *ProjectionService) HandleAttachmentDecision(
 		return nil
 	}
 
-	log.Printf("[attachment.decision.created] RECEIVED event_id=%s tenant=%s decision=%s intent=%s batch=%s confidence=%.2f candidate_set=%d provider_id=%s",
-		e.EventID, e.TenantID, e.DecisionType, e.IntentID, e.BatchID, e.ConfidenceScore, e.CandidateSetSize, e.ProviderID)
+	log.Printf("[attachment.decision.created] RECEIVED event_id=%s tenant=%s decision=%s intent=%s batch=%s confidence=%.2f candidate_set=%d provider_id=%s client_refernce=%s",
+		e.EventID, e.TenantID, e.DecisionType, e.IntentID, e.BatchID, e.ConfidenceScore, e.CandidateSetSize, e.ProviderID, e.ClientReference)
 
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
 	if err != nil {

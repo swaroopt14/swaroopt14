@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { clampZeroBasedPage } from '../../_lib/clampPage'
 import type { FinalityStatus, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { ambiguityCopy } from '../copy/ambiguityCopy'
 import { batchDisplayValue, batchMatchPct } from '../utils/ambiguityApiMappers'
@@ -48,6 +49,10 @@ export function BatchesNeedingReviewTable({ batches, loading, finalityFilter, on
 
   const totalPages = Math.max(1, Math.ceil(batches.length / PAGE_SIZE))
   const visible = batches.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
+
+  useEffect(() => {
+    setPage((p) => clampZeroBasedPage(p, totalPages))
+  }, [totalPages])
 
   return (
     <article className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

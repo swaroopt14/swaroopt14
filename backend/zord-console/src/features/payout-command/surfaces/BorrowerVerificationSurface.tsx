@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { DM_Mono } from 'next/font/google'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { clampPage } from '../_lib/clampPage'
 import {
   BORROWER_VERIFICATION_MOCK,
   type BorrowerQueueRow,
@@ -263,6 +264,10 @@ export function BorrowerVerificationSurface() {
   const safePage = Math.min(page, totalPages)
   const pageStart = (safePage - 1) * ROWS_PER_PAGE
   const pageRows = sortedRows.slice(pageStart, pageStart + ROWS_PER_PAGE)
+
+  useEffect(() => {
+    setPage((p) => clampPage(p, totalPages))
+  }, [totalPages])
 
   const baseFunnel = source.funnel[0]?.count ?? 1
   const funnelRows = source.funnel.map((step, index) => {
@@ -684,7 +689,8 @@ export function BorrowerVerificationSurface() {
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-slate-700"
+                disabled={safePage <= 1}
+                className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Prev
               </button>
@@ -694,7 +700,8 @@ export function BorrowerVerificationSurface() {
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-slate-700"
+                disabled={safePage >= totalPages}
+                className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next
               </button>

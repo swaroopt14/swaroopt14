@@ -517,7 +517,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                       <button
                         type="button"
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                        disabled={safePage <= 1}
+                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Prev
                       </button>
@@ -527,7 +528,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                       <button
                         type="button"
                         onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                        disabled={safePage >= totalPages}
+                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Next
                       </button>
@@ -685,7 +687,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     <button
                       type="button"
                       onClick={() => setFailurePage((p) => Math.max(1, p - 1))}
-                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                      disabled={safeFailurePage <= 1}
+                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Prev
                     </button>
@@ -695,7 +698,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     <button
                       type="button"
                       onClick={() => setFailurePage((p) => Math.min(failureTotalPages, p + 1))}
-                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                      disabled={safeFailurePage >= failureTotalPages}
+                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Next
                     </button>

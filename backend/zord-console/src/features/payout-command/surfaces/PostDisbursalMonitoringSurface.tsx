@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { DM_Mono } from 'next/font/google'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { clampPage } from '../_lib/clampPage'
 import {
   POST_DISBURSAL_MONITORING_MOCK,
   type DpdBucket,
@@ -251,6 +252,10 @@ export function PostDisbursalMonitoringSurface() {
   const safePage = Math.min(page, totalPages)
   const pageStart = (safePage - 1) * ROWS_PER_PAGE
   const pageRows = sortedRows.slice(pageStart, pageStart + ROWS_PER_PAGE)
+
+  useEffect(() => {
+    setPage((p) => clampPage(p, totalPages))
+  }, [totalPages])
 
   const dpdTotalCr = data.dpdBuckets.reduce((sum, bucket) => sum + bucket.amountCr, 0)
   const overdueCr = data.dpdBuckets.filter((b) => b.label !== 'Current').reduce((sum, b) => sum + b.amountCr, 0)
@@ -723,7 +728,8 @@ export function PostDisbursalMonitoringSurface() {
             <button
               type="button"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-[#00239C]"
+              disabled={safePage <= 1}
+              className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-[#00239C] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Prev
             </button>
@@ -733,7 +739,8 @@ export function PostDisbursalMonitoringSurface() {
             <button
               type="button"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-[#00239C]"
+              disabled={safePage >= totalPages}
+              className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-[#00239C] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next
             </button>

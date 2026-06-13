@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { clampPage } from '../_lib/clampPage'
 import { EntityLogo } from '../entity-logo'
 import {
   BankingInformationTokensBlock,
@@ -685,6 +686,28 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const failureTotalPages = Math.max(1, Math.ceil(failureTotal / rowsPerPage))
   const safeFailurePage = Math.min(failurePage, failureTotalPages)
   const failurePageRows = filteredFailures.slice((safeFailurePage - 1) * rowsPerPage, safeFailurePage * rowsPerPage)
+
+  useEffect(() => {
+    setPage((p) => clampPage(p, totalPages))
+    setJumpPage((prev) => {
+      const parsed = Number(prev)
+      const seed = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
+      return String(clampPage(seed, totalPages))
+    })
+  }, [totalPages])
+
+  useEffect(() => {
+    setFailurePage((p) => clampPage(p, failureTotalPages))
+    setFailureJumpPage((prev) => {
+      const parsed = Number(prev)
+      const seed = Number.isFinite(parsed) && parsed >= 1 ? parsed : 1
+      return String(clampPage(seed, failureTotalPages))
+    })
+  }, [failureTotalPages])
+
+  useEffect(() => {
+    setSidebarPage((p) => clampPage(p, sidebarTotalPages))
+  }, [sidebarTotalPages])
 
   const [feedRefreshing, setFeedRefreshing] = useState(false)
 

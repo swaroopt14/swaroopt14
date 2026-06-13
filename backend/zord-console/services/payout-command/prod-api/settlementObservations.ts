@@ -156,9 +156,17 @@ export function extractClientBatchIdsFromListResponse(
 export const SETTLEMENT_OBSERVATIONS_BFF_PATH = '/api/prod/settlement/observations/batches'
 export const SETTLEMENT_PARSE_ERRORS_BFF_PATH = '/api/prod/settlement/errors'
 
-function observationsUrl(clientBatchId?: string) {
+/** Outcome-engine max page size for settlement observation detail mode. */
+export const SETTLEMENT_OBSERVATIONS_FETCH_PAGE_SIZE = 100
+
+function observationsUrl(
+  clientBatchId?: string,
+  opts?: { page?: number; pageSize?: number },
+) {
   const params = new URLSearchParams()
   if (clientBatchId?.trim()) params.set('client_batch_id', clientBatchId.trim())
+  if (opts?.page != null) params.set('page', String(opts.page))
+  if (opts?.pageSize != null) params.set('page_size', String(opts.pageSize))
   const qs = params.toString()
   return qs ? `${SETTLEMENT_OBSERVATIONS_BFF_PATH}?${qs}` : SETTLEMENT_OBSERVATIONS_BFF_PATH
 }
@@ -183,12 +191,43 @@ export async function getSettlementObservationsForClientBatch(
   if (!bid) {
     return { data: { items: [], total: null }, ok: true, status: 200, url: observationsUrl() }
   }
-  const res = await fetchProdJsonGetWithMeta<SettlementObservationDetailResponse>(observationsUrl(bid))
-  if (!res.ok || !res.data) {
-    return { ...res, data: { items: [], total: null } }
+
+  const pageSize = SETTLEMENT_OBSERVATIONS_FETCH_PAGE_SIZE
+  const allItems: CanonicalSettlementObservation[] = []
+  let total: number | null = null
+  let lastUrl = observationsUrl(bid, { page: 1, pageSize })
+  let lastStatus = 200
+  let ok = true
+
+  for (let page = 1; page <= 500; page += 1) {
+    lastUrl = observationsUrl(bid, { page, pageSize })
+    const res = await fetchProdJsonGetWithMeta<SettlementObservationDetailResponse>(lastUrl)
+    lastStatus = res.status
+    if (!res.ok || !res.data) {
+      ok = false
+      if (page === 1) {
+        return { ...res, data: { items: [], total: null } }
+      }
+      break
+    }
+
+    const batch = res.data.items ?? []
+    if (res.data.pagination?.total != null) {
+      total = res.data.pagination.total
+    }
+    allItems.push(...batch)
+
+    if (batch.length === 0) break
+    if (total != null && allItems.length >= total) break
+    if (batch.length < pageSize) break
   }
-  const total = res.data.pagination?.total ?? null
-  return { ...res, data: { items: res.data.items ?? [], total } }
+
+  return {
+    ok,
+    status: lastStatus,
+    url: lastUrl,
+    data: { items: allItems, total: total ?? allItems.length },
+  }
 }
 
 export async function getSettlementParseErrorsForClientBatch(

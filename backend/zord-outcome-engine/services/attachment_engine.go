@@ -562,7 +562,7 @@ func (e *AttachmentEngine) runAttachment(
 	// Batch summary is computed here and passed into the transaction so it is
 	// written atomically with candidates, decisions, variances, and the job
 	// status update. No separate call after commit.
-	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, observations, allDecisions, allVariances, totalIntendedAmount, originalIntendedAmount)
+	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, observations, allDecisions, allVariances, allUnresolvedIntents, totalIntendedAmount, originalIntendedAmount)
 	if err := persistAttachmentOutputs(
 		ctx, job,
 		allCandidates, allDecisions, allVariances, allUnresolvedIntents,
@@ -1026,6 +1026,7 @@ func computeBatchSummary(
 	observations []models.CanonicalSettlementObservation,
 	decisions []models.AttachmentDecision,
 	variances []models.VarianceRecord,
+	allUnresolvedIntents []models.UnresolvedIntentRecord,
 	totalIntendedAmount decimal.Decimal,
 	originalIntendedAmount decimal.Decimal,
 ) models.BatchAttachmentSummary {
@@ -1085,6 +1086,47 @@ func computeBatchSummary(
 
 	// TotalVariance is the net difference between what was intended and what was observed for this batch.
 	summary.TotalVariance = summary.TotalIntendedAmount.Sub(summary.TotalObservedAmount).Abs()
+
+	// 1. UnresolvedIntendedAmount
+	for _, ui := range allUnresolvedIntents {
+		summary.UnresolvedIntendedAmount = summary.UnresolvedIntendedAmount.Add(ui.Amount)
+	}
+
+	// 2. Ambiguous, Conflicted, Unresolved ObservedAmounts
+	obsAmountMap := make(map[uuid.UUID]decimal.Decimal, len(observations))
+	for _, obs := range observations {
+		if obs.SettledAmount != nil {
+			obsAmountMap[obs.SettlementObservationID] = *obs.SettledAmount
+		} else {
+			obsAmountMap[obs.SettlementObservationID] = decimal.Zero
+		}
+	}
+
+	for _, d := range decisions {
+		amt := obsAmountMap[d.SettlementObservationID]
+		switch d.DecisionType {
+		case models.DecisionMatchAmbiguous:
+			summary.AmbiguousObservedAmount = summary.AmbiguousObservedAmount.Add(amt)
+		case models.DecisionMatchConflicted:
+			summary.ConflictedObservedAmount = summary.ConflictedObservedAmount.Add(amt)
+		case models.DecisionMatchUnresolved:
+			summary.UnresolvedObservedAmount = summary.UnresolvedObservedAmount.Add(amt)
+		}
+	}
+
+	// 3. Fee & Deduction breakdown
+	for _, v := range variances {
+		if v.FeeVariance != nil {
+			summary.TotalFeeAmount = summary.TotalFeeAmount.Add(*v.FeeVariance)
+		}
+		if v.DeductionVariance != nil {
+			summary.TotalDeductionAmount = summary.TotalDeductionAmount.Add(*v.DeductionVariance)
+		}
+	}
+
+	// 4. NetUnexplainedVariance
+	// Subtract expected fees and deductions from the variance.
+	summary.NetUnexplainedVariance = summary.TotalVariance.Sub(summary.TotalFeeAmount).Sub(summary.TotalDeductionAmount)
 
 	// Derive batch status.
 	total := len(decisions)
@@ -1309,16 +1351,20 @@ func persistAttachmentOutputs(
 			attachment_job_id,
 			total_intent_count, exact_match_count, high_confidence_count,
 			ambiguous_count, unresolved_count, conflicted_count,
-			total_intended_amount, original_intended_amount, total_observed_amount, original_settled_amount, total_variance,
+			total_intended_amount, original_intended_amount, unresolved_intended_amount,
+			total_observed_amount, original_settled_amount, ambiguous_observed_amount, conflicted_observed_amount, unresolved_observed_amount,
+			total_fee_amount, total_deduction_amount, total_variance, net_unexplained_variance,
 			batch_attachment_status, aggregate_score, aggregate_match_confidence, ambiguity_score, created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29
 		) ON CONFLICT DO NOTHING`,
 		batchSummary.BatchAttachmentSummaryID, batchSummary.TenantID, batchSummary.BatchID, batchSummary.SourceReference,
 		batchSummary.AttachmentJobID,
 		batchSummary.TotalIntentCount, batchSummary.ExactMatchCount, batchSummary.HighConfidenceCount,
 		batchSummary.AmbiguousCount, batchSummary.UnresolvedCount, batchSummary.ConflictedCount,
-		batchSummary.TotalIntendedAmount, batchSummary.OriginalIntendedAmount, batchSummary.TotalObservedAmount, batchSummary.OriginalSettledAmount, batchSummary.TotalVariance,
+		batchSummary.TotalIntendedAmount, batchSummary.OriginalIntendedAmount, batchSummary.UnresolvedIntendedAmount,
+		batchSummary.TotalObservedAmount, batchSummary.OriginalSettledAmount, batchSummary.AmbiguousObservedAmount, batchSummary.ConflictedObservedAmount, batchSummary.UnresolvedObservedAmount,
+		batchSummary.TotalFeeAmount, batchSummary.TotalDeductionAmount, batchSummary.TotalVariance, batchSummary.NetUnexplainedVariance,
 		batchSummary.BatchAttachmentStatus, batchSummary.AggregateScore, batchSummary.AggregateMatchConfidence, batchSummary.AmbiguityScore,
 		batchSummary.CreatedAt, batchSummary.UpdatedAt,
 	); err != nil {

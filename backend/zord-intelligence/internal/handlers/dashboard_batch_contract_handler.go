@@ -28,6 +28,7 @@ package handlers
 //   - orphan_amount           — orphan_amount_minor
 //   - unmatch_amount          — unmatched_amount_minor
 //   - total_confirmed_amount  — total_confirmed_amount_minor
+//   - original_settled_amount — original_settled_amount_minor
 
 import (
 	"fmt"
@@ -103,5 +104,6 @@ func (h *DashboardBatchContractHandler) GetBatchContract(w http.ResponseWriter, 
 		"orphan_amount":             batch.OrphanAmountMinor,
 		"unmatch_amount":            batch.UnmatchedAmountMinor,
 		"total_confirmed_amount":    batch.TotalConfirmedAmountMinor,
+		"original_settled_amount":   batch.OriginalSettledAmountMinor,
 	})
 }

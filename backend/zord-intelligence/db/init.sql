@@ -702,6 +702,10 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     total_confirmed_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0,
     -- Amount confirmed settled so far.
 
+    original_settled_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0,
+    -- Original settled amount reported by Service 5C before any corrections,
+    -- from BatchSummaryUpdatedEvent.OriginalSettledAmountMinor.
+
     total_variance_minor        NUMERIC(20,2) NOT NULL DEFAULT 0,
     -- intended - confirmed. Positive = leakage. Negative = overpayment.
 

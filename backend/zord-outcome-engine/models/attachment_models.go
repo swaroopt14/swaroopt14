@@ -291,9 +291,10 @@ type BatchAttachmentSummary struct {
 	ConflictedCount     int `json:"conflicted_count" db:"conflicted_count"`
 
 	// Amount aggregates
-	TotalIntendedAmount decimal.Decimal `json:"total_intended_amount" db:"total_intended_amount"`
-	TotalObservedAmount decimal.Decimal `json:"total_observed_amount" db:"total_observed_amount"`
-	TotalVariance       decimal.Decimal `json:"total_variance" db:"total_variance"`
+	TotalIntendedAmount   decimal.Decimal `json:"total_intended_amount" db:"total_intended_amount"`
+	TotalObservedAmount   decimal.Decimal `json:"total_observed_amount" db:"total_observed_amount"`
+	OriginalSettledAmount decimal.Decimal `json:"original_settled_amount" db:"original_settled_amount"`
+	TotalVariance         decimal.Decimal `json:"total_variance" db:"total_variance"`
 
 	// Derived status
 	BatchAttachmentStatus    string    `json:"batch_attachment_status" db:"batch_attachment_status"`

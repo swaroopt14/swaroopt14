@@ -547,9 +547,10 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			conflicted_count            INT NOT NULL DEFAULT 0,
 
 			-- amount aggregates
-			total_intended_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
-			total_observed_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
-			total_variance        NUMERIC(20,2) NOT NULL DEFAULT 0,
+			total_intended_amount   NUMERIC(20,2) NOT NULL DEFAULT 0,
+			total_observed_amount   NUMERIC(20,2) NOT NULL DEFAULT 0,
+			original_settled_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
+			total_variance          NUMERIC(20,2) NOT NULL DEFAULT 0,
 
 			-- derived status
 			batch_attachment_status     TEXT NOT NULL,

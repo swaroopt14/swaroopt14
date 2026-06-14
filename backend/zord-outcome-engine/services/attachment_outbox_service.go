@@ -113,15 +113,15 @@ func (s *AttachmentOutboxService) EmitForJob(
 	}
 
 	// 2. Fetch batch summary data for aggregate amounts
-	var totalIntendedAmount, totalConfirmedAmount, totalVariance decimal.Decimal
+	var totalIntendedAmount, totalConfirmedAmount, totalVariance, originalSettledAmount decimal.Decimal
 	row := db.DB.QueryRowContext(ctx, `
-		SELECT total_intended_amount, total_observed_amount, total_variance
+		SELECT total_intended_amount,original_settled_amount, total_observed_amount, total_variance
 		FROM batch_attachment_summaries 
 		WHERE attachment_job_id = $1 
 		LIMIT 1`,
 		job.AttachmentJobID,
 	)
-	_ = row.Scan(&totalIntendedAmount, &totalConfirmedAmount, &totalVariance)
+	_ = row.Scan(&totalIntendedAmount, &originalSettledAmount, &totalConfirmedAmount, &totalVariance)
 
 	for _, d := range decisions {
 		// ── 1. attachment.decision.created ────────────────────────────────
@@ -546,6 +546,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"partial_recon_count":          0,
 		"total_intended_amount_minor":  totalIntendedAmount.String(),
 		"total_confirmed_amount_minor": totalConfirmedAmount.String(),
+		"original_settled_amount":      originalSettledAmount.String(),
 		"total_variance_minor":         totalVariance.String(),
 		"ambiguity_score":              aggregateAmbiguity,
 		"aggregate_match_confidence":   summaryMatchConfidence,

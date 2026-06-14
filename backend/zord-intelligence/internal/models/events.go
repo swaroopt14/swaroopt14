@@ -580,6 +580,7 @@ type BatchSummaryUpdatedEvent struct {
 	// ── Aggregate money amounts (all in minor units) ──────────────────────────
 	TotalIntendedAmountMinor  decimal.Decimal `json:"total_intended_amount_minor"`
 	TotalConfirmedAmountMinor decimal.Decimal `json:"total_confirmed_amount_minor"`
+	OriginalSettledAmountMinor decimal.Decimal `json:"original_settled_amount"`
 	TotalVarianceMinor        decimal.Decimal `json:"total_variance_minor"` // positive = leakage
 
 	// ── Intelligence scores ───────────────────────────────────────────────────

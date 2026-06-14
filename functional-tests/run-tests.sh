@@ -154,7 +154,7 @@ if [ -n "$API_KEY" ]; then
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${API_KEY}" \
     -H "X-Idempotency-Key: ${IDEMP_KEY}" \
-    -H "X-Zord-Source-Type: JSON" \
+    -H "X-Zord-Source-Type: CSV" \
     -H "X-Zord-Source-Class: INTENT" \
     -d '{
       "source_system": "FuncTest",

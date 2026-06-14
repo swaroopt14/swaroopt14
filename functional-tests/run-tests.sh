@@ -209,13 +209,25 @@ CSVEOF
 
   if [ "$BULK_HTTP" = "200" ] || [ "$BULK_HTTP" = "201" ] || [ "$BULK_HTTP" = "202" ]; then
     TOTAL=$(echo "${BULK_BODY}" | jq -r '.total // .count // empty')
-    if [ -n "$TOTAL" ] && [ "$TOTAL" != "null" ]; then
-      log_pass "Bulk CSV ingest" "Accepted ${TOTAL} rows"
+    ACCEPTED_ROWS=$(echo "${BULK_BODY}" | jq -r '[.results[]? | select(.Status == "Accepted")] | length' 2>/dev/null)
+    FAILED_ROWS=$(echo "${BULK_BODY}" | jq -r '[.results[]? | select(.Status == "FAILED")] | length' 2>/dev/null)
+    DUPLICATE_ROWS=$(echo "${BULK_BODY}" | jq -r '[.results[]? | select(.Status == "DUPLICATE")] | length' 2>/dev/null)
+
+    if [ -n "$TOTAL" ] && [ "$TOTAL" != "null" ] && [ "$TOTAL" != "0" ]; then
+      log_pass "Bulk CSV ingest" "Total=${TOTAL}, Accepted=${ACCEPTED_ROWS:-0}, Failed=${FAILED_ROWS:-0}, Duplicate=${DUPLICATE_ROWS:-0}"
     else
       log_pass "Bulk CSV ingest" "Accepted (HTTP ${BULK_HTTP})"
     fi
+
+    # Deep check: if all rows FAILED, that's a problem
+    if [ "${FAILED_ROWS:-0}" -gt 0 ] && [ "${ACCEPTED_ROWS:-0}" -eq 0 ] 2>/dev/null; then
+      FIRST_ERROR=$(echo "${BULK_BODY}" | jq -r '.results[0].error // empty' 2>/dev/null)
+      echo -e "${RED}  ⚠️  WARNING: All bulk rows FAILED. First error: ${FIRST_ERROR}${NC}"
+    fi
   elif [ "$BULK_HTTP" = "429" ]; then
     log_pass "Bulk CSV ingest" "Rate limited (429) — endpoint working"
+  elif [ "$BULK_HTTP" = "409" ]; then
+    log_pass "Bulk CSV ingest" "Duplicate batch (409) — file already processed (this is correct)"
   else
     log_fail "Bulk CSV ingest" "Expected 200/201/202, got ${BULK_HTTP}: $(echo ${BULK_BODY} | head -c 100)"
   fi
@@ -246,6 +258,34 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
   fi
 else
   log_fail "Query intents" "Skipped — no API key"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 5b: Deep Verify — Did ingest actually create a record in intent-engine DB?
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Deep Verify: Ingest record exists in DB"
+if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+  # If we got an EnvelopeID from ingest, the edge accepted it.
+  # But did it reach intent-engine via Kafka? Check if total > 0.
+  DV_RESP=$(curl -s -w "\n%{http_code}" \
+    "${BASE_URL}/v1/intents?tenant_id=${TENANT_ID}&page_size=1" \
+    -H "Authorization: Bearer ${API_KEY}")
+  DV_HTTP=$(echo "${DV_RESP}" | tail -1)
+  DV_BODY=$(echo "${DV_RESP}" | sed '$d')
+
+  if [ "$DV_HTTP" = "200" ]; then
+    DV_TOTAL=$(echo "${DV_BODY}" | jq -r '.pagination.total // (.items | length) // 0')
+    if [ "$DV_TOTAL" -gt 0 ] 2>/dev/null; then
+      DV_STATUS=$(echo "${DV_BODY}" | jq -r '.items[0].status // .items[0].intent_status // "unknown"')
+      log_pass "Ingest DB verification" "Records in DB: ${DV_TOTAL}, latest status: ${DV_STATUS}"
+    else
+      log_fail "Ingest DB verification" "Edge accepted ingest (202) but intent-engine DB has 0 records. Kafka consumer NOT processing. Check: KAFKA_BROKERS, consumer group lag, intent-engine logs."
+    fi
+  else
+    log_fail "Ingest DB verification" "Cannot query intents: HTTP ${DV_HTTP}"
+  fi
+else
+  log_fail "Ingest DB verification" "Skipped — no API key"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -315,6 +355,71 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TEST 6c: Settlement Job Status — Verify background processing completed
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Settlement Job Status: GET /v1/settlement/jobs/:id"
+if [ -n "$JOB_ID" ] && [ "$JOB_ID" != "null" ] && [ -n "$TENANT_ID" ]; then
+  echo "  Waiting 5 seconds for background parsing..."
+  sleep 5
+
+  JOB_RESP=$(curl -s -w "\n%{http_code}" \
+    "${BASE_URL}/v1/settlement/jobs/${JOB_ID}?tenant_id=${TENANT_ID}" \
+    -H "Authorization: Bearer ${API_KEY}")
+  JOB_HTTP=$(echo "${JOB_RESP}" | tail -1)
+  JOB_BODY=$(echo "${JOB_RESP}" | sed '$d')
+
+  if [ "$JOB_HTTP" = "200" ]; then
+    RUN_STATUS=$(echo "${JOB_BODY}" | jq -r '.run_status // empty')
+    ROWS_PARSED=$(echo "${JOB_BODY}" | jq -r '.row_count_parsed // 0')
+    ROWS_FAILED=$(echo "${JOB_BODY}" | jq -r '.row_count_failed // 0')
+    ROWS_CANON=$(echo "${JOB_BODY}" | jq -r '.row_count_canonicalized // 0')
+    FAILURE_CODE=$(echo "${JOB_BODY}" | jq -r '.failure_reason_code // "none"')
+
+    if [ "$RUN_STATUS" = "COMPLETED" ] || [ "$RUN_STATUS" = "ACTIVE" ]; then
+      log_pass "Settlement job status" "Status=${RUN_STATUS}, parsed=${ROWS_PARSED}, canonicalized=${ROWS_CANON}, failed=${ROWS_FAILED}"
+    elif [ "$RUN_STATUS" = "FAILED" ]; then
+      log_fail "Settlement job status" "Job FAILED — failure_code=${FAILURE_CODE}, parsed=${ROWS_PARSED}, failed=${ROWS_FAILED}. Check outcome-engine pod logs."
+    elif [ "$RUN_STATUS" = "PARSING_IN_PROGRESS" ]; then
+      log_pass "Settlement job status" "Still parsing (Status=${RUN_STATUS}, parsed=${ROWS_PARSED} so far)"
+    else
+      log_fail "Settlement job status" "Unexpected status: ${RUN_STATUS}. parsed=${ROWS_PARSED}, failed=${ROWS_FAILED}"
+    fi
+  elif [ "$JOB_HTTP" = "404" ]; then
+    log_fail "Settlement job status" "Job ${JOB_ID} not found — DB may not have stored the job record"
+  else
+    log_fail "Settlement job status" "Expected 200, got ${JOB_HTTP}"
+  fi
+else
+  log_fail "Settlement job status" "Skipped — no job_id from settlement upload"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 6d: Settlement Observations — Verify data stored in outcome DB
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Settlement Observations: GET /v1/settlement/observations/batches"
+if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+  OBS_RESP=$(curl -s -w "\n%{http_code}" \
+    "${BASE_URL}/v1/settlement/observations/batches?tenant_id=${TENANT_ID}" \
+    -H "Authorization: Bearer ${API_KEY}")
+  OBS_HTTP=$(echo "${OBS_RESP}" | tail -1)
+  OBS_BODY=$(echo "${OBS_RESP}" | sed '$d')
+
+  if [ "$OBS_HTTP" = "200" ]; then
+    BATCH_COUNT=$(echo "${OBS_BODY}" | jq -r '.items | length')
+    if [ "$BATCH_COUNT" -gt 0 ] 2>/dev/null; then
+      FIRST_BATCH=$(echo "${OBS_BODY}" | jq -r '.items[0].client_batch_id')
+      log_pass "Settlement observations" "Found ${BATCH_COUNT} batches in DB (latest: ${FIRST_BATCH})"
+    else
+      log_fail "Settlement observations" "200 but 0 batches — outcome-engine DB not storing settlement records after parsing"
+    fi
+  else
+    log_fail "Settlement observations" "Expected 200, got ${OBS_HTTP} — outcome-engine DB query failed"
+  fi
+else
+  log_fail "Settlement observations" "Skipped — no tenant ID"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TEST 7: Intelligence — KPIs endpoint working + returns data
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Intelligence: GET /v1/projections (KPIs)"
@@ -324,10 +429,14 @@ if [ -n "$TENANT_ID" ]; then
   INTEL_HTTP=$(echo "${INTEL_RESP}" | tail -1)
   INTEL_BODY=$(echo "${INTEL_RESP}" | sed '$d')
 
-  if [ "$INTEL_HTTP" = "200" ] || [ "$INTEL_HTTP" = "401" ] || [ "$INTEL_HTTP" = "404" ]; then
-    log_pass "Intelligence KPIs" "HTTP ${INTEL_HTTP} (service reachable)"
+  if [ "$INTEL_HTTP" = "200" ]; then
+    PROJ_COUNT=$(echo "${INTEL_BODY}" | jq -r '.count // (.projections | length) // 0' 2>/dev/null)
+    INTEL_MODE=$(echo "${INTEL_BODY}" | jq -r '.intelligence_mode // "unknown"' 2>/dev/null)
+    log_pass "Intelligence KPIs" "HTTP 200, mode=${INTEL_MODE}, projections=${PROJ_COUNT:-0}"
+  elif [ "$INTEL_HTTP" = "401" ] || [ "$INTEL_HTTP" = "404" ]; then
+    log_pass "Intelligence KPIs" "HTTP ${INTEL_HTTP} (service reachable, auth/route issue)"
   else
-    log_fail "Intelligence KPIs" "Expected 200/401/404, got ${INTEL_HTTP}"
+    log_fail "Intelligence KPIs" "Expected 200, got ${INTEL_HTTP} — intelligence DB may be disconnected. Check INTELLIGENCE_DATABASE_URL secret."
   fi
 else
   log_fail "Intelligence KPIs" "Skipped — no tenant ID"
@@ -341,11 +450,13 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
   DLQ_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/dlq?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${API_KEY}")
   DLQ_HTTP=$(echo "${DLQ_RESP}" | tail -1)
+  DLQ_BODY=$(echo "${DLQ_RESP}" | sed '$d')
 
   if [ "$DLQ_HTTP" = "200" ]; then
-    log_pass "DLQ query" "HTTP 200 — DLQ accessible"
+    DLQ_COUNT=$(echo "${DLQ_BODY}" | jq -r 'if type == "array" then length else 0 end' 2>/dev/null)
+    log_pass "DLQ query" "HTTP 200, DLQ entries: ${DLQ_COUNT:-0} (intent-engine DB accessible)"
   else
-    log_fail "DLQ query" "Expected 200, got ${DLQ_HTTP}"
+    log_fail "DLQ query" "Expected 200, got ${DLQ_HTTP} — intent-engine DLQ table not accessible. Check DB connection."
   fi
 else
   log_fail "DLQ query" "Skipped — no API key"

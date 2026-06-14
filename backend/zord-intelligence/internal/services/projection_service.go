@@ -1860,23 +1860,24 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 
 	// Issue 10 Fix: Upsert batch to contracts immediately alongside projection window to keep Batch API aligned.
 	bc := persistence.BatchContract{
-		BatchID:                   e.BatchID,
-		TenantID:                  e.TenantID,
-		SourceReference:           nil, // Mapped if upstream adds it via Event Schema
-		TotalCount:                e.TotalCount,
-		SuccessCount:              e.SuccessCount,
-		FailedCount:               e.FailedCount,
-		PendingCount:              e.PendingCount,
-		ReversedCount:             e.ReversedCount,
-		PartialReconCount:         e.PartialReconCount,
-		TotalIntendedAmountMinor:  e.TotalIntendedAmountMinor,
-		TotalConfirmedAmountMinor: e.TotalConfirmedAmountMinor,
-		TotalVarianceMinor:        e.TotalVarianceMinor,
-		BatchFinalityStatus:       e.BatchFinalityStatus,
-		AmbiguityScore:            &e.AmbiguityScore,
-		MatchConfidence:           &e.MatchConfidence,
-		LastUpdatedAt:             time.Now(),
-		CreatedAt:                 time.Now(),
+		BatchID:                    e.BatchID,
+		TenantID:                   e.TenantID,
+		SourceReference:            nil, // Mapped if upstream adds it via Event Schema
+		TotalCount:                 e.TotalCount,
+		SuccessCount:               e.SuccessCount,
+		FailedCount:                e.FailedCount,
+		PendingCount:               e.PendingCount,
+		ReversedCount:              e.ReversedCount,
+		PartialReconCount:          e.PartialReconCount,
+		TotalIntendedAmountMinor:   e.TotalIntendedAmountMinor,
+		TotalConfirmedAmountMinor:  e.TotalConfirmedAmountMinor,
+		OriginalSettledAmountMinor: e.OriginalSettledAmountMinor,
+		TotalVarianceMinor:         e.TotalVarianceMinor,
+		BatchFinalityStatus:        e.BatchFinalityStatus,
+		AmbiguityScore:             &e.AmbiguityScore,
+		MatchConfidence:            &e.MatchConfidence,
+		LastUpdatedAt:              time.Now(),
+		CreatedAt:                  time.Now(),
 	}
 	if err := s.batchRepo.Upsert(ctx, bc); err != nil {
 		return fmt.Errorf("HandleBatchSummaryUpdated batchRepo.Upsert batch=%s: %w", e.BatchID, err)

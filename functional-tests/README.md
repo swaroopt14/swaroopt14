@@ -108,8 +108,8 @@ Push the `functional-tests/` folder to your repository.
 3. Fill in:
    - Kind: **Secret text**
    - Secret: paste your webhook URL from Step 2
-   - ID: `slack-webhook`
-   - Description: `Slack webhook for Zord bots`
+   - ID: `slack-webhook-functional`
+   - Description: `Slack webhook for functional testing bot`
 4. Click **Save**
 
 ---
@@ -204,7 +204,7 @@ Choose one (or multiple):
 |------|-------|
 | Jenkins Job Name | `functional-tests` |
 | Script Path | `functional-tests/Jenkinsfile.functional-tests` |
-| Credential | `slack-webhook` (same as performance-tests) |
+| Credential | `slack-webhook-functional` |
 | Target URL | `https://api.zordnet.com` |
 | Admin Key | `zord123` |
 | Duration | ~30–60 seconds |

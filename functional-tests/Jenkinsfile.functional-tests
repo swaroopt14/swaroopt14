@@ -14,7 +14,7 @@ pipeline {
 
   environment {
     RESULTS_DIR = "functional-tests/results/${BUILD_NUMBER}"
-    SLACK_WEBHOOK_URL = credentials('slack-webhook')
+    SLACK_WEBHOOK_URL = credentials('slack-webhook-functional')
   }
 
   stages {

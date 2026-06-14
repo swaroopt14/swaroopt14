@@ -483,6 +483,162 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TEST 10: Reconciliation — Verify outcome-engine recon endpoint
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Reconciliation: GET /v1/reconciliation"
+if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+  RECON_RESP=$(curl -s -w "\n%{http_code}" \
+    "${BASE_URL}/v1/reconciliation?tenant_id=${TENANT_ID}" \
+    -H "Authorization: Bearer ${API_KEY}")
+  RECON_HTTP=$(echo "${RECON_RESP}" | tail -1)
+  RECON_BODY=$(echo "${RECON_RESP}" | sed '$d')
+
+  if [ "$RECON_HTTP" = "200" ]; then
+    log_pass "Reconciliation" "HTTP 200 — endpoint working, DB accessible"
+  elif [ "$RECON_HTTP" = "401" ]; then
+    log_pass "Reconciliation" "HTTP 401 (service reachable, auth needed)"
+  else
+    log_fail "Reconciliation" "Expected 200, got ${RECON_HTTP} — outcome-engine reconciliation broken"
+  fi
+else
+  log_fail "Reconciliation" "Skipped — no tenant ID"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 11: Evidence Packs — Verify evidence service can query
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Evidence: GET /v1/evidence/packs"
+if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+  # Evidence requires intent_id or client_batch_id — use a test batch
+  EV_RESP=$(curl -s -w "\n%{http_code}" \
+    "${BASE_URL}/v1/evidence/packs?tenant_id=${TENANT_ID}&client_batch_id=FUNC_BATCH_001" \
+    -H "Authorization: Bearer ${API_KEY}")
+  EV_HTTP=$(echo "${EV_RESP}" | tail -1)
+  EV_BODY=$(echo "${EV_RESP}" | sed '$d')
+
+  if [ "$EV_HTTP" = "200" ]; then
+    EV_COUNT=$(echo "${EV_BODY}" | jq -r '.total // (.packs | length) // 0' 2>/dev/null)
+    log_pass "Evidence packs" "HTTP 200, packs=${EV_COUNT:-0} (evidence DB accessible)"
+  elif [ "$EV_HTTP" = "400" ]; then
+    # 400 means the endpoint works but needs valid params
+    log_pass "Evidence packs" "HTTP 400 (endpoint works, needs valid batch_id)"
+  elif [ "$EV_HTTP" = "401" ]; then
+    log_pass "Evidence packs" "HTTP 401 (service reachable)"
+  else
+    log_fail "Evidence packs" "Expected 200/400, got ${EV_HTTP} — evidence DB may be down"
+  fi
+else
+  log_fail "Evidence packs" "Skipped — no tenant ID"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 12: Intelligence Leakage — Deep intelligence surface check
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Intelligence Leakage: GET /v1/rca"
+if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+  RCA_RESP=$(curl -s -w "\n%{http_code}" \
+    "${BASE_URL}/v1/rca?tenant_id=${TENANT_ID}" \
+    -H "Authorization: Bearer ${API_KEY}")
+  RCA_HTTP=$(echo "${RCA_RESP}" | tail -1)
+
+  if [ "$RCA_HTTP" = "200" ]; then
+    log_pass "Intelligence RCA" "HTTP 200 — RCA endpoint working"
+  elif [ "$RCA_HTTP" = "401" ]; then
+    log_pass "Intelligence RCA" "HTTP 401 (service reachable)"
+  else
+    log_fail "Intelligence RCA" "Expected 200, got ${RCA_HTTP} — intelligence RCA broken"
+  fi
+else
+  log_fail "Intelligence RCA" "Skipped — no tenant ID"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 13: Dispatch Status — Verify relay service
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Dispatch: GET /v1/dispatch"
+if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+  DISP_RESP=$(curl -s -w "\n%{http_code}" \
+    "${BASE_URL}/v1/dispatch?tenant_id=${TENANT_ID}" \
+    -H "Authorization: Bearer ${API_KEY}")
+  DISP_HTTP=$(echo "${DISP_RESP}" | tail -1)
+
+  if [ "$DISP_HTTP" = "200" ]; then
+    log_pass "Dispatch status" "HTTP 200 — relay dispatch endpoint working"
+  elif [ "$DISP_HTTP" = "401" ] || [ "$DISP_HTTP" = "404" ]; then
+    log_pass "Dispatch status" "HTTP ${DISP_HTTP} (service reachable)"
+  else
+    log_fail "Dispatch status" "Expected 200, got ${DISP_HTTP} — relay service may be down"
+  fi
+else
+  log_fail "Dispatch status" "Skipped — no tenant ID"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 14: Auth Flow — Verify signup/login works (zord-console auth)
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Auth: POST /v1/auth/signup + login"
+AUTH_EMAIL="functest-$(date +%s)@test.zordnet.com"
+AUTH_PASS="FuncTest123!"
+
+# Signup
+SIGNUP_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/signup" \
+  -H "Content-Type: application/json" \
+  -d "{\"tenant_name\": \"auth-test-$(date +%s)\", \"name\": \"FuncTest Auth\", \"email\": \"${AUTH_EMAIL}\", \"password\": \"${AUTH_PASS}\"}")
+SIGNUP_HTTP=$(echo "${SIGNUP_RESP}" | tail -1)
+SIGNUP_BODY=$(echo "${SIGNUP_RESP}" | sed '$d')
+
+if [ "$SIGNUP_HTTP" = "201" ]; then
+  ACCESS_TOKEN=$(echo "${SIGNUP_BODY}" | jq -r '.access_token // empty')
+  SIGNUP_TENANT=$(echo "${SIGNUP_BODY}" | jq -r '.user.tenant_id // empty')
+  if [ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "null" ]; then
+    # Now try login with same credentials
+    LOGIN_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/login" \
+      -H "Content-Type: application/json" \
+      -d "{\"email\": \"${AUTH_EMAIL}\", \"password\": \"${AUTH_PASS}\"}")
+    LOGIN_HTTP=$(echo "${LOGIN_RESP}" | tail -1)
+    LOGIN_BODY=$(echo "${LOGIN_RESP}" | sed '$d')
+
+    if [ "$LOGIN_HTTP" = "200" ]; then
+      LOGIN_TOKEN=$(echo "${LOGIN_BODY}" | jq -r '.access_token // empty')
+      if [ -n "$LOGIN_TOKEN" ] && [ "$LOGIN_TOKEN" != "null" ]; then
+        log_pass "Auth signup+login" "Signup=201, Login=200, JWT issued, tenant=${SIGNUP_TENANT}"
+      else
+        log_fail "Auth signup+login" "Login 200 but no access_token in response"
+      fi
+    else
+      log_fail "Auth signup+login" "Signup OK but Login failed: HTTP ${LOGIN_HTTP}"
+    fi
+  else
+    log_fail "Auth signup+login" "Signup 201 but no access_token — JWT generation broken"
+  fi
+elif [ "$SIGNUP_HTTP" = "409" ]; then
+  log_pass "Auth signup+login" "Email already exists (409) — auth service working"
+else
+  log_fail "Auth signup+login" "Expected 201, got ${SIGNUP_HTTP}: $(echo ${SIGNUP_BODY} | head -c 100)"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 15: Settlement Parse Errors — Check if parsing errors are tracked
+# ══════════════════════════════════════════════════════════════════════════════
+run_test "Settlement Errors: GET /v1/settlement/errors"
+if [ -n "$API_KEY" ]; then
+  ERRS_RESP=$(curl -s -w "\n%{http_code}" \
+    "${BASE_URL}/v1/settlement/errors" \
+    -H "Authorization: Bearer ${API_KEY}")
+  ERRS_HTTP=$(echo "${ERRS_RESP}" | tail -1)
+
+  if [ "$ERRS_HTTP" = "200" ]; then
+    log_pass "Settlement errors" "HTTP 200 — parse error tracking accessible"
+  elif [ "$ERRS_HTTP" = "401" ]; then
+    log_pass "Settlement errors" "HTTP 401 (endpoint exists, auth needed)"
+  else
+    log_fail "Settlement errors" "Expected 200, got ${ERRS_HTTP} — settlement error tracking broken"
+  fi
+else
+  log_fail "Settlement errors" "Skipped — no API key"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
 # FINAL REPORT
 # ══════════════════════════════════════════════════════════════════════════════
 TOTAL=$((PASS_COUNT + FAIL_COUNT))

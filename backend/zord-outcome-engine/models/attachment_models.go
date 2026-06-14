@@ -291,9 +291,18 @@ type BatchAttachmentSummary struct {
 	ConflictedCount     int `json:"conflicted_count" db:"conflicted_count"`
 
 	// Amount aggregates
-	TotalIntendedAmount decimal.Decimal `json:"total_intended_amount" db:"total_intended_amount"`
-	TotalObservedAmount decimal.Decimal `json:"total_observed_amount" db:"total_observed_amount"`
-	TotalVariance       decimal.Decimal `json:"total_variance" db:"total_variance"`
+	TotalIntendedAmount      decimal.Decimal `json:"total_intended_amount" db:"total_intended_amount"`
+	OriginalIntendedAmount   decimal.Decimal `json:"original_intended_amount" db:"original_intended_amount"`
+	UnresolvedIntendedAmount decimal.Decimal `json:"unresolved_intended_amount" db:"unresolved_intended_amount"`
+	TotalObservedAmount      decimal.Decimal `json:"total_observed_amount" db:"total_observed_amount"`
+	OriginalSettledAmount    decimal.Decimal `json:"original_settled_amount" db:"original_settled_amount"`
+	AmbiguousObservedAmount  decimal.Decimal `json:"ambiguous_observed_amount" db:"ambiguous_observed_amount"`
+	ConflictedObservedAmount decimal.Decimal `json:"conflicted_observed_amount" db:"conflicted_observed_amount"`
+	UnresolvedObservedAmount decimal.Decimal `json:"unresolved_observed_amount" db:"unresolved_observed_amount"`
+	TotalFeeAmount           decimal.Decimal `json:"total_fee_amount" db:"total_fee_amount"`
+	TotalDeductionAmount     decimal.Decimal `json:"total_deduction_amount" db:"total_deduction_amount"`
+	TotalVariance            decimal.Decimal `json:"total_variance" db:"total_variance"`
+	NetUnexplainedVariance   decimal.Decimal `json:"net_unexplained_variance" db:"net_unexplained_variance"`
 
 	// Derived status
 	BatchAttachmentStatus    string    `json:"batch_attachment_status" db:"batch_attachment_status"`

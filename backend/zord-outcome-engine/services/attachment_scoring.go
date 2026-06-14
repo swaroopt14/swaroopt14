@@ -677,11 +677,9 @@ func ComputeMatchConfidence(cs CandidateScore) float64 {
 		cs.Breakdown.BatchContextScore +
 		cs.Breakdown.TimingScore
 
-	// Theoretical max based on current v1 scoring weights for a perfect match
-	// ClientRef(100) + Amount(30) + Batch(90) + Time(20) = 360
-	// We'll use 215.0 as a reasonable denominator that represents a "very strong" match
-	// allowing for some flexibility in how refs are weighted.
-	const maxTheoreticalScore = 215.0
+	// Theoretical max based on current scoring weights for a perfect match:
+	// ClientRef(100) + Amount(30) + Batch(15) + Time(20) = 165
+	const maxTheoreticalScore = 165.0
 
 	matchConfidence := nativeScore / maxTheoreticalScore
 	if matchConfidence > 1.0 {

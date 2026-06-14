@@ -514,17 +514,25 @@ func (e *AttachmentEngine) runAttachment(
 	//      during the forward scan. Covers batch-ref mismatches and ensures
 	//      ambiguous / conflicted intents still produce UnresolvedIntentRecords.
 	var allUnresolvedIntents []models.UnresolvedIntentRecord
-	if scopeType == models.JobScopeSettlementBatch || scopeType == models.JobScopeIngestRun {
-		effectiveIntentMap := masterIntentMap
-		if len(effectiveIntentMap) == 0 && len(allScannedIntentsMap) > 0 {
+	
+	effectiveIntentMap := masterIntentMap
+	if len(effectiveIntentMap) == 0 && len(allScannedIntentsMap) > 0 {
+		if scopeType == models.JobScopeSettlementBatch || scopeType == models.JobScopeIngestRun {
 			log.Printf(
 				"attachment.engine.reverse_scan_fallback job=%s scope=%s "+
 					"reason=MASTER_MAP_EMPTY_USING_CANDIDATE_INTENTS candidate_count=%d",
 				job.AttachmentJobID, scopeType, len(allScannedIntentsMap),
 			)
-			effectiveIntentMap = allScannedIntentsMap
 		}
+		effectiveIntentMap = allScannedIntentsMap
+	}
 
+	var originalIntendedAmount decimal.Decimal
+	for _, intent := range effectiveIntentMap {
+		originalIntendedAmount = originalIntendedAmount.Add(intent.Amount)
+	}
+
+	if scopeType == models.JobScopeSettlementBatch || scopeType == models.JobScopeIngestRun {
 		if len(effectiveIntentMap) > 0 {
 			allUnresolvedIntents = performReverseScan(
 				tenantID,
@@ -554,7 +562,7 @@ func (e *AttachmentEngine) runAttachment(
 	// Batch summary is computed here and passed into the transaction so it is
 	// written atomically with candidates, decisions, variances, and the job
 	// status update. No separate call after commit.
-	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, observations, allDecisions, allVariances, totalIntendedAmount)
+	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, observations, allDecisions, allVariances, totalIntendedAmount, originalIntendedAmount)
 	if err := persistAttachmentOutputs(
 		ctx, job,
 		allCandidates, allDecisions, allVariances, allUnresolvedIntents,
@@ -1019,6 +1027,7 @@ func computeBatchSummary(
 	decisions []models.AttachmentDecision,
 	variances []models.VarianceRecord,
 	totalIntendedAmount decimal.Decimal,
+	originalIntendedAmount decimal.Decimal,
 ) models.BatchAttachmentSummary {
 
 	summary := models.BatchAttachmentSummary{
@@ -1029,6 +1038,7 @@ func computeBatchSummary(
 		AttachmentJobID:          jobID,
 		TotalIntentCount:         len(observations),
 		TotalIntendedAmount:      totalIntendedAmount,
+		OriginalIntendedAmount:   originalIntendedAmount,
 		CreatedAt:                time.Now().UTC(),
 		UpdatedAt:                time.Now().UTC(),
 	}
@@ -1299,16 +1309,16 @@ func persistAttachmentOutputs(
 			attachment_job_id,
 			total_intent_count, exact_match_count, high_confidence_count,
 			ambiguous_count, unresolved_count, conflicted_count,
-			total_intended_amount, total_observed_amount, original_settled_amount, total_variance,
+			total_intended_amount, original_intended_amount, total_observed_amount, original_settled_amount, total_variance,
 			batch_attachment_status, aggregate_score, aggregate_match_confidence, ambiguity_score, created_at, updated_at
 		) VALUES (
-			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22
 		) ON CONFLICT DO NOTHING`,
 		batchSummary.BatchAttachmentSummaryID, batchSummary.TenantID, batchSummary.BatchID, batchSummary.SourceReference,
 		batchSummary.AttachmentJobID,
 		batchSummary.TotalIntentCount, batchSummary.ExactMatchCount, batchSummary.HighConfidenceCount,
 		batchSummary.AmbiguousCount, batchSummary.UnresolvedCount, batchSummary.ConflictedCount,
-		batchSummary.TotalIntendedAmount, batchSummary.TotalObservedAmount, batchSummary.OriginalSettledAmount, batchSummary.TotalVariance,
+		batchSummary.TotalIntendedAmount, batchSummary.OriginalIntendedAmount, batchSummary.TotalObservedAmount, batchSummary.OriginalSettledAmount, batchSummary.TotalVariance,
 		batchSummary.BatchAttachmentStatus, batchSummary.AggregateScore, batchSummary.AggregateMatchConfidence, batchSummary.AmbiguityScore,
 		batchSummary.CreatedAt, batchSummary.UpdatedAt,
 	); err != nil {

@@ -1033,10 +1033,15 @@ func computeBatchSummary(
 		UpdatedAt:                time.Now().UTC(),
 	}
 
+	var matchedCount float64
+
 	for _, d := range decisions {
-		summary.AggregateScore += d.ConfidenceScore
-		summary.AggregateMatchConfidence += d.MatchConfidence
-		summary.AmbiguityScore += d.AmbiguityScore
+		if d.DecisionType != models.DecisionMatchUnresolved {
+			summary.AggregateScore += d.ConfidenceScore
+			summary.AggregateMatchConfidence += d.MatchConfidence
+			summary.AmbiguityScore += d.AmbiguityScore
+			matchedCount++
+		}
 		switch d.DecisionType {
 		case models.DecisionMatchExact:
 			summary.ExactMatchCount++
@@ -1076,9 +1081,15 @@ func computeBatchSummary(
 		summary.AggregateMatchConfidence = 0
 		summary.AmbiguityScore = 0
 	} else {
-		summary.AggregateScore = summary.AggregateScore / float64(total)
-		summary.AggregateMatchConfidence = summary.AggregateMatchConfidence / float64(total)
-		summary.AmbiguityScore = summary.AmbiguityScore / float64(total)
+		if matchedCount > 0 {
+			summary.AggregateScore = summary.AggregateScore / matchedCount
+			summary.AggregateMatchConfidence = summary.AggregateMatchConfidence / matchedCount
+			summary.AmbiguityScore = summary.AmbiguityScore / matchedCount
+		} else {
+			summary.AggregateScore = 0
+			summary.AggregateMatchConfidence = 0
+			summary.AmbiguityScore = 0
+		}
 		strongCount := summary.ExactMatchCount + summary.HighConfidenceCount
 		ratio := float64(strongCount) / float64(total)
 		switch {

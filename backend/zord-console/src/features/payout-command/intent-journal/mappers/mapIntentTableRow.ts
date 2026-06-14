@@ -51,36 +51,12 @@ function parseSourceRowNum(raw: unknown): number | null {
 }
 
 function resolveRailHint(item: IntentJournalPaymentIntentItem): string {
-  const beneficiary = item.beneficiary as { instrument?: unknown } | undefined
-  const instrumentKind =
-    typeof beneficiary?.instrument === 'object' &&
-    beneficiary?.instrument &&
-    typeof (beneficiary.instrument as { kind?: unknown }).kind === 'string'
-      ? String((beneficiary.instrument as { kind?: string }).kind || '')
-      : ''
-
-  const candidates = [
-    apiTrimmedString(item.rail_hint),
-    apiTrimmedString(item.beneficiary_type),
-    apiTrimmedString(instrumentKind),
-    apiTrimmedString(item.provider_hint),
-  ]
-    .filter(Boolean)
-    .map((v) => String(v).toUpperCase())
-
-  for (const value of candidates) {
-    if (value.includes('RTGS')) return 'RTGS'
-    if (value.includes('NEFT')) return 'NEFT'
-    if (value.includes('NACH')) return 'NACH'
-    if (value.includes('IMPS')) return 'IMPS'
-    if (value.includes('UPI')) return 'UPI'
-    if (value.includes('LSM') || value.includes('INSTA')) return 'LSM'
-    if (value.includes('BANK_TRANSFER') || value.includes('BANK TRANSFER')) return 'Bank Transfer'
-  }
-  return '—'
+  const rail = apiTrimmedString(item.rail_hint)
+  return rail || '—'
 }
 
 function methodFromRail(rail: string): JournalIntentRow['method'] {
+  if (rail === '—') return '—'
   const r = rail.toUpperCase()
   if (r.includes('NACH')) return 'NACH'
   if (r.includes('IMPS') || r.includes('UPI') || r.includes('LSM')) return 'LSM'

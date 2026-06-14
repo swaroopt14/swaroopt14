@@ -1,6 +1,5 @@
 'use client'
 
-import type { BatchDetailResponse } from '@/services/payout-command/prod-api/intelligenceTypes'
 import {
   HOME_BODY_IMPERIAL_SM,
   HOME_TITLE_BLACK,
@@ -8,14 +7,12 @@ import {
 import {
   BATCH_FILTERS,
   JOURNAL_BORDER,
-  batchQualityScore,
   confidencePctFromBatch,
-  formatInrRupees,
   BATCH_AGGREGATE_STATUS_GUIDE,
   mergeBatchAggregateScore,
+  neutralHealthTone,
   resolveBatchHealthStatus,
   statusTone,
-  usdCompact,
   type BatchFilter,
   type BatchRecord,
 } from '../intentJournalSidebarUtils'
@@ -29,14 +26,17 @@ export type IntentJournalBatchSidebarProps = {
   sidebarPageRows: BatchRecord[]
   selectedBatchId: string
   selectBatch: (batchId: string) => void
-  liveBatchDetail: BatchDetailResponse | null
-  selectedDlqTotal: number
-  selectedEngineIntentTotal: number
+  selectedEngineIntentTotal: number | null
   safeSidebarPage: number
   sidebarTotalPages: number
   needsAttentionCount: number
   /** Selected batch enriched with payment-intent aggregate score. */
   selectedMetricsBatch?: BatchRecord | null
+}
+
+function formatIntentTotal(total: number | null): string {
+  if (total == null) return '—'
+  return `${total.toLocaleString('en-US')} intents`
 }
 
 export function IntentJournalBatchSidebar({
@@ -48,8 +48,6 @@ export function IntentJournalBatchSidebar({
   sidebarPageRows,
   selectedBatchId,
   selectBatch,
-  liveBatchDetail,
-  selectedDlqTotal,
   selectedEngineIntentTotal,
   safeSidebarPage,
   sidebarTotalPages,
@@ -89,51 +87,24 @@ export function IntentJournalBatchSidebar({
             ) : null}
             {sidebarPageRows.map((batch) => {
               const selected = batch.batchId === selectedBatchId
-              const detailRow =
-                journalUsesBackendFeed && selected && liveBatchDetail?.batch?.batch_id === batch.batchId
-                  ? liveBatchDetail.batch
-                  : null
               const batchForHealth = mergeBatchAggregateScore(batch, {
                 isSelected: selected,
-                detailAggregateScore: liveBatchDetail?.batch_health?.aggregate_score,
                 metricsBatch: selected ? selectedMetricsBatch : null,
               })
-              const score = batchQualityScore(batchForHealth)
-              const liveTotalRaw = journalUsesBackendFeed
-                ? (detailRow?.total_count ?? batch.transactions ?? 0)
-                : batch.transactions
-              const liveFinality = detailRow?.finality_status ?? batch.intelligenceCounts?.finality_status
-              const dlqCount = selected
-                ? selectedDlqTotal
-                : batch.unresolvedCount + batch.mismatchCount
-              const intentCount = selected
-                ? Math.max(selectedEngineIntentTotal, liveTotalRaw)
-                : batch.engineSidebar
-                  ? Math.max(batch.confirmedCount, batch.transactions, liveTotalRaw)
-                  : batch.transactions
+              const intentCount = selected ? selectedEngineIntentTotal : batch.transactions > 0 ? batch.transactions : null
               const engineConfPct = confidencePctFromBatch(batchForHealth)
-              const status = resolveBatchHealthStatus(batchForHealth, {
-                dlqCount,
-                intentCount,
-                finality: liveFinality,
-              })
+              const status = resolveBatchHealthStatus(batchForHealth)
               const sidebarScoreDisplay = engineConfPct != null ? `${engineConfPct}%` : '—'
-              const progressWidthPct = engineConfPct ?? score
-              const tone = statusTone(status)
+              const progressWidthPct = engineConfPct ?? 0
+              const tone = status ? statusTone(status) : neutralHealthTone()
               const dotColor =
                 status === 'Stable'
-                  ? 'bg-emerald-500'
+                  ? 'bg-black'
                   : status === 'At Risk'
                     ? 'bg-amber-500'
-                    : 'bg-rose-500'
-
-              const liveMoneyLine =
-                journalUsesBackendFeed &&
-                selected &&
-                liveBatchDetail?.batch_health &&
-                liveBatchDetail.batch?.batch_id === batch.batchId
-                  ? formatInrRupees(Number(liveBatchDetail.batch_health.total_confirmed_amount_minor))
-                  : null
+                    : status === 'Critical'
+                      ? 'bg-rose-500'
+                      : 'bg-slate-300'
 
               return (
                 <button
@@ -146,7 +117,6 @@ export function IntentJournalBatchSidebar({
                       : 'border-transparent hover:border-[#E5E5E5] hover:bg-slate-50'
                   }`}
                 >
-                  {/* Line 1: status dot + batch ID + success count (live) or quality score (sandbox) */}
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className={`h-2 w-2 shrink-0 rounded-full ${dotColor}`} aria-hidden />
@@ -160,52 +130,33 @@ export function IntentJournalBatchSidebar({
                     </span>
                   </div>
 
-                  {/* Line 2: type · value · intent count (live: INR when batch_health loaded for selection) */}
-                  <div className="mt-0.5 flex flex-wrap items-center gap-1 pl-4 text-[14px] text-[#64748b]">
-                    <span>{batch.type}</span>
-                    <span aria-hidden>·</span>
-                    <span className="tabular-nums">
-                      {liveMoneyLine ??
-                        (batch.engineSidebar && batch.totalValue > 0
-                          ? formatInrRupees(batch.totalValue)
-                          : batch.totalValue > 0
-                            ? usdCompact(batch.totalValue)
-                            : journalUsesBackendFeed
-                              ? '—'
-                              : usdCompact(0))}
-                    </span>
-                    <span aria-hidden>·</span>
-                    <span className="tabular-nums">
-                      {intentCount.toLocaleString('en-US')} intents
-                    </span>
+                  <div className="mt-0.5 pl-4 text-[14px] text-[#64748b]">
+                    <span className="tabular-nums">{formatIntentTotal(intentCount)}</span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 pl-4">
-                    <div
-                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold ${tone.text} ${
-                        status === 'At Risk'
-                          ? 'bg-amber-100'
-                          : status === 'Critical'
-                            ? 'bg-rose-100'
-                            : 'bg-emerald-100'
-                      }`}
-                      title={BATCH_AGGREGATE_STATUS_GUIDE}
-                    >
-                      {status}
+                  {status ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-2 pl-4">
+                      <div
+                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-[12px] font-semibold ${tone.text} ${
+                          status === 'At Risk'
+                            ? 'bg-amber-100'
+                            : status === 'Critical'
+                              ? 'bg-rose-100'
+                              : 'bg-neutral-100'
+                        }`}
+                        title={BATCH_AGGREGATE_STATUS_GUIDE}
+                      >
+                        {status}
+                      </div>
                     </div>
-                    {journalUsesBackendFeed && liveFinality ? (
-                      <span className="text-[12px] font-medium uppercase tracking-wide text-slate-500">
-                        {String(liveFinality).replace(/_/g, ' ')}
-                      </span>
-                    ) : null}
-                  </div>
+                  ) : null}
 
-                  {selected ? (
+                  {selected && engineConfPct != null ? (
                     <div className="mt-2 pl-4">
                       <div className="h-1 w-full overflow-hidden rounded-full bg-[#E5E5E5]">
                         <div
                           className={`h-full rounded-full ${
                             status === 'Stable'
-                              ? 'bg-emerald-500'
+                              ? 'bg-black'
                               : status === 'At Risk'
                                 ? 'bg-amber-500'
                                 : 'bg-rose-500'

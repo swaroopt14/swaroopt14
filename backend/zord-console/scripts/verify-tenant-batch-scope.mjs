@@ -51,7 +51,7 @@ const checks = [
   },
   {
     file: 'services/payout-command/prod-api/settlementObservations.ts',
-    mustInclude: ['client_batch_id', 'observationsUrl(clientBatchId'],
+    mustInclude: ['client_batch_id', 'observationsUrl(bid'],
     label: 'settlement client uses client_batch_id query only',
   },
   {
@@ -82,7 +82,7 @@ const checks = [
   {
     file: 'src/features/payout-command/intent-journal/intentJournalSidebarUtils.ts',
     mustInclude: [
-      'if (confPct != null)',
+      'export function resolveBatchHealthStatus(batch: BatchRecord): BatchStatus | null',
       'return batchStatusFromConfidencePct(confPct)',
     ],
     label: 'sidebar health tier from aggregate score when present',

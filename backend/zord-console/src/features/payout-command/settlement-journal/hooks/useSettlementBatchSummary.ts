@@ -11,6 +11,7 @@ export function useSettlementBatchSummary() {
   const { rows, observationTotal, loading } = useSettlementObservationRows(
     selectedClientBatchId,
     journalEnabled && tenantReady,
+    { fetchAll: true },
   )
 
   return useMemo(

@@ -6,7 +6,7 @@ function parseApiAmount(value: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-function parsePercentValue(value: unknown): string | null {
+export function parsePercentValue(value: unknown): string | null {
   if (value == null || value === '') return null
   if (typeof value === 'string') {
     const trimmed = value.trim()
@@ -18,7 +18,7 @@ function parsePercentValue(value: unknown): string | null {
   return null
 }
 
-function parseMatchConfidence(value: unknown): number | null {
+export function parseMatchConfidence(value: unknown): number | null {
   if (value == null) return null
   if (typeof value === 'number' && Number.isFinite(value)) {
     return value <= 1 ? value : value / 100

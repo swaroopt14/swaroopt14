@@ -9,11 +9,9 @@ import {
 import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
 import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
-import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
 import { useSettlementBatchIntelligence } from '../hooks/useSettlementBatchIntelligence'
 import { useSettlementParseErrorTotal } from '../hooks/useSettlementParseErrorTotal'
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
-import { deriveSettlementDataHealth } from '../selectors/deriveSettlementDataHealth'
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -32,9 +30,13 @@ function formatMoneyKpi(value: number | null, loading: boolean): string {
   return formatJournalMoney(value)
 }
 
+function formatCoverageKpi(value: string | null, loading: boolean): string {
+  if (loading && !value) return '—'
+  return value ?? '—'
+}
+
 export function SettlementJournalDataHealthPanel() {
   const { selectedClientBatchId, journalEnabled, tenantReady } = useSettlementBatchSelection()
-  const { rows, loading } = useSettlementBatchSummary()
   const { kpis, loading: intelligenceLoading } = useSettlementBatchIntelligence(
     selectedClientBatchId,
     journalEnabled && tenantReady,
@@ -46,20 +48,9 @@ export function SettlementJournalDataHealthPanel() {
 
   if (!selectedClientBatchId) return null
 
-  if ((loading || intelligenceLoading || parseErrorsLoading) && rows.length === 0) {
-    return (
-      <p className={`mb-4 rounded-xl border border-slate-200/90 bg-white px-4 py-3 ${HOME_BODY_IMPERIAL_SM}`}>
-        Loading data health metrics…
-      </p>
-    )
-  }
-
-  const health = deriveSettlementDataHealth(rows)
   const copy = settlementJournalCopy.dataHealth
-  const bankRefDisplay = kpis.bankReferenceCoverage ?? `${health.withBankRefPct}%`
-  const clientRefDisplay = kpis.clientReferenceCoverage ?? `${health.withClientRefPct}%`
-  const bankRefSub = kpis.bankReferenceCoverage ? copy.bankRefCoverageSub : undefined
-  const clientRefSub = kpis.clientReferenceCoverage ? copy.clientRefCoverageSub : undefined
+  const bankRefDisplay = formatCoverageKpi(kpis.bankReferenceCoverage, intelligenceLoading)
+  const clientRefDisplay = formatCoverageKpi(kpis.clientReferenceCoverage, intelligenceLoading)
   const parseIssuesDisplay =
     parseErrorsLoading && parseErrorTotal == null ? '—' : (parseErrorTotal ?? 0).toLocaleString('en-IN')
 
@@ -72,8 +63,8 @@ export function SettlementJournalDataHealthPanel() {
           value={parseIssuesDisplay}
           sub={copy.settlementParseIssuesSub}
         />
-        <MetricCard label={copy.withBankRef} value={bankRefDisplay} sub={bankRefSub} />
-        <MetricCard label={copy.withClientRef} value={clientRefDisplay} sub={clientRefSub} />
+        <MetricCard label={copy.withBankRef} value={bankRefDisplay} sub={copy.bankRefCoverageSub} />
+        <MetricCard label={copy.withClientRef} value={clientRefDisplay} sub={copy.clientRefCoverageSub} />
         <MetricCard
           label={copy.unmatchedSettlementValue}
           value={formatMoneyKpi(kpis.unmatchedSettlementValue, intelligenceLoading)}

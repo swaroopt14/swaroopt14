@@ -36,7 +36,7 @@ export function mapMatchStatus(row: SettlementObservationTableRow): MatchStatus 
 
 export function matchStatusBadgeClass(status: MatchStatus): string {
   if (status === 'Matched') {
-    return 'inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[12px] font-semibold text-emerald-800'
+    return 'inline-flex rounded-full border border-black/30 bg-black px-2.5 py-0.5 text-[12px] font-semibold text-white'
   }
   if (status === 'Missing Client Ref' || status === 'Missing Bank Ref') {
     return 'inline-flex rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-[12px] font-semibold text-amber-900'

@@ -7,7 +7,7 @@ type JournalIntelligenceKpiHeroProps = {
   eyebrow: string
   value: string
   valueSuffix?: string
-  deltaPill: string
+  deltaPill?: string
   subcopy: string
   buckets: readonly NavyHeroBucket[]
   footer?: ReactNode

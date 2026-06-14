@@ -2,18 +2,31 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import {
+  fetchSettlementObservationsPageWithMeta,
   fetchSettlementObservationsWithMeta,
   type SettlementObservationsFetchResult,
 } from '../settlementBatchCache'
 import { LIVE_SETTLEMENT_POLL_MS } from '../settlementConstants'
 import type { SettlementObservationTableRow } from '@/services/payout-command/prod-api/settlementObservations'
 
+export type UseSettlementObservationRowsOptions = {
+  page?: number
+  pageSize?: number
+  /** When true, aggregates all API pages (for client-side filters / export). */
+  fetchAll?: boolean
+}
+
 /** Loads canonical observation rows for one client_batch_id (deduped via settlementBatchCache). */
 export function useSettlementObservationRows(
   clientBatchId: string,
   enabled: boolean,
+  opts?: UseSettlementObservationRowsOptions,
   pollMs = LIVE_SETTLEMENT_POLL_MS,
 ) {
+  const page = Math.max(1, opts?.page ?? 1)
+  const pageSize = Math.max(1, opts?.pageSize ?? 50)
+  const fetchAll = opts?.fetchAll === true
+
   const [rows, setRows] = useState<SettlementObservationTableRow[]>([])
   const [observationTotal, setObservationTotal] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
@@ -34,7 +47,9 @@ export function useSettlementObservationRows(
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchSettlementObservationsWithMeta(bid)
+      const result = fetchAll
+        ? await fetchSettlementObservationsWithMeta(bid)
+        : await fetchSettlementObservationsPageWithMeta(bid, page, pageSize)
       applyResult(result)
     } catch {
       setError('Could not load settlement observations.')
@@ -43,7 +58,7 @@ export function useSettlementObservationRows(
     } finally {
       setLoading(false)
     }
-  }, [applyResult, clientBatchId, enabled])
+  }, [applyResult, clientBatchId, enabled, fetchAll, page, pageSize])
 
   useEffect(() => {
     if (!enabled || !clientBatchId.trim()) {

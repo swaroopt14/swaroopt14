@@ -7,6 +7,7 @@ import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
 import { useSettlementBatchIntelligence } from '../hooks/useSettlementBatchIntelligence'
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
 import { derivePaymentPartnerLabel } from '../selectors/derivePaymentPartnerLabel'
+import { outcomeFromMatchConfidence } from '../settlementJournalSidebarUtils'
 
 type SettlementJournalHeroBannerProps = {
   onExport: () => void
@@ -28,7 +29,7 @@ export function SettlementJournalHeroBanner({
   filtersActive,
 }: SettlementJournalHeroBannerProps) {
   const { selectedClientBatchId, journalEnabled, tenantReady } = useSettlementBatchSelection()
-  const { totalAmount, loading, rows, outcome, observationTotal } = useSettlementBatchSummary()
+  const { totalAmount, loading, rows, observationTotal } = useSettlementBatchSummary()
   const { kpis, loading: intelligenceLoading } = useSettlementBatchIntelligence(
     selectedClientBatchId,
     journalEnabled && tenantReady,
@@ -37,11 +38,12 @@ export function SettlementJournalHeroBanner({
   const copy = settlementJournalCopy.kpi
   const observedValue =
     loading && !rows.length ? '—' : rows.length === 0 ? '—' : formatJournalMoney(totalAmount)
-  const recordsTotal = observationTotal ?? rows.length
-  const countLine = recordsTotal.toLocaleString('en-IN')
+  const recordsTotal = observationTotal ?? null
+  const countLine =
+    recordsTotal != null ? recordsTotal.toLocaleString('en-IN') : loading ? '…' : '—'
   const paymentPartner = derivePaymentPartnerLabel(rows)
   const recordsReceivedDisplay =
-    loading && recordsTotal === 0 ? '—' : recordsTotal.toLocaleString('en-IN')
+    loading && recordsTotal == null ? '—' : recordsTotal != null ? recordsTotal.toLocaleString('en-IN') : '—'
   const settlementMatchedDisplay =
     intelligenceLoading && kpis.settlementValueMatched == null
       ? '—'
@@ -55,9 +57,22 @@ export function SettlementJournalHeroBanner({
   const varianceSub =
     kpis.varianceAmount != null ? copy.amountVarianceSub : copy.amountVarianceAwaiting
 
-  const obsSub = filtersActive
-    ? `${filteredCount.toLocaleString('en-IN')} filtered · ${recordsTotal.toLocaleString('en-IN')} total`
-    : copy.recordsReceivedSub(recordsTotal.toLocaleString('en-IN'))
+  const matchOutcome = outcomeFromMatchConfidence(kpis.matchConfidence)
+  const deltaPill =
+    kpis.matchConfidence != null
+      ? `${matchOutcome.label} · ${matchOutcome.progressPct}% match`
+      : intelligenceLoading
+        ? '…'
+        : '—'
+
+  const obsSub =
+    filtersActive && recordsTotal != null
+      ? `${filteredCount.toLocaleString('en-IN')} filtered · ${recordsTotal.toLocaleString('en-IN')} total`
+      : recordsTotal != null
+        ? copy.recordsReceivedSub(recordsTotal.toLocaleString('en-IN'))
+        : loading
+          ? 'Loading observation count…'
+          : '—'
 
   const buckets = [
     { label: copy.paymentPartner, value: paymentPartner, sub: copy.paymentPartnerSub },
@@ -75,7 +90,7 @@ export function SettlementJournalHeroBanner({
       className="mb-4"
       eyebrow={settlementJournalCopy.hero.label}
       value={observedValue}
-      deltaPill={outcome.label}
+      deltaPill={deltaPill}
       subcopy={`${selectedClientBatchId || settlementJournalCopy.sidebar.selectBatch} · ${countLine} ${settlementJournalCopy.sidebar.records}`}
       buckets={buckets}
       testId="settlement-kpi-hero"

@@ -16,7 +16,7 @@ const DOCK_CASES: { dock: string; title: string }[] = [
   { dock: 'home', title: 'Payment Command Center' },
   { dock: 'workspace', title: 'Payment Operations View' },
   { dock: 'leakage', title: 'Payment Gaps & Value at Risk' },
-  { dock: 'ambiguity', title: 'Matching Confidence' },
+  { dock: 'ambiguity', title: 'Match Review' },
   { dock: 'verification', title: 'Borrower Verification' },
   { dock: 'monitoring', title: 'Post-Disbursal Monitoring' },
   { dock: 'grid', title: 'Intent Journal' },
@@ -332,6 +332,14 @@ function emptyProdBody(path: string): unknown {
       avg_attachment_confidence: 0.82,
       provider_ref_missing_rate: 0.16,
       ambiguous_intent_count: 12,
+      ambiguity_rate: 0.08,
+      clearing_pct: 82,
+      ambiguity_mix_segments: [
+        { name: 'High Confidence', pct: 68 },
+        { name: 'Low Confidence', pct: 8 },
+        { name: 'Ambiguous', pct: 8 },
+        { name: 'Missing Refs', pct: 16 },
+      ],
     }
   }
   if (path.endsWith('/intelligence/recommendations')) {
@@ -951,6 +959,28 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(hero).toBeVisible({ timeout: 20_000 })
     await expect(hero).toHaveAttribute('style', /0f172a/i)
     await expect(page.locator('[data-testid^="leakage-kpi-secondary-"]')).toHaveCount(4)
+  })
+
+  test('view batches navigates from ambiguity dock header', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=ambiguity')
+    await expect(page.getByTestId('ambiguity-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    const viewBatches = page.getByTestId('view-batches-link')
+    await expect(viewBatches).toHaveAttribute('href', /\/payout-command-view\/batch-command-center/)
+    await viewBatches.click()
+    await expect(page).toHaveURL(/\/payout-command-view\/batch-command-center/, { timeout: 15_000 })
+  })
+
+  test('view batches link works from settlement and intent journal docks', async ({ page }) => {
+    for (const dock of ['settlement', 'grid'] as const) {
+      await page.goto(`/payout-command-view/today?dock=${dock}`)
+      await expect(page.getByTestId('view-batches-link')).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByTestId('view-batches-link')).toHaveAttribute(
+        'href',
+        /\/payout-command-view\/batch-command-center/,
+      )
+      await page.getByTestId('view-batches-link').click()
+      await expect(page).toHaveURL(/\/payout-command-view\/batch-command-center/, { timeout: 15_000 })
+    }
   })
 
   test('leakage hides Preview when live comparison timeseries is available', async ({ page }) => {

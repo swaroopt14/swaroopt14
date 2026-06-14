@@ -20,20 +20,13 @@ import {
 } from '../intent-journal/components/IntentJournalActivityPanel'
 import {
   SIDEBAR_PAGE_SIZE,
-  batchQualityScore,
-  batchStatus,
-  engineDispatchConfidencePct,
-  formatInrRupees,
   resolveBatchHealthStatus,
-  mergeBatchAggregateScore,
   type BatchFilter,
   type BatchRecord,
-  type BatchStatus,
 } from '../intent-journal/intentJournalSidebarUtils'
 import { useJournalSidebarBatches } from '../intent-journal/hooks/useJournalSidebarBatches'
 import { useJournalIntentRows } from '../intent-journal/hooks/useJournalIntentRows'
 import { useJournalFailureRows } from '../intent-journal/hooks/useJournalFailureRows'
-import { useJournalIntelligenceBatch } from '../intent-journal/hooks/useJournalIntelligenceBatch'
 import { useJournalBatchMetrics } from '../intent-journal/hooks/useJournalBatchMetrics'
 import { downloadCsv, failuresToCsv, intentsToCsv, downloadFailuresCsv } from '../intent-journal/journalExport'
 import { LIVE_JOURNAL_POLL_MS } from '../intent-journal/journalConstants'
@@ -218,7 +211,7 @@ function JournalRecommendedBlackCard({
     <aside className="mb-4 overflow-hidden rounded-xl border border-white/12 bg-[#0A0A0A] shadow-[0_14px_44px_rgba(0,0,0,0.32)] ring-1 ring-white/10">
       <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#39E07E] px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] text-[#000000]">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[#000000] px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.06em] text-white">
             Recommended
           </span>
           {eyebrow ? <span className="text-[12px] font-medium text-white/50">{eyebrow}</span> : null}
@@ -364,10 +357,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     liveTenantId,
   )
   const failureFeed = useJournalFailureRows(selectedBatchId, journalUsesBackendFeed && tenantReady)
-  const { detail: liveBatchDetail } = useJournalIntelligenceBatch(
-    selectedBatchId,
-    journalUsesBackendFeed && tenantReady,
-  )
   const { batch: selectedMetricsBatch } = useJournalBatchMetrics(
     selectedBatchId,
     journalUsesBackendFeed && tenantReady,
@@ -480,15 +469,18 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   }, [journalUsesBackendFeed, liveBatchList])
 
   const failureFeedLoading = failureFeed.loading
-  /** After detail fetch, trust loaded rows — pagination `total` can mirror ingest volume when all rows are DLQ. */
-  const selectedDlqTotal = journalUsesBackendFeed
-    ? failureFeedLoading
-      ? Math.max(dlqPagination?.total ?? 0, liveFailureRows.length)
-      : liveFailureRows.length
-    : 0
-  const selectedEngineIntentTotal = journalUsesBackendFeed
-    ? Math.max(intentPagination?.total ?? 0, liveIntentRows.length)
-    : 0
+  const selectedDlqTotal: number | null = journalUsesBackendFeed
+    ? dlqPagination?.total != null && Number.isFinite(dlqPagination.total)
+      ? dlqPagination.total
+      : failureFeedLoading
+        ? null
+        : null
+    : null
+  const selectedEngineIntentTotal: number | null = journalUsesBackendFeed
+    ? intentPagination?.total != null && Number.isFinite(intentPagination.total)
+      ? intentPagination.total
+      : null
+    : null
 
   // Sidebar list filters — intelligence batches from `GET /v1/intelligence/batches`.
   const filteredBatches = useMemo(() => {
@@ -496,25 +488,17 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     if (batchFilter === 'Recent') return sidebarBatchList.slice(0, 10)
     if (batchFilter === 'Needs Attention') {
       return sidebarBatchList.filter((b) => {
-        const health = resolveBatchHealthStatus(b, {
-          dlqCount:
-            b.batchId === selectedBatchId
-              ? selectedDlqTotal
-              : b.unresolvedCount + b.mismatchCount,
-          intentCount:
-            b.batchId === selectedBatchId
-              ? selectedEngineIntentTotal
-              : b.engineSidebar
-                ? Math.max(b.confirmedCount, b.transactions)
-                : b.transactions,
-          finality: b.intelligenceCounts?.finality_status,
-        })
+        const batchForHealth =
+          b.batchId === selectedBatchId && selectedMetricsBatch
+            ? selectedMetricsBatch
+            : b
+        const health = resolveBatchHealthStatus(batchForHealth)
         return health === 'At Risk' || health === 'Critical'
       })
     }
     if (batchFilter === 'High Value') return sidebarBatchList.filter((b) => b.totalValue >= 1_500_000)
-    return sidebarBatchList.filter((b) => batchStatus(batchQualityScore(b)) === 'Stable')
-  }, [batchFilter, sidebarBatchList, selectedBatchId, selectedDlqTotal, selectedEngineIntentTotal])
+    return sidebarBatchList.filter((b) => resolveBatchHealthStatus(b) === 'Stable')
+  }, [batchFilter, sidebarBatchList, selectedBatchId, selectedMetricsBatch])
 
   /** Resolved from intelligence batch list only — no synthetic batch row. */
   const selectedBatch: BatchRecord | null =
@@ -524,32 +508,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           batches.find((b) => b.batchId === selectedBatchId) ??
           null)
 
-  const selectedBatchHealth = useMemo((): BatchStatus => {
-    if (!selectedBatch) return 'Stable'
-    const batchForHealth = mergeBatchAggregateScore(selectedBatch, {
-      isSelected: true,
-      detailAggregateScore: liveBatchDetail?.batch_health?.aggregate_score,
-      metricsBatch: selectedMetricsBatch,
-    })
-    return resolveBatchHealthStatus(batchForHealth, {
-      dlqCount: selectedBatchId.trim() ? selectedDlqTotal : 0,
-      intentCount: selectedBatchId.trim() ? selectedEngineIntentTotal : 0,
-      finality:
-        liveBatchDetail?.batch?.finality_status ?? selectedBatch.intelligenceCounts?.finality_status,
-    })
-  }, [
-    selectedBatch,
-    selectedBatchId,
-    selectedDlqTotal,
-    selectedEngineIntentTotal,
-    liveBatchDetail?.batch?.finality_status,
-    liveBatchDetail?.batch_health?.aggregate_score,
-    selectedMetricsBatch,
-  ])
-
   useEffect(() => {
     if (!journalUsesBackendFeed || liveDetailLoading || !selectedBatchId.trim()) return
-    if (selectedDlqTotal > 0 && selectedEngineIntentTotal === 0) {
+    if ((selectedDlqTotal ?? 0) > 0 && (selectedEngineIntentTotal ?? 0) === 0) {
       setActiveTab('failures')
     }
   }, [
@@ -574,19 +535,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const showSandboxSetupNotice = sandboxJournalEmpty && !sandboxSetupNoticeDismissed
 
   const needsAttentionCount = batches.filter((b) => {
-    const health = resolveBatchHealthStatus(b, {
-      dlqCount:
-        b.batchId === selectedBatchId
-          ? selectedDlqTotal
-          : b.unresolvedCount + b.mismatchCount,
-      intentCount:
-        b.batchId === selectedBatchId
-          ? selectedEngineIntentTotal
-          : b.engineSidebar
-            ? Math.max(b.confirmedCount, b.transactions)
-            : b.transactions,
-      finality: b.intelligenceCounts?.finality_status,
-    })
+    const batchForHealth =
+      b.batchId === selectedBatchId && selectedMetricsBatch ? selectedMetricsBatch : b
+    const health = resolveBatchHealthStatus(batchForHealth)
     return health === 'At Risk' || health === 'Critical'
   }).length
   const sidebarTotalPages = Math.max(1, Math.ceil(filteredBatches.length / SIDEBAR_PAGE_SIZE))
@@ -687,6 +638,16 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
   const safeFailurePage = Math.min(failurePage, failureTotalPages)
   const failurePageRows = filteredFailures.slice((safeFailurePage - 1) * rowsPerPage, safeFailurePage * rowsPerPage)
 
+  const tableFiltersActive =
+    tableSearch.trim() !== '' ||
+    dateRange !== 'all' ||
+    filterBatchId.trim() !== '' ||
+    connectorFilter !== 'All' ||
+    dispatchModeFilter !== 'All' ||
+    intentStatusFilter !== 'All' ||
+    failureStageFilter !== 'All' ||
+    amountRangeFilter !== 'All'
+
   useEffect(() => {
     setPage((p) => clampPage(p, totalPages))
     setJumpPage((prev) => {
@@ -741,60 +702,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
       activeTab === 'failures' ? filteredFailures.length === 0 : filteredIntents.length === 0,
   })
 
-  // Derive overview KPIs from intelligence batch list + batch detail only (`/v1/intelligence/batches*`).
-  // KPI 14 (`/v1/intelligence/dashboard/patterns`) is fetched separately — never used for intent counts or INR.
-  const healthBatch = liveBatchDetail?.batch
-  const healthTotals = liveBatchDetail?.batch_health
-  const listCounts = selectedBatch?.intelligenceCounts
-
-  /** Batch detail row when loaded; else list `total_count` for the selected batch. */
-  const overviewIntentTotal =
-    journalUsesBackendFeed
-      ? (healthBatch?.total_count ?? selectedBatch?.transactions ?? 0)
-      : (selectedBatch?.transactions ?? 0)
-
-  const selectedBatchTotal = Math.max(0, healthBatch?.total_count ?? overviewIntentTotal)
-  const pctBase = Math.max(selectedBatchTotal, 1)
-  const rawConfirmed =
-    healthBatch?.success_count ?? listCounts?.success_count ?? selectedBatch?.confirmedCount ?? 0
-  const rawFailed = healthBatch?.failed_count ?? listCounts?.failed_count ?? selectedBatch?.mismatchCount ?? 0
-  const rawPending = healthBatch?.pending_count ?? listCounts?.pending_count ?? selectedBatch?.unresolvedCount ?? 0
-
-  const selectedConfirmed = Math.min(rawConfirmed, selectedBatchTotal)
-  const selectedFailed = Math.min(rawFailed, selectedBatchTotal - selectedConfirmed)
-  const selectedPending = Math.min(rawPending, selectedBatchTotal - selectedConfirmed - selectedFailed)
-  const selectedNeedsReview = Math.max(0, selectedBatchTotal - selectedConfirmed - selectedFailed - selectedPending)
-
-  const intendedMinor = healthTotals?.total_intended_amount_minor
-  const confirmedMinor = healthTotals?.total_confirmed_amount_minor
-  const varianceMinor = healthTotals?.total_variance_minor
-  const intendedRupees =
-    intendedMinor && Number.isFinite(Number(intendedMinor))
-      ? Number(intendedMinor)
-      : (selectedBatch?.totalValue ?? 0)
-  const selectedConfirmedValue = confirmedMinor
-    ? Number(confirmedMinor)
-    : intendedRupees * (selectedConfirmed / pctBase)
-  const varianceRupees =
-    varianceMinor && Number.isFinite(Number(varianceMinor)) ? Math.max(0, Number(varianceMinor)) : null
-  const confirmedRupeesResolved =
-    confirmedMinor && Number.isFinite(Number(confirmedMinor)) ? Number(confirmedMinor) : selectedConfirmedValue
-  const selectedAttentionValue =
-    varianceRupees ?? Math.max(0, intendedRupees > 0 ? intendedRupees - confirmedRupeesResolved : 0)
-
-  const operationalDispatchPct =
-    selectedBatchTotal === 0 ? 0 : (selectedConfirmed / selectedBatchTotal) * 100
-
-  const selectedBatchScore = Math.round(
-    !selectedBatch
-      ? 0
-      : selectedBatch.engineSidebar
-        ? engineDispatchConfidencePct(selectedBatch)
-        : journalUsesBackendFeed
-          ? operationalDispatchPct
-          : batchQualityScore(selectedBatch, undefined),
-  )
-
   const clearTableFilters = () => {
     setTableSearch('')
     setDateRange('all')
@@ -848,6 +755,9 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
     failurePageRows,
     intentTotal,
     failureTotal,
+    apiIntentTotal: selectedEngineIntentTotal,
+    apiFailureTotal: selectedDlqTotal,
+    tableFiltersActive,
     safePage,
     safeFailurePage,
     totalPages,
@@ -885,8 +795,6 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
           sidebarPageRows={sidebarPageRows}
           selectedBatchId={selectedBatchId}
           selectBatch={selectBatch}
-          liveBatchDetail={liveBatchDetail}
-          selectedDlqTotal={selectedDlqTotal}
           selectedEngineIntentTotal={selectedEngineIntentTotal}
           safeSidebarPage={safeSidebarPage}
           sidebarTotalPages={sidebarTotalPages}
@@ -980,8 +888,8 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
 
             {/* ── Persistent dispatch success banner ─────────────────────── */}
             {dispatchBanner ? (
-              <div className="mb-4 flex items-center gap-3 rounded-[12px] border border-[#4ADE80]/50 bg-gradient-to-r from-emerald-950/90 via-[#052e16] to-emerald-950/90 px-4 py-2.5 text-emerald-50 shadow-[0_0_28px_rgba(74,222,128,0.35)] ring-1 ring-[#4ADE80]/25">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#4ADE80] text-[#031508] shadow-[0_0_14px_rgba(74,222,128,0.65)]">
+              <div className="mb-4 flex items-center gap-3 rounded-[12px] border border-white/20 bg-[#000000] px-4 py-2.5 text-white shadow-[0_0_28px_rgba(0,0,0,0.35)] ring-1 ring-white/15">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[#000000]">
                   <svg className="h-3.5 w-3.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
                     <path d="M3 6.5 5.2 8.7 9.5 4" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
@@ -989,11 +897,11 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 <div className="flex min-w-0 flex-1 items-center gap-2">
                   <EntityLogo name={dispatchBanner.target.name} kind={dispatchBanner.target.type} size={20} />
                   <div className="min-w-0">
-                    <p className="text-[15px] font-semibold text-[#ecfdf5] drop-shadow-[0_0_8px_rgba(74,222,128,0.25)]">
+                    <p className="text-[15px] font-semibold text-white">
                       Batch {dispatchBanner.batchId} dispatched to {dispatchBanner.target.name}
-                      <span className="ml-1 font-mono text-[14px] font-normal text-[#a7f3d0]">· {USE_CASE_RAIL[dispatchBanner.useCase]}</span>
+                      <span className="ml-1 font-mono text-[14px] font-normal text-white/70">· {USE_CASE_RAIL[dispatchBanner.useCase]}</span>
                     </p>
-                    <p className="text-[14px] text-[#86efac]/90">
+                    <p className="text-[14px] text-white/60">
                       just now · {dispatchBanner.intents.toLocaleString('en-US')} intents queued · awaiting settlement signal
                     </p>
                   </div>
@@ -1001,7 +909,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                 <button
                   type="button"
                   onClick={() => setDispatchBanner(null)}
-                  className="rounded-md border border-[#4ADE80]/60 bg-[#031508] px-2 py-1 text-[14px] font-semibold text-[#4ADE80] shadow-[0_0_10px_rgba(74,222,128,0.35)] transition hover:bg-[#052818]"
+                  className="rounded-md border border-white/30 bg-black px-2 py-1 text-[14px] font-semibold text-white transition hover:bg-neutral-900"
                 >
                   Undo
                 </button>
@@ -1009,7 +917,7 @@ export function IntentJournalSurface({ initialBatchId }: { initialBatchId?: stri
                   type="button"
                   onClick={() => setDispatchBanner(null)}
                   aria-label="Dismiss"
-                  className="text-[19px] leading-none text-[#86efac] hover:text-white"
+                  className="text-[19px] leading-none text-white/70 hover:text-white"
                 >
                   ×
                 </button>
@@ -1375,7 +1283,7 @@ function DispatchRoutingModal({
                   return (
                     <li key={label} className="flex items-center gap-2.5 text-[15px]">
                       {done ? (
-                        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
+                        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-black text-white">
                           <svg className="h-2.5 w-2.5" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
                             <path d="M3 6.5 5.2 8.7 9.5 4" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
@@ -1399,17 +1307,17 @@ function DispatchRoutingModal({
         {/* ─── Phase: SUCCESS (2s) ─── */}
         {phase === 'success' ? (
           <div className="flex flex-col items-center px-6 py-10 text-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_8px_24px_rgba(16,185,129,0.35)]">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-black text-white shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
               <svg className="h-7 w-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden>
                 <path d="M5 13l5 5L20 7" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
             <h3 className="mt-4 text-[19px] font-semibold tracking-[-0.01em] text-[#0f172a]">Batch dispatched</h3>
-            <div className="mt-2 inline-flex items-center gap-2 rounded-[10px] border border-emerald-200 bg-emerald-50 px-3 py-1.5">
+            <div className="mt-2 inline-flex items-center gap-2 rounded-[10px] border border-black/20 bg-neutral-100 px-3 py-1.5">
               <EntityLogo name={selected.name} kind={selected.type} size={20} />
-              <span className="text-[15px] font-medium text-emerald-900">
+              <span className="text-[15px] font-medium text-black">
                 {selected.name}
-                <span className="ml-1 font-mono text-[14px] font-normal text-emerald-700">· {USE_CASE_RAIL[useCase]}</span>
+                <span className="ml-1 font-mono text-[14px] font-normal text-neutral-600">· {USE_CASE_RAIL[useCase]}</span>
               </span>
             </div>
             <p className="mt-3 text-[15px] text-[#64748b]">
@@ -1440,7 +1348,7 @@ function DispatchOption({
   onPick: () => void
 }) {
   const scoreTone =
-    score >= 75 ? 'text-emerald-700' : score >= 55 ? 'text-amber-700' : 'text-rose-700'
+    score >= 75 ? 'text-black' : score >= 55 ? 'text-amber-700' : 'text-rose-700'
   return (
     <li>
       <button
@@ -1460,8 +1368,8 @@ function DispatchOption({
             <EntityLogo name={target.name} kind={target.type} size={22} />
             <p className="text-[18px] font-semibold text-[#0f172a]">{target.name}</p>
             {isRecommended ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-200">
-                <span className="h-1 w-1 rounded-full bg-emerald-500" aria-hidden />
+              <span className="inline-flex items-center gap-1 rounded-full bg-black px-1.5 py-0.5 text-[12px] font-semibold uppercase tracking-wide text-white ring-1 ring-black/20">
+                <span className="h-1 w-1 rounded-full bg-white" aria-hidden />
                 Recommended
               </span>
             ) : null}

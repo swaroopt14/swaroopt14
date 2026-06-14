@@ -184,6 +184,28 @@ export async function getSettlementObservationBatchesForSession(): Promise<
   return fetchProdJsonGetWithMeta<SettlementObservationBatchListResponse>(observationsUrl())
 }
 
+export async function getSettlementObservationsPageForClientBatch(
+  clientBatchId: string,
+  opts: { page: number; pageSize: number },
+): Promise<ProdJsonGetResult<SettlementObservationsForBatchResult>> {
+  const bid = clientBatchId.trim()
+  if (!bid) {
+    return { data: { items: [], total: null }, ok: true, status: 200, url: observationsUrl() }
+  }
+
+  const page = Math.max(1, opts.page)
+  const pageSize = Math.max(1, Math.min(100, opts.pageSize))
+  const url = observationsUrl(bid, { page, pageSize })
+  const res = await fetchProdJsonGetWithMeta<SettlementObservationDetailResponse>(url)
+  if (!res.ok || !res.data) {
+    return { ...res, data: { items: [], total: null } }
+  }
+
+  const items = res.data.items ?? []
+  const total = res.data.pagination?.total ?? null
+  return { ...res, data: { items, total } }
+}
+
 export async function getSettlementObservationsForClientBatch(
   clientBatchId: string,
 ): Promise<ProdJsonGetResult<SettlementObservationsForBatchResult>> {

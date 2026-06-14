@@ -14,6 +14,8 @@ import { formatConfidencePct } from '../intentJournalSidebarUtils'
 import { useDlqManualReviewCount } from '../hooks/useDlqManualReviewCount'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
 
+const INTENDED_VALUE_SUB = 'Sum of payment instruction amounts'
+
 function KpiCard({ label, value, sub }: { label: string; value: string; sub: string }) {
   return (
     <article className={`relative ${COMMAND_CENTER_KPI_CARD} !p-4`}>
@@ -29,10 +31,16 @@ function KpiCard({ label, value, sub }: { label: string; value: string; sub: str
 
 const KPI_GRID_CLASS = 'mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5'
 
+function formatApiCount(count: number | null | undefined, loading: boolean): string {
+  if (count != null) return count.toLocaleString('en-IN')
+  return loading ? '…' : '—'
+}
+
 export function IntentJournalKpiStrip() {
   const { selectedBatchId, journalEnabled, tenantReady } = useJournalBatchSelection()
   const feedEnabled = journalEnabled && tenantReady
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, feedEnabled)
+  const totalAmount = batch?.totalValue ?? metrics?.intendedValue ?? null
   const { displayCount: manualReviewCount, loading: manualReviewLoading } = useDlqManualReviewCount(
     feedEnabled,
     selectedBatchId,
@@ -51,7 +59,7 @@ export function IntentJournalKpiStrip() {
     )
   }
 
-  if (loading && !batch) {
+  if (loading && !metrics) {
     return (
       <p className={`mb-4 rounded-xl border border-slate-200/90 bg-white px-4 py-3 ${HOME_BODY_IMPERIAL_SM}`}>
         Loading batch KPIs…
@@ -59,8 +67,15 @@ export function IntentJournalKpiStrip() {
     )
   }
 
-  const tx = metrics?.instructionCount ?? batch?.transactions ?? 0
-  const intendedValue = metrics?.intendedValue ?? batch?.totalValue ?? 0
+  const instructionCount = metrics?.instructionCount ?? null
+  const instructionCountDisplay = formatApiCount(instructionCount, loading)
+  const intendedValueDisplay =
+    loading && totalAmount == null
+      ? '—'
+      : totalAmount != null
+        ? fmtInrFromMinorExact(totalAmount)
+        : '—'
+  const intendedValueSub = totalAmount != null ? INTENDED_VALUE_SUB : '—'
   const qualityPct = formatConfidencePct(metrics?.batchAggregateConfidenceScore ?? null)
   const needsReviewDisplay =
     manualReviewCount != null ? manualReviewCount.toLocaleString('en-IN') : manualReviewLoading ? '…' : '—'
@@ -73,31 +88,23 @@ export function IntentJournalKpiStrip() {
 
   return (
     <div className={KPI_GRID_CLASS}>
-      <KpiCard
-        label={copy.paymentWorkflow}
-        value={batch?.apiType && batch.apiType !== '—' ? batch.apiType : 'Payment batch'}
-        sub={batch?.source ?? 'Payment instructions'}
-      />
+      <KpiCard label={copy.paymentWorkflow} value="Payment batch" sub="Payment instructions" />
       <KpiCard
         label={copy.instructionsCreated}
-        value={tx.toLocaleString('en-IN')}
-        sub={tx > 0 ? `${tx.toLocaleString('en-IN')} payment instruction${tx === 1 ? '' : 's'}` : 'No instructions yet'}
+        value={instructionCountDisplay}
+        sub={
+          instructionCount != null && instructionCount > 0
+            ? `${instructionCount.toLocaleString('en-IN')} payment instruction${instructionCount === 1 ? '' : 's'}`
+            : instructionCount === 0
+              ? 'No instructions yet'
+              : loading
+                ? 'Loading instruction count…'
+                : '—'
+        }
       />
-      <KpiCard
-        label={copy.intendedValue}
-        value={fmtInrFromMinorExact(intendedValue)}
-        sub="Sum of payment instruction amounts"
-      />
-      <KpiCard
-        label={copy.readiness}
-        value={qualityPct}
-        sub="Batch aggregate confidence score"
-      />
-      <KpiCard
-        label={copy.needsReview}
-        value={needsReviewDisplay}
-        sub={needsReviewSub}
-      />
+      <KpiCard label={copy.intendedValue} value={intendedValueDisplay} sub={intendedValueSub} />
+      <KpiCard label={copy.readiness} value={qualityPct} sub="Batch aggregate confidence score" />
+      <KpiCard label={copy.needsReview} value={needsReviewDisplay} sub={needsReviewSub} />
     </div>
   )
 }

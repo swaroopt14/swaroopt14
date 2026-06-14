@@ -36,7 +36,7 @@ export type JournalIntentRow = {
   requestId: string
   reference: string
   amount: number
-  method: 'Bank Transfer' | 'LSM' | 'NACH'
+  method: 'Bank Transfer' | 'LSM' | 'NACH' | '—'
   rail?: string
   status: JournalIntentStatus
   match: JournalIntentMatch

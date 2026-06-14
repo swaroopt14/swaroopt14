@@ -37,7 +37,10 @@ pipeline {
       steps {
         script {
           def report = readFile("${env.RESULTS_DIR}/results.json")
-          def json = new groovy.json.JsonSlurper().parseText(report)
+          def jsonRaw = new groovy.json.JsonSlurper().parseText(report)
+          // Convert LazyMap to regular HashMap to avoid serialization issues
+          def json = new HashMap(jsonRaw)
+          json.tests = jsonRaw.tests.collect { new HashMap(it) }
 
           def passCount = json.tests.count { it.status == 'PASS' }
           def failCount = json.tests.count { it.status == 'FAIL' }

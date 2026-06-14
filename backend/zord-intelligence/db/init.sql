@@ -761,8 +761,10 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     -- risk detail so operators can see exactly which batch is causing issues.
 
     unmatched_amount_minor      NUMERIC(20,2) NOT NULL DEFAULT 0,
-    -- Sum of intended_amount_minor for MATCH_UNRESOLVED attachment decisions.
-    -- An unmatched intent means no settlement was found — money at risk.
+    -- Sum of intended_amount_minor for MATCH_UNRESOLVED and MATCH_AMBIGUOUS
+    -- attachment decisions. An unmatched intent means no settlement was found,
+    -- and an ambiguous intent means a settlement could not be confidently
+    -- attached — both leave the amount unconfirmed and at risk.
 
     reversal_exposure_minor     NUMERIC(20,2) NOT NULL DEFAULT 0,
     -- Sum of variance_amount_minor for REVERSAL variance records.

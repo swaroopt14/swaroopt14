@@ -1053,7 +1053,8 @@ func nullableDecimalString(v decimal.Decimal) any {
 }
 
 // AtomicAddBatchUnmatchedAmount increments unmatched_amount_minor for a batch.
-// Called from HandleAttachmentDecision when DecisionType = MATCH_UNRESOLVED.
+// Called from HandleAttachmentDecision when DecisionType = MATCH_UNRESOLVED or
+// MATCH_AMBIGUOUS.
 func (r *BatchContractRepo) AtomicAddBatchUnmatchedAmount(
 	ctx context.Context,
 	batchID, tenantID string,

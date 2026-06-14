@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"log"
 
+	"github.com/shopspring/decimal"
+
 	"zord-intent-engine/internal/models"
 
 	"github.com/google/uuid"
@@ -814,6 +816,7 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 	// Step 1: Gather batch counts from payment_intents (canonicalized rows)
 	var canonicalized int
 	var avgQuality, avgMatchability, avgProof, avgDupRisk, avgSchema, avgMapping sql.NullFloat64
+	var totalAmount decimal.Decimal
 	var lowMatchCount, lowProofCount, dupRiskCount int
 	var dupRiskAmount int64
 	var tenantID sql.NullString
@@ -833,14 +836,15 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
             SUM(CASE WHEN duplicate_risk_flag = true THEN 1 ELSE 0 END),
             COALESCE(SUM(CASE WHEN duplicate_risk_score >= 31 THEN (amount * 100)::BIGINT ELSE 0 END), 0),
             MAX(tenant_id::TEXT),
-            MAX(source_system)
+            MAX(source_system),
+            COALESCE(SUM(amount), 0)
         FROM payment_intents
         WHERE batchid = $1
     `, batchID).Scan(
 		&canonicalized,
 		&avgQuality, &avgMatchability, &avgProof, &avgDupRisk, &avgSchema, &avgMapping,
 		&lowMatchCount, &lowProofCount, &dupRiskCount, &dupRiskAmount,
-		&tenantID, &sourceSystem,
+		&tenantID, &sourceSystem, &totalAmount,
 	)
 	if err != nil {
 		return 0, err
@@ -967,13 +971,13 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
         canonicalization_success_rate, avg_schema_completeness_score,
         avg_mapping_confidence_score, avg_matchability_score, avg_proof_readiness_score,
         avg_intent_quality_score, duplicate_risk_amount_minor, batch_quality_score,
-        score_breakdown_json, updated_at
+        score_breakdown_json, total_amount, updated_at
     ) VALUES (
         $1, $2, $3, $4, $5, $6, $7,
         $8, $9, $10,
         $11, $12, $13, $14, $15,
         $16, $17, $18,
-        $19, now()
+        $19, $20, now()
     ) ON CONFLICT (batch_id) DO UPDATE SET
         tenant_id = EXCLUDED.tenant_id,
         source_system = EXCLUDED.source_system,
@@ -993,6 +997,7 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
         duplicate_risk_amount_minor = EXCLUDED.duplicate_risk_amount_minor,
         batch_quality_score = EXCLUDED.batch_quality_score,
         score_breakdown_json = EXCLUDED.score_breakdown_json,
+        total_amount = EXCLUDED.total_amount,
         updated_at = now()
     `
 	_, err = r.db.ExecContext(ctx, upsertBatchQuery,
@@ -1001,7 +1006,7 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 		canonRate, safeFloat(avgSchema),
 		safeFloat(avgMapping), safeFloat(avgMatchability), safeFloat(avgProof),
 		safeFloat(avgQuality), dupRiskAmount, batchScore,
-		breakdownJSON,
+		breakdownJSON, totalAmount,
 	)
 	if err != nil {
 		log.Printf("⚠️ Failed to upsert into canonical_batches for batchID=%s: %v", batchID, err)

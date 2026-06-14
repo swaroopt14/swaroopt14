@@ -590,11 +590,12 @@ func (r *IntentQueryRepo) ListBatchIDsByTenant(
 	tenantID string,
 ) ([]models.BatchIDItem, error) {
 	const q = `
-		SELECT DISTINCT batchid
+		SELECT batchid, COALESCE(SUM(amount), 0) as total_amount
 		FROM payment_intents
 		WHERE tenant_id = $1
 		  AND batchid IS NOT NULL
 		  AND batchid <> ''
+		GROUP BY batchid
 		ORDER BY batchid
 	`
 
@@ -607,7 +608,7 @@ func (r *IntentQueryRepo) ListBatchIDsByTenant(
 	items := make([]models.BatchIDItem, 0)
 	for rows.Next() {
 		var it models.BatchIDItem
-		if err := rows.Scan(&it.BatchID); err != nil {
+		if err := rows.Scan(&it.BatchID, &it.TotalAmount); err != nil {
 			return nil, fmt.Errorf("failed to scan batch id: %w", err)
 		}
 		items = append(items, it)

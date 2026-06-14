@@ -1227,16 +1227,18 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	window := todayWindow(e.OccurredAt)
 	supportingCarriers := supportingCarrierNames(e.SupportingCarriers)
 	batchIDForAttribution := s.resolveRuntimeBatchID(ctx, e.TenantID, e.IntentID, e.BatchID)
+	isUnresolvedDecision := strings.EqualFold(e.DecisionType, "MATCH_UNRESOLVED")
+	isAmbiguousDecision := strings.EqualFold(e.DecisionType, "MATCH_AMBIGUOUS")
 	intendedAmountMinor := e.IntendedAmountMinor
-	if strings.EqualFold(e.DecisionType, "MATCH_UNRESOLVED") && !intendedAmountMinor.IsPositive() {
+	if (isUnresolvedDecision || isAmbiguousDecision) && !intendedAmountMinor.IsPositive() {
 		recoveredAmount, recoverErr := s.resolveAttachmentIntendedAmount(ctx, e)
 		if recoverErr != nil {
 			log.Printf("HandleAttachmentDecision: intended amount recovery failed decision=%s intent=%s batch=%s: %v",
 				e.DecisionID, e.IntentID, e.BatchID, recoverErr)
 		} else if recoveredAmount.IsPositive() {
 			intendedAmountMinor = recoveredAmount
-			log.Printf("HandleAttachmentDecision: recovered intended amount=%s for unresolved decision=%s intent=%s batch=%s",
-				intendedAmountMinor, e.DecisionID, e.IntentID, e.BatchID)
+			log.Printf("HandleAttachmentDecision: recovered intended amount=%s for decision_type=%s decision=%s intent=%s batch=%s",
+				intendedAmountMinor, e.DecisionType, e.DecisionID, e.IntentID, e.BatchID)
 		}
 	}
 
@@ -1244,7 +1246,7 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	// A MATCH_UNRESOLVED decision means a settlement observation exists but
 	// Service 5C could not find any matching intent for it — or an intent
 	// exists with no matching settlement. The full intended amount is at risk.
-	if strings.EqualFold(e.DecisionType, "MATCH_UNRESOLVED") {
+	if isUnresolvedDecision {
 		if err := s.projRepo.AtomicRecordLeakage(
 			ctx,
 			e.TenantID,
@@ -1256,14 +1258,18 @@ func (s *ProjectionService) HandleAttachmentDecision(
 			return fmt.Errorf("HandleAttachmentDecision AtomicRecordLeakage decision=%s: %w",
 				e.DecisionID, err)
 		}
-		// Per-batch attribution: unmatched intent amount
-		if batchIDForAttribution != "" && intendedAmountMinor.IsPositive() {
-			if batchErr := s.batchRepo.AtomicAddBatchUnmatchedAmount(
-				ctx, batchIDForAttribution, e.TenantID, intendedAmountMinor,
-			); batchErr != nil {
-				log.Printf("HandleAttachmentDecision: AtomicAddBatchUnmatchedAmount failed decision=%s batch=%s: %v",
-					e.DecisionID, batchIDForAttribution, batchErr)
-			}
+	}
+
+	// Per-batch attribution: unmatched_amount_minor.
+	// Both MATCH_UNRESOLVED (no settlement found) and MATCH_AMBIGUOUS (settlement
+	// could not be confidently attached) leave the intended amount unconfirmed —
+	// money at risk — so both contribute to this batch's unmatched amount.
+	if (isUnresolvedDecision || isAmbiguousDecision) && batchIDForAttribution != "" && intendedAmountMinor.IsPositive() {
+		if batchErr := s.batchRepo.AtomicAddBatchUnmatchedAmount(
+			ctx, batchIDForAttribution, e.TenantID, intendedAmountMinor,
+		); batchErr != nil {
+			log.Printf("HandleAttachmentDecision: AtomicAddBatchUnmatchedAmount failed decision=%s batch=%s: %v",
+				e.DecisionID, batchIDForAttribution, batchErr)
 		}
 	}
 

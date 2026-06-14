@@ -479,6 +479,7 @@ CREATE TABLE IF NOT EXISTS etl_quality_results (
 		duplicate_risk_amount_minor     BIGINT DEFAULT 0,
 		batch_quality_score             NUMERIC(6,2) DEFAULT 0,
 		score_breakdown_json            JSONB DEFAULT '{}',
+		total_amount                    NUMERIC DEFAULT 0,
 		created_at                      TIMESTAMPTZ DEFAULT now(),
 		updated_at                      TIMESTAMPTZ DEFAULT now()
 	);`

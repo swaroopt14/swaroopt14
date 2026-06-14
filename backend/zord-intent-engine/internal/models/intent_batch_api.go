@@ -6,7 +6,8 @@ import (
 )
 
 type BatchIDItem struct {
-	BatchID string `json:"batch_id"`
+	BatchID     string  `json:"batch_id"`
+	TotalAmount float64 `json:"total_amount"`
 }
 
 type PaymentIntentLite struct {

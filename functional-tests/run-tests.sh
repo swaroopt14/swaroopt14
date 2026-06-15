@@ -297,7 +297,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Query Intents: GET /v1/intents"
 if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
-  sleep 2  # Give time for async processing
+  sleep 10  # Wait for Kafka consumer to process ingest events
   INTENT_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/intents?tenant_id=${TENANT_ID}&page_size=5" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
   INTENT_HTTP=$(echo "${INTENT_RESP}" | tail -1)
@@ -417,8 +417,8 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Job Status: GET /v1/settlement/jobs/:id"
 if [ -n "$JOB_ID" ] && [ "$JOB_ID" != "null" ] && [ -n "$TENANT_ID" ]; then
-  echo "  Waiting 5 seconds for background parsing..."
-  sleep 5
+  echo "  Waiting 15 seconds for background parsing..."
+  sleep 15
 
   JOB_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/settlement/jobs/${JOB_ID}?tenant_id=${TENANT_ID}" \

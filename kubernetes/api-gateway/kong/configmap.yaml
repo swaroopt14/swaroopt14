@@ -262,7 +262,7 @@ data:
               - https
           - name: intelligence-rca
             paths:
-              - /v1/rca
+              - /v1/intelligence/rca
             strip_path: false
             preserve_host: true
             protocols:

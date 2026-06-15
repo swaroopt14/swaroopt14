@@ -596,7 +596,7 @@ fi
 run_test "Intelligence Leakage: GET /v1/rca"
 if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   RCA_RESP=$(curl -s -w "\n%{http_code}" \
-    "${BASE_URL}/v1/rca?tenant_id=${TENANT_ID}" \
+    "${BASE_URL}/v1/intelligence/rca/clusters?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
   RCA_HTTP=$(echo "${RCA_RESP}" | tail -1)
 

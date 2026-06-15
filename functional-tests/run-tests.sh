@@ -525,6 +525,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "List Tenants: GET /v1/admin/tenants"
 LIST_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/admin/tenants?page=1&page_size=5" \
+  -H "Authorization: Bearer ${AUTH_BEARER:-}" \
   -H "X-Zord-ADMIN-KEY: ${ADMIN_KEY}")
 LIST_HTTP=$(echo "${LIST_RESP}" | tail -1)
 LIST_BODY=$(echo "${LIST_RESP}" | sed '$d')

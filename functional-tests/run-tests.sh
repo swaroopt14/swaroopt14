@@ -682,7 +682,7 @@ fi
 run_test "Settlement Errors: GET /v1/settlement/errors"
 if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   ERRS_RESP=$(curl -s -w "\n%{http_code}" \
-    "${BASE_URL}/v1/settlement/errors?tenant_id=${TENANT_ID}" \
+    "${BASE_URL}/v1/settlement/errors?tenant_id=${TENANT_ID}&batch_id=${TENANT_NAME_ADMIN:-FUNC_BATCH_001}" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
   ERRS_HTTP=$(echo "${ERRS_RESP}" | tail -1)
 

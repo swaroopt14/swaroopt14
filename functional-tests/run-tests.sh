@@ -94,15 +94,71 @@ if [ "$RESP" = "200" ] || [ "$RESP" = "404" ]; then log_pass "zord-relay health"
 else log_fail "zord-relay health" "Expected 200, got ${RESP}"; fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TEST 2: Tenant Registration — Create + Verify in DB
+# TEST 2: Auth — Get JWT token for Kong-protected routes (including admin)
 # ══════════════════════════════════════════════════════════════════════════════
+# Kong JWT plugin requires a valid JWT on ALL protected routes (including admin).
+# We signup first to get a JWT, then use it for tenant registration and all other calls.
+run_test "Auth: Get JWT for protected routes"
+JWT_TOKEN=""
 TENANT_NAME="func-test-$(date +%s)"
+AUTH_TEST_EMAIL="functest-$(date +%s)@${TENANT_NAME}.zordnet.com"
+AUTH_TEST_PASS="FuncTest123!Secure"
 
-run_test "Tenant Registration: Create tenant"
+SIGNUP_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/signup" \
+  -H "Content-Type: application/json" \
+  -d "{\"tenant_name\": \"${TENANT_NAME}\", \"name\": \"FuncTest Runner\", \"email\": \"${AUTH_TEST_EMAIL}\", \"password\": \"${AUTH_TEST_PASS}\"}")
+SIGNUP_HTTP=$(echo "${SIGNUP_RESP}" | tail -1)
+SIGNUP_BODY=$(echo "${SIGNUP_RESP}" | sed '$d')
+
+if [ "$SIGNUP_HTTP" = "201" ]; then
+  JWT_TOKEN=$(echo "${SIGNUP_BODY}" | jq -r '.access_token // empty')
+  # Capture tenant_id from signup
+  TENANT_ID=$(echo "${SIGNUP_BODY}" | jq -r '.user.tenant_id // empty')
+  if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+    log_pass "Get JWT token" "Signup succeeded, JWT issued, tenant=${TENANT_ID}"
+  else
+    log_fail "Get JWT token" "Signup 201 but no access_token in response"
+  fi
+elif [ "$SIGNUP_HTTP" = "409" ]; then
+  # Tenant name taken — try login
+  LOGIN_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\": \"${AUTH_TEST_EMAIL}\", \"password\": \"${AUTH_TEST_PASS}\"}")
+  LOGIN_HTTP=$(echo "${LOGIN_RESP}" | tail -1)
+  LOGIN_BODY=$(echo "${LOGIN_RESP}" | sed '$d')
+  if [ "$LOGIN_HTTP" = "200" ]; then
+    JWT_TOKEN=$(echo "${LOGIN_BODY}" | jq -r '.access_token // empty')
+    TENANT_ID=$(echo "${LOGIN_BODY}" | jq -r '.user.tenant_id // empty')
+    if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+      log_pass "Get JWT token" "Logged in, JWT issued"
+    else
+      log_fail "Get JWT token" "Login 200 but no access_token"
+    fi
+  else
+    log_fail "Get JWT token" "Signup 409, login failed: HTTP ${LOGIN_HTTP}"
+  fi
+else
+  log_fail "Get JWT token" "Expected 201, got ${SIGNUP_HTTP}: $(echo ${SIGNUP_BODY} | head -c 100)"
+fi
+
+# Use JWT for Kong-protected routes
+if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+  AUTH_BEARER="${JWT_TOKEN}"
+else
+  AUTH_BEARER=""
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 3: Tenant Registration — Create a SECOND tenant + Verify in DB
+# ══════════════════════════════════════════════════════════════════════════════
+TENANT_NAME_ADMIN="func-admin-$(date +%s)"
+
+run_test "Tenant Registration: Create tenant (JWT + Admin Key)"
 REG_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/admin/tenantReg" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${AUTH_BEARER:-}" \
   -H "X-Zord-ADMIN-KEY: ${ADMIN_KEY}" \
-  -d "{\"name\": \"${TENANT_NAME}\"}")
+  -d "{\"name\": \"${TENANT_NAME_ADMIN}\"}")
 REG_HTTP=$(echo "${REG_RESP}" | tail -1)
 REG_BODY=$(echo "${REG_RESP}" | sed '$d')
 
@@ -126,6 +182,7 @@ fi
 run_test "Tenant Verification: Query tenant by ID"
 if [ -n "$TENANT_ID" ]; then
   VERIFY_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/admin/tenants/${TENANT_ID}" \
+    -H "Authorization: Bearer ${AUTH_BEARER:-}" \
     -H "X-Zord-ADMIN-KEY: ${ADMIN_KEY}")
   VERIFY_HTTP=$(echo "${VERIFY_RESP}" | tail -1)
   VERIFY_BODY=$(echo "${VERIFY_RESP}" | sed '$d')
@@ -145,63 +202,7 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TEST 2b: Auth — Get JWT token for Kong-protected routes
-# ══════════════════════════════════════════════════════════════════════════════
-# Kong JWT plugin requires a valid JWT on all data endpoints. The tenant API key
-# (from registration) still authenticates at the service level, but Kong validates
-# the JWT signature FIRST. So we signup/login to get a JWT access token.
-run_test "Auth: Get JWT for protected routes"
-JWT_TOKEN=""
-AUTH_TEST_EMAIL="functest-$(date +%s)@${TENANT_NAME:-test}.zordnet.com"
-AUTH_TEST_PASS="FuncTest123!Secure"
-
-SIGNUP_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/signup" \
-  -H "Content-Type: application/json" \
-  -d "{\"tenant_name\": \"${TENANT_NAME:-functest}\", \"name\": \"FuncTest Runner\", \"email\": \"${AUTH_TEST_EMAIL}\", \"password\": \"${AUTH_TEST_PASS}\"}")
-SIGNUP_HTTP=$(echo "${SIGNUP_RESP}" | tail -1)
-SIGNUP_BODY=$(echo "${SIGNUP_RESP}" | sed '$d')
-
-if [ "$SIGNUP_HTTP" = "201" ]; then
-  JWT_TOKEN=$(echo "${SIGNUP_BODY}" | jq -r '.access_token // empty')
-  # Capture tenant_id from signup if tenant registration failed earlier
-  if [ -z "$TENANT_ID" ] || [ "$TENANT_ID" = "null" ]; then
-    TENANT_ID=$(echo "${SIGNUP_BODY}" | jq -r '.user.tenant_id // empty')
-  fi
-  if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
-    log_pass "Get JWT token" "Signup succeeded, JWT issued, tenant=${TENANT_ID}"
-  else
-    log_fail "Get JWT token" "Signup 201 but no access_token in response"
-  fi
-elif [ "$SIGNUP_HTTP" = "409" ]; then
-  # Tenant name taken — try login
-  LOGIN_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/login" \
-    -H "Content-Type: application/json" \
-    -d "{\"email\": \"${AUTH_TEST_EMAIL}\", \"password\": \"${AUTH_TEST_PASS}\"}")
-  LOGIN_HTTP=$(echo "${LOGIN_RESP}" | tail -1)
-  LOGIN_BODY=$(echo "${LOGIN_RESP}" | sed '$d')
-  if [ "$LOGIN_HTTP" = "200" ]; then
-    JWT_TOKEN=$(echo "${LOGIN_BODY}" | jq -r '.access_token // empty')
-    if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
-      log_pass "Get JWT token" "Logged in, JWT issued"
-    else
-      log_fail "Get JWT token" "Login 200 but no access_token"
-    fi
-  else
-    log_fail "Get JWT token" "Signup 409, login failed: HTTP ${LOGIN_HTTP}"
-  fi
-else
-  log_fail "Get JWT token" "Expected 201, got ${SIGNUP_HTTP}: $(echo ${SIGNUP_BODY} | head -c 100)"
-fi
-
-# Use JWT for Kong-protected routes, fall back to API_KEY if JWT unavailable
-if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
-  AUTH_BEARER="${JWT_TOKEN}"
-else
-  AUTH_BEARER="${API_KEY}"
-fi
-
-# ══════════════════════════════════════════════════════════════════════════════
-# TEST 3: Single Payment Ingest — Create + Verify in intent-engine
+# TEST 4: Single Payment Ingest — Create + Verify in intent-engine
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Single Ingest: POST /v1/ingest"
 if [ -n "$AUTH_BEARER" ]; then

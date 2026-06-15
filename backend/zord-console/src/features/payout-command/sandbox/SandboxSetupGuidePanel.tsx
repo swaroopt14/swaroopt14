@@ -15,7 +15,7 @@ import {
 } from '@/services/payout-command/sandbox-setup-guide'
 
 /** Matches Recommended chip / command-center green. */
-const SETUP_GUIDE_GREEN = '#39E07E'
+const SETUP_GUIDE_GREEN = '#000000'
 const SETUP_GUIDE_GREEN_RING = 'rgba(57, 224, 126, 0.28)'
 
 type TaskStatus = 'done' | 'active' | 'locked'
@@ -327,7 +327,7 @@ export function SandboxSetupGuidePanel() {
                               <Link
                                 href={href}
                                 className={`block rounded-lg px-1 transition hover:bg-slate-50 ${
-                                  isCurrentPath ? 'bg-[#39E07E]/10' : ''
+                                  isCurrentPath ? 'bg-[#000000]/10' : ''
                                 }`}
                               >
                                 {row}

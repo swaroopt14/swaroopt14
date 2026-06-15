@@ -32,9 +32,9 @@ func NewDashboardBubbleMapHandler(batchRepo *persistence.BatchContractRepo, mode
 
 // bubbleMapBatchItem is one row in the bubble map response.
 type bubbleMapBatchItem struct {
-	BatchID       string          `json:"batch_id"`
-	AmountValue   decimal.Decimal `json:"amount_value"`
-	AmountAtRisk  decimal.Decimal `json:"amount_at_risk"`
+	BatchID      string          `json:"batch_id"`
+	AmountValue  decimal.Decimal `json:"amount_value"`
+	AmountAtRisk decimal.Decimal `json:"amount_at_risk"`
 }
 
 // GetBubbleMap handles GET /v1/intelligence/dashboard/bubble-map?tenant_id=X[&limit=50]

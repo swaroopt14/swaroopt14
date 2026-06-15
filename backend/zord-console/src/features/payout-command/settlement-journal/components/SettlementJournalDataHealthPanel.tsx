@@ -7,13 +7,11 @@ import {
   HOME_TITLE_BLACK,
 } from '../../command-center/homeCommandCenterTokens'
 import { CommandCenterCardGlow } from '../../command-center/CommandCenterCardGlow'
+import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
-import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
+import { useSettlementBatchIntelligence } from '../hooks/useSettlementBatchIntelligence'
+import { useSettlementParseErrorTotal } from '../hooks/useSettlementParseErrorTotal'
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
-import {
-  deriveSettlementDataHealth,
-  formatOrphanValue,
-} from '../selectors/deriveSettlementDataHealth'
 
 function MetricCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -26,47 +24,67 @@ function MetricCard({ label, value, sub }: { label: string; value: string; sub?:
   )
 }
 
+function formatMoneyKpi(value: number | null, loading: boolean): string {
+  if (loading && value == null) return '—'
+  if (value == null) return '—'
+  return formatJournalMoney(value)
+}
+
+function formatCoverageKpi(value: string | null, loading: boolean): string {
+  if (loading && !value) return '—'
+  return value ?? '—'
+}
+
 export function SettlementJournalDataHealthPanel() {
-  const { selectedClientBatchId } = useSettlementBatchSelection()
-  const { rows, loading } = useSettlementBatchSummary()
+  const { selectedClientBatchId, journalEnabled, tenantReady } = useSettlementBatchSelection()
+  const { kpis, loading: intelligenceLoading } = useSettlementBatchIntelligence(
+    selectedClientBatchId,
+    journalEnabled && tenantReady,
+  )
+  const { total: parseErrorTotal, loading: parseErrorsLoading } = useSettlementParseErrorTotal(
+    selectedClientBatchId,
+    journalEnabled && tenantReady,
+  )
 
   if (!selectedClientBatchId) return null
 
-  if (loading && rows.length === 0) {
-    return (
-      <p className={`mb-4 rounded-xl border border-slate-200/90 bg-white px-4 py-3 ${HOME_BODY_IMPERIAL_SM}`}>
-        Loading data health metrics…
-      </p>
-    )
-  }
-
-  const health = deriveSettlementDataHealth(rows)
   const copy = settlementJournalCopy.dataHealth
+  const bankRefDisplay = formatCoverageKpi(kpis.bankReferenceCoverage, intelligenceLoading)
+  const clientRefDisplay = formatCoverageKpi(kpis.clientReferenceCoverage, intelligenceLoading)
+  const parseIssuesDisplay =
+    parseErrorsLoading && parseErrorTotal == null ? '—' : (parseErrorTotal ?? 0).toLocaleString('en-IN')
 
   return (
     <section className="mb-4">
       <h3 className={`mb-2 text-sm font-semibold ${HOME_TITLE_BLACK}`}>{copy.title}</h3>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label={copy.recordsReceived} value={health.recordsReceived.toLocaleString('en-IN')} />
-        <MetricCard label={copy.withBankRef} value={`${health.withBankRefPct}%`} />
-        <MetricCard label={copy.withClientRef} value={`${health.withClientRefPct}%`} />
         <MetricCard
-          label={copy.matchedToIntents}
-          value={health.matchedCount.toLocaleString('en-IN')}
-          sub={
-            health.recordsReceived > 0 && health.matchedCount === 0
-              ? copy.matchedAwaitingPipeline
-              : copy.matchedProvisional
-          }
+          label={copy.settlementParseIssues}
+          value={parseIssuesDisplay}
+          sub={copy.settlementParseIssuesSub}
         />
-        <MetricCard label={copy.unmatchedValue} value={formatOrphanValue(health.unmatchedOrphanValue)} />
+        <MetricCard label={copy.withBankRef} value={bankRefDisplay} sub={copy.bankRefCoverageSub} />
+        <MetricCard label={copy.withClientRef} value={clientRefDisplay} sub={copy.clientRefCoverageSub} />
         <MetricCard
-          label={copy.avgMatchConfidence}
+          label={copy.unmatchedSettlementValue}
+          value={formatMoneyKpi(kpis.unmatchedSettlementValue, intelligenceLoading)}
+          sub={copy.unmatchedSettlementValueSub}
+        />
+        <MetricCard
+          label={copy.orphanAmount}
+          value={formatMoneyKpi(kpis.orphanAmount, intelligenceLoading)}
+          sub={copy.orphanAmountSub}
+        />
+        <MetricCard
+          label={copy.matchConfidence}
           value={
-            health.avgMatchConfidence != null ? `${(health.avgMatchConfidence * 100).toFixed(0)}%` : '—'
+            kpis.matchConfidence != null ? `${(kpis.matchConfidence * 100).toFixed(0)}%` : '—'
           }
         />
-        <MetricCard label={copy.missingRefRate} value={`${health.missingRefRatePct}%`} />
+        <MetricCard
+          label={copy.missingRefRate}
+          value={kpis.missingReferenceRate ?? '—'}
+        />
       </div>
     </section>
   )

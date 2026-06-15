@@ -63,6 +63,53 @@ export function isFailedObservationStatus(statusRaw: string): boolean {
   return u.includes('FAIL') || u.includes('REJECT')
 }
 
+export function outcomeFromMatchConfidence(matchConfidence: number | null | undefined): SettlementSidebarOutcome {
+  if (matchConfidence == null || !Number.isFinite(matchConfidence)) {
+    return {
+      total: 0,
+      settled: 0,
+      failed: 0,
+      settledPct: null,
+      label: 'Partial',
+      dotClass: 'bg-slate-300',
+      progressPct: 0,
+      toneText: 'text-slate-600',
+      barClass: 'bg-slate-400',
+    }
+  }
+
+  const score = matchConfidence <= 1 ? matchConfidence : matchConfidence / 100
+  const progressPct = Math.round(Math.min(100, Math.max(0, score * 100)))
+  let label: SettlementSidebarOutcome['label'] = 'Partial'
+  if (score >= 0.75) label = 'Settled'
+  else if (score < 0.5) label = 'Failed'
+
+  let dotClass = 'bg-amber-500'
+  let toneText = 'text-amber-700'
+  let barClass = 'bg-amber-500'
+  if (score >= 0.75) {
+    dotClass = 'bg-black'
+    toneText = 'text-black'
+    barClass = 'bg-black'
+  } else if (score < 0.5) {
+    dotClass = 'bg-rose-500'
+    toneText = 'text-rose-700'
+    barClass = 'bg-rose-500'
+  }
+
+  return {
+    total: 0,
+    settled: 0,
+    failed: 0,
+    settledPct: progressPct,
+    label,
+    dotClass,
+    progressPct,
+    toneText,
+    barClass,
+  }
+}
+
 export function outcomeFromObservationRows(rows: SettlementObservationTableRow[]): SettlementSidebarOutcome {
   const total = rows.length
   if (total === 0) {
@@ -95,9 +142,9 @@ export function outcomeFromObservationRows(rows: SettlementObservationTableRow[]
     toneText = 'text-rose-700'
     barClass = 'bg-rose-500'
   } else if (settledRatio >= 0.8 && failed === 0) {
-    dotClass = 'bg-emerald-500'
-    toneText = 'text-emerald-700'
-    barClass = 'bg-emerald-500'
+    dotClass = 'bg-black'
+    toneText = 'text-black'
+    barClass = 'bg-black'
   }
 
   return {
@@ -116,7 +163,7 @@ export function outcomeFromObservationRows(rows: SettlementObservationTableRow[]
 export function settlementStatusBadgeClass(statusRaw: string) {
   const u = statusRaw.toUpperCase()
   if (u.includes('SETTLED') || u.includes('SUCCESS')) {
-    return 'inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[12px] font-semibold text-emerald-800'
+    return 'inline-flex rounded-full border border-black/30 bg-black px-2.5 py-0.5 text-[12px] font-semibold text-white'
   }
   if (u.includes('FAIL') || u.includes('REJECT')) {
     return 'inline-flex rounded-full border border-rose-200 bg-rose-50 px-2.5 py-0.5 text-[12px] font-semibold text-rose-800'

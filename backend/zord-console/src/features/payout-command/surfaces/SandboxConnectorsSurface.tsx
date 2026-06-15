@@ -136,7 +136,7 @@ function ConnectedRow({
 }) {
   const healthTone =
     provider.health === 'healthy'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      ? 'border-black/30 bg-neutral-100 text-black'
       : provider.health === 'degraded'
         ? 'border-amber-200 bg-amber-50 text-amber-700'
         : 'border-rose-200 bg-rose-50 text-rose-700'
@@ -149,7 +149,7 @@ function ConnectedRow({
             <p className="text-[20px] font-semibold text-[#0f172a]">{provider.name}</p>
             <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[16px] font-semibold ${healthTone}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${
-                provider.health === 'healthy' ? 'bg-emerald-500' : provider.health === 'degraded' ? 'bg-amber-500' : 'bg-rose-500'
+                provider.health === 'healthy' ? 'bg-black' : provider.health === 'degraded' ? 'bg-amber-500' : 'bg-rose-500'
               }`} aria-hidden />
               {provider.health}
             </span>

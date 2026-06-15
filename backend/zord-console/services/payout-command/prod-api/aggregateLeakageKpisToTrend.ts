@@ -113,6 +113,7 @@ export function buildLeakageTrendBucketSpecs(range: DisbursementTrendRange): Lea
     return specs
   }
 
+  // week + month → daily buckets (7 or 30 bars)
   const specs: LeakageTrendBucketSpec[] = []
   for (let d = new Date(fromDay); d <= toDay; d = addUtcDays(d, 1)) {
     const dk = toIsoDate(d)

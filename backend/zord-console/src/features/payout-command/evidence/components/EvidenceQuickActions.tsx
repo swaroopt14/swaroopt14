@@ -73,8 +73,8 @@ export function EvidenceQuickActions({ batchId, firstPackId }: Props) {
       id: 'batch',
       title: 'Open Batch',
       subtitle: 'Intent journal',
-      href: batchId ? `${pathname}?dock=journal&batch_id=${encodeURIComponent(batchId)}` : undefined,
-      accent: '#16a34a',
+      href: batchId ? `${pathname}?dock=grid&batch_id=${encodeURIComponent(batchId)}` : undefined,
+      accent: '#000000',
     },
     {
       id: 'grid',

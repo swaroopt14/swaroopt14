@@ -27,7 +27,7 @@ export type AmbiguityBubblePoint = {
 export const BUBBLE_MAP_MAX_Z = 100
 
 const COLOR_CLEAN = '#94a3b8'
-const COLOR_SAFE = '#4ade80'
+const COLOR_SAFE = '#000000'
 const COLOR_WATCH = '#facc15'
 const COLOR_ALERT = '#fb923c'
 const COLOR_CRITICAL = '#ef4444'
@@ -61,8 +61,6 @@ export const BUBBLE_MAP_QUADRANTS = [
   { position: 'bottom-right', title: 'Healthy large batch', subtitle: 'Big batch · low risk' },
 ] as const
 
-export const MOCK_PREVIEW_BATCH_COUNT = 60
-
 function riskRatioPct(totalMinor: number, atRiskMinor: number): number {
   if (totalMinor <= 0) return 0
   return Math.min(100, Math.round((atRiskMinor / totalMinor) * 1000) / 10)
@@ -89,48 +87,6 @@ function bubblePointFromAmounts(
     riskTier: tier.tier,
     riskTierLabel: tier.label,
   }
-}
-
-function rng(seed: number): () => number {
-  let state = (seed >>> 0) || 1
-  return () => {
-    state = (state + 0x6d2b79f5) >>> 0
-    let t = state
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-
-/** Preview batches spread across risk tiers and batch sizes. */
-export function buildAmbiguityVelocityMock(
-  batchCount = MOCK_PREVIEW_BATCH_COUNT,
-  focusBatchId?: string,
-): AmbiguityBubblePoint[] {
-  const focused = focusBatchId?.trim()
-  if (focused) {
-    return [
-      bubblePointFromAmounts(focused, 2_000_000, 245_000, 2_000_000),
-    ]
-  }
-
-  const seedRows: Array<[string, number, number]> = [
-    ['batch_live_001', 2_000_000, 245_000],
-    ['batch_002', 750_000, 12_000],
-    ['batch_003', 5_000_000, 115_000],
-  ]
-
-  const rand = rng(4242)
-  const generated: Array<[string, number, number]> = []
-  for (let i = 0; i < batchCount; i++) {
-    const amount = 150_000 + Math.round(rand() * 6_500_000)
-    const ratio = rand() < 0.12 ? 8 + rand() * 8 : rand() < 0.35 ? 2 + rand() * 3 : rand() * 2
-    generated.push([`BCH-2026-${String(i + 1).padStart(5, '0')}`, amount, Math.round((amount * ratio) / 100)])
-  }
-
-  const rows = [...seedRows, ...generated]
-  const maxAmount = Math.max(...rows.map(([, amount]) => amount), 1)
-  return rows.map(([batchId, amount, atRisk]) => bubblePointFromAmounts(batchId, amount, atRisk, maxAmount))
 }
 
 function isBubbleMapResponse(res: AmbiguityVelocityScatterResponse): res is AmbiguityBubbleMapResolved {

@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { Bar, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Bar, Brush, Cell, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import {
   clamp,
   HOME_CHART_DOMAIN_MAX,
@@ -37,6 +37,15 @@ import { useDisbursementTrend } from '@/services/payout-command/prod-api/useDisb
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCard'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
+import {
+  parseMatchConfidence,
+  parsePercentValue,
+} from '@/features/payout-command/settlement-journal/selectors/resolveSettlementIntelligenceKpis'
+import {
+  parseMissingReferenceRatePercent,
+  useBatchContractKpis,
+} from '@/features/payout-command/hooks/useBatchContractKpis'
 
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
   'No payment data in this period yet. Upload payment instructions or connect bank/settlement files to populate this view.'
@@ -85,27 +94,41 @@ export function HomeSurface({
   useEffect(() => {
     if (timeframe === 'Week') setCommandPeriod('week')
     else if (timeframe === 'Month') setCommandPeriod('month')
+    else if (timeframe === 'Quarter' || timeframe === 'Custom') setCommandPeriod('quarter')
     else if (timeframe === 'Year') setCommandPeriod('year')
-    // Quarter/Custom fallback to month for the command API since it only supports week/month/year
     else setCommandPeriod('month')
   }, [timeframe])
 
-  const { data: trendSeries, loading: trendLoading } = useDisbursementTrend({ tenantReady, range: trendRange })
-  const { data: carouselTrendSeries, loading: carouselTrendLoading } = useDisbursementTrend({
+  const { data: trendSeries, loading: trendLoading, refresh: refreshTrend } = useDisbursementTrend({ tenantReady, range: trendRange })
+  const { data: carouselTrendSeries, loading: carouselTrendLoading, refresh: refreshCarouselTrend } = useDisbursementTrend({
     tenantReady,
     range: carouselTrendRange,
   })
 
-  const { leakage, ambiguity, defensibility, patterns, recommendations, loading } = useIntelligenceKpis({
+  const { leakage, ambiguity, defensibility, patterns, recommendations, loading, refresh } = useIntelligenceKpis({
     tenantReady,
     batchId,
     dateQuery: intelligenceDateQuery,
   })
+  const {
+    data: batchContract,
+    loading: batchContractLoading,
+    refresh: refreshBatchContract,
+  } = useBatchContractKpis({ tenantReady, batchId })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const ambData = isDataAvailable(ambiguity) ? ambiguity : null
   const defData = isDataAvailable(defensibility) ? defensibility : null
   const patternsData = isDataAvailable(patterns) ? patterns : null
   const recsData = isDataAvailable(recommendations) ? recommendations : null
+
+  const handlePageRefresh = useCallback(async () => {
+    await Promise.all([refresh(), refreshTrend(), refreshCarouselTrend(), refreshBatchContract()])
+  }, [refresh, refreshTrend, refreshCarouselTrend, refreshBatchContract])
+
+  useRegisterPayoutPageActions({
+    refresh: tenantReady ? handlePageRefresh : undefined,
+    refreshing: loading || trendLoading || carouselTrendLoading,
+  })
 
   useEffect(() => {
     if (!isSandbox || !tenantReady || loading || trendLoading) return
@@ -271,6 +294,10 @@ export function HomeSurface({
   const bankConfirmedMinor = observedMinor
 
   const reviewMinor = leakageData != null ? parseMinorField(leakageData.unmatched_amount_minor) : null
+  const unmatchedAmountExact =
+    leakageData?.unmatched_amount_minor != null && String(leakageData.unmatched_amount_minor).trim() !== ''
+      ? String(leakageData.unmatched_amount_minor).trim()
+      : null
 
   const intentCountLabel: number | null =
     patternsData?.total_count != null && patternsData.total_count > 0
@@ -349,11 +376,34 @@ export function HomeSurface({
     tenantReady && insightCarouselCards.length === 0 && (loading || carouselTrendLoading),
   )
 
-  const matchConfidencePct = ambData
-    ? `${Math.round((ambData.avg_attachment_confidence ?? 0) * 100)}%`
-    : loading
-      ? '…'
+  const matchConfidencePct = useMemo(() => {
+    if (batchId?.trim()) {
+      if (batchContractLoading) return '…'
+      const conf = parseMatchConfidence(batchContract?.match_confidence)
+      return conf != null ? `${Math.round(conf * 100)}%` : '—'
+    }
+    if (ambData) return `${Math.round((ambData.avg_attachment_confidence ?? 0) * 100)}%`
+    return loading ? '…' : '—'
+  }, [batchId, batchContract, batchContractLoading, ambData, loading])
+
+  const missingRefRate = useMemo(() => {
+    if (batchId?.trim()) {
+      if (batchContractLoading) return '…'
+      return parsePercentValue(batchContract?.missing_reference_rate) ?? '—'
+    }
+    return ambData ? `${((ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(1)}%` : '—'
+  }, [batchId, batchContract, batchContractLoading, ambData])
+
+  const refCompleteness = useMemo(() => {
+    if (batchId?.trim()) {
+      const missingPct = parseMissingReferenceRatePercent(batchContract?.missing_reference_rate)
+      if (missingPct != null) return `${Math.max(0, 100 - missingPct).toFixed(0)}%`
+      return batchContractLoading ? '…' : '—'
+    }
+    return ambData
+      ? `${Math.max(0, 100 - (ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(0)}%`
       : '—'
+  }, [batchId, batchContract, batchContractLoading, ambData])
 
   const proofCoveragePct = defData
     ? `${Math.round((defData.evidence_pack_rate ?? 0) * 100)}%`
@@ -374,8 +424,8 @@ export function HomeSurface({
     actions.push({
       title: 'Review payments needing attention',
       description:
-        reviewMinor !== null
-          ? `${reviewDisplay} currently marked for review.`
+        unmatchedAmountExact != null
+          ? `${unmatchedAmountExact} currently marked for review.`
           : 'No review value data available for this period.',
       href: '/payout-command-view/today?dock=leakage',
     })
@@ -385,7 +435,7 @@ export function HomeSurface({
       href: '/payout-command-view/today?dock=proof',
     })
     return actions
-  }, [dataSources.settlementStatus, reviewMinor, reviewDisplay])
+  }, [dataSources.settlementStatus, unmatchedAmountExact])
 
   const completionHint =
     dataSources.settlementStatus === 'missing'
@@ -479,7 +529,7 @@ export function HomeSurface({
             <p className={`mt-1 ${HOME_BODY_IMPERIAL}`}>{PAYMENT_COMMAND_CENTER.chartSubtitle}</p>
             <p className={`mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 ${HOME_BODY_IMPERIAL}`}>
               <span className="inline-flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 rounded-full bg-[#4ade80]" /> {PAYMENT_COMMAND_CENTER.legendIntended}
+                <span className="h-2 w-2 shrink-0 rounded-full bg-[#000000]" /> {PAYMENT_COMMAND_CENTER.legendIntended}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-2 w-2 shrink-0 rounded-full bg-[#a78bfa]" /> {PAYMENT_COMMAND_CENTER.legendConfirmed}
@@ -495,7 +545,7 @@ export function HomeSurface({
               <select
                 value={timeframe}
                 onChange={(e) => onTimeframeChange(e.target.value as HomeTimeframe)}
-                className="rounded-md border border-[#E5E5E5] bg-white px-3 py-1.5 text-[13px] font-medium text-neutral-800 focus:border-[#39E07E] focus:outline-none focus:ring-1 focus:ring-[#39E07E]/40"
+                className="rounded-md border border-[#E5E5E5] bg-white px-3 py-1.5 text-[13px] font-medium text-neutral-800 focus:border-[#000000] focus:outline-none focus:ring-1 focus:ring-black/40"
               >
                 <option value="Week">Week</option>
                 <option value="Month">Month</option>
@@ -540,11 +590,11 @@ export function HomeSurface({
                 Zord compares your payment instructions with bank/settlement records for this date.
               </p>
             </div>
-          <ClientChart className="h-[21rem] w-full md:h-[23rem]">
+          <ClientChart className="h-[24rem] w-full md:h-[26rem]">
             <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={240}>
               <ComposedChart
                 data={chartData}
-                margin={{ top: 10, right: 28, left: 8, bottom: 0 }}
+                margin={{ top: 10, right: 28, left: 8, bottom: 8 }}
                 barGap={2}
                 onMouseMove={(state) => {
                   if (typeof state?.activeTooltipIndex === 'number') {
@@ -574,7 +624,7 @@ export function HomeSurface({
                   {chartData.map((entry) => (
                     <Cell
                       key={`home-bar-${entry.point}`}
-                      fill="#4ade80"
+                      fill="#000000"
                       opacity={entry.point === safePoint ? 1 : 0.78}
                     />
                   ))}
@@ -602,28 +652,44 @@ export function HomeSurface({
                   connectNulls
                   isAnimationActive
                 />
+                {chartData.length > 10 && (
+                  <Brush
+                    dataKey="label"
+                    height={28}
+                    travellerWidth={6}
+                    startIndex={Math.max(0, chartData.length - 14)}
+                    endIndex={chartData.length - 1}
+                    stroke="#e2e8f0"
+                    fill="#f8fafc"
+                    tickFormatter={() => ''}
+                  >
+                    <ComposedChart>
+                      <Bar dataKey="barValue" fill="#000000" opacity={0.4} isAnimationActive={false} />
+                    </ComposedChart>
+                  </Brush>
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           </ClientChart>
           </>
           ) : tenantReady && trendLoading ? (
-            <div className="h-[21rem] w-full animate-pulse rounded-lg bg-slate-100 md:h-[23rem]" aria-busy="true" />
+            <div className="h-[24rem] w-full animate-pulse rounded-lg bg-slate-100 md:h-[26rem]" aria-busy="true" />
           ) : (
-            <div className="flex h-[21rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-white px-4 text-center md:h-[23rem]">
-              <Glyph name="chart" className="h-10 w-10 shrink-0 text-[#4ade80]/90" aria-hidden />
+            <div className="flex h-[24rem] flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-slate-200 bg-white px-4 text-center md:h-[26rem]">
+              <Glyph name="chart" className="h-10 w-10 shrink-0 text-black/90" aria-hidden />
               {tenantReady ? (
                 <>
                   <span className={`font-semibold ${HOME_TITLE_BLACK}`}>No trend data in this range</span>
                   <span className={`max-w-md ${HOME_BODY_IMPERIAL}`}>
                     Try Week, Month, Quarter, or Year — or wait until intents exist in the selected window. The chart
-                    will populate automatically once disbursements appear.
+                    will populate automatically once payments appear.
                   </span>
                 </>
               ) : (
                 <>
                   <span className={`font-semibold ${HOME_TITLE_BLACK}`}>Workspace required</span>
                   <span className={`max-w-md ${HOME_BODY_IMPERIAL}`}>
-                    Sign in and select a tenant to plot disbursement and confirmation from the intent ledger. This
+                    Sign in and select a workspace to plot intended and confirmed value from the intent ledger. This
                     preview stays empty until a workspace is active.
                   </span>
                 </>
@@ -697,7 +763,7 @@ export function HomeSurface({
                 onClick={() => onYearChange(year)}
                 className={`shrink-0 rounded-full px-3 py-1.5 text-[14px] font-medium tracking-[0] transition ${
                   snapshot.selectedYear === year
-                    ? 'bg-[#39E07E] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/35'
+                    ? 'bg-[#000000] text-white shadow-sm ring-1 ring-black/35'
                     : `border border-[#E5E5E5] bg-white hover:bg-[#f5f5f5] ${HOME_TITLE_BLACK}`
                 }`}
               >
@@ -752,9 +818,9 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            cleanlyMatchedValue={observedMinor !== null ? fmtInrFromMinorExact(observedMinor) : loading ? '…' : '—'}
-            cleanlyMatchedSub="Payment value matched between instruction and confirmation."
-            cleanlyMatchedFooter="Cleanly matched means Zord can link the original payment instruction to a bank or settlement outcome."
+            fullyMatchedValue={observedMinor !== null ? fmtInrFromMinorExact(observedMinor) : loading ? '…' : '—'}
+            fullyMatchedSub="Payment value matched between instruction and confirmation."
+            fullyMatchedFooter="Fully matched means Zord can link the original payment instruction to a bank or settlement outcome."
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={
@@ -773,14 +839,8 @@ export function HomeSurface({
             paymentsNeedingReview={
               ambData?.ambiguous_intent_count != null ? String(ambData.ambiguous_intent_count) : '—'
             }
-            missingRefRate={
-              ambData ? `${((ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(1)}%` : '—'
-            }
-            refCompleteness={
-              ambData
-                ? `${Math.max(0, 100 - (ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(0)}%`
-                : '—'
-            }
+            missingRefRate={missingRefRate}
+            refCompleteness={refCompleteness}
             multiMatchRate={
               ambData ? `${((ambData.ambiguity_rate ?? 0) * 100).toFixed(1)}%` : '—'
             }
@@ -792,9 +852,6 @@ export function HomeSurface({
               defData
                 ? `${Math.max(0, 100 - Math.round((defData.evidence_pack_rate ?? 0) * 100))}% incomplete`
                 : '—'
-            }
-            replayReadyRow={
-              defData ? `${Math.round((defData.replayability_pct ?? 0) * 100)}% replay-ready` : '—'
             }
             proofHref="/payout-command-view/today?dock=proof"
             nextActions={{ actions: nextActions, completionHint }}

@@ -15,6 +15,7 @@ import { AskZordPanel } from '../layout/AskZordPanel'
 import { HomeCommandFiltersForm } from '../layout/HomeCommandFiltersForm'
 import { PayoutConsoleNavStack } from '../layout/PayoutConsoleNavStack'
 import { PageHeader } from '../layout/PageHeader'
+import { PayoutPageActionsProvider } from '../layout/PayoutPageActionsContext'
 import ConnectorIntelligenceClient from '../connectors/ConnectorIntelligenceClient'
 import {
   AmbiguitySurface,
@@ -221,32 +222,34 @@ export default function PayoutCommandViewClient({
           <section
             className={`relative ${activeDock === 'workspace' ? 'px-3 py-3 sm:px-4 sm:py-4 lg:px-5' : 'p-4 sm:p-5 lg:p-6'}`}
           >
-            <PageHeader
-              pageEyebrow={pageHeaderMeta.pageEyebrow}
-              pageTitle={pageHeaderMeta.pageTitle}
-              pageSubtitle={pageHeaderMeta.pageSubtitle}
-              onAskZordToggle={handleAskZordToggle}
-              hideAskZordButton={activeDock === 'workspace'}
-              showUtilityIconButtons={false}
-              homeCommandFilters={
-                activeDock === 'home'
-                  ? {
-                      open: homeFiltersOpen,
-                      onToggle: () => setHomeFiltersOpen((open) => !open),
-                      panel: (
-                        <HomeCommandFiltersForm
-                          timeframe={home.timeframe}
-                          onTimeframeChange={home.setTimeframe}
-                          commandFilters={home.commandFilters}
-                          setCommandFilters={home.setCommandFilters}
-                        />
-                      ),
-                    }
-                  : undefined
-              }
-            />
+            <PayoutPageActionsProvider>
+              <PageHeader
+                pageEyebrow={pageHeaderMeta.pageEyebrow}
+                pageTitle={pageHeaderMeta.pageTitle}
+                pageSubtitle={pageHeaderMeta.pageSubtitle}
+                onAskZordToggle={handleAskZordToggle}
+                hideAskZordButton={activeDock === 'workspace'}
+                showUtilityIconButtons
+                homeCommandFilters={
+                  activeDock === 'home'
+                    ? {
+                        open: homeFiltersOpen,
+                        onToggle: () => setHomeFiltersOpen((open) => !open),
+                        panel: (
+                          <HomeCommandFiltersForm
+                            timeframe={home.timeframe}
+                            onTimeframeChange={home.setTimeframe}
+                            commandFilters={home.commandFilters}
+                            setCommandFilters={home.setCommandFilters}
+                          />
+                        ),
+                      }
+                    : undefined
+                }
+              />
 
-            {surfaceBody}
+              {surfaceBody}
+            </PayoutPageActionsProvider>
 
             {activeDock !== 'workspace' ? (
               <AskZordPanel

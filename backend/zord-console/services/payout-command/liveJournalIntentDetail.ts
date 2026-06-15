@@ -28,7 +28,7 @@ export type LiveJournalDrawerRowInput = {
   clientPayoutRef?: string
   sourceRowNum?: number | null
   amount: number
-  method: 'Bank Transfer' | 'LSM' | 'NACH'
+  method: 'Bank Transfer' | 'LSM' | 'NACH' | '—'
   rail?: string
   beneficiaryName?: string | null
   paymentPartner: string

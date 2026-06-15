@@ -39,14 +39,14 @@ export function VerifyProofIntegrityButton({ pack }: VerifyProofIntegrityButtonP
             setBusy(false)
           })
         }}
-        className="rounded-[0.85rem] border border-[#E5E5E5] bg-white px-4 py-2 text-[14px] font-semibold text-[#111111] transition hover:border-[#4ADE80]/30 disabled:opacity-50"
+        className="rounded-[0.85rem] border border-[#E5E5E5] bg-white px-4 py-2 text-[14px] font-semibold text-[#111111] transition hover:border-[#000000]/30 disabled:opacity-50"
       >
         {busy ? evidenceCopy.graph.verifyBusy : evidenceCopy.verify.button}
       </button>
       {message ? (
         <div
           className={`rounded-lg border px-3 py-2 text-[13px] ${
-            ok ? 'border-[#4ADE80]/40 bg-[#f0fdf4] text-[#166534]' : 'border-rose-200 bg-rose-50 text-rose-900'
+            ok ? 'border-black/40 bg-black text-white' : 'border-rose-200 bg-rose-50 text-rose-900'
           }`}
         >
           <p className="font-medium">{message}</p>

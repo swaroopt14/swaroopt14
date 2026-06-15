@@ -6,7 +6,7 @@ import { formatEvidenceDate } from '../utils/evidenceFormat'
 
 function statusClass(key: PackTableRowVm['proofStatusKey']): string {
   if (key === 'proofReady' || key === 'verified' || key === 'exported') {
-    return 'bg-emerald-50 text-emerald-700'
+    return 'bg-neutral-100 text-black'
   }
   if (key === 'needsReview') return 'bg-amber-50 text-amber-700'
   return 'bg-red-50 text-red-700'

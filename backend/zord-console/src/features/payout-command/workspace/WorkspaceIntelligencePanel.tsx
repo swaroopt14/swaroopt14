@@ -100,11 +100,11 @@ export function WorkspaceIntelligencePanel({
   }
 
   const footerHint = !tenantReady
-    ? 'Resolving session tenant…'
+    ? 'Resolving your workspace…'
     : !tenantId.trim()
-      ? 'Sign in so Ask Zord can scope answers to your tenant.'
+      ? 'Sign in so Ask Zord can focus answers on your workspace.'
       : workspace.isSubmitting
-        ? 'Querying prompt-layer for your session tenant…'
+        ? "Searching your workspace's payment data…"
         : 'Shift+Enter for new line · Enter to send'
 
   return (
@@ -126,7 +126,7 @@ export function WorkspaceIntelligencePanel({
             </button>
           ))}
           <span
-            className="cursor-not-allowed rounded-full border border-dashed border-black/15 bg-[#fafafa] px-4 py-2.5 text-[13px] font-medium text-[#8a8a86]"
+            className="max-w-full cursor-not-allowed rounded-full border border-[#00239C]/30 bg-[#EEF3FF] px-4 py-2.5 text-[13px] font-semibold leading-snug text-[#00239C] shadow-sm"
             title={PAYMENT_OPERATIONS.routingTabDisabled}
             data-testid="workspace-routing-tab-disabled"
           >

@@ -59,7 +59,7 @@ export function SupportDocNav({ open, onClose }: SupportDocNavProps) {
       >
         <div className="flex items-center justify-between border-b border-slate-200/90 px-5 py-4">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#16a34a]">Documentation</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-[#000000]">Documentation</p>
             <p className={`mt-0.5 text-[17px] font-bold ${HOME_TITLE_BLACK}`}>Zord docs</p>
           </div>
           <button

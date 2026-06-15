@@ -36,7 +36,12 @@ export function useJournalBatchMetrics(batchId: string, enabled: boolean, pollMs
 
       const paymentItems = bundle.paymentIntents?.items ?? []
       const dlqItems = bundle.dlqItems?.items ?? []
-      setMetrics(deriveIntentBatchMetrics(paymentItems, dlqItems))
+      setMetrics(
+        deriveIntentBatchMetrics(paymentItems, dlqItems, {
+          paymentIntentTotal: bundle.paymentIntents?.pagination?.total,
+          batchTotalAmount: found?.totalValue,
+        }),
+      )
     } catch {
       setError('Could not load batch metrics.')
       setBaseBatch(null)

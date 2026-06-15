@@ -186,7 +186,6 @@ export function mergeBatchAggregateScore(
   batch: BatchRecord,
   opts: {
     isSelected: boolean
-    detailAggregateScore?: number | null
     metricsBatch?: { aggregateConfidenceScore?: number } | null
   },
 ): BatchRecord {
@@ -196,51 +195,24 @@ export function mergeBatchAggregateScore(
     return { ...batch, aggregateConfidenceScore: opts.metricsBatch.aggregateConfidenceScore }
   }
 
-  const raw = opts.detailAggregateScore
-  if (typeof raw === 'number' && Number.isFinite(raw)) {
-    const normalized = raw <= 1 ? raw : raw / 100
-    return { ...batch, aggregateConfidenceScore: normalized }
-  }
-
   return batch
 }
 
-/** Sidebar health — aggregate_confidence_score only when present; else legacy fallbacks. */
-export function resolveBatchHealthStatus(
-  batch: BatchRecord,
-  opts?: { dlqCount?: number; intentCount?: number; finality?: string },
-): BatchStatus {
+/** Sidebar health — aggregate_confidence_score thresholds only. */
+export function resolveBatchHealthStatus(batch: BatchRecord): BatchStatus | null {
   const confPct = confidencePctFromBatch(batch)
-  if (confPct != null) {
-    return batchStatusFromConfidencePct(confPct)
-  }
+  if (confPct == null) return null
+  return batchStatusFromConfidencePct(confPct)
+}
 
-  const dlq = Math.max(0, opts?.dlqCount ?? 0)
-  const intents = Math.max(0, opts?.intentCount ?? 0)
-  const attention = (batch.mismatchCount ?? 0) + (batch.unresolvedCount ?? 0)
-  const ingestTotal = Math.max(batch.transactions, intents, 0)
-
-  if (batch.engineSidebar && ingestTotal > 0 && batch.confirmedCount === 0 && dlq > 0) {
-    return 'Critical'
-  }
-  if (attention > 0 && attention >= ingestTotal && ingestTotal > 0) return 'Critical'
-  if (attention > ingestTotal * 0.5 && ingestTotal > 0) return 'Critical'
-
-  const fs = opts?.finality
-  if (fs) {
-    return batchStatusFromFinality(fs)
-  }
-
-  if (dlq === 0 && attention === 0 && intents === 0 && ingestTotal === 0) {
-    return 'Stable'
-  }
-
-  return batchStatus(batchQualityScore(batch))
+/** Neutral styling when aggregate confidence is unavailable. */
+export function neutralHealthTone() {
+  return { text: 'text-slate-500', left: 'border-l-4 border-l-slate-300', ring: '#94a3b8' }
 }
 
 export function statusTone(status: BatchStatus) {
   if (status === 'Stable') {
-    return { text: 'text-emerald-700', left: 'border-l-4 border-l-emerald-500', ring: '#16a34a' }
+    return { text: 'text-black', left: 'border-l-4 border-l-black', ring: '#000000' }
   }
   if (status === 'At Risk') {
     return { text: 'text-amber-700', left: 'border-l-4 border-l-amber-500', ring: '#d97706' }

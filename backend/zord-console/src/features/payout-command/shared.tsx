@@ -252,7 +252,7 @@ export function usePromptAutoContrast(containerRef: RefObject<HTMLElement>) {
 
   return {
     inputToneClass: isDarkBackground
-      ? 'text-white/92 placeholder:text-white/50 caret-[#4ADE80]'
+      ? 'text-white/92 placeholder:text-white/50 caret-white'
       : 'text-[#111111] placeholder:text-[#8a8a86] caret-[#111111]',
     captionToneClass: isDarkBackground ? 'text-white/42' : 'text-[#8a8a86]',
   }
@@ -262,7 +262,7 @@ export function usePromptAutoContrast(containerRef: RefObject<HTMLElement>) {
  * Optional pill when a surface is backed by live APIs (`isLive`).
  * When not live, renders nothing (no placeholder / demo copy).
  *
- * `variant="command"` uses the same green “Live” styling as command-center surfaces.
+ * `variant="command"` uses the same black “Live” styling as command-center surfaces.
  */
 export function LiveDataHint({
   isLive,
@@ -277,16 +277,16 @@ export function LiveDataHint({
 
   if (variant === 'command') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-[#4ADE80]/45 bg-[#f0fdf4] px-2.5 py-1 text-[14px] font-semibold text-[#166534]">
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#4ADE80]" aria-hidden />
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-black/30 bg-[#000000] px-2.5 py-1 text-[14px] font-semibold text-white">
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white" aria-hidden />
         Live{source ? ` · ${source}` : ''}
       </span>
     )
   }
 
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-emerald-50 px-2 py-0.5 text-[13px] font-medium text-emerald-700">
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" aria-hidden />
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-black/30 bg-[#000000] px-2 py-0.5 text-[13px] font-medium text-white">
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white" aria-hidden />
       Live{source ? ` · ${source}` : ''}
     </span>
   )

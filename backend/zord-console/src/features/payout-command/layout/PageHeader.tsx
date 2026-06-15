@@ -3,13 +3,12 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
-import { PAYOUT_VIEW_URLS, type GlyphName } from '@/services/payout-command/model'
+import { PAYOUT_VIEW_URLS } from '@/services/payout-command/model'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { ApiKeysPopoverButton } from './ApiKeysPopoverButton'
+import { usePayoutPageActions } from './PayoutPageActionsContext'
 import { HOME_BODY_IMPERIAL_SM } from '../command-center/homeCommandCenterTokens'
 import { Glyph } from '../shared'
-
-const ICON_BUTTONS: GlyphName[] = ['refresh', 'eye']
 
 const TEAM_AVATARS = [
   { initial: 'A', bg: '#d8e6ff' },
@@ -54,6 +53,14 @@ export function PageHeader({
 }: PageHeaderProps) {
   const { mode } = useEnvironment()
   const batchCenterHref = payoutBatchCommandCenterHref(mode === 'sandbox')
+  const {
+    triggerRefresh,
+    triggerExportShare,
+    refreshing,
+    exportDisabled,
+    hasRefresh,
+    hasExport,
+  } = usePayoutPageActions()
   const showPageHeading = Boolean(pageTitle)
   const showEyebrow = Boolean(pageEyebrow && pageEyebrow !== pageTitle)
 
@@ -108,16 +115,16 @@ export function PageHeader({
       <div className="flex flex-wrap items-center gap-1.5 xl:shrink-0">
         {showUtilityIconButtons ? (
           <>
-            {ICON_BUTTONS.map((icon) => (
-              <button
-                key={icon}
-                type="button"
-                className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-black/10 bg-white text-[#111111] hover:bg-[#fafafa]"
-                aria-label={icon}
-              >
-                <Glyph name={icon} className="h-4 w-4" />
-              </button>
-            ))}
+            <button
+              type="button"
+              disabled={!hasRefresh || refreshing}
+              onClick={() => void triggerRefresh()}
+              className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-black/10 bg-white text-[#111111] hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-45"
+              aria-label="Refresh page data"
+              title="Refresh page data"
+            >
+              <Glyph name="refresh" className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
             <Link
               href={PAYOUT_VIEW_URLS.settingsAccount}
               className="flex h-9 w-9 items-center justify-center rounded-[8px] border border-black/10 bg-white text-[#111111] hover:bg-[#fafafa]"
@@ -157,19 +164,22 @@ export function PageHeader({
           </button>
         ) : null}
 
-        <Link
+        <a
           href={batchCenterHref}
+          data-testid="view-batches-link"
           className="inline-flex h-9 items-center rounded-[8px] border border-[#111111] bg-white px-2.5 text-[14px] font-semibold text-[#111111] hover:bg-[#fafafa]"
           title="View batch-level payment details"
         >
           View Batches
-        </Link>
+        </a>
 
         <ApiKeysPopoverButton label="Integrations" />
 
         <button
           type="button"
-          className="flex h-9 items-center gap-2 rounded-[8px] bg-[#111111] px-2.5 text-[14px] font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.06)]"
+          disabled={!hasExport || exportDisabled}
+          onClick={triggerExportShare}
+          className="flex h-9 items-center gap-2 rounded-[8px] bg-[#111111] px-2.5 text-[14px] font-semibold text-white shadow-[0_4px_12px_rgba(0,0,0,0.06)] disabled:cursor-not-allowed disabled:opacity-45"
           title="Export or share payment proof report"
         >
           <div className="flex -space-x-1.5">

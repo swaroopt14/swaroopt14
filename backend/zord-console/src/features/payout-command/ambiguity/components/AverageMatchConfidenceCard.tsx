@@ -48,7 +48,7 @@ export function AverageMatchConfidenceCard({ amb }: { amb: AmbiguityKpiResolved 
 
       <div className="mt-8 grid grid-cols-2 gap-4">
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-emerald-500" />
+          <div className="h-2 w-2 rounded-full bg-black" />
           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">High Confidence</span>
         </div>
         <div className="flex items-center gap-2">

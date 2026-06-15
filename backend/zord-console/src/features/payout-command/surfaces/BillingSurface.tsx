@@ -45,7 +45,7 @@ const PLANS = [
 const SHELL_CARD =
   'rounded-[12px] border border-slate-200/90 bg-white/95 shadow-[0_2px_12px_rgba(15,23,42,0.04)]'
 const JOURNAL_PILL =
-  'inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30'
+  'inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#000000] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#000000]/30'
 
 export function BillingSurface({ onActivateClick }: { onActivateClick: () => void }) {
   const { mode, liveActivationStatus } = useEnvironment()
@@ -140,7 +140,7 @@ export function BillingSurface({ onActivateClick }: { onActivateClick: () => voi
                     <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#E5E5E5]">
                       <div
                         className={`h-full rounded-full transition-all ${
-                          usagePct >= 90 ? 'bg-amber-500' : 'bg-emerald-500'
+                          usagePct >= 90 ? 'bg-amber-500' : 'bg-black'
                         }`}
                         style={{ width: `${usagePct}%` }}
                       />
@@ -186,7 +186,7 @@ export function BillingSurface({ onActivateClick }: { onActivateClick: () => voi
                     <div className="flex items-center justify-between gap-2">
                       <p className={`text-[17px] font-semibold ${HOME_TITLE_BLACK}`}>{plan.name}</p>
                       {'recommended' in plan && plan.recommended ? (
-                        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                        <span className="rounded-full border border-black/30 bg-neutral-100 px-1.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-black">
                           Recommended
                         </span>
                       ) : null}
@@ -203,7 +203,7 @@ export function BillingSurface({ onActivateClick }: { onActivateClick: () => voi
                     <ul className="mt-3 space-y-1.5">
                       {plan.features.map((f) => (
                         <li key={f} className="flex items-start gap-1.5 text-[14px] text-[#475569]">
-                          <Glyph name="check" className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" />
+                          <Glyph name="check" className="mt-0.5 h-3 w-3 shrink-0 text-black" />
                           <span>{f}</span>
                         </li>
                       ))}

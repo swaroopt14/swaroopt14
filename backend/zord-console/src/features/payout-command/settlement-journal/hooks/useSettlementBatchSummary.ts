@@ -8,17 +8,19 @@ import { useSettlementObservationRows } from './useSettlementObservationRows'
 /** Hero / KPI / donut widgets — shares observation fetch with table via cache dedupe. */
 export function useSettlementBatchSummary() {
   const { selectedClientBatchId, journalEnabled, tenantReady } = useSettlementBatchSelection()
-  const { rows, loading } = useSettlementObservationRows(
+  const { rows, observationTotal, loading } = useSettlementObservationRows(
     selectedClientBatchId,
     journalEnabled && tenantReady,
+    { fetchAll: true },
   )
 
   return useMemo(
     () => ({
       rows,
+      observationTotal,
       loading,
       ...computeSettlementBatchSummary(rows),
     }),
-    [rows, loading],
+    [rows, observationTotal, loading],
   )
 }

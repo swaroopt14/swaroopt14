@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { clampZeroBasedPage } from '../../_lib/clampPage'
 import type { FinalityStatus, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { ambiguityCopy } from '../copy/ambiguityCopy'
 import { batchDisplayValue, batchMatchPct } from '../utils/ambiguityApiMappers'
@@ -21,7 +22,7 @@ const PAGE_SIZE = 6
 function statusMeta(status: string): { dot: string; label: string; badge: string } {
   switch (status) {
     case 'SETTLED':
-      return { dot: 'bg-emerald-500', label: 'Active', badge: 'bg-emerald-50 text-emerald-700' }
+      return { dot: 'bg-black', label: 'Active', badge: 'bg-black text-white' }
     case 'REQUIRES_REVIEW':
       return { dot: 'bg-amber-500', label: 'Review', badge: 'bg-amber-50 text-amber-700' }
     case 'PARTIALLY_SETTLED':
@@ -49,18 +50,21 @@ export function BatchesNeedingReviewTable({ batches, loading, finalityFilter, on
   const totalPages = Math.max(1, Math.ceil(batches.length / PAGE_SIZE))
   const visible = batches.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE)
 
+  useEffect(() => {
+    setPage((p) => clampZeroBasedPage(p, totalPages))
+  }, [totalPages])
+
   return (
     <article className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 animate-pulse rounded-full" style={{ background: '#3dff82' }} />
+          <div className="h-2 w-2 animate-pulse rounded-full bg-black" />
           <span className="text-[12px] font-semibold uppercase tracking-wider text-[#000000]">
             Batch Performance
           </span>
           <span
-            className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#000000]"
-            style={{ background: '#3dff82' }}
+            className="rounded-full bg-black px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
           >
             Live Tracking
           </span>
@@ -68,7 +72,7 @@ export function BatchesNeedingReviewTable({ batches, loading, finalityFilter, on
         <select
           value={finalityFilter}
           onChange={(e) => { onFilterChange(e.target.value as '' | FinalityStatus); setPage(0) }}
-          className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[12px] font-medium text-slate-700 focus:border-emerald-500 focus:outline-none appearance-none"
+          className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[12px] font-medium text-slate-700 focus:border-black focus:outline-none appearance-none"
         >
           {FINALITY_FILTERS.map((f) => (
             <option key={f.label} value={f.value}>{f.label}</option>

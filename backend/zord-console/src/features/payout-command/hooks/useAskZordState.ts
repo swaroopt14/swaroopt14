@@ -120,7 +120,7 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
       setStatus('loading')
       setResponse({
         title: 'Ask Zord',
-        body: 'Querying prompt-layer for your workspace…',
+        body: "Searching your workspace's payment data…",
       })
 
       void (async () => {
@@ -149,12 +149,12 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
             typeof (result.payload as { details?: string }).details === 'string'
             ? (result.payload as { details: string }).details
             : result.ok
-              ? 'Empty answer from prompt-layer.'
+              ? 'Ask Zord returned an empty answer.'
               : `HTTP ${result.httpStatus}`
 
         setPendingResponse({
-          title: 'Prompt-layer unavailable',
-          body: `Could not reach prompt-layer (${detail}). Start zord-prompt-layer on port 8086 or set PROMPT_LAYER_URL for the console BFF.`,
+          title: 'Ask Zord unavailable',
+          body: `Could not complete your request (${detail}). Try again in a moment.`,
         })
       })()
     },

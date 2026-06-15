@@ -77,7 +77,7 @@ function AssistantLoadingIndicator({ phase }: { phase?: WorkspaceLoadingPhase | 
 export function ZordAvatar({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[#39E07E] text-[#0A0A0A] shadow-sm ring-1 ring-[#39E07E]/40 ${className}`}
+      className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[#000000] text-[#0A0A0A] shadow-sm ring-1 ring-[#000000]/40 ${className}`}
       aria-hidden
     >
       <svg className="h-[16px] w-[16px]" viewBox="0 0 20 20" fill="none" aria-hidden>
@@ -96,8 +96,8 @@ export function ZordAvatar({ className = '' }: { className?: string }) {
 export function ConnectionPill({ state }: { state: 'idle' | 'connected' | 'error' }) {
   if (state === 'connected') {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-800">
-        <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <span className="inline-flex items-center gap-1.5 rounded-full border border-black/30 bg-neutral-100 px-2.5 py-1 text-[11px] font-medium text-black">
+        <span className="h-1.5 w-1.5 rounded-full bg-black" />
         Live operating context
       </span>
     )
@@ -128,7 +128,7 @@ function CitationBlock({ message }: { message: WorkspaceConversationMessage }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="text-[11px] font-semibold uppercase tracking-[0.06em] text-emerald-700 hover:text-emerald-800"
+        className="text-[11px] font-semibold uppercase tracking-[0.06em] text-black hover:text-black"
       >
         Sources ({citations.length}) {open ? '▾' : '▸'}
       </button>
@@ -140,7 +140,7 @@ function CitationBlock({ message }: { message: WorkspaceConversationMessage }) {
               className="rounded-xl border border-slate-100 bg-slate-50/80 px-3 py-2.5 text-[13px] leading-relaxed text-slate-600"
             >
               {(c.source_type || c.record_id) && (
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-black">
                   {[c.source_type, c.record_id].filter(Boolean).join(' · ')}
                 </p>
               )}
@@ -186,7 +186,7 @@ export function MessageBubble({ message }: { message: WorkspaceConversationMessa
         </div>
         {!isLoading ? <CitationBlock message={message} /> : null}
         {!isLoading && message.confidence ? (
-          <span className="mt-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-emerald-800">
+          <span className="mt-3 inline-flex rounded-full border border-black/30 bg-neutral-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-black">
             {message.confidence}
           </span>
         ) : null}

@@ -254,7 +254,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
 
       {!tenantReady ? (
         <p className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-[14px] font-medium text-slate-500 shadow-sm">
-          Sign in to load evidence for your tenant.
+          Sign in to load evidence for your workspace.
         </p>
       ) : (
         <>

@@ -6,10 +6,7 @@ import {
   HOME_TITLE_BLACK,
 } from '../../command-center/homeCommandCenterTokens'
 import { payoutBatchCommandCenterHref } from '@/services/payout-command/batchCommandCenterHref'
-import { SETTLEMENT_SIDEBAR_PAGE_SIZE } from '../settlementConstants'
-import type { SettlementObservationTableRow } from '@/services/payout-command/prod-api/settlementObservations'
 import {
-  outcomeFromObservationRows,
   type SettlementSidebarOutcome,
 } from '../settlementJournalSidebarUtils'
 
@@ -22,8 +19,10 @@ export type SettlementJournalBatchSidebarProps = {
   sidebarRows: string[]
   selectedClientBatchId: string
   selectClientBatch: (batchId: string) => void
-  observationRows: SettlementObservationTableRow[]
-  batchOutcomeCache: Record<string, SettlementSidebarOutcome>
+  liveMatchOutcome: SettlementSidebarOutcome | null
+  batchMatchOutcomeCache: Record<string, SettlementSidebarOutcome>
+  observationTotal: number | null
+  observationTotalLoading: boolean
   safeSidebarPage: number
   sidebarTotalPages: number
   setSidebarPage: (updater: (page: number) => number) => void
@@ -37,8 +36,10 @@ export function SettlementJournalBatchSidebar({
   sidebarRows,
   selectedClientBatchId,
   selectClientBatch,
-  observationRows,
-  batchOutcomeCache,
+  liveMatchOutcome,
+  batchMatchOutcomeCache,
+  observationTotal,
+  observationTotalLoading,
   safeSidebarPage,
   sidebarTotalPages,
   setSidebarPage,
@@ -56,7 +57,7 @@ export function SettlementJournalBatchSidebar({
       <div className="flex-1 overflow-y-auto px-2 py-2">
         {!tenantReady ? (
           <p className="rounded-xl border border-dashed border-slate-200/90 bg-slate-50 px-3 py-4 text-center text-[14px] text-[#64748b]">
-            Sign in to load settlement batches for your session tenant.
+            Sign in to load settlement batches for your workspace.
           </p>
         ) : feedLoaded && clientBatches.length === 0 ? (
           <p className="rounded-xl border border-dashed border-slate-200/90 bg-slate-50 px-3 py-4 text-center text-[14px] leading-relaxed text-[#64748b]">
@@ -70,17 +71,17 @@ export function SettlementJournalBatchSidebar({
 
         {sidebarRows.map((batchId) => {
           const selected = batchId === selectedClientBatchId
-          const cached = batchOutcomeCache[batchId]
-          const liveOutcome =
-            selected && observationRows.length > 0
-              ? outcomeFromObservationRows(observationRows)
-              : cached
+          const cached = batchMatchOutcomeCache[batchId]
+          const liveOutcome = selected ? liveMatchOutcome : cached
           const dotClass = liveOutcome?.dotClass ?? 'bg-slate-300'
-          const countLine = liveOutcome
-            ? `${liveOutcome.total.toLocaleString('en-US')} observations${
-                liveOutcome.settledPct != null ? ` · ${liveOutcome.settledPct}% settled` : ''
-              }`
-            : '—'
+          const observationCountLine =
+            selected && observationTotal != null
+              ? `${observationTotal.toLocaleString('en-US')} observations`
+              : selected && observationTotalLoading
+                ? 'Loading observations…'
+                : cached
+                  ? 'Match confidence cached'
+                  : '—'
 
           return (
             <button
@@ -100,14 +101,14 @@ export function SettlementJournalBatchSidebar({
                     {batchId}
                   </span>
                 </div>
-                {liveOutcome?.settledPct != null ? (
+                {liveOutcome && liveOutcome.progressPct > 0 ? (
                   <span className={`shrink-0 text-[14px] font-semibold tabular-nums ${liveOutcome.toneText}`}>
-                    {liveOutcome.settledPct}%
+                    {liveOutcome.progressPct}%
                   </span>
                 ) : null}
               </div>
-              <p className="mt-0.5 pl-4 text-[13px] text-[#64748b]">{countLine}</p>
-              {selected && liveOutcome ? (
+              <p className="mt-0.5 pl-4 text-[13px] text-[#64748b]">{observationCountLine}</p>
+              {selected && liveOutcome && liveOutcome.progressPct > 0 ? (
                 <div className="mt-2 space-y-1.5 pl-4">
                   <div className="h-1 w-full overflow-hidden rounded-full bg-[#E5E5E5]">
                     <div
@@ -123,13 +124,13 @@ export function SettlementJournalBatchSidebar({
         })}
       </div>
 
-      {clientBatches.length > SETTLEMENT_SIDEBAR_PAGE_SIZE ? (
+      {sidebarTotalPages > 1 ? (
         <div className="border-t border-slate-200/90 bg-slate-50 px-3 py-2 text-[14px] text-[#64748b]">
           <div className="flex items-center justify-between">
             <button
               type="button"
-              disabled={safeSidebarPage <= 1}
               onClick={() => setSidebarPage((p) => Math.max(1, p - 1))}
+              disabled={safeSidebarPage <= 1}
               className="rounded-md border border-slate-200/90 bg-white px-2 py-1 text-[#0f172a] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Prev
@@ -139,8 +140,8 @@ export function SettlementJournalBatchSidebar({
             </span>
             <button
               type="button"
-              disabled={safeSidebarPage >= sidebarTotalPages}
               onClick={() => setSidebarPage((p) => Math.min(sidebarTotalPages, p + 1))}
+              disabled={safeSidebarPage >= sidebarTotalPages}
               className="rounded-md border border-slate-200/90 bg-white px-2 py-1 text-[#0f172a] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next

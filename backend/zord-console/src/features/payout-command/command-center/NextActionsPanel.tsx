@@ -45,7 +45,7 @@ function ActionRow({ action }: { action: NextActionItem }) {
         href={action.href}
         className={`flex items-start justify-between gap-3 rounded-xl border px-3 py-3 transition hover:border-slate-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400 ${
           action.emphasis
-            ? 'border-[#39E07E]/50 bg-[#f0fdf4] ring-1 ring-[#39E07E]/25'
+            ? 'border-black/30 bg-neutral-100 ring-1 ring-black/20'
             : 'border-slate-100/90 bg-white/80'
         }`}
       >
@@ -57,7 +57,7 @@ function ActionRow({ action }: { action: NextActionItem }) {
   return (
     <div
       className={`flex items-start justify-between gap-3 rounded-xl border px-3 py-3 ${
-        action.emphasis ? 'border-[#39E07E]/50 bg-[#f0fdf4]' : 'border-slate-100/90 bg-white/80'
+        action.emphasis ? 'border-black/30 bg-neutral-100' : 'border-slate-100/90 bg-white/80'
       }`}
     >
       {inner}

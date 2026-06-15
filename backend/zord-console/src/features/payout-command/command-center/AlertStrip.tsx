@@ -5,7 +5,7 @@ import { useState } from 'react'
 import type { AlertStripProps } from './types'
 
 const BG: Record<AlertStripProps['status'], string> = {
-  GREEN: '#16a34a',
+  GREEN: '#000000',
   AMBER: '#f59e0b',
   RED: '#dc2626',
 }
@@ -13,7 +13,7 @@ const BG: Record<AlertStripProps['status'], string> = {
 /** Neon rim + glow (payout view system). Exported for SandboxBanner parity. */
 export const ALERT_STRIP_NEON: Record<AlertStripProps['status'], string> = {
   GREEN:
-    'shadow-[0_0_32px_rgba(74,222,128,0.45),0_4px_24px_rgba(22,163,74,0.35)] ring-1 ring-[#4ADE80]/35',
+    'shadow-[0_0_32px_rgba(0,0,0,0.25),0_4px_24px_rgba(0,0,0,0.2)] ring-1 ring-black/35',
   AMBER:
     'shadow-[0_0_28px_rgba(245,158,11,0.42),0_4px_20px_rgba(217,119,6,0.25)] ring-1 ring-amber-300/40',
   RED: 'shadow-[0_0_30px_rgba(220,38,38,0.48),0_4px_22px_rgba(185,28,28,0.3)] ring-1 ring-red-400/35',

@@ -4,8 +4,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { AmbiguityKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntelligenceKpiHero'
+import { ambiguityCopy } from '../copy/ambiguityCopy'
 import { formatAmbiguityInr } from '../utils/formatAmbiguityInr'
-import { getKpiDeltas } from '../utils/ambiguityApiMappers'
+import { formatDeltaPct, getKpiDeltas } from '../utils/ambiguityApiMappers'
 
 type Props = { amb: AmbiguityKpiResolved | null; loading?: boolean; scopeHint?: string }
 
@@ -24,10 +25,7 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
   const rate = amb?.ambiguity_rate
   const missingRate = amb?.provider_ref_missing_rate
   const ambiguityRateLabel = rate != null ? `${(rate * 100).toFixed(1)}%` : '—'
-  const matchConfidenceLabel =
-    amb?.avg_attachment_confidence != null
-      ? `${(amb.avg_attachment_confidence * 100).toFixed(1)}%`
-      : '—'
+  const ambiguityRateDelta = formatDeltaPct(amb?.ambiguity_rate_delta_pct) ?? '—'
 
   const buckets = [
     {
@@ -54,9 +52,9 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
 
   return (
     <JournalIntelligenceKpiHero
-      eyebrow="Matching confidence"
-      value={matchConfidenceLabel}
-      deltaPill={ambiguityRateLabel}
+      eyebrow={ambiguityCopy.kpi.reviewRate}
+      value={ambiguityRateLabel}
+      deltaPill={ambiguityRateDelta}
       subcopy={scopeHint ?? 'Tenant-wide snapshot'}
       buckets={buckets}
       testId="ambiguity-kpi-hero"

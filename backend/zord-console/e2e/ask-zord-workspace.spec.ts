@@ -185,7 +185,7 @@ test.describe('Payment Operations View (Ask Zord workspace)', () => {
 
     await expect(page.getByText('Payments in Scope')).toBeVisible()
     await expect(page.getByText('Connected Sources')).toBeVisible()
-    await expect(page.getByText('Payment Clarity')).toBeVisible()
+    await expect(page.getByText('Value at Risk')).toBeVisible()
     await expect(page.getByText('Items Needing Review')).toBeVisible()
     await expect(page.getByText('Ask Zord About This Payment Data')).toBeVisible()
 
@@ -196,7 +196,7 @@ test.describe('Payment Operations View (Ask Zord workspace)', () => {
 
     await expect(page.getByTestId('workspace-routing-tab-disabled')).toBeVisible()
     await expect(page.getByRole('tab', { name: 'Today' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Payment Clarity' })).toBeVisible()
+    await expect(page.getByRole('tab', { name: 'Value at Risk' })).toBeVisible()
   })
 
   test('loads initial latest answer from prompt-layer', async ({ page }) => {

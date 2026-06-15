@@ -364,7 +364,7 @@ export default function BatchCommandCenterClient() {
               uploadStatus.state === 'failed'
                 ? 'border-red-200 bg-red-50 text-red-900'
                 : uploadStatus.state === 'synced'
-                  ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                  ? 'border-black/30 bg-neutral-100 text-white'
                   : 'border-slate-200 bg-slate-50 text-slate-800'
             }`}
           >

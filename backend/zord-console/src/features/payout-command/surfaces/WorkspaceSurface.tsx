@@ -1,12 +1,14 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { workspacePromptCopy, type WorkspaceTab } from '@/services/payout-command/model'
 import type { WorkspaceState } from '../hooks/useWorkspaceState'
 import { buildGroundedAnswerSnapshot } from '../workspace/buildGroundedAnswerSnapshot'
 import { WorkspaceOperationsGrid } from '../workspace/WorkspaceOperationsGrid'
 import { WorkspaceIntelligencePanel } from '../workspace/WorkspaceIntelligencePanel'
 import { usePaymentOperationsView } from '../workspace/usePaymentOperationsView'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
+import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 
 export function WorkspaceSurface({
   activeTab,
@@ -20,10 +22,21 @@ export function WorkspaceSurface({
   batchId?: string
 }) {
   const copy = workspacePromptCopy[activeTab]
-  const { viewModel, loading } = usePaymentOperationsView(batchId)
+  const { tenantReady } = useSessionTenant()
+  const { viewModel, loading, refresh } = usePaymentOperationsView(batchId)
   const ingestIncomplete =
     viewModel.dataSources.intentStatus === 'missing' &&
     viewModel.dataSources.settlementStatus === 'missing'
+
+  const handlePageRefresh = useCallback(async () => {
+    await refresh()
+    workspace.refreshStarterAnswer()
+  }, [refresh, workspace])
+
+  useRegisterPayoutPageActions({
+    refresh: tenantReady ? handlePageRefresh : undefined,
+    refreshing: loading,
+  })
 
   const groundedAnswer = useMemo(
     () =>

@@ -64,7 +64,7 @@ export type {
  * Layout: Leaves (left) → Intermediate hashes (middle) → Merkle Root (right).
  * Pill nodes on a grid canvas with curved Bezier connectors.
  *
- *   Valid    → green  (#4ADE80)
+ *   Valid    → green  (#000000)
  *   Missing  → amber  (#F59E0B)
  *   Invalid  → red    (#EF4444)
  *   Derived  → grey   (#888888)
@@ -898,7 +898,7 @@ export function MerkleGraphSurface({
   }
   const displayStatus = batchAggregate.status
   const displayStatusLabel = displayStatus === 'verified' ? 'Verified' : displayStatus === 'partial' ? 'Partial' : 'Invalid'
-  const displayStatusDot = displayStatus === 'verified' ? 'bg-[#4ADE80]' : displayStatus === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+  const displayStatusDot = displayStatus === 'verified' ? 'bg-[#000000]' : displayStatus === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
 
   const handleCopy = useCallback((key: string, value: string) => {
     if (typeof navigator === 'undefined' || !navigator.clipboard) return
@@ -969,7 +969,7 @@ export function MerkleGraphSurface({
 
       {!tenantReady && useLive ? (
         <section className="rounded-[16px] border border-slate-200 bg-white p-6 text-[15px] text-slate-600">
-          Sign in to load evidence packs from your session tenant. Demo graph data is not shown in live mode.
+          Sign in to load evidence packs from your workspace. Demo graph data is not shown in live mode.
         </section>
       ) : null}
 
@@ -1102,7 +1102,7 @@ export function MerkleGraphSurface({
 
         {/* Status summary chips */}
         <div className="flex items-center gap-1.5">
-          <SummaryChip dot="bg-[#4ADE80]" label="Valid" count={displayCounts.valid} />
+          <SummaryChip dot="bg-[#000000]" label="Valid" count={displayCounts.valid} />
           {displayCounts.missing > 0 ? <SummaryChip dot="bg-[#F59E0B]" label="Missing" count={displayCounts.missing} /> : null}
           {displayCounts.invalid > 0 ? <SummaryChip dot="bg-[#EF4444]" label="Invalid" count={displayCounts.invalid} /> : null}
         </div>
@@ -1196,7 +1196,7 @@ export function MerkleGraphSurface({
         ) : null}
 
         <div className="ml-auto flex items-center gap-3 text-[14px] text-[#6f716d]">
-          <Legend dot="bg-[#4ADE80]" label="Valid" />
+          <Legend dot="bg-[#000000]" label="Valid" />
           <Legend dot="bg-[#F59E0B]" label="Missing" />
           <Legend dot="bg-[#EF4444]" label="Invalid" />
           <Legend dot="bg-[#888888]" label="Derived" />
@@ -1253,7 +1253,7 @@ const PAD_X = 28
 const PAD_Y = 32
 
 function edgeColor(status: LeafStatus | 'derived'): string {
-  if (status === 'valid') return '#4ADE80'
+  if (status === 'valid') return '#000000'
   if (status === 'missing') return '#F59E0B'
   if (status === 'invalid') return '#EF4444'
   return '#cfcfcf'
@@ -1366,7 +1366,7 @@ function GraphCanvas({
             aria-hidden
           >
             <defs>
-              {(['#4ADE80', '#F59E0B', '#EF4444', '#cfcfcf'] as const).map((c) => (
+              {(['#000000', '#F59E0B', '#EF4444', '#cfcfcf'] as const).map((c) => (
                 <marker
                   key={c}
                   id={`arrow-${c.replace('#', '')}`}
@@ -1413,7 +1413,7 @@ function GraphCanvas({
               const allValid = inter.derivedFrom.every(
                 (id) => pack.leaves.find((l) => l.id === id)?.status === 'valid',
               )
-              const color = allValid ? '#4ADE80' : '#F59E0B'
+              const color = allValid ? '#000000' : '#F59E0B'
               const dim = dimRootEdge(inter.id)
               const inLineage = lineage?.has(inter.id) && lineage?.has('root')
               return (
@@ -1542,7 +1542,7 @@ function LeafPill({
   highlight: boolean
 }) {
   const dot =
-    node.status === 'valid' ? 'bg-[#4ADE80]' : node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+    node.status === 'valid' ? 'bg-[#000000]' : node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
   const border =
     node.status === 'valid'
       ? 'border-[#E5E5E5]'
@@ -1556,7 +1556,7 @@ function LeafPill({
       title={`${node.name} · ${node.hashFull}`}
       style={{ left: x, top: y, width: PILL_W, height: PILL_H }}
       className={`absolute flex items-center gap-2.5 rounded-full border bg-white pl-2.5 pr-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition ${border} ${
-        selected ? 'ring-2 ring-[#4ADE80] ring-offset-2 ring-offset-[#fafafa]' : 'hover:border-[#cfcfcf] hover:shadow-[0_2px_8px_rgba(15,23,42,0.06)]'
+        selected ? 'ring-2 ring-[#000000] ring-offset-2 ring-offset-[#fafafa]' : 'hover:border-[#cfcfcf] hover:shadow-[0_2px_8px_rgba(15,23,42,0.06)]'
       } ${dim ? 'opacity-25' : ''} ${highlight ? 'shadow-[0_0_0_3px_#F59E0B]' : ''}`}
     >
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#fafafa] text-[#475569]">
@@ -1596,7 +1596,7 @@ function IntermediatePill({
   const allValid = node.derivedFrom.every(
     (id) => leafLookup.find((l) => l.id === id)?.status === 'valid',
   )
-  const dotColor = allValid ? 'bg-[#4ADE80]' : 'bg-[#F59E0B]'
+  const dotColor = allValid ? 'bg-[#000000]' : 'bg-[#F59E0B]'
   return (
     <button
       type="button"
@@ -1637,7 +1637,7 @@ const RootPill = forwardRef<HTMLButtonElement, RootPillProps>(function RootPill(
   ref,
 ) {
   const dot =
-    node.status === 'verified' ? 'bg-[#4ADE80]' : node.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+    node.status === 'verified' ? 'bg-[#000000]' : node.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
   return (
     <button
       ref={ref}
@@ -1646,10 +1646,10 @@ const RootPill = forwardRef<HTMLButtonElement, RootPillProps>(function RootPill(
       title={`Merkle Root · ${node.hashFull}`}
       style={{ left: x, top: y, width: ROOT_W, height: PILL_H }}
       className={`absolute flex items-center gap-2.5 rounded-full border bg-[#0f172a] pl-2.5 pr-3 text-left text-white shadow-[0_4px_14px_rgba(15,23,42,0.18)] transition ${
-        selected ? 'ring-2 ring-[#4ADE80] ring-offset-2 ring-offset-[#fafafa]' : 'border-[#0f172a]'
+        selected ? 'ring-2 ring-[#000000] ring-offset-2 ring-offset-[#fafafa]' : 'border-[#0f172a]'
       } ${dim ? 'opacity-25' : ''} ${highlight ? 'shadow-[0_0_0_3px_#F59E0B]' : ''}`}
     >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#4ADE80]">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#000000]">
         <Glyph name="shield" className="h-3.5 w-3.5" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
@@ -1733,7 +1733,7 @@ function SidePanel({
   if (selected.kind === 'leaf') {
     const inter = intermediateForLeaf.get(selected.node.id)
     const dot =
-      selected.node.status === 'valid' ? 'bg-[#4ADE80]' : selected.node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+      selected.node.status === 'valid' ? 'bg-[#000000]' : selected.node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
     return (
       <aside className="rounded-[16px] border border-[#E5E5E5] bg-white p-5">
         <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">{evidenceCopy.nodeDrawer.proofItem}</p>
@@ -1855,7 +1855,7 @@ function SidePanel({
               const leaf = pack.leaves.find((l) => l.id === id)
               if (!leaf) return null
               const dot =
-                leaf.status === 'valid' ? 'bg-[#4ADE80]' : leaf.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+                leaf.status === 'valid' ? 'bg-[#000000]' : leaf.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
               return (
                 <li key={id}>
                   <button
@@ -1890,7 +1890,7 @@ function SidePanel({
 
   // root
   const dot =
-    selected.node.status === 'verified' ? 'bg-[#4ADE80]' : selected.node.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+    selected.node.status === 'verified' ? 'bg-[#000000]' : selected.node.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
   return (
     <aside className="rounded-[16px] border border-[#E5E5E5] bg-white p-5">
       <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Merkle root</p>
@@ -1921,7 +1921,7 @@ function SidePanel({
             const allValid = inter.derivedFrom.every(
               (id) => pack.leaves.find((l) => l.id === id)?.status === 'valid',
             )
-            const branchDot = allValid ? 'bg-[#4ADE80]' : 'bg-[#F59E0B]'
+            const branchDot = allValid ? 'bg-[#000000]' : 'bg-[#F59E0B]'
             return (
               <li key={inter.id}>
                 <button
@@ -2035,7 +2035,7 @@ function BatchSummary({
           const valid = p.leaves.filter((l) => l.status === 'valid').length
           const missing = p.leaves.filter((l) => l.status === 'missing').length
           const invalid = p.leaves.filter((l) => l.status === 'invalid').length
-          const dot = p.root.status === 'verified' ? 'bg-[#4ADE80]' : p.root.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+          const dot = p.root.status === 'verified' ? 'bg-[#000000]' : p.root.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
           return (
             <li key={p.packId}>
               <button
@@ -2056,7 +2056,7 @@ function BatchSummary({
                   <span className="text-[12px] text-[#94a3b8]">/100</span>
                 </span>
                 <span className="flex items-center gap-1 text-[13px] text-[#6f716d]">
-                  <SummaryChip dot="bg-[#4ADE80]" label="Valid" count={valid} />
+                  <SummaryChip dot="bg-[#000000]" label="Valid" count={valid} />
                   {missing > 0 ? <SummaryChip dot="bg-[#F59E0B]" label="Missing" count={missing} /> : null}
                   {invalid > 0 ? <SummaryChip dot="bg-[#EF4444]" label="Invalid" count={invalid} /> : null}
                 </span>

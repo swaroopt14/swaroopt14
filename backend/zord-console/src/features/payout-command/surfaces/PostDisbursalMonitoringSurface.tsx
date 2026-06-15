@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { DM_Mono } from 'next/font/google'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { clampPage } from '../_lib/clampPage'
 import {
   POST_DISBURSAL_MONITORING_MOCK,
   type DpdBucket,
@@ -29,8 +30,8 @@ const STATUS_ORDER: Record<MonitoringQueueStatus, number> = {
 }
 
 const DPD_TONE_BG: Record<DpdBucket['tone'], string> = {
-  green: '#16a34a',
-  lime: '#84cc16',
+  green: '#000000',
+  lime: '#525252',
   amber: '#f59e0b',
   orange: '#f97316',
   red: '#ef4444',
@@ -50,26 +51,26 @@ function formatLoanCompact(amountInr: number): string {
 }
 
 function metricTone(tone?: 'good' | 'warn' | 'bad' | 'neutral'): string {
-  if (tone === 'good') return 'text-[#166534]'
+  if (tone === 'good') return 'text-[#000000]'
   if (tone === 'warn') return 'text-[#92400e]'
   if (tone === 'bad') return 'text-[#b91c1c]'
   return 'text-[#0f172a]'
 }
 
 function statusTone(status: MonitoringQueueStatus): string {
-  if (status === 'Confirmed') return 'border border-[#bbf7d0] bg-[#dcfce7] text-[#166534]'
+  if (status === 'Confirmed') return 'border border-[#e5e5e5] bg-[#f4f4f5] text-[#000000]'
   if (status === 'Pending') return 'border border-[#fde68a] bg-[#fef3c7] text-[#92400e]'
   return 'border border-[#fecaca] bg-[#fee2e2] text-[#b91c1c]'
 }
 
 function dpdTextTone(dpd: number): string {
-  if (dpd === 0) return 'text-[#166534]'
+  if (dpd === 0) return 'text-[#000000]'
   if (dpd <= 30) return 'text-[#92400e]'
   return 'text-[#b91c1c]'
 }
 
 function emiTone(emiStatus: LoanMonitoringRow['emiStatus']): string {
-  if (emiStatus === 'Paid') return 'text-[#166534]'
+  if (emiStatus === 'Paid') return 'text-[#000000]'
   if (emiStatus === 'Due') return 'text-[#92400e]'
   if (emiStatus === 'Bounced') return 'text-[#b91c1c]'
   return 'text-[#64748b]'
@@ -252,6 +253,10 @@ export function PostDisbursalMonitoringSurface() {
   const pageStart = (safePage - 1) * ROWS_PER_PAGE
   const pageRows = sortedRows.slice(pageStart, pageStart + ROWS_PER_PAGE)
 
+  useEffect(() => {
+    setPage((p) => clampPage(p, totalPages))
+  }, [totalPages])
+
   const dpdTotalCr = data.dpdBuckets.reduce((sum, bucket) => sum + bucket.amountCr, 0)
   const overdueCr = data.dpdBuckets.filter((b) => b.label !== 'Current').reduce((sum, b) => sum + b.amountCr, 0)
 
@@ -297,7 +302,7 @@ export function PostDisbursalMonitoringSurface() {
       <section className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className={`text-[1.35rem] font-semibold tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>{data.header.title}</h2>
-          <span className="inline-flex items-center rounded-full border border-[#86efac] bg-[#f0fdf4] px-2.5 py-0.5 text-[12px] font-semibold text-[#166534]">
+          <span className="inline-flex items-center rounded-full border border-[#cbd5e1] bg-[#f4f4f5] px-2.5 py-0.5 text-[12px] font-semibold text-[#000000]">
             {data.header.statusPill}
           </span>
         </div>
@@ -349,7 +354,7 @@ export function PostDisbursalMonitoringSurface() {
       />
 
       <section className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#16a34a] via-[#f59e0b] to-[#ef4444]" />
+        <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#000000] via-[#f59e0b] to-[#ef4444]" />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className={`text-[1.2rem] font-semibold tracking-[-0.01em] ${HOME_TITLE_BLACK}`}>Portfolio delinquency — RBI DPD / SMA</h3>
@@ -451,7 +456,7 @@ export function PostDisbursalMonitoringSurface() {
               <p className="text-[11px] font-semibold text-slate-500">bounced</p>
             </div>
             <div>
-              <p className={`text-[18px] font-semibold text-[#166534] ${dmMono.className}`}>{data.enach.retrySuccessPct}%</p>
+              <p className={`text-[18px] font-semibold text-[#000000] ${dmMono.className}`}>{data.enach.retrySuccessPct}%</p>
               <p className="text-[11px] font-semibold text-slate-500">retry success</p>
             </div>
             <div>
@@ -528,7 +533,7 @@ export function PostDisbursalMonitoringSurface() {
                 row.tone === 'blue'
                   ? 'bg-[#3b82f6]'
                   : row.tone === 'green'
-                    ? 'bg-[#16a34a]'
+                    ? 'bg-[#000000]'
                     : row.tone === 'amber'
                       ? 'bg-[#f59e0b]'
                       : row.tone === 'red'
@@ -723,7 +728,8 @@ export function PostDisbursalMonitoringSurface() {
             <button
               type="button"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-[#00239C]"
+              disabled={safePage <= 1}
+              className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-[#00239C] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Prev
             </button>
@@ -733,7 +739,8 @@ export function PostDisbursalMonitoringSurface() {
             <button
               type="button"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-[#00239C]"
+              disabled={safePage >= totalPages}
+              className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-[#00239C] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Next
             </button>

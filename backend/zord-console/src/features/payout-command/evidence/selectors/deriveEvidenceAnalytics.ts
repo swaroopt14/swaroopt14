@@ -120,7 +120,7 @@ function buildMixAreaSeries(
   return { points, series }
 }
 
-const SEGMENT_COLORS = ['#16a34a', '#22c55e', '#86efac', '#cbd5e1', '#f59e0b']
+const SEGMENT_COLORS = ['#000000', '#000000', '#cbd5e1', '#cbd5e1', '#f59e0b']
 
 export function deriveEvidenceAnalytics(rows: PackTableRowVm[]): {
   segments: EvidenceTypeSegment[]

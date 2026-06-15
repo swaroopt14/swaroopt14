@@ -61,7 +61,7 @@ const filterInputClass =
 
 function intentStatusClass(status: IntentStatus) {
   if (status === 'Ready to Process') return 'text-sky-700'
-  if (status === 'Confirmed') return 'text-emerald-700'
+  if (status === 'Confirmed') return 'text-black'
   if (status === 'Pending') return 'text-amber-600'
   if (status === 'Needs Review') return 'text-orange-600'
   if (status === 'In Progress') return 'text-sky-700'
@@ -181,6 +181,9 @@ export type IntentJournalActivityViewModel = {
   failurePageRows: JournalFailureRow[]
   intentTotal: number
   failureTotal: number
+  apiIntentTotal: number | null
+  apiFailureTotal: number | null
+  tableFiltersActive: boolean
   safePage: number
   safeFailurePage: number
   totalPages: number
@@ -210,7 +213,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
     expandedId, setExpandedId, selectedIntentId, setSelectedIntentId,
     liveIntentDrawerApi,
     filteredIntents, filteredFailures, pageRows, failurePageRows,
-    intentTotal, failureTotal, safePage, safeFailurePage, totalPages, failureTotalPages,
+    intentTotal, failureTotal, apiIntentTotal, apiFailureTotal, tableFiltersActive,
+    safePage, safeFailurePage, totalPages, failureTotalPages,
     selectedBatch, selectedBatchId, journalUsesBackendFeed, liveDetailLoading,
     clearTableFilters, batches,
   } = vm
@@ -352,7 +356,7 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                   onClick={() => setActiveTab(tab.key)}
                   className={`-mb-px border-b-2 px-4 py-2 text-[14px] font-medium tracking-[0] transition ${
                     activeTab === tab.key
-                      ? 'border-[#39E07E] text-[#000000]'
+                      ? 'border-black text-black'
                       : 'border-transparent text-[#888888] hover:text-[#000000]'
                   }`}
                 >
@@ -366,7 +370,15 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                 <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
                   <p className={`text-[14px] font-semibold ${HOME_TITLE_BLACK}`}>Intent table — selected batch</p>
                   <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>
-                    <span className="rounded-full border border-[#4ADE80]/45 bg-[#f0fdf4] px-2 py-0.5 text-[12px] font-semibold text-[#166534]">
+                    {tableFiltersActive && apiIntentTotal != null ? (
+                      <>
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[12px] font-semibold text-slate-700">
+                          {apiIntentTotal.toLocaleString('en-US')} total
+                        </span>{' '}
+                        ·{' '}
+                      </>
+                    ) : null}
+                    <span className="rounded-full border border-black/30 bg-black px-2 py-0.5 text-[12px] font-semibold text-white">
                       {intentTotal.toLocaleString('en-US')} rows
                     </span>{' '}
                     match filters
@@ -517,7 +529,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                       <button
                         type="button"
                         onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                        disabled={safePage <= 1}
+                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Prev
                       </button>
@@ -527,7 +540,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                       <button
                         type="button"
                         onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                        disabled={safePage >= totalPages}
+                        className="rounded border border-[#e5e7eb] bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         Next
                       </button>
@@ -555,6 +569,14 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                   <div>
                     <p className={`text-[14px] font-medium ${HOME_TITLE_BLACK}`}>Failed intents (DLQ)</p>
                     <p className={HOME_BODY_IMPERIAL_SM}>
+                      {tableFiltersActive && apiFailureTotal != null ? (
+                        <>
+                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[12px] font-semibold text-slate-700">
+                            {apiFailureTotal.toLocaleString('en-US')} total
+                          </span>{' '}
+                          ·{' '}
+                        </>
+                      ) : null}
                       <span className="rounded-full border border-red-200/80 bg-red-50 px-2 py-0.5 text-[12px] font-semibold text-red-800">
                         {failureTotal.toLocaleString('en-US')} rows
                       </span>{' '}
@@ -569,7 +591,7 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     </p>
                     {journalUsesBackendFeed && failureTotal === 0 ? (
                       <p className={`mt-1 max-w-3xl ${HOME_BODY_IMPERIAL_SM}`}>
-                        No DLQ rows for this batch. DLQ from your upload may use a different batch id or tenant than the
+                        No DLQ rows for this batch. DLQ from your upload may use a different batch id or workspace than the
                         session scope above.
                       </p>
                     ) : null}
@@ -685,7 +707,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     <button
                       type="button"
                       onClick={() => setFailurePage((p) => Math.max(1, p - 1))}
-                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                      disabled={safeFailurePage <= 1}
+                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Prev
                     </button>
@@ -695,7 +718,8 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     <button
                       type="button"
                       onClick={() => setFailurePage((p) => Math.min(failureTotalPages, p + 1))}
-                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1"
+                      disabled={safeFailurePage >= failureTotalPages}
+                      className="rounded border border-[#e5e7eb] bg-white px-2 py-1 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Next
                     </button>

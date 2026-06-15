@@ -2,9 +2,9 @@ import type { Metadata } from 'next'
 import ConnectorIntelligenceClient from '@/features/payout-command/connectors/ConnectorIntelligenceClient'
 
 export const metadata: Metadata = {
-  title: 'Routing & Network Intelligence | Zord',
+  title: 'Connector Performance & Leakage | Zord',
   description:
-    'Routing and network health intelligence for connector performance, leakage prevention, and route-level decisioning.',
+    'Connector performance, leakage exposure, and recommended actions across connected PSPs, banks, and rails.',
 }
 
 export default function ConnectorIntelligencePage() {

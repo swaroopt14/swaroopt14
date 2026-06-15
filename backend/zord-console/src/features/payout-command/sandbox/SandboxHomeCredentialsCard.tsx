@@ -133,7 +133,7 @@ export function SandboxHomeCredentialsCard() {
             href={SANDBOX_DOCS_LINKS.apiReference}
             target="_blank"
             rel="noreferrer noopener"
-            className="shrink-0 text-[13px] font-medium text-[#16a34a] hover:text-[#15803d]"
+            className="shrink-0 text-[13px] font-medium text-[#000000] hover:text-[#15803d]"
           >
             View docs
           </a>

@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { ALERT_STRIP_NEON } from '../command-center/AlertStrip'
 
-const SANDBOX_STRIP_BG = '#16a34a'
+const SANDBOX_STRIP_BG = '#000000'
 
 /**
  * Sandbox mode strip — same shell + neon treatment as AlertStrip (GREEN).

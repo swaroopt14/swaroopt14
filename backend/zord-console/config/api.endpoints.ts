@@ -83,6 +83,7 @@ export const BACKEND_SERVICES = {
     BASE_URL: process.env.ZORD_INTELLIGENCE_URL || 'http://localhost:8089',
     ENDPOINTS: {
       LEAKAGE: '/v1/intelligence/dashboard/leakage',
+      LEAKAGE_EXPOSURE: '/v1/intelligence/timeseries/leakage-exposure',
       AMBIGUITY: '/v1/intelligence/dashboard/ambiguity',
       AMBIGUITY_HEATMAP: '/v1/intelligence/dashboard/ambiguity/heatmap',
       BUBBLE_MAP: '/v1/intelligence/dashboard/bubble-map',
@@ -96,6 +97,7 @@ export const BACKEND_SERVICES = {
       RCA: '/v1/intelligence/dashboard/rca',
       BATCHES: '/v1/intelligence/batches',
       BATCH_BY_ID: (id: string) => `/v1/intelligence/batches/${id}`,
+      BATCH_CONTRACT: (id: string) => `/v1/intelligence/dashboard/batch_contract/${id}`,
     },
   },
 

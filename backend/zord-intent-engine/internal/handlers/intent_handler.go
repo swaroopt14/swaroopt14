@@ -142,7 +142,13 @@ func (h *IntentHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fetch from database
-	intent, err := h.queryRepo.GetIntentByID(ctx, intentID)
+	tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	if tenantID == "" {
+		respondError(w, "INVALID_REQUEST", "tenant_id header is required", http.StatusBadRequest, nil)
+		return
+	}
+
+	intent, err := h.queryRepo.GetIntentByID(ctx, tenantID, intentID)
 
 	if err != nil {
 		if err.Error() == "intent not found" || strings.Contains(err.Error(), "not found") {

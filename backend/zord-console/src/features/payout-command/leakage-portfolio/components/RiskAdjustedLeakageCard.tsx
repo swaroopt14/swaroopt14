@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Area,
   AreaChart,
@@ -16,10 +16,6 @@ import type { LeakageExposureGranularity } from '@/services/payout-command/prod-
 import { leakageCopy } from '../../leakage/copy/leakageCopy'
 import type { PortfolioLeakageViewModel } from '../normalizeLeakagePayload'
 import { formatMinorInr } from '../utils/formatMinorInr'
-import {
-  buildLeakageComparisonMock,
-  mockProjectStartAt,
-} from '../constants/leakageComparisonMock'
 import {
   mapLeakageComparisonSeries,
   type LeakageComparisonChartPoint,
@@ -138,15 +134,11 @@ export function RiskAdjustedLeakageCard({ data, loading, batchId }: RiskAdjusted
     }
   }, [granularity, batchId])
 
-  const mockPoints = useMemo(
-    () => buildLeakageComparisonMock(data.intendedMinor, granularity),
-    [data.intendedMinor, granularity],
-  )
-
-  const chartPoints = livePoints?.length ? livePoints : mockPoints
-  const projectStart = projectStartAt ?? mockProjectStartAt(mockPoints)
+  const chartPoints = livePoints ?? []
+  const projectStart = projectStartAt
   const startPeriod = projectStartPeriod(chartPoints, projectStart)
   const rangeLabel = formatRangeLabel(chartPoints)
+  const hasChartData = seriesLive && chartPoints.length > 0
 
   if (loading) {
     return <div className="min-h-[420px] animate-pulse rounded-3xl bg-gradient-to-br from-slate-100 to-slate-200" />
@@ -209,13 +201,14 @@ export function RiskAdjustedLeakageCard({ data, loading, batchId }: RiskAdjusted
           </div>
         </div>
         {!seriesLive ? (
-          <span className="rounded-full bg-[#e8eef5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#103a9e]">
-            Preview
+          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800">
+            Awaiting live data
           </span>
         ) : null}
       </div>
 
       <div className="relative mt-4 min-h-[260px] flex-1">
+        {hasChartData ? (
         <ResponsiveContainer width="100%" height={260}>
           <AreaChart data={chartPoints} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
             <defs>
@@ -296,6 +289,14 @@ export function RiskAdjustedLeakageCard({ data, loading, batchId }: RiskAdjusted
             />
           </AreaChart>
         </ResponsiveContainer>
+        ) : (
+          <div className="flex h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-6 text-center">
+            <p className="text-[14px] font-semibold text-slate-700">No leakage trend data yet</p>
+            <p className="mt-1 max-w-sm text-[12px] text-slate-500">
+              Live exposure timeseries will appear here once intelligence has enough history for this scope.
+            </p>
+          </div>
+        )}
       </div>
     </article>
   )

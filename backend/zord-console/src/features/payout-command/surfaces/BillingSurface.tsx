@@ -26,19 +26,19 @@ const PLANS = [
   {
     id: 'pro',
     name: 'Pro',
-    price: '$49',
-    cadence: '/mo',
-    features: ['1,000 intents/mo', 'Email + chat support', 'Basic analytics', 'Single workspace'],
-    cta: 'Available after activation',
+    price: '—',
+    cadence: '',
+    features: ['Higher intent volume', 'Email + chat support', 'Basic analytics', 'Single workspace'],
+    cta: 'Pricing set at activation',
     recommended: true,
   },
   {
     id: 'business',
     name: 'Business',
-    price: '$199',
-    cadence: '/mo',
-    features: ['10k intents/mo', 'Phone support', 'Advanced analytics', 'Team seats', 'Priority routing'],
-    cta: 'Available after activation',
+    price: '—',
+    cadence: '',
+    features: ['Team-scale volume', 'Phone support', 'Advanced analytics', 'Team seats', 'Priority routing'],
+    cta: 'Pricing set at activation',
   },
 ] as const
 
@@ -254,8 +254,8 @@ export function BillingSurface({ onActivateClick }: { onActivateClick: () => voi
             <p className={`text-[16px] font-semibold ${HOME_TITLE_BLACK}`}>Billing contact</p>
             <p className={`mt-1 ${HOME_BODY_IMPERIAL_SM}`}>Where invoices and payment receipts are sent.</p>
             <div className="mt-3 space-y-1">
-              <p className={`text-[14px] ${HOME_TITLE_BLACK}`}>alice@example.com</p>
-              <p className="text-[12px] text-[#94a3b8]">Set during signup</p>
+              <p className={`text-[14px] ${HOME_TITLE_BLACK}`}>—</p>
+              <p className="text-[12px] text-[#94a3b8]">No billing contact on file</p>
             </div>
             <button
               type="button"

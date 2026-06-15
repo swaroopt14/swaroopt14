@@ -457,11 +457,11 @@ CREATE TABLE IF NOT EXISTS etl_quality_results (
 	if _, err := DB.Exec(tenantSynonymProfiles); err != nil {
 		log.Fatal("tenant_synonym_profiles:", err)
 	}
-
+	// canonical batch schema
 	canonicalBatches := `
 	CREATE TABLE IF NOT EXISTS canonical_batches (
-		batch_id                        TEXT PRIMARY KEY,
-		tenant_id                       UUID,
+    	tenant_id                       UUID NOT NULL,
+    	batch_id                        TEXT NOT NULL,
 		source_system                   TEXT,
 		received_count                  INT NOT NULL DEFAULT 0,
 		canonicalized_count             INT NOT NULL DEFAULT 0,
@@ -481,7 +481,8 @@ CREATE TABLE IF NOT EXISTS etl_quality_results (
 		score_breakdown_json            JSONB DEFAULT '{}',
 		total_amount                    NUMERIC DEFAULT 0,
 		created_at                      TIMESTAMPTZ DEFAULT now(),
-		updated_at                      TIMESTAMPTZ DEFAULT now()
+		updated_at                      TIMESTAMPTZ DEFAULT now(),
+		    PRIMARY KEY (tenant_id, batch_id)
 	);`
 	if _, err := DB.Exec(canonicalBatches); err != nil {
 		log.Fatal("canonical_batches:", err)
@@ -600,7 +601,7 @@ func UpsertIngestRun(
 		     total_rows, accepted_rows, failed_rows, duplicate_rows, status, completed_at)
 		VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''),
 		        $8, $9, $10, $11, $12, now())
-		ON CONFLICT (batch_id) DO UPDATE SET
+		ON CONFLICT (tenant_id, batch_id) DO UPDATE SET
 		    mapping_id     = EXCLUDED.mapping_id,
 		    total_rows     = EXCLUDED.total_rows,
 		    accepted_rows  = EXCLUDED.accepted_rows,

@@ -17,7 +17,6 @@ import { RiskScoreGauge } from './components/RiskScoreGauge'
 import { SystemInsightsCard } from './components/SystemInsightsCard'
 import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
-import { BATCH_KPI_UNAVAILABLE } from '../shared/batchKpiScope'
 
 type PortfolioLeakageDashboardProps = {
   tenantReady: boolean
@@ -36,7 +35,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     selectedBatchId,
   )
 
-  const { viewModel, ambiguity, defensibility, loading, refresh, hasData, leak } =
+  const { viewModel, ambiguity, defensibility, loading, refresh, leak } =
     usePortfolioLeakageData(tenantReady, selectedBatchId)
 
   const handlePageRefresh = useCallback(async () => {
@@ -77,9 +76,9 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     )
   }, [batchHealth, selectedBatchId, leak])
 
-  const displayData = batchScopedData ?? (selectedBatchId ? null : viewModel)
-  const kpiLoading = (loading && !viewModel && !batchScopedData) || (Boolean(selectedBatchId) && batchHealthLoading)
-  const showLiveHint = Boolean(batchScopedData) || (!selectedBatchId && hasData)
+  const displayData = batchScopedData ?? viewModel
+  const kpiLoading = loading && !displayData
+  const showLiveHint = Boolean(displayData)
 
   return (
     <div className="min-h-screen space-y-6 rounded-2xl bg-[#f4f4f1] p-4 sm:p-6">
@@ -100,9 +99,9 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
       ) : !displayData ? (
         <p className="rounded-2xl border border-slate-100 bg-white p-8 text-center text-[14px] text-slate-500 shadow-sm">
           {selectedBatchId
-            ? batchHealthLoading
-              ? 'Loading batch payment gap projection…'
-              : BATCH_KPI_UNAVAILABLE
+            ? loading
+              ? 'Loading batch payment gap data…'
+              : 'No leakage data for this batch yet.'
             : 'No workspace-wide leakage snapshot yet. Select a batch or wait for intelligence projections.'}
         </p>
       ) : (

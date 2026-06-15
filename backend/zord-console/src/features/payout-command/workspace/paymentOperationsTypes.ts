@@ -81,5 +81,4 @@ export type PaymentOperationsViewModel = {
   ambiguousIntentCount: number
   matchConfidencePct: number | null
   refCompletenessPct: number | null
-  batchKpiUnavailable: boolean
 }

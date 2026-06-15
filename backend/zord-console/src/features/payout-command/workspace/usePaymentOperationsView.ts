@@ -11,10 +11,6 @@ import { derivePaymentCommandDataState } from '../command-center/paymentCommandD
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import type { DataSourceBadgeStatus } from '../command-center/usePaymentCommandDataSources'
 import { normalizePercentRatio } from '../evidence/utils/evidencePercent'
-import {
-  BATCH_KPI_UNAVAILABLE,
-  isTenantIntelligenceKpiUnavailableForBatch,
-} from '../shared/batchKpiScope'
 import { PAYMENT_OPERATIONS, WORKSPACE_HERO_COPY } from './paymentOperationsCopy'
 import type {
   OperationalQueueRow,
@@ -66,11 +62,9 @@ export function usePaymentOperationsView(batchId?: string): {
   const patterns = intelligence.patterns
   const recommendations = intelligence.recommendations
 
-  const tenantKpiUnavailable = isTenantIntelligenceKpiUnavailableForBatch(batchId)
-
-  const leakageOk = isDataAvailable(leakage) && !tenantKpiUnavailable
-  const ambiguityOk = isDataAvailable(ambiguity) && !tenantKpiUnavailable
-  const defensibilityOk = isDataAvailable(defensibility) && !tenantKpiUnavailable
+  const leakageOk = isDataAvailable(leakage)
+  const ambiguityOk = isDataAvailable(ambiguity)
+  const defensibilityOk = isDataAvailable(defensibility)
   const patternsOk = isDataAvailable(patterns)
   const recommendationsOk = isDataAvailable(recommendations)
 
@@ -166,13 +160,11 @@ export function usePaymentOperationsView(batchId?: string): {
       },
     ]
 
-    const clarityState: PaymentOperationsViewModel['clarityState'] = tenantKpiUnavailable
-      ? 'incomplete'
-      : intentMissing
-        ? 'intent_missing'
-        : !leakageOk && !ambiguityOk
-          ? 'incomplete'
-          : 'complete'
+    const clarityState: PaymentOperationsViewModel['clarityState'] = intentMissing
+      ? 'intent_missing'
+      : !leakageOk && !ambiguityOk
+        ? 'incomplete'
+        : 'complete'
 
     const reviewBreakdown: ReviewBreakdownRow[] = []
     if (ambiguityOk) {
@@ -203,9 +195,9 @@ export function usePaymentOperationsView(batchId?: string): {
         : manualReviewCount != null
           ? formatCount(manualReviewCount)
           : '—'
-    const matchReviewCases = ambiguityOk ? formatCount(ambiguity.ambiguous_intent_count) : tenantKpiUnavailable ? BATCH_KPI_UNAVAILABLE : '—'
+    const matchReviewCases = ambiguityOk ? formatCount(ambiguity.ambiguous_intent_count) : '—'
     const financialExceptionCases = '—'
-    const openRecommendations = recommendationsOk ? formatCount(recommendations.total_actions) : tenantKpiUnavailable ? BATCH_KPI_UNAVAILABLE : '—'
+    const openRecommendations = recommendationsOk ? formatCount(recommendations.total_actions) : '—'
 
     const operationalQueues: OperationalQueueRow[] = [
       { label: 'Ingest failures (DLQ)', value: ingestFailures },
@@ -227,21 +219,15 @@ export function usePaymentOperationsView(batchId?: string): {
         inScope: hasLiveData && inScopeCount != null ? formatCount(inScopeCount) : '—',
         inScopeSub: patternsOk ? `${patterns.success_count} confirmed` : 'Upload data to populate',
         paymentInstructionValue:
-          leakageOk && intendedMinor > 0 ? fmtInrFromMinorExact(intendedMinor) : tenantKpiUnavailable ? BATCH_KPI_UNAVAILABLE : '—',
+          leakageOk && intendedMinor > 0 ? fmtInrFromMinorExact(intendedMinor) : '—',
         paymentInstructionSub: leakageOk ? 'From payment instructions' : '—',
         settlementValueObserved:
-          leakageOk && settledMinor > 0
-            ? fmtInrFromMinorExact(settledMinor)
-            : tenantKpiUnavailable
-              ? BATCH_KPI_UNAVAILABLE
-              : '—',
+          leakageOk && settledMinor > 0 ? fmtInrFromMinorExact(settledMinor) : '—',
         settlementObservedSub: leakageOk ? 'From bank/settlement confirmation' : '—',
-        unmatchedIntentValue: reviewMinor != null ? fmtInrFromMinorExact(reviewMinor) : tenantKpiUnavailable ? BATCH_KPI_UNAVAILABLE : '—',
+        unmatchedIntentValue: reviewMinor != null ? fmtInrFromMinorExact(reviewMinor) : '—',
         unmatchedIntentSub:
           reviewMinor == null
-            ? tenantKpiUnavailable
-              ? BATCH_KPI_UNAVAILABLE
-              : 'No unmatched intent data available'
+            ? 'No unmatched intent data available'
             : reviewMinor <= 0
               ? PAYMENT_OPERATIONS.reviewZeroHint
               : 'Unmatched intent value from leakage dashboard',
@@ -251,9 +237,7 @@ export function usePaymentOperationsView(batchId?: string): {
         proofReadinessSub:
           defensibilityOk
             ? `Governance ${Math.round((normalizePercentRatio(governance) ?? 0) * 100)}% · Replay ${Math.round((normalizePercentRatio(replay) ?? 0) * 100)}%`
-            : tenantKpiUnavailable
-              ? BATCH_KPI_UNAVAILABLE
-              : '—',
+            : '—',
       },
       hero: {
         label: hero.label,
@@ -272,10 +256,8 @@ export function usePaymentOperationsView(batchId?: string): {
             { label: 'Unlinked settlement', value: fmtInrFromMinorExact(unlinkedSettlement) },
             { label: 'Reversal exposure', value: fmtInrFromMinorExact(reversal) },
           ]
-        : tenantKpiUnavailable
-          ? [{ label: 'Batch KPIs', value: BATCH_KPI_UNAVAILABLE }]
-          : [],
-      clarityHero: reviewMinor != null ? fmtInrFromMinorExact(reviewMinor) : tenantKpiUnavailable ? BATCH_KPI_UNAVAILABLE : '—',
+        : [],
+      clarityHero: reviewMinor != null ? fmtInrFromMinorExact(reviewMinor) : '—',
       clarityState,
       healthBrief: {
         cleanCount: patternsOk ? formatCount(patterns.success_count) : '—',
@@ -319,7 +301,6 @@ export function usePaymentOperationsView(batchId?: string): {
       ambiguousIntentCount: ambiguityOk ? ambiguity.ambiguous_intent_count : 0,
       matchConfidencePct: matchConf != null ? matchConf * 100 : null,
       refCompletenessPct: refCompleteness != null ? refCompleteness * 100 : 0,
-      batchKpiUnavailable: tenantKpiUnavailable,
     }
   }, [
     leakage,
@@ -336,7 +317,6 @@ export function usePaymentOperationsView(batchId?: string): {
     recommendationsOk,
     manualReviewCount,
     manualReviewLoading,
-    tenantKpiUnavailable,
   ])
 
   const refresh = useCallback(async () => {

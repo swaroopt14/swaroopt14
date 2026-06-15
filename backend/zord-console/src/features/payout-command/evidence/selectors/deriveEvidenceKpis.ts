@@ -8,7 +8,6 @@ import type {
 import { isExportReadyStatus, mapProofStatusFromPack } from '../mappers/mapProofStatus'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { formatPercentLabel, normalizePercentRatio } from '../utils/evidencePercent'
-import { BATCH_KPI_UNAVAILABLE } from '../../shared/batchKpiScope'
 
 type PackRowInput = { summary: EvidencePackSummaryRow; itemCount?: number }
 
@@ -26,9 +25,8 @@ export function deriveEvidenceKpis(input: {
   packRows: PackRowInput[]
   batchHealth?: BatchHealth | null
   batchId?: string
-  tenantKpiUnavailableForBatch?: boolean
 }): EvidenceKpiCard[] {
-  const { defensibility, packRows, tenantKpiUnavailableForBatch } = input
+  const { defensibility, packRows } = input
   const packCount = packRows.length
 
   let readyCount = 0
@@ -48,31 +46,24 @@ export function deriveEvidenceKpis(input: {
     }
   }
 
-  const defScoreRaw = defensibility && !tenantKpiUnavailableForBatch ? defensibility.defensibility_score : null
+  const defScoreRaw = defensibility ? defensibility.defensibility_score : null
   const defScore = defScoreRaw != null ? defScoreRaw.toFixed(1) : '—'
-  const evidencePct =
-    defensibility && !tenantKpiUnavailableForBatch ? formatPercentLabel(defensibility.evidence_pack_rate) : '—'
-  const govPct =
-    defensibility && !tenantKpiUnavailableForBatch ? formatPercentLabel(defensibility.governance_coverage_pct) : '—'
-  const replayPct =
-    defensibility && !tenantKpiUnavailableForBatch ? formatPercentLabel(defensibility.replayability_pct) : '—'
-  const disputePct =
-    defensibility && !tenantKpiUnavailableForBatch ? formatPercentLabel(defensibility.dispute_ready_pct) : '—'
+  const evidencePct = defensibility ? formatPercentLabel(defensibility.evidence_pack_rate) : '—'
+  const govPct = defensibility ? formatPercentLabel(defensibility.governance_coverage_pct) : '—'
+  const replayPct = defensibility ? formatPercentLabel(defensibility.replayability_pct) : '—'
+  const disputePct = defensibility ? formatPercentLabel(defensibility.dispute_ready_pct) : '—'
 
-  let readinessSub = tenantKpiUnavailableForBatch
-    ? BATCH_KPI_UNAVAILABLE
-    : defensibility
-      ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct} · Dispute-ready: ${disputePct}`
-      : '—'
+  let readinessSub = defensibility
+    ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct} · Dispute-ready: ${disputePct}`
+    : '—'
 
-  if (defensibility && !tenantKpiUnavailableForBatch && defensibility.weak_evidence_count != null && defensibility.weak_evidence_count > 0) {
+  if (defensibility && defensibility.weak_evidence_count != null && defensibility.weak_evidence_count > 0) {
     readinessSub += ` · ${defensibility.weak_evidence_count} weak evidence items`
   }
 
   let readinessExplanation: string | undefined
   if (
     defensibility &&
-    !tenantKpiUnavailableForBatch &&
     (normalizePercentRatio(defensibility.evidence_pack_rate) ?? 0) >= 0.99 &&
     defensibility.defensibility_score < 50
   ) {
@@ -118,12 +109,9 @@ export function deriveEvidenceKpis(input: {
       id: 'governance',
       label: evidenceCopy.kpi.governanceChecks,
       value: govPct,
-      sub:
-        defensibility && !tenantKpiUnavailableForBatch
-          ? `Settlement coverage ${formatPercentLabel(defensibility.settlement_evidence_coverage)} · Attachment ${formatPercentLabel(defensibility.attachment_evidence_coverage)}`
-          : tenantKpiUnavailableForBatch
-            ? BATCH_KPI_UNAVAILABLE
-            : '—',
+      sub: defensibility
+        ? `Settlement coverage ${formatPercentLabel(defensibility.settlement_evidence_coverage)} · Attachment ${formatPercentLabel(defensibility.attachment_evidence_coverage)}`
+        : '—',
     },
     {
       id: 'missing',
@@ -138,21 +126,17 @@ export function deriveEvidenceKpis(input: {
           ? evidenceCopy.kpi.disputePacksReady
           : evidenceCopy.kpi.exportReadiness,
       value:
-        tenantKpiUnavailableForBatch
-          ? '—'
-          : readyCount > 0 || defensibility
-            ? defensibility
-              ? disputePct
-              : String(readyCount)
-            : packCount > 0
-              ? '0'
-              : '—',
+        readyCount > 0 || defensibility
+          ? defensibility
+            ? disputePct
+            : String(readyCount)
+          : packCount > 0
+            ? '0'
+            : '—',
       sub:
-        tenantKpiUnavailableForBatch
-          ? BATCH_KPI_UNAVAILABLE
-          : defensibility && packCount > 0
-            ? `${readyCount} export-ready · ${disputePct} dispute-ready per defensibility KPI`
-            : disputeSub,
+        defensibility && packCount > 0
+          ? `${readyCount} export-ready · ${disputePct} dispute-ready per defensibility KPI`
+          : disputeSub,
     },
   ]
 }

@@ -25,7 +25,7 @@ import { BatchControlList, DataQualityAuditCard } from './components/BatchContro
 import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import { LiveDataHint } from '../shared'
-import { BATCH_KPI_UNAVAILABLE } from '../shared/batchKpiScope'
+import { intelligenceKpiScopeLabel } from '../shared/batchKpiScope'
 
 export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const pathname = usePathname()
@@ -57,26 +57,33 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
   }, [initialBatchId])
 
   const effectiveAmb = useMemo((): AmbiguityKpiResolved | null => {
-    if (selectedBatchId && !batchHealth && !batchHealthLoading) {
-      return null
+    if (amb) {
+      if (batchHealth && selectedBatchId) {
+        const kpis = batchHealthToAmbiguityKpis(batchHealth)
+        return {
+          ...amb,
+          ambiguous_intent_count: kpis.ambiguous_intent_count,
+          ambiguity_rate: kpis.ambiguity_rate,
+          provider_ref_missing_rate: kpis.provider_ref_missing_rate,
+        }
+      }
+      return amb
     }
-    if (batchHealth && selectedBatchId) {
+    if (selectedBatchId && batchHealth) {
       const kpis = batchHealthToAmbiguityKpis(batchHealth)
       return {
-        ...(amb ?? {}),
         data_available: true,
-        tenant_id: amb?.tenant_id ?? '',
+        tenant_id: '',
         ambiguous_intent_count: kpis.ambiguous_intent_count,
         ambiguity_rate: kpis.ambiguity_rate,
         provider_ref_missing_rate: kpis.provider_ref_missing_rate,
-        value_at_risk_minor: amb?.value_at_risk_minor ?? '',
-        avg_attachment_confidence: amb?.avg_attachment_confidence ?? 0,
-        risk_tier: amb?.risk_tier ?? 'LOW',
+        value_at_risk_minor: '',
+        avg_attachment_confidence: 0,
+        risk_tier: 'LOW',
       } as AmbiguityKpiResolved
     }
-    if (selectedBatchId) return null
-    return amb
-  }, [amb, batchHealth, batchHealthLoading, selectedBatchId])
+    return null
+  }, [amb, batchHealth, selectedBatchId])
 
   const handlePageRefresh = useCallback(async () => {
     await Promise.all([refresh(), refreshHeatmap()])
@@ -87,16 +94,9 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
     refreshing: kpiLoading || heatmapLoading || batchHealthLoading,
   })
 
-  const kpiScopeHint =
-    selectedBatchId && batchHealth
-      ? 'Batch health projection'
-      : selectedBatchId
-        ? BATCH_KPI_UNAVAILABLE
-        : 'Tenant-wide snapshot'
+  const kpiScopeHint = intelligenceKpiScopeLabel(selectedBatchId)
 
-  const stripLoading =
-    (kpiLoading && !effectiveAmb) ||
-    (Boolean(selectedBatchId) && batchHealthLoading && !batchHealth && !amb)
+  const stripLoading = kpiLoading && !effectiveAmb
 
   const [finalityFilter, setFinalityFilter] = useState<'' | FinalityStatus>('')
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])

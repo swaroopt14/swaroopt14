@@ -34,7 +34,6 @@ import { deriveEvidenceKpis } from './selectors/deriveEvidenceKpis'
 import { deriveProofBreakdown } from './selectors/deriveProofBreakdown'
 import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
 import type { EvidencePageTab } from './types/evidenceViewModels'
-import { isTenantIntelligenceKpiUnavailableForBatch } from '../shared/batchKpiScope'
 
 /** Prefer batches like 1234 over 123 when both exist in the journal list. */
 function sortBatchPickerRows(rows: IntelligenceBatchRow[]): IntelligenceBatchRow[] {

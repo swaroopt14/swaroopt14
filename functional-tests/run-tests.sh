@@ -145,14 +145,66 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
+# TEST 2b: Auth — Get JWT token for Kong-protected routes
+# ══════════════════════════════════════════════════════════════════════════════
+# Kong JWT plugin requires a valid JWT on all data endpoints. The tenant API key
+# (from registration) still authenticates at the service level, but Kong validates
+# the JWT signature FIRST. So we signup/login to get a JWT access token.
+run_test "Auth: Get JWT for protected routes"
+JWT_TOKEN=""
+AUTH_TEST_EMAIL="functest-$(date +%s)@${TENANT_NAME:-test}.zordnet.com"
+AUTH_TEST_PASS="FuncTest123!Secure"
+
+SIGNUP_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/signup" \
+  -H "Content-Type: application/json" \
+  -d "{\"tenant_name\": \"${TENANT_NAME:-functest}\", \"name\": \"FuncTest Runner\", \"email\": \"${AUTH_TEST_EMAIL}\", \"password\": \"${AUTH_TEST_PASS}\"}")
+SIGNUP_HTTP=$(echo "${SIGNUP_RESP}" | tail -1)
+SIGNUP_BODY=$(echo "${SIGNUP_RESP}" | sed '$d')
+
+if [ "$SIGNUP_HTTP" = "201" ]; then
+  JWT_TOKEN=$(echo "${SIGNUP_BODY}" | jq -r '.access_token // empty')
+  if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+    log_pass "Get JWT token" "Signup succeeded, JWT issued"
+  else
+    log_fail "Get JWT token" "Signup 201 but no access_token in response"
+  fi
+elif [ "$SIGNUP_HTTP" = "409" ]; then
+  # Tenant name taken — try login
+  LOGIN_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\": \"${AUTH_TEST_EMAIL}\", \"password\": \"${AUTH_TEST_PASS}\"}")
+  LOGIN_HTTP=$(echo "${LOGIN_RESP}" | tail -1)
+  LOGIN_BODY=$(echo "${LOGIN_RESP}" | sed '$d')
+  if [ "$LOGIN_HTTP" = "200" ]; then
+    JWT_TOKEN=$(echo "${LOGIN_BODY}" | jq -r '.access_token // empty')
+    if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+      log_pass "Get JWT token" "Logged in, JWT issued"
+    else
+      log_fail "Get JWT token" "Login 200 but no access_token"
+    fi
+  else
+    log_fail "Get JWT token" "Signup 409, login failed: HTTP ${LOGIN_HTTP}"
+  fi
+else
+  log_fail "Get JWT token" "Expected 201, got ${SIGNUP_HTTP}: $(echo ${SIGNUP_BODY} | head -c 100)"
+fi
+
+# Use JWT for Kong-protected routes, fall back to API_KEY if JWT unavailable
+if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+  AUTH_BEARER="${JWT_TOKEN}"
+else
+  AUTH_BEARER="${API_KEY}"
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
 # TEST 3: Single Payment Ingest — Create + Verify in intent-engine
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Single Ingest: POST /v1/ingest"
-if [ -n "$API_KEY" ]; then
+if [ -n "$AUTH_BEARER" ]; then
   IDEMP_KEY="func-test-$(date +%s)-${RANDOM}"
   INGEST_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/ingest" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Authorization: Bearer ${AUTH_BEARER}" \
     -H "X-Idempotency-Key: ${IDEMP_KEY}" \
     -H "X-Zord-Source-Type: CSV" \
     -H "X-Zord-Source-Class: INTENT" \
@@ -182,7 +234,7 @@ if [ -n "$API_KEY" ]; then
     log_fail "Single ingest" "Expected 200/201/202, got ${INGEST_HTTP}: $(echo ${INGEST_BODY} | head -c 100)"
   fi
 else
-  log_fail "Single ingest" "Skipped — no API key"
+  log_fail "Single ingest" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -199,7 +251,7 @@ Razorpay,FUNC_BATCH_001,FUNC_PAY_002,INV-F002,VOUCH-F002,,VEND-F002,FuncTest Use
 CSVEOF
 
   BULK_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/bulk-ingest" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Authorization: Bearer ${AUTH_BEARER}" \
     -H "X-Zord-Source-Type: CSV" \
     -H "X-Zord-Source-Class: INTENT" \
     -H "X-Zord-Tenant-Type: BANK" \
@@ -242,7 +294,7 @@ run_test "Query Intents: GET /v1/intents"
 if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
   sleep 2  # Give time for async processing
   INTENT_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/intents?tenant_id=${TENANT_ID}&page_size=5" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   INTENT_HTTP=$(echo "${INTENT_RESP}" | tail -1)
   INTENT_BODY=$(echo "${INTENT_RESP}" | sed '$d')
 
@@ -269,7 +321,7 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
   # But did it reach intent-engine via Kafka? Check if total > 0.
   DV_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/intents?tenant_id=${TENANT_ID}&page_size=1" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   DV_HTTP=$(echo "${DV_RESP}" | tail -1)
   DV_BODY=$(echo "${DV_RESP}" | sed '$d')
 
@@ -293,7 +345,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement: GET supported PSPs"
 PSP_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/settlement/supported-psps" \
-  -H "Authorization: Bearer ${API_KEY:-dummy}")
+  -H "Authorization: Bearer ${AUTH_BEARER:-dummy}")
 PSP_HTTP=$(echo "${PSP_RESP}" | tail -1)
 PSP_BODY=$(echo "${PSP_RESP}" | sed '$d')
 
@@ -330,7 +382,7 @@ SETTLEEOF
 
   SETTLE_RESP=$(curl -s -w "\n%{http_code}" -X POST \
     "${BASE_URL}/v1/settlement/upload?tenant_id=${TENANT_ID}&psp=razorpay" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Authorization: Bearer ${AUTH_BEARER}" \
     -F "file=@${SETTLE_FILE}")
   SETTLE_HTTP=$(echo "${SETTLE_RESP}" | tail -1)
   SETTLE_BODY=$(echo "${SETTLE_RESP}" | sed '$d')
@@ -364,7 +416,7 @@ if [ -n "$JOB_ID" ] && [ "$JOB_ID" != "null" ] && [ -n "$TENANT_ID" ]; then
 
   JOB_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/settlement/jobs/${JOB_ID}?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   JOB_HTTP=$(echo "${JOB_RESP}" | tail -1)
   JOB_BODY=$(echo "${JOB_RESP}" | sed '$d')
 
@@ -400,7 +452,7 @@ run_test "Settlement Observations: GET /v1/settlement/observations/batches"
 if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
   OBS_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/settlement/observations/batches?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   OBS_HTTP=$(echo "${OBS_RESP}" | tail -1)
   OBS_BODY=$(echo "${OBS_RESP}" | sed '$d')
 
@@ -425,7 +477,7 @@ fi
 run_test "Intelligence: GET /v1/projections (KPIs)"
 if [ -n "$TENANT_ID" ]; then
   INTEL_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/projections?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY:-dummy}")
+    -H "Authorization: Bearer ${AUTH_BEARER:-dummy}")
   INTEL_HTTP=$(echo "${INTEL_RESP}" | tail -1)
   INTEL_BODY=$(echo "${INTEL_RESP}" | sed '$d')
 
@@ -448,7 +500,7 @@ fi
 run_test "DLQ: GET /v1/dlq"
 if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
   DLQ_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/dlq?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   DLQ_HTTP=$(echo "${DLQ_RESP}" | tail -1)
   DLQ_BODY=$(echo "${DLQ_RESP}" | sed '$d')
 
@@ -489,7 +541,7 @@ run_test "Reconciliation: GET /v1/reconciliation"
 if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
   RECON_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/reconciliation?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   RECON_HTTP=$(echo "${RECON_RESP}" | tail -1)
   RECON_BODY=$(echo "${RECON_RESP}" | sed '$d')
 
@@ -512,7 +564,7 @@ if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
   # Evidence requires intent_id or client_batch_id — use a test batch
   EV_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/evidence/packs?tenant_id=${TENANT_ID}&client_batch_id=FUNC_BATCH_001" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   EV_HTTP=$(echo "${EV_RESP}" | tail -1)
   EV_BODY=$(echo "${EV_RESP}" | sed '$d')
 
@@ -538,7 +590,7 @@ run_test "Intelligence Leakage: GET /v1/rca"
 if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
   RCA_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/rca?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   RCA_HTTP=$(echo "${RCA_RESP}" | tail -1)
 
   if [ "$RCA_HTTP" = "200" ]; then
@@ -559,7 +611,7 @@ run_test "Dispatch: GET /v1/dispatch"
 if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
   DISP_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/dispatch?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   DISP_HTTP=$(echo "${DISP_RESP}" | tail -1)
 
   if [ "$DISP_HTTP" = "200" ]; then
@@ -624,7 +676,7 @@ run_test "Settlement Errors: GET /v1/settlement/errors"
 if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
   ERRS_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/settlement/errors?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   ERRS_HTTP=$(echo "${ERRS_RESP}" | tail -1)
 
   if [ "$ERRS_HTTP" = "200" ]; then

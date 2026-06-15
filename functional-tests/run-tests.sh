@@ -163,8 +163,12 @@ SIGNUP_BODY=$(echo "${SIGNUP_RESP}" | sed '$d')
 
 if [ "$SIGNUP_HTTP" = "201" ]; then
   JWT_TOKEN=$(echo "${SIGNUP_BODY}" | jq -r '.access_token // empty')
+  # Capture tenant_id from signup if tenant registration failed earlier
+  if [ -z "$TENANT_ID" ] || [ "$TENANT_ID" = "null" ]; then
+    TENANT_ID=$(echo "${SIGNUP_BODY}" | jq -r '.user.tenant_id // empty')
+  fi
   if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
-    log_pass "Get JWT token" "Signup succeeded, JWT issued"
+    log_pass "Get JWT token" "Signup succeeded, JWT issued, tenant=${TENANT_ID}"
   else
     log_fail "Get JWT token" "Signup 201 but no access_token in response"
   fi
@@ -241,7 +245,7 @@ fi
 # TEST 4: Bulk CSV Ingest — Upload file + Verify accepted
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Bulk CSV Ingest: POST /v1/bulk-ingest"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   # Create test CSV matching zord_payout_1000_varied.csv format (24 columns)
   CSV_FILE="${RESULTS_DIR}/test-payment.csv"
   cat > "${CSV_FILE}" << CSVEOF
@@ -284,14 +288,14 @@ CSVEOF
     log_fail "Bulk CSV ingest" "Expected 200/201/202, got ${BULK_HTTP}: $(echo ${BULK_BODY} | head -c 100)"
   fi
 else
-  log_fail "Bulk CSV ingest" "Skipped — no API key or tenant ID"
+  log_fail "Bulk CSV ingest" "Skipped — no auth token or tenant ID"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 5: Query Intents — Verify records exist in intent-engine DB
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Query Intents: GET /v1/intents"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   sleep 2  # Give time for async processing
   INTENT_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/intents?tenant_id=${TENANT_ID}&page_size=5" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
@@ -309,14 +313,14 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
     log_fail "Query intents" "Expected 200, got ${INTENT_HTTP}: $(echo ${INTENT_BODY} | head -c 100)"
   fi
 else
-  log_fail "Query intents" "Skipped — no API key"
+  log_fail "Query intents" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 5b: Deep Verify — Did ingest actually create a record in intent-engine DB?
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Deep Verify: Ingest record exists in DB"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   # If we got an EnvelopeID from ingest, the edge accepted it.
   # But did it reach intent-engine via Kafka? Check if total > 0.
   DV_RESP=$(curl -s -w "\n%{http_code}" \
@@ -337,12 +341,13 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
     log_fail "Ingest DB verification" "Cannot query intents: HTTP ${DV_HTTP}"
   fi
 else
-  log_fail "Ingest DB verification" "Skipped — no API key"
+  log_fail "Ingest DB verification" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 6: Settlement — Supported PSPs + Upload
 # ══════════════════════════════════════════════════════════════════════════════
+JOB_ID=""
 run_test "Settlement: GET supported PSPs"
 PSP_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/settlement/supported-psps" \
   -H "Authorization: Bearer ${AUTH_BEARER:-dummy}")
@@ -365,7 +370,7 @@ fi
 # TEST 6b: Settlement Upload — POST /v1/settlement/upload with CSV
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Upload: POST /v1/settlement/upload"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   # Use the real XLSX file (same as developers test with)
   SETTLE_FILE="functional-tests/test-data/zord_settlement_1000_varied.xlsx"
 
@@ -403,7 +408,7 @@ SETTLEEOF
     log_fail "Settlement upload" "Expected 200/201/202, got ${SETTLE_HTTP}: $(echo ${SETTLE_BODY} | head -c 150)"
   fi
 else
-  log_fail "Settlement upload" "Skipped — no API key or tenant ID"
+  log_fail "Settlement upload" "Skipped — no auth token or tenant ID"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -449,7 +454,7 @@ fi
 # TEST 6d: Settlement Observations — Verify data stored in outcome DB
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Observations: GET /v1/settlement/observations/batches"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   OBS_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/settlement/observations/batches?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
@@ -498,7 +503,7 @@ fi
 # TEST 8: DLQ — Check dead letter queue accessible
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "DLQ: GET /v1/dlq"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   DLQ_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/dlq?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
   DLQ_HTTP=$(echo "${DLQ_RESP}" | tail -1)
@@ -511,7 +516,7 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
     log_fail "DLQ query" "Expected 200, got ${DLQ_HTTP} — intent-engine DLQ table not accessible. Check DB connection."
   fi
 else
-  log_fail "DLQ query" "Skipped — no API key"
+  log_fail "DLQ query" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -538,7 +543,7 @@ fi
 # TEST 10: Reconciliation — Verify outcome-engine recon endpoint
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Reconciliation: GET /v1/reconciliation"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   RECON_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/reconciliation?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
@@ -560,7 +565,7 @@ fi
 # TEST 11: Evidence Packs — Verify evidence service can query
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Evidence: GET /v1/evidence/packs"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   # Evidence requires intent_id or client_batch_id — use a test batch
   EV_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/evidence/packs?tenant_id=${TENANT_ID}&client_batch_id=FUNC_BATCH_001" \
@@ -587,7 +592,7 @@ fi
 # TEST 12: Intelligence Leakage — Deep intelligence surface check
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Intelligence Leakage: GET /v1/rca"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   RCA_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/rca?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
@@ -608,7 +613,7 @@ fi
 # TEST 13: Dispatch Status — Verify relay service
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Dispatch: GET /v1/dispatch"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   DISP_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/dispatch?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
@@ -673,7 +678,7 @@ fi
 # TEST 15: Settlement Parse Errors — Check if parsing errors are tracked
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Errors: GET /v1/settlement/errors"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   ERRS_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/settlement/errors?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${AUTH_BEARER}")
@@ -687,7 +692,7 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
     log_fail "Settlement errors" "Expected 200, got ${ERRS_HTTP} — settlement error tracking broken"
   fi
 else
-  log_fail "Settlement errors" "Skipped — no API key"
+  log_fail "Settlement errors" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════

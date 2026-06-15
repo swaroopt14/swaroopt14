@@ -58,7 +58,7 @@ export function buildGroundedAnswerSnapshot(input: GroundedAnswerInput): string 
   }
 
   return (
-    'Zord is analyzing payment instructions against bank and settlement outcomes for your tenant. ' +
+    'Zord is analyzing payment instructions against bank and settlement outcomes for your workspace. ' +
     'Ask a specific question about review items, missing files, or proof readiness.'
   )
 }

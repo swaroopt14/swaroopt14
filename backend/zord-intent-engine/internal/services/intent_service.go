@@ -167,6 +167,7 @@ type CanonicalIntentRepository interface {
 
 	UpdateBatchAggregateConfidence(
 		ctx context.Context,
+		tenantID string,
 		batchID string,
 	) (float64, error)
 }
@@ -239,8 +240,6 @@ func callEnclaveTokenizeOnce(ctx context.Context, req enclaveTokenizeRequest) (m
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-Zord-Internal-Token", os.Getenv("ENCLAVE_INTERNAL_TOKEN")) // P0 auth
-	httpReq.Header.Set("X-Zord-Caller-ID", "zord-intent-engine")
 
 	resp, err := enclaveHTTPClient.Do(httpReq)
 	if err != nil {
@@ -1864,8 +1863,9 @@ func (s *IntentService) ProcessIncomingIntent(
 	saved.CanonicalHash = hash
 
 	if in.BatchID != nil && *in.BatchID != "" {
-		_, err, _ := batchAggregateGroup.Do(*in.BatchID, func() (interface{}, error) {
-			return s.repo.UpdateBatchAggregateConfidence(context.Background(), *in.BatchID)
+		batchKey := fmt.Sprintf("%s|%s", in.TenantID.String(), *in.BatchID)
+		_, err, _ := batchAggregateGroup.Do(batchKey, func() (interface{}, error) {
+			return s.repo.UpdateBatchAggregateConfidence(context.Background(), in.TenantID.String(), *in.BatchID)
 		})
 		if err != nil {
 			log.Printf("⚠️ Failed to update batch aggregate confidence for batch=%s: %v", *in.BatchID, err)
@@ -2291,8 +2291,9 @@ func (s *IntentService) ProcessTokenizeResult(
 	saved.CanonicalHash = hash
 
 	if event.BatchID != nil && *event.BatchID != "" {
-		_, err, _ := batchAggregateGroup.Do(*event.BatchID, func() (interface{}, error) {
-			return s.repo.UpdateBatchAggregateConfidence(context.Background(), *event.BatchID)
+		batchKey := fmt.Sprintf("%s|%s", event.TenantID, *event.BatchID)
+		_, err, _ := batchAggregateGroup.Do(batchKey, func() (interface{}, error) {
+			return s.repo.UpdateBatchAggregateConfidence(context.Background(), event.TenantID, *event.BatchID)
 		})
 		if err != nil {
 			log.Printf("⚠️ Failed to update batch aggregate confidence for batch=%s: %v", *event.BatchID, err)

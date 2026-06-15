@@ -20,7 +20,7 @@ function statusLabel(status: ProofCoverageTile['status']): string {
 
 function statusTone(status: ProofCoverageTile['status']): string {
   if (status === 'available' || status === 'generated')
-    return 'border-[#4ADE80]/40 bg-[#f0fdf4] text-[#166534]'
+    return 'border-[#000000]/40 bg-[#f4f4f5] text-[#000000]'
   if (status === 'missing' || status === 'not_generated') return 'border-amber-200/80 bg-amber-50/70 text-amber-900'
   return `border ${EVIDENCE_ASK.border} bg-white text-[#475569]`
 }

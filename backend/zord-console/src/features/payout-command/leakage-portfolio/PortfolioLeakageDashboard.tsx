@@ -16,6 +16,8 @@ import { AllocationPerformanceCard } from './components/AllocationPerformanceCar
 import { RiskScoreGauge } from './components/RiskScoreGauge'
 import { SystemInsightsCard } from './components/SystemInsightsCard'
 import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
+import { BATCH_KPI_UNAVAILABLE } from '../shared/batchKpiScope'
 
 type PortfolioLeakageDashboardProps = {
   tenantReady: boolean
@@ -36,6 +38,18 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
 
   const { viewModel, ambiguity, defensibility, loading, refresh, hasData, leak } =
     usePortfolioLeakageData(tenantReady, selectedBatchId)
+
+  const handlePageRefresh = useCallback(async () => {
+    await refresh()
+    if (!tenantReady) return
+    const res = await getIntelligenceBatches({ limit: 20 })
+    setBatches(res?.batches ?? [])
+  }, [refresh, tenantReady])
+
+  useRegisterPayoutPageActions({
+    refresh: tenantReady ? handlePageRefresh : undefined,
+    refreshing: loading || batchHealthLoading,
+  })
 
   useEffect(() => {
     const pinned = initialBatchId?.trim()
@@ -63,9 +77,9 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     )
   }, [batchHealth, selectedBatchId, leak])
 
-  const displayData = batchScopedData ?? viewModel
+  const displayData = batchScopedData ?? (selectedBatchId ? null : viewModel)
   const kpiLoading = (loading && !viewModel && !batchScopedData) || (Boolean(selectedBatchId) && batchHealthLoading)
-  const showLiveHint = Boolean(batchScopedData) || hasData
+  const showLiveHint = Boolean(batchScopedData) || (!selectedBatchId && hasData)
 
   return (
     <div className="min-h-screen space-y-6 rounded-2xl bg-[#f4f4f1] p-4 sm:p-6">
@@ -81,20 +95,22 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
 
       {!tenantReady ? (
         <p className="rounded-2xl border border-slate-100 bg-white p-8 text-center text-[14px] text-slate-500 shadow-sm">
-          Sign in to load payment gap intelligence for your tenant.
+          Sign in to load payment gap intelligence for your workspace.
         </p>
       ) : !displayData ? (
         <p className="rounded-2xl border border-slate-100 bg-white p-8 text-center text-[14px] text-slate-500 shadow-sm">
           {selectedBatchId
-            ? 'No batch health projection yet for this batch. Run matching/settlement to populate payment gaps.'
-            : 'No tenant-wide leakage snapshot yet. Select a batch or wait for intelligence projections.'}
+            ? batchHealthLoading
+              ? 'Loading batch payment gap projection…'
+              : BATCH_KPI_UNAVAILABLE
+            : 'No workspace-wide leakage snapshot yet. Select a batch or wait for intelligence projections.'}
         </p>
       ) : (
         <>
           {selectedBatchId && batchScopedData ? (
             <p className="text-[12px] font-medium text-slate-600">
               Batch variance projection for <span className="font-mono">{selectedBatchId}</span>
-              {leak ? ' · leakage breakdown from tenant snapshot' : ''}
+              {leak ? ' · leakage breakdown from workspace snapshot' : ''}
             </p>
           ) : null}
           <div className="grid gap-4 lg:grid-cols-3">

@@ -16,7 +16,7 @@ import {
   mapIntelligenceRowToBatchRecord,
   type JournalBatchRecord,
 } from '@/services/payout-command/prod-api/mapIntentEngineBatch'
-import { getProdDlqPage } from '@/services/payout-command/prod-api/getProdDlqPage'
+import { getAllProdDlqRows } from '@/services/payout-command/prod-api/getProdDlqPage'
 import { getProdDlqManualReview } from '@/services/payout-command/prod-api/getProdDlqManualReview'
 import { dlqItemMatchesBatch, mergeDlqItemsById } from '@/services/payout-command/prod-api/mapDlqContext'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
@@ -70,9 +70,9 @@ export async function fetchJournalSidebarBatches(tenantId: string): Promise<Jour
       }
 
       try {
-        const dlqPage = await getProdDlqPage('page=1&page_size=500')
+        const dlqItems = await getAllProdDlqRows()
         const counts = new Map<string, number>()
-        for (const row of dlqPage?.items ?? []) {
+        for (const row of dlqItems) {
           const bid = apiTrimmedString(row.client_batch_ref) || apiTrimmedString(row.batch_id)
           if (!bid) continue
           counts.set(bid, (counts.get(bid) ?? 0) + 1)
@@ -188,8 +188,8 @@ export async function fetchJournalDlqItems(batchId: string): Promise<IntentJourn
     }
 
     try {
-      const dlqPage = await getProdDlqPage('page=1&page_size=500')
-      const filteredItems = (dlqPage?.items ?? []).filter((row) => dlqItemMatchesBatch(row, bid))
+      const dlqItems = await getAllProdDlqRows()
+      const filteredItems = dlqItems.filter((row) => dlqItemMatchesBatch(row, bid))
 
       if (filteredItems.length > 0) {
         const merged = mergeDlqItemsById(manualForBatch, filteredItems.map((row) => ({

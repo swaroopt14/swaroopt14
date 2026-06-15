@@ -14,14 +14,13 @@ export function AmbiguityMixDonut({ amb }: Props) {
     <article className="flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full" style={{ background: '#3dff82' }} />
+          <div className="h-2 w-2 rounded-full bg-black" />
           <span className="text-[12px] font-semibold uppercase tracking-wider text-[#000000]">
             Ambiguity Mix
           </span>
         </div>
         <span
-          className="rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-[#000000]"
-          style={{ background: '#3dff82' }}
+          className="rounded-full bg-black px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-white"
         >
           Strategic
         </span>
@@ -61,7 +60,8 @@ export function AmbiguityMixDonut({ amb }: Props) {
         ) : (
           <p className="px-4 text-center text-[13px] font-medium text-[#00239C]">
             Mix not available. Backend should return{' '}
-            <code className="text-[12px]">ambiguity_mix_segments</code> or snapshot rates.
+            <code className="text-[12px]">ambiguity_mix_segments</code> and{' '}
+            <code className="text-[12px]">clearing_pct</code>.
           </p>
         )}
       </div>

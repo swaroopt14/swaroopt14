@@ -61,7 +61,7 @@ export function ProofBreakdownSection({ rows }: ProofBreakdownSectionProps) {
                       style={{
                         width: `${Math.min(100, barPct)}%`,
                         background: EVIDENCE_NEON,
-                        boxShadow: '0 0 12px rgba(61,255,130,0.45)',
+                        boxShadow: '0 0 12px rgba(0,0,0,0.45)',
                       }}
                     />
                   </div>

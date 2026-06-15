@@ -17,6 +17,7 @@ export type PaymentCommandDataSources = {
   bankStatementStatus: DataSourceBadgeStatus
   evidenceStatus: DataSourceBadgeStatus
   loading: boolean
+  refresh: () => Promise<void>
 }
 
 export function usePaymentCommandDataSources(options: {
@@ -97,5 +98,6 @@ export function usePaymentCommandDataSources(options: {
     bankStatementStatus,
     evidenceStatus,
     loading,
+    refresh,
   }
 }

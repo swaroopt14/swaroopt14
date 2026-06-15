@@ -54,7 +54,7 @@ export function EvidencePackVerifyCard({ packId }: { packId: string }) {
         <div
           className={`mt-3 rounded-lg border px-3 py-3 text-[13px] ${
             verified
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+              ? 'border-black/30 bg-neutral-100 text-black'
               : corrupted
                 ? 'border-red-200 bg-red-50 text-red-950'
                 : 'border-amber-200 bg-amber-50 text-amber-950'

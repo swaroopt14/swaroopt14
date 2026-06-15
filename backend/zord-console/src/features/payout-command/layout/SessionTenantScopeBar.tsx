@@ -30,13 +30,13 @@ export function SessionTenantScopeBar({
     <div className="space-y-3">
     <div
       className="rounded-xl border border-slate-200/90 bg-slate-50/80 px-3.5 py-3 shadow-sm"
-      aria-label="Session tenant scope"
+      aria-label="Workspace session scope"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Session scope</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Workspace scope</p>
           <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <span className="text-[12px] font-medium text-slate-600">Tenant ID</span>
+            <span className="text-[12px] font-medium text-slate-600">Workspace ID</span>
             <span className="font-mono text-[13px] text-slate-900" title={tenantId || undefined}>
               {tenantId.trim() || '—'}
             </span>
@@ -49,7 +49,7 @@ export function SessionTenantScopeBar({
           ) : null}
           {showWarning ? (
             <p className="text-[12px] leading-relaxed text-amber-900">
-              Sign in with a tenant workspace, or enter a Batch-Id and click Fetch tenant id.
+              Sign in with a workspace, or enter a Batch-Id and click Resolve workspace.
             </p>
           ) : null}
         </div>
@@ -61,7 +61,7 @@ export function SessionTenantScopeBar({
               <input
                 value={batchId}
                 onChange={(e) => onBatchIdChange(e.target.value)}
-                placeholder="Used to resolve tenant from intelligence"
+                placeholder="Used to resolve workspace from intelligence"
                 className="h-9 rounded-lg border border-slate-200 bg-white px-2.5 font-mono text-[13px] text-slate-900 outline-none focus:border-sky-400/55 focus:ring-2 focus:ring-sky-400/15"
               />
             </label>
@@ -72,7 +72,7 @@ export function SessionTenantScopeBar({
             disabled={tenantFetching}
             className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 px-4 text-[13px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {tenantFetching ? 'Fetching…' : 'Fetch tenant id'}
+            {tenantFetching ? 'Resolving…' : 'Resolve workspace'}
           </button>
         </div>
       </div>

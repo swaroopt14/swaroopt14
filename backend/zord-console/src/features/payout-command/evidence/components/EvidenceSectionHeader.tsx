@@ -21,8 +21,8 @@ export function EvidenceSectionHeader({ title, subtitle, badge, live, action }: 
         <div className="flex flex-wrap items-center gap-2">
           {live ? (
             <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-neutral-700 opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-black" />
             </span>
           ) : null}
           <h2 className="text-[15px] font-semibold tracking-tight text-[#000000]">{title}</h2>

@@ -60,7 +60,15 @@ func (h *DLQHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	entry, err := h.repo.GetByID(ctx, dlqID)
+	tenantID := strings.TrimSpace(r.Header.Get("X-Tenant-ID"))
+	if tenantID == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "X-Tenant-ID header is required"})
+		return
+	}
+
+	entry, err := h.repo.GetByTenantAndID(ctx, tenantID, dlqID)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

@@ -7,7 +7,8 @@ type JournalIntelligenceKpiHeroProps = {
   eyebrow: string
   value: string
   valueSuffix?: string
-  deltaPill: string
+  tooltip?: string
+  deltaPill?: string
   subcopy: string
   buckets: readonly NavyHeroBucket[]
   footer?: ReactNode
@@ -19,6 +20,7 @@ export function JournalIntelligenceKpiHero({
   eyebrow,
   value,
   valueSuffix,
+  tooltip,
   deltaPill,
   subcopy,
   buckets,
@@ -33,6 +35,7 @@ export function JournalIntelligenceKpiHero({
       eyebrow={eyebrow}
       value={value}
       valueSuffix={valueSuffix}
+      tooltip={tooltip}
       deltaPill={deltaPill}
       subcopy={subcopy}
       buckets={buckets}

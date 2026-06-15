@@ -126,15 +126,15 @@ const PLANS: { id: PlanId; name: string; price: string; features: string[]; reco
   {
     id: 'pro',
     name: 'Pro',
-    price: '$49/mo',
-    features: ['1,000 intents/mo', 'Email + chat support', 'Basic analytics'],
+    price: 'Pricing at activation',
+    features: ['Higher intent volume', 'Email + chat support', 'Basic analytics'],
     recommended: true,
   },
   {
     id: 'business',
     name: 'Business',
-    price: '$199/mo',
-    features: ['10k intents/mo', 'Phone support', 'Advanced analytics', 'Team seats'],
+    price: 'Pricing at activation',
+    features: ['Team-scale volume', 'Phone support', 'Advanced analytics', 'Team seats'],
   },
 ]
 
@@ -244,7 +244,7 @@ export function ActivateLiveWizard({ onClose }: { onClose: () => void }) {
                       <span
                         className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
                           done
-                            ? 'bg-emerald-500 text-white'
+                            ? 'bg-black text-white'
                             : active
                               ? 'bg-[#0f172a] text-white'
                               : 'border border-[#E5E5E5] bg-white text-[#94a3b8]'
@@ -300,7 +300,7 @@ export function ActivateLiveWizard({ onClose }: { onClose: () => void }) {
                 <button
                   type="button"
                   onClick={onSubmit}
-                  className="inline-flex items-center gap-2 rounded-[8px] bg-emerald-600 px-3 py-1.5 text-[13px] font-semibold text-white transition hover:bg-emerald-700"
+                  className="inline-flex items-center gap-2 rounded-[8px] bg-black px-3 py-1.5 text-[13px] font-semibold text-white transition hover:bg-neutral-800"
                 >
                   Submit for review
                   <Glyph name="check" className="h-3 w-3" />
@@ -393,7 +393,7 @@ function KycStep({ value, onChange }: { value: KycFiles; onChange: (v: KycFiles)
           <label
             key={slot}
             className={`group flex cursor-pointer items-start gap-3 rounded-[12px] border p-4 transition ${
-              file ? 'border-emerald-200 bg-emerald-50/40' : 'border-[#E5E5E5] bg-white hover:border-[#0f172a]/30'
+              file ? 'border-black/30 bg-neutral-100/40' : 'border-[#E5E5E5] bg-white hover:border-[#0f172a]/30'
             }`}
           >
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-[#0f172a] text-white">
@@ -403,7 +403,7 @@ function KycStep({ value, onChange }: { value: KycFiles; onChange: (v: KycFiles)
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[13px] font-semibold text-[#0f172a]">{meta.label}</p>
                 {file ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-black/30 bg-neutral-100 px-1.5 py-0.5 text-[11px] font-semibold text-black">
                     <Glyph name="check" className="h-2.5 w-2.5" />
                     Loaded
                   </span>
@@ -452,7 +452,7 @@ function ConnectorsStep({ value, onChange }: { value: ConnectorCreds; onChange: 
             <li key={key}>
               <div
                 className={`flex flex-wrap items-center gap-3 rounded-[12px] border p-3 ${
-                  connected ? 'border-emerald-200 bg-emerald-50/40' : 'border-[#E5E5E5] bg-white'
+                  connected ? 'border-black/30 bg-neutral-100/40' : 'border-[#E5E5E5] bg-white'
                 }`}
               >
                 <EntityLogo name={key} kind="psp" size={28} />
@@ -461,7 +461,7 @@ function ConnectorsStep({ value, onChange }: { value: ConnectorCreds; onChange: 
                   <p className="text-[12px] text-[#64748b]">{rails.join(' · ')}</p>
                 </div>
                 {connected ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-black/30 bg-neutral-100 px-2 py-0.5 text-[11px] font-semibold text-black">
                     <Glyph name="check" className="h-2.5 w-2.5" />
                     Connected
                   </span>
@@ -529,7 +529,7 @@ function PlanStep({ value, onChange }: { value: PaymentForm; onChange: (v: Payme
               <div className="flex items-center justify-between gap-2">
                 <p className="text-[15px] font-semibold text-[#0f172a]">{plan.name}</p>
                 {plan.recommended ? (
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                  <span className="rounded-full border border-black/30 bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-black">
                     Recommended
                   </span>
                 ) : null}
@@ -538,7 +538,7 @@ function PlanStep({ value, onChange }: { value: PaymentForm; onChange: (v: Payme
               <ul className="mt-2 space-y-1 text-[12px] text-[#64748b]">
                 {plan.features.map((f) => (
                   <li key={f} className="flex items-center gap-1.5">
-                    <Glyph name="check" className="h-3 w-3 text-emerald-600" />
+                    <Glyph name="check" className="h-3 w-3 text-black" />
                     {f}
                   </li>
                 ))}
@@ -676,7 +676,7 @@ function SubmittingCard() {
 function SubmittedCard({ onClose }: { onClose: () => void }) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-10 text-center">
-      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500 text-white shadow-[0_8px_28px_rgba(16,185,129,0.4)]">
+      <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black text-white shadow-[0_8px_28px_rgba(0,0,0,0.4)]">
         <Glyph name="check" className="h-8 w-8" />
       </span>
       <h3 className="mt-4 text-[21px] font-semibold tracking-[-0.01em] text-[#0f172a]">Submitted for review</h3>

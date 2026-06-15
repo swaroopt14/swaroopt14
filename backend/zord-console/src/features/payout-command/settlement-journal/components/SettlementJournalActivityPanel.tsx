@@ -21,6 +21,15 @@ import {
   formatClientRefDisplay,
   formatMappingConfidenceLabel,
 } from '../mappers/mapMatchStatus'
+import { SettlementParseErrorsTable } from './SettlementParseErrorsTable'
+import type { SettlementParseErrorRow } from '@/services/payout-command/prod-api/settlementObservations'
+
+type SettlementTabKey = 'observations' | 'parseErrors'
+
+const TAB_ITEMS: { key: SettlementTabKey; label: string }[] = [
+  { key: 'observations', label: settlementJournalCopy.tabs.observations },
+  { key: 'parseErrors', label: settlementJournalCopy.tabs.parseErrors },
+]
 
 const JOURNAL_FILTER_LABEL =
   'mb-1 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#888888]'
@@ -70,6 +79,18 @@ export type SettlementJournalActivityViewModel = {
   setJumpPage: (v: string) => void
   totalPages: number
   jumpPage: string
+  activeTab: SettlementTabKey
+  setActiveTab: (tab: SettlementTabKey) => void
+  parseErrors: SettlementParseErrorRow[]
+  parseErrorsLoading: boolean
+  parseErrorTotal: number | null
+  parseErrorTotalLoading: boolean
+  filteredCount: number
+  tableTotal: number
+  filtersActive: boolean
+  serverPagination: boolean
+  paginationStart: number
+  paginationEnd: number
 }
 
 type SettlementJournalActivityPanelProps = {
@@ -111,6 +132,18 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
     setJumpPage,
     totalPages,
     jumpPage,
+    activeTab,
+    setActiveTab,
+    parseErrors,
+    parseErrorsLoading,
+    parseErrorTotal,
+    parseErrorTotalLoading,
+    filteredCount,
+    tableTotal,
+    filtersActive,
+    serverPagination,
+    paginationStart,
+    paginationEnd,
   } = vm
 
   return (
@@ -253,12 +286,38 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
   </div>
 </div>
 
+<nav className="mb-4 flex items-center gap-0.5 border-b border-[#E5E5E5]">
+  {TAB_ITEMS.map((tab) => (
+    <button
+      key={tab.key}
+      type="button"
+      onClick={() => setActiveTab(tab.key)}
+      className={`-mb-px border-b-2 px-4 py-2 text-[14px] font-medium tracking-[0] transition ${
+        activeTab === tab.key
+          ? 'border-black text-black'
+          : 'border-transparent text-[#888888] hover:text-[#000000]'
+      }`}
+    >
+      {tab.label}
+    </button>
+  ))}
+</nav>
+
+{activeTab === 'observations' ? (
 <section className={`overflow-hidden ${COMMAND_CENTER_KPI_CARD} !p-0`}>
   <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
     <p className={`text-[14px] font-semibold ${HOME_TITLE_BLACK}`}>Settlement observations</p>
     <p className={HOME_BODY_IMPERIAL_SM}>
-      <span className="rounded-full border border-[#4ADE80]/45 bg-[#f0fdf4] px-2 py-0.5 text-[12px] font-semibold text-[#166534]">
-        {filteredRows.length.toLocaleString('en-US')} rows
+      {filtersActive && tableTotal > 0 ? (
+        <>
+          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[12px] font-semibold text-slate-700">
+            {tableTotal.toLocaleString('en-US')} total
+          </span>{' '}
+          ·{' '}
+        </>
+      ) : null}
+      <span className="rounded-full border border-black/30 bg-black px-2 py-0.5 text-[12px] font-semibold text-white">
+        {filteredCount.toLocaleString('en-US')} rows
       </span>{' '}
       match filters
     </p>
@@ -521,11 +580,8 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
   <div className="border-t border-slate-200/80 bg-[#f8fbff] px-4 py-3 text-[14px] text-[#64748b]">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <span>
-        Showing {(filteredRows.length === 0 ? 0 : (safePage - 1) * rowsPerPage + 1)}-
-        {filteredRows.length === 0
-          ? 0
-          : Math.min(safePage * rowsPerPage, filteredRows.length)}{' '}
-        of {filteredRows.length.toLocaleString('en-US')} observations
+        Showing {paginationStart}-{paginationEnd} of {tableTotal.toLocaleString('en-US')} observations
+        {filtersActive ? ` (${filteredCount.toLocaleString('en-US')} match filters)` : ''}
       </span>
       <div className="flex items-center gap-2">
         <span>Rows per page:</span>
@@ -586,6 +642,27 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
     </div>
   </div>
 </section>
+) : (
+<section className={`overflow-hidden ${COMMAND_CENTER_KPI_CARD} !p-0`}>
+  <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
+    <p className={`text-[14px] font-semibold ${HOME_TITLE_BLACK}`}>
+      {settlementJournalCopy.tabs.parseErrors}
+    </p>
+    <p className={HOME_BODY_IMPERIAL_SM}>
+      <span className="rounded-full border border-rose-200/70 bg-rose-50 px-2 py-0.5 text-[12px] font-semibold text-rose-800">
+        {parseErrorTotal != null
+          ? parseErrorTotal.toLocaleString('en-US')
+          : parseErrorTotalLoading
+            ? '…'
+            : parseErrors.length.toLocaleString('en-US')}{' '}
+        rows
+      </span>{' '}
+      {parseErrorsLoading || parseErrorTotalLoading ? 'loading…' : 'for this batch'}
+    </p>
+  </div>
+  <SettlementParseErrorsTable rows={parseErrors} loading={parseErrorsLoading} />
+</section>
+)}
     </>
   )
 }

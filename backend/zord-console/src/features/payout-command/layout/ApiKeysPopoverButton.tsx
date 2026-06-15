@@ -156,7 +156,7 @@ export function ApiKeysPopoverButton({ label = 'API keys' }: { label?: string })
                   href={SANDBOX_DOCS_LINKS.apiReference}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="shrink-0 text-[13px] font-medium text-[#16a34a] hover:text-[#15803d]"
+                  className="shrink-0 text-[13px] font-medium text-[#000000] hover:text-[#15803d]"
                 >
                   View docs
                 </a>
@@ -278,12 +278,12 @@ export function CompactKeyRow({
                 ? 'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-bold text-white transition hover:bg-white/15 disabled:pointer-events-none disabled:opacity-40'
                 : sky
                   ? 'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-[#2563eb] transition hover:bg-[rgba(59,130,246,0.1)] disabled:pointer-events-none disabled:opacity-40'
-                  : 'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-[#16a34a] transition hover:bg-[rgba(74,222,128,0.12)] disabled:pointer-events-none disabled:opacity-40'
+                  : 'inline-flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-[#000000] transition hover:bg-[rgba(0,0,0,0.12)] disabled:pointer-events-none disabled:opacity-40'
             }
           >
             <Glyph
               name={copied ? 'check' : 'copy'}
-              className={imperial ? 'h-3 w-3 text-white' : sky ? 'h-3 w-3 text-[#3b82f6]' : 'h-3 w-3 text-[#4ade80]'}
+              className={imperial ? 'h-3 w-3 text-white' : sky ? 'h-3 w-3 text-[#3b82f6]' : 'h-3 w-3 text-[#000000]'}
             />
             {copied ? 'Copied' : 'Copy'}
           </button>
@@ -295,7 +295,7 @@ export function CompactKeyRow({
             ? 'block max-w-full truncate rounded-md border border-white/35 bg-white/15 px-2.5 py-2 font-mono text-[12px] font-bold leading-relaxed text-white drop-shadow-[0_1px_1px_rgba(0,0,0,0.25)]'
             : sky
               ? 'block max-w-full truncate rounded-md border border-[#c5d5f0] bg-[#e8f0fe] px-2.5 py-2 font-mono text-[12px] leading-relaxed text-[#1e3a5f]'
-              : 'block max-w-full truncate rounded-md border border-black/[0.06] bg-[rgba(74,222,128,0.06)] px-2.5 py-2 font-mono text-[12px] leading-relaxed text-[#1a1a2e]'
+              : 'block max-w-full truncate rounded-md border border-black/[0.06] bg-[rgba(0,0,0,0.06)] px-2.5 py-2 font-mono text-[12px] leading-relaxed text-[#1a1a2e]'
         }
       >
         {display}

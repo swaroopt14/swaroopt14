@@ -2,6 +2,8 @@
 
 export type IntentJournalBatchIdItem = {
   batch_id: string
+  /** Sum of payment_intent amounts for the batch (major INR units, from intent-engine batch-ids). */
+  total_amount?: number
 }
 
 export type IntentJournalBatchIdsResponse = {
@@ -31,6 +33,7 @@ export type IntentJournalPaymentIntentItem = {
 
 export type IntentJournalPaymentIntentsResponse = {
   items: IntentJournalPaymentIntentItem[]
+  /** `pagination.total` is the authoritative batch instruction count for journal KPIs. */
   pagination?: {
     page?: number
     page_size?: number

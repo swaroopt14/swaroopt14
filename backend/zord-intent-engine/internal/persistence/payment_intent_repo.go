@@ -808,7 +808,7 @@ func (r *PaymentIntentRepo) CheckIdempotencyRegistry(
 //	dlq_rate > 0.05  → cap at 75
 //	dlq_rate > 0.10  → cap at 60
 //	dlq_rate > 0.20  → cap at 40
-func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, batchID string) (float64, error) {
+func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, tenantID, batchID string) (float64, error) {
 	if batchID == "" {
 		return 0, nil
 	}
@@ -819,7 +819,7 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 	var totalAmount decimal.Decimal
 	var lowMatchCount, lowProofCount, dupRiskCount int
 	var dupRiskAmount int64
-	var tenantID sql.NullString
+	var retrievedTenantID sql.NullString
 	var sourceSystem sql.NullString
 
 	err := r.db.QueryRowContext(ctx, `
@@ -839,12 +839,13 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
             MAX(source_system),
             COALESCE(SUM(amount), 0)
         FROM payment_intents
-        WHERE batchid = $1
-    `, batchID).Scan(
+        WHERE tenant_id = $1 AND
+		batchid=$2
+    `, tenantID, batchID).Scan(
 		&canonicalized,
 		&avgQuality, &avgMatchability, &avgProof, &avgDupRisk, &avgSchema, &avgMapping,
 		&lowMatchCount, &lowProofCount, &dupRiskCount, &dupRiskAmount,
-		&tenantID, &sourceSystem, &totalAmount,
+		&retrievedTenantID, &sourceSystem, &totalAmount,
 	)
 	if err != nil {
 		return 0, err
@@ -853,22 +854,22 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 	// Step 2: Get DLQ count for this batch from dlq_items
 	var dlqCount int
 	_ = r.db.QueryRowContext(ctx, `
-        SELECT COUNT(*) FROM dlq_items WHERE batch_id = $1
-    `, batchID).Scan(&dlqCount)
+        SELECT COUNT(*) FROM dlq_items WHERE tenant_id = $1 AND batch_id = $2
+    `, tenantID, batchID).Scan(&dlqCount)
 
 	// Fallback if tenantID/sourceSystem not in payment_intents (all DLQ'd)
-	if !tenantID.Valid || tenantID.String == "" {
+	if !retrievedTenantID.Valid || retrievedTenantID.String == "" {
 		_ = r.db.QueryRowContext(ctx, `
-            SELECT MAX(tenant_id::TEXT) FROM dlq_items WHERE batch_id = $1
-        `, batchID).Scan(&tenantID)
+            SELECT MAX(tenant_id::TEXT) FROM dlq_items WHERE tenant_id = $1 AND batch_id = $2
+        `, tenantID, batchID).Scan(&retrievedTenantID)
 	}
 
 	// Step 3: Get review count (FLAGGED governance state)
 	var reviewCount int
 	_ = r.db.QueryRowContext(ctx, `
         SELECT COUNT(*) FROM payment_intents
-        WHERE batchid = $1 AND governance_state IN ('FLAGGED','REQUIRES_REVIEW')
-    `, batchID).Scan(&reviewCount)
+        WHERE tenant_id = $1 AND batchid = $2 AND governance_state IN ('FLAGGED','REQUIRES_REVIEW')
+    `, tenantID, batchID).Scan(&reviewCount)
 
 	// Step 4: Full denominator — received = canonicalized + dlq
 	received := canonicalized + dlqCount
@@ -922,8 +923,8 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 	_, err = r.db.ExecContext(ctx, `
         UPDATE payment_intents
         SET aggregate_confidence_score = $1
-        WHERE batchid = $2
-    `, batchScore, batchID) // stored as 0–1
+        WHERE tenant_id = $2 AND batchid = $3
+    `, batchScore, tenantID, batchID) // stored as 0–1
 	if err != nil {
 		return 0, err
 	}
@@ -957,8 +958,8 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
                 jsonb_set(payload, '{aggregate_confidence_score}', to_jsonb($1::numeric)),
                 '{batch_quality_breakdown}', $2::jsonb
             )
-        WHERE batchid = $3
-    `, batchScore, breakdownJSON, batchID)
+        WHERE tenant_id = $3 AND batchid = $4
+    `, batchScore, breakdownJSON, tenantID, batchID)
 	if err != nil {
 		return 0, err
 	}
@@ -978,7 +979,7 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
         $11, $12, $13, $14, $15,
         $16, $17, $18,
         $19, $20, now()
-    ) ON CONFLICT (batch_id) DO UPDATE SET
+    ) ON CONFLICT (tenant_id, batch_id) DO UPDATE SET
         tenant_id = EXCLUDED.tenant_id,
         source_system = EXCLUDED.source_system,
         received_count = EXCLUDED.received_count,

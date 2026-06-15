@@ -7,8 +7,8 @@ import type {
 import { getMatchingHeatmap, getMatchingSummary } from '../utils/ambiguityApiMappers'
 
 function cellClass(v: number) {
-  if (v === 2) return 'bg-emerald-400'
-  if (v === 1) return 'bg-emerald-200'
+  if (v === 2) return 'bg-black'
+  if (v === 1) return 'bg-neutral-400'
   return 'bg-slate-100'
 }
 
@@ -29,14 +29,14 @@ export function MatchingExecutionLog({ amb, heatmap: heatmapProp, heatmapLoading
     <article className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 animate-pulse rounded-full" style={{ background: '#3dff82' }} />
+          <div className="h-2 w-2 animate-pulse rounded-full bg-black" />
           <span className="text-[12px] font-semibold uppercase tracking-wider text-[#000000]">
             Matching Execution Log
           </span>
         </div>
-        <div className="flex items-center gap-1.5 rounded-full px-3 py-1" style={{ background: '#3dff82' }}>
-          <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#16a34a]" />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[#000000]">Live Feed</span>
+        <div className="flex items-center gap-1.5 rounded-full bg-black px-3 py-1">
+          <div className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+          <span className="text-[10px] font-bold uppercase tracking-wider text-white">Live Feed</span>
         </div>
       </div>
 
@@ -98,11 +98,11 @@ export function MatchingExecutionLog({ amb, heatmap: heatmapProp, heatmapLoading
           </span>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1.5">
-              <div className="h-2.5 w-2.5 rounded-sm bg-emerald-400" />
+              <div className="h-2.5 w-2.5 rounded-sm bg-black" />
               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Reviewing</span>
             </div>
             <div className="flex items-center gap-1.5">
-              <div className="h-2.5 w-2.5 rounded-sm bg-emerald-200" />
+              <div className="h-2.5 w-2.5 rounded-sm bg-neutral-400" />
               <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Syncing</span>
             </div>
             <div className="flex items-center gap-1.5">

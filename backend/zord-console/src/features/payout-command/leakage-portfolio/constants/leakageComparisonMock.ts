@@ -6,7 +6,7 @@ function toDateKey(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
-/** Preview dual-series until leakage-exposure timeseries ships. */
+/** Fallback preview dual-series when upstream returns data_available: false or empty series. */
 export function buildLeakageComparisonMock(
   intendedMinor: number,
   granularity: 'day' | 'week' | 'month' = 'day',

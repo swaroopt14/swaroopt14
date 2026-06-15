@@ -6,18 +6,20 @@ import { SettlementBatchSelectionProvider } from '../settlement-journal/context/
 import { SettlementJournalBatchSidebar } from '../settlement-journal/components/SettlementJournalBatchSidebar'
 import { SettlementJournalHeroBanner } from '../settlement-journal/components/SettlementJournalHeroBanner'
 import { SettlementJournalDataHealthPanel } from '../settlement-journal/components/SettlementJournalDataHealthPanel'
-import { SettlementParseErrorsPanel } from '../settlement-journal/components/SettlementParseErrorsPanel'
 import {
   SettlementJournalActivityPanel,
   type SettlementJournalActivityViewModel,
 } from '../settlement-journal/components/SettlementJournalActivityPanel'
 import { useSettlementSidebarBatches } from '../settlement-journal/hooks/useSettlementSidebarBatches'
 import { useSettlementObservationRows } from '../settlement-journal/hooks/useSettlementObservationRows'
+import { useSettlementParseErrorTotal } from '../settlement-journal/hooks/useSettlementParseErrorTotal'
+import { useSettlementBatchIntelligence } from '../settlement-journal/hooks/useSettlementBatchIntelligence'
+import { settlementObservationPageRange } from '../settlement-journal/settlementPaginationUtils'
 import { downloadCsv, observationsToCsv } from '../settlement-journal/settlementExport'
 import {
   observationInDateRange,
   matchesAmountRange,
-  outcomeFromObservationRows,
+  outcomeFromMatchConfidence,
   type AmountRangeFilter,
   type DateRangePreset,
   type SettlementSidebarOutcome,
@@ -42,6 +44,9 @@ import {
 } from '@/services/payout-command/prod-api/settlementObservations'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { LiveDataHint } from '../shared'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
+
+type SettlementActivityTab = 'observations' | 'parseErrors'
 const SETTLEMENT_PAGE_SUMMARY = dockItems.find((d) => d.id === 'settlement')?.summary ?? ''
 
 const ROW_SIZE_OPTIONS = [25, 50, 100, 200] as const
@@ -80,12 +85,6 @@ function SettlementJournalSurfaceInner({
     setSelectedClientBatchId,
   })
 
-  const {
-    rows: observationRows,
-    loading: detailLoading,
-    refetch: refetchObservations,
-  } = useSettlementObservationRows(selectedClientBatchId, journalEnabled && tenantReady)
-
   const selectionValue = useMemo(
     () => ({
       tenantId,
@@ -105,9 +104,6 @@ function SettlementJournalSurfaceInner({
         feedLoaded={feedLoaded}
         feedMeta={feedMeta}
         refreshSidebar={refreshSidebar}
-        refetchObservations={refetchObservations}
-        observationRows={observationRows}
-        detailLoading={detailLoading}
         selectedClientBatchId={selectedClientBatchId}
         setSelectedClientBatchId={setSelectedClientBatchId}
         tenantReady={tenantReady}
@@ -122,9 +118,6 @@ function SettlementJournalSurfaceContent({
   feedLoaded,
   feedMeta,
   refreshSidebar,
-  refetchObservations,
-  observationRows,
-  detailLoading,
   selectedClientBatchId,
   setSelectedClientBatchId,
   tenantReady,
@@ -134,21 +127,13 @@ function SettlementJournalSurfaceContent({
   feedLoaded: boolean
   feedMeta: ReturnType<typeof useSettlementSidebarBatches>['feedMeta']
   refreshSidebar: () => Promise<void>
-  refetchObservations: () => Promise<void>
-  observationRows: import('@/services/payout-command/prod-api/settlementObservations').SettlementObservationTableRow[]
-  detailLoading: boolean
   selectedClientBatchId: string
   setSelectedClientBatchId: (id: string) => void
   tenantReady: boolean
 }) {
   const { mode } = useEnvironment()
   const batchCommandCenterHref = payoutBatchCommandCenterHref(mode === 'sandbox')
-
-  useEffect(() => {
-    if (mode === 'sandbox' && feedLoaded && observationRows.length > 0) {
-      markSandboxSetupStep('settlement-journal')
-    }
-  }, [mode, feedLoaded, observationRows.length])
+  const { kpis } = useSettlementBatchIntelligence(selectedClientBatchId, tenantReady)
 
   const [tableSearch, setTableSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'All' | string>('All')
@@ -164,20 +149,60 @@ function SettlementJournalSurfaceContent({
   const [sidebarPage, setSidebarPage] = useState(1)
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [feedRefreshing, setFeedRefreshing] = useState(false)
-  const [batchOutcomeCache, setBatchOutcomeCache] = useState<Record<string, SettlementSidebarOutcome>>({})
+  const [batchMatchOutcomeCache, setBatchMatchOutcomeCache] = useState<
+    Record<string, SettlementSidebarOutcome>
+  >({})
   const [syncAt, setSyncAt] = useState<Date | null>(null)
   const [parseErrors, setParseErrors] = useState<SettlementParseErrorRow[]>([])
   const [parseErrorsLoading, setParseErrorsLoading] = useState(false)
+  const [activeTab, setActiveTab] = useState<SettlementActivityTab>('observations')
   const selectClientBatch = useCallback(
     (batchId: string) => setSelectedClientBatchId(batchId),
     [setSelectedClientBatchId],
   )
 
+  const filtersActive =
+    tableSearch.trim() !== '' ||
+    statusFilter !== 'All' ||
+    dateRange !== 'all' ||
+    filterBankRef.trim() !== '' ||
+    filterClientRef.trim() !== '' ||
+    filterSettlementBatchId.trim() !== '' ||
+    sourceSystemFilter !== 'All' ||
+    amountRangeFilter !== 'All'
+
+  const {
+    rows: observationRows,
+    observationTotal,
+    loading: detailLoading,
+    refetch: refetchObservations,
+  } = useSettlementObservationRows(selectedClientBatchId, tenantReady, {
+    page,
+    pageSize: rowsPerPage,
+    fetchAll: filtersActive,
+  })
+
+  const { total: parseErrorTotal, loading: parseErrorTotalLoading } = useSettlementParseErrorTotal(
+    selectedClientBatchId,
+    tenantReady,
+  )
+
   useEffect(() => {
-    if (!selectedClientBatchId || observationRows.length === 0) return
-    const outcome = outcomeFromObservationRows(observationRows)
-    setBatchOutcomeCache((prev) => ({ ...prev, [selectedClientBatchId]: outcome }))
-  }, [selectedClientBatchId, observationRows])
+    if (mode === 'sandbox' && feedLoaded && (observationTotal ?? 0) > 0) {
+      markSandboxSetupStep('settlement-journal')
+    }
+  }, [mode, feedLoaded, observationTotal])
+
+  useEffect(() => {
+    if (!selectedClientBatchId) return
+    const outcome = outcomeFromMatchConfidence(kpis.matchConfidence)
+    setBatchMatchOutcomeCache((prev) => ({ ...prev, [selectedClientBatchId]: outcome }))
+  }, [selectedClientBatchId, kpis.matchConfidence])
+
+  const liveMatchOutcome = useMemo(
+    () => outcomeFromMatchConfidence(kpis.matchConfidence),
+    [kpis.matchConfidence],
+  )
 
   useEffect(() => {
     setPage(1)
@@ -196,23 +221,30 @@ function SettlementJournalSurfaceContent({
   ])
 
   useEffect(() => {
+    setPage(1)
+    setJumpPage('1')
+    setExpandedId(null)
+  }, [activeTab])
+
+  const refetchParseErrors = useCallback(async () => {
     const bid = selectedClientBatchId.trim()
     if (!tenantReady || !bid) {
       setParseErrors([])
       setParseErrorsLoading(false)
       return
     }
-    let cancelled = false
     setParseErrorsLoading(true)
-    void getSettlementParseErrorsForClientBatch(bid).then((res) => {
-      if (cancelled) return
-      setParseErrors(res.data ?? [])
+    try {
+      const res = await getSettlementParseErrorsForClientBatch(bid)
+      setParseErrors(res.data?.items ?? [])
+    } finally {
       setParseErrorsLoading(false)
-    })
-    return () => {
-      cancelled = true
     }
   }, [tenantReady, selectedClientBatchId])
+
+  useEffect(() => {
+    void refetchParseErrors()
+  }, [refetchParseErrors])
 
   const statusOptions = useMemo(() => {
     const set = new Set(observationRows.map((r) => r.status).filter(Boolean))
@@ -272,19 +304,21 @@ function SettlementJournalSurfaceContent({
     amountRangeFilter,
   ])
 
-  const filtersActive =
-    tableSearch.trim() !== '' ||
-    statusFilter !== 'All' ||
-    dateRange !== 'all' ||
-    filterBankRef.trim() !== '' ||
-    filterClientRef.trim() !== '' ||
-    filterSettlementBatchId.trim() !== '' ||
-    sourceSystemFilter !== 'All' ||
-    amountRangeFilter !== 'All'
-
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / rowsPerPage))
+  const serverPagination = !filtersActive
+  const totalPages = serverPagination
+    ? settlementObservationPageRange({ page, pageSize: rowsPerPage, total: observationTotal }).totalPages
+    : Math.max(1, Math.ceil(filteredRows.length / rowsPerPage))
   const safePage = Math.min(page, totalPages)
-  const pageRows = filteredRows.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage)
+  const paginationRange = settlementObservationPageRange({
+    page: safePage,
+    pageSize: rowsPerPage,
+    total: observationTotal,
+  })
+  const pageRows = serverPagination
+    ? filteredRows
+    : filteredRows.slice((safePage - 1) * rowsPerPage, safePage * rowsPerPage)
+  const filteredCount = filteredRows.length
+  const tableTotal = serverPagination ? (observationTotal ?? filteredCount) : filteredCount
 
   const sidebarTotalPages = Math.max(1, Math.ceil(clientBatches.length / SETTLEMENT_SIDEBAR_PAGE_SIZE))
   const safeSidebarPage = Math.min(sidebarPage, sidebarTotalPages)
@@ -293,16 +327,29 @@ function SettlementJournalSurfaceContent({
     safeSidebarPage * SETTLEMENT_SIDEBAR_PAGE_SIZE,
   )
 
-  const handleRefresh = async () => {
+  const handleRefresh = useCallback(async () => {
     setFeedRefreshing(true)
     try {
       await refreshSidebar()
       await refetchObservations()
+      await refetchParseErrors()
       setSyncAt(new Date())
     } finally {
       setFeedRefreshing(false)
     }
-  }
+  }, [refreshSidebar, refetchObservations, refetchParseErrors])
+
+  useRegisterPayoutPageActions({
+    refresh: handleRefresh,
+    refreshing: feedRefreshing || detailLoading || parseErrorsLoading,
+    exportShare: () => {
+      downloadCsv(
+        `settlement-observations${selectedClientBatchId ? `-${selectedClientBatchId}` : ''}.csv`,
+        observationsToCsv(filteredRows),
+      )
+    },
+    exportDisabled: filteredRows.length === 0,
+  })
 
   const clearTableFilters = () => {
     setTableSearch('')
@@ -363,6 +410,22 @@ function SettlementJournalSurfaceContent({
     setJumpPage,
     totalPages,
     jumpPage,
+    activeTab,
+    setActiveTab,
+    parseErrors,
+    parseErrorsLoading,
+    parseErrorTotal,
+    parseErrorTotalLoading: parseErrorTotalLoading || parseErrorsLoading,
+    filteredCount,
+    tableTotal,
+    filtersActive,
+    serverPagination,
+    paginationStart: serverPagination ? paginationRange.start : filteredCount === 0 ? 0 : (safePage - 1) * rowsPerPage + 1,
+    paginationEnd: serverPagination
+      ? paginationRange.end
+      : filteredCount === 0
+        ? 0
+        : Math.min(safePage * rowsPerPage, filteredCount),
   }
 
   return (
@@ -377,8 +440,10 @@ function SettlementJournalSurfaceContent({
           sidebarRows={sidebarRows}
           selectedClientBatchId={selectedClientBatchId}
           selectClientBatch={selectClientBatch}
-          observationRows={observationRows}
-          batchOutcomeCache={batchOutcomeCache}
+          liveMatchOutcome={liveMatchOutcome}
+          batchMatchOutcomeCache={batchMatchOutcomeCache}
+          observationTotal={observationTotal}
+          observationTotalLoading={detailLoading}
           safeSidebarPage={safeSidebarPage}
           sidebarTotalPages={sidebarTotalPages}
           setSidebarPage={setSidebarPage}
@@ -409,7 +474,7 @@ function SettlementJournalSurfaceContent({
             ) : null}
 
             {selectedClientBatchId ? (
-              observationRows.length === 0 && !detailLoading ? (
+              (observationTotal ?? 0) === 0 && !detailLoading ? (
                 <section className={`relative mb-4 ${COMMAND_CENTER_KPI_CARD} px-6 py-8 text-center`}>
                   <CommandCenterCardGlow />
                   <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>No settlement records</p>
@@ -427,15 +492,10 @@ function SettlementJournalSurfaceContent({
                       )
                     }}
                     exportDisabled={filteredRows.length === 0}
-                    filteredCount={filteredRows.length}
+                    filteredCount={filteredCount}
                     filtersActive={filtersActive}
                   />
                   <SettlementJournalDataHealthPanel />
-                  <SettlementParseErrorsPanel
-                    rows={parseErrors}
-                    loading={parseErrorsLoading}
-                    selectedClientBatchId={selectedClientBatchId}
-                  />
 
                   <SettlementJournalActivityPanel vm={activityVm} />
                 </>

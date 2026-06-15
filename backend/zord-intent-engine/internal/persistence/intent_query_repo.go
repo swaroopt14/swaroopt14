@@ -14,7 +14,7 @@ import (
 
 type IntentQueryRepository interface {
 	ListIntents(ctx context.Context, filter IntentFilter) ([]models.CanonicalIntent, int, error)
-	GetIntentByID(ctx context.Context, intentID string) (models.CanonicalIntent, error)
+	GetIntentByID(ctx context.Context, tenantID, intentID string) (models.CanonicalIntent, error)
 	ListBatchIDsByTenant(ctx context.Context, tenantID string) ([]models.BatchIDItem, error)
 	ListPaymentIntentLiteByBatch(ctx context.Context, tenantID, batchID string) ([]models.PaymentIntentLite, error)
 	ListDLQItemsByBatchSimple(ctx context.Context, tenantID, batchID string) ([]models.DLQEntry, error)
@@ -202,7 +202,7 @@ func (r *IntentQueryRepo) ListIntents(
 // GET BY ID
 func (r *IntentQueryRepo) GetIntentByID(
 	ctx context.Context,
-	intentID string,
+	tenantID, intentID string,
 ) (models.CanonicalIntent, error) {
 
 	query := `
@@ -236,12 +236,13 @@ func (r *IntentQueryRepo) GetIntentByID(
 		payment_instruction_received,
 		canonical_intent_created
 	FROM payment_intents
-	WHERE intent_id = $1
+	WHERE tenant_id = $1
+	AND intent_id=$2
 `
 
 	var intent models.CanonicalIntent
 
-	err := r.db.QueryRowContext(ctx, query, intentID).Scan(
+	err := r.db.QueryRowContext(ctx, query, tenantID, intentID).Scan(
 		&intent.IntentID,
 		&intent.EnvelopeID,
 		&intent.TenantID,

@@ -78,7 +78,7 @@ const navItems: NavItem[] = [
       {
         label: 'How it works',
         href: '/final-landing/how-it-works',
-        note: 'Walk through the routing, tracking, and proof model in detail.',
+        note: 'Walk through the observe-track-confirm-prove operating model in detail.',
       },
       {
         label: 'Pricing & rollout',

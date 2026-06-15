@@ -21,7 +21,7 @@ const WIRED_ROUTES = [
   ['Home · trend', 'home/disbursement-trend/route.ts'],
   ['Payment Gaps', 'intelligence/leakage/route.ts'],
   ['Payment Gaps · batches', 'intelligence/batches/route.ts'],
-  ['Matching Confidence', 'intelligence/ambiguity/route.ts'],
+  ['Match Review', 'intelligence/ambiguity/route.ts'],
   ['Ambiguity · velocity scatter', 'ambiguity/velocity/route.ts'],
   ['Intent Journal · batch-ids', 'intents/batch-ids/route.ts'],
   ['Intent Journal · payment-intents', 'intents/payment-intents/route.ts'],

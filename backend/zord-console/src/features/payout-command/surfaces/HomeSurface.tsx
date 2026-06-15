@@ -39,6 +39,7 @@ import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-gu
 import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCard'
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import {
+  confirmedMatchedValueMinorFromBatchContract,
   parseMatchConfidence,
   parsePercentValue,
 } from '@/features/payout-command/settlement-journal/selectors/resolveSettlementIntelligenceKpis'
@@ -290,6 +291,14 @@ export function HomeSurface({
   const unlinkedSettlementMinor = orphanMinor
   const reversalMinor = parseMinorStrict(leakageData?.reversal_exposure_minor)
   const observedMinor = parseMinorStrict(leakageData?.total_observed_settled_amount_minor)
+
+  const confirmedMatchedMinor = useMemo(() => {
+    if (!batchId?.trim()) return null
+    if (batchContractLoading) return null
+    return confirmedMatchedValueMinorFromBatchContract(batchContract)
+  }, [batchId, batchContract, batchContractLoading])
+
+  const settlementHeroMinor = batchId?.trim() ? (confirmedMatchedMinor ?? observedMinor) : observedMinor
 
   const bankConfirmedMinor = observedMinor
 
@@ -819,9 +828,25 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            fullyMatchedValue={observedMinor !== null ? fmtInrFromMinorExact(observedMinor) : loading ? '…' : '—'}
-            fullyMatchedSub="Settlement value observed from bank or PSP confirmation signals."
-            fullyMatchedFooter="Observed settlement is the value Zord can link to a bank or settlement outcome — not the same as fully matched intent."
+            fullyMatchedValue={
+              settlementHeroMinor !== null
+                ? fmtInrFromMinorExact(settlementHeroMinor)
+                : batchId?.trim() && batchContractLoading
+                  ? '…'
+                  : loading
+                    ? '…'
+                    : '—'
+            }
+            fullyMatchedSub={
+              batchId?.trim()
+                ? 'Confirmed matched value from batch contract (total_confirmed_amount interim mapping).'
+                : 'Settlement value observed from bank or PSP confirmation signals.'
+            }
+            fullyMatchedFooter={
+              batchId?.trim()
+                ? 'Batch-scoped confirmed matched value from batch_contract until confirmed_matched_value_minor KPI ships.'
+                : 'Observed settlement is the value Zord can link to a bank or settlement outcome — not the same as fully matched intent.'
+            }
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={

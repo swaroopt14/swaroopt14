@@ -1,14 +1,12 @@
-/** Shown when a batch is selected but Intelligence returns tenant-wide KPIs (batch_id ignored server-side). */
-export const BATCH_KPI_UNAVAILABLE = 'Not available for this batch'
-
 /**
- * Leakage, ambiguity, and defensibility dashboards ignore `batch_id` today.
- * When a surface is batch-selected, hide tenant snapshots unless a batch-scoped override exists.
+ * Intelligence dashboard scope (see docs/intelligence-kpi-gaps.md § Batch scope).
+ *
+ * All Intelligence KPI routes except `batch_contract` accept optional `batch_id`.
+ * When `batch_id` is sent with the session tenant, the API returns batch-scoped KPIs.
+ * When omitted, the API returns tenant-wide KPIs. Trust `data_available` — never hide
+ * valid responses client-side.
  */
-export function isTenantIntelligenceKpiUnavailableForBatch(
-  batchId: string | undefined,
-  hasBatchScopedOverride = false,
-): boolean {
-  if (!batchId?.trim()) return false
-  return !hasBatchScopedOverride
+export function intelligenceKpiScopeLabel(batchId?: string): string {
+  const bid = batchId?.trim()
+  return bid ? `Batch ${bid}` : 'Tenant-wide'
 }

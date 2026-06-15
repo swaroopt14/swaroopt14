@@ -21,6 +21,9 @@ resources:
   - kong/deployment.yaml
   - kong/service.yaml
   - kong/configmap.yaml
+  - kong/serviceaccount.yaml
+  - kong/secret-store.yaml
+  - kong/jwt-secret.yaml
   - kong/hpa.yaml
   - kong/pdb.yaml
 

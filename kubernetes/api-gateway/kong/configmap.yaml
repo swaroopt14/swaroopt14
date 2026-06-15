@@ -490,3 +490,288 @@ data:
         config:
           path: /dev/stdout
           reopen: false
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # JWT AUTHENTICATION — Applied per-route to all protected endpoints
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Public routes (NO JWT required):
+    #   - edge-auth (/v1/auth/*) — login, signup, refresh, MFA
+    #   - edge-health, intent-health, relay-health, etc. — health checks
+    #   - edge-webhooks (/v1/webhooks) — external provider callbacks
+    #   - console-root (/) — frontend static assets
+    #   - token-enclave-health — internal health only
+    #
+    # Protected routes (JWT REQUIRED):
+    #   - All data endpoints below
+    #
+    # How it works:
+    #   1. zord-edge issues a JWT (access_token) on login
+    #   2. Client sends: Authorization: Bearer <access_token>
+    #   3. Kong validates signature + expiry before forwarding
+    #   4. If invalid/missing → Kong returns 401 (request never hits backend)
+    #
+    # JWT signing config:
+    #   - Algorithm: HS256 (shared secret between zord-edge and Kong)
+    #   - The secret is stored in the consumer jwt_secrets below
+    #   - Claim "iss" identifies the consumer
+    #   - Claim "exp" is verified for token expiry
+    # ═══════════════════════════════════════════════════════════════════════════
+
+      # ── JWT: zord-edge protected routes ─────────────────────────────────────
+      - name: jwt
+        route: edge-admin
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: edge-bulk-ingest
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: edge-ingest
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: edge-tenants
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: edge-connectors
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      # ── JWT: zord-intent-engine protected routes ────────────────────────────
+      - name: jwt
+        route: intent-api
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: intent-dlq
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: intent-etl
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      # ── JWT: zord-relay protected routes ────────────────────────────────────
+      - name: jwt
+        route: relay-dispatch
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      # ── JWT: zord-outcome-engine protected routes ───────────────────────────
+      - name: jwt
+        route: outcome-settlement
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: outcome-reconciliation
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      # ── JWT: zord-evidence protected routes ─────────────────────────────────
+      - name: jwt
+        route: evidence-packs
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: evidence-verify
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      # ── JWT: zord-intelligence protected routes ─────────────────────────────
+      - name: jwt
+        route: intelligence-projections
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: intelligence-policies
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: intelligence-rca
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      # ── JWT: zord-prompt-layer protected routes ─────────────────────────────
+      - name: jwt
+        route: prompt-query
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+      - name: jwt
+        route: prompt-chat
+        config:
+          key_claim_name: iss
+          claims_to_verify:
+            - exp
+          header_names:
+            - Authorization
+          uri_param_names: []
+          cookie_names: []
+          run_on_preflight: false
+          maximum_expiration: 3600
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    # CONSUMERS — JWT credentials for token validation
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Kong needs a consumer with a JWT secret to validate tokens.
+    # The "key" must match the "iss" claim in tokens issued by zord-edge.
+    # The "secret" must match the signing key used by zord-edge.
+    #
+    # IMPORTANT: Replace the secret below with your actual JWT signing secret
+    # from zord-edge. In production, use a Kubernetes Secret + env variable.
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    consumers:
+      - username: zord-edge-issuer
+        jwt_secrets:
+          - key: "zord-edge"
+            algorithm: "HS256"
+            secret: "KONG_JWT_SECRET_PLACEHOLDER"

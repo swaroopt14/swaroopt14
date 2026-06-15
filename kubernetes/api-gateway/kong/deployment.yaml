@@ -63,7 +63,7 @@ spec:
             - name: KONG_DATABASE
               value: "off"
             - name: KONG_DECLARATIVE_CONFIG
-              value: /etc/kong/kong.yaml
+              value: /etc/kong-rendered/kong.yaml
             # Proxy settings
             - name: KONG_PROXY_LISTEN
               value: "0.0.0.0:8000, 0.0.0.0:8443 ssl"
@@ -94,8 +94,8 @@ spec:
             - name: KONG_PLUGINS
               value: "bundled"
           volumeMounts:
-            - name: kong-config
-              mountPath: /etc/kong
+            - name: kong-rendered-config
+              mountPath: /etc/kong-rendered
               readOnly: true
           readinessProbe:
             httpGet:
@@ -118,8 +118,36 @@ spec:
             limits:
               cpu: 1000m
               memory: 1Gi
+      # ── Init Container: Inject JWT secret into Kong config ────────────────
+      # Replaces the placeholder in kong.yaml with the actual secret value
+      # from the Kubernetes Secret. This avoids hardcoding secrets in Git.
+      initContainers:
+        - name: inject-jwt-secret
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              sed "s|KONG_JWT_SECRET_PLACEHOLDER|${JWT_SIGNING_SECRET}|g" \
+                /etc/kong-template/kong.yaml > /etc/kong-rendered/kong.yaml
+          env:
+            - name: JWT_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: kong-jwt-secret
+                  key: JWT_SIGNING_SECRET
+          volumeMounts:
+            - name: kong-config
+              mountPath: /etc/kong-template
+              readOnly: true
+            - name: kong-rendered-config
+              mountPath: /etc/kong-rendered
       volumes:
         - name: kong-config
           configMap:
             name: kong-declarative-config
+        - name: kong-rendered-config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
       terminationGracePeriodSeconds: 30

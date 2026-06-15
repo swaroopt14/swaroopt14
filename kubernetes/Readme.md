@@ -89,6 +89,7 @@ Copy this entire JSON and paste as the secret value:
   "MASTER_KEY": "",
   "TOKEN_SECRET": "",
   "JWT_SIGNING_SECRET": "",
+  "ENCLAVE_INTERNAL_TOKEN": "",
   "EVIDENCE_SIGNING_PRIVATE_KEY_BASE64": "",
   "EVIDENCE_ARCHIVE_ENCRYPTION_KEY_BASE64": "",
   "GEMINI_API_KEYS": "",
@@ -105,11 +106,12 @@ Copy this entire JSON and paste as the secret value:
   "INTENT_READ_DSN": "postgres://intent_user:intent_password@zord-postgres:5432/zord_intent_engine_db?sslmode=disable",
   "RELAY_READ_DSN": "postgres://relay_user:relay_password@zord-postgres:5432/zord_relay_db?sslmode=disable",
   "INTELLIGENCE_READ_DSN": "postgres://zpi:zpi_secret@zord-postgres:5432/zord_intelligence?sslmode=disable",
-  "EVIDENCE_READ_DSN": "postgres://evidence_user:evidence_password@zord-postgres:5432/zord_evidence_db?sslmode=disable"
+  "EVIDENCE_READ_DSN": "postgres://evidence_user:evidence_password@zord-postgres:5432/zord_evidence_db?sslmode=disable",
+  "OUTCOME_READ_DSN": "postgres://outcome_user:outcome_password@zord-postgres:5432/zord_outcome_db?sslmode=disable"
 }
 ```
 
-**Total: 31 keys** (includes JWT_SIGNING_SECRET for Kong JWT plugin)
+**Total: 32 keys** (includes JWT_SIGNING_SECRET for Kong JWT plugin, ENCLAVE_INTERNAL_TOKEN for token-enclave auth, OUTCOME_READ_DSN for prompt-layer)
 
 ### 1.3 Value for `ZORD_EDGE_SIGNING_KEY_JSON`
 

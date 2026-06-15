@@ -239,6 +239,8 @@ func callEnclaveTokenizeOnce(ctx context.Context, req enclaveTokenizeRequest) (m
 		return nil, err
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Zord-Internal-Token", os.Getenv("ENCLAVE_INTERNAL_TOKEN")) // P0 auth
+	httpReq.Header.Set("X-Zord-Caller-ID", "zord-intent-engine")
 
 	resp, err := enclaveHTTPClient.Do(httpReq)
 	if err != nil {

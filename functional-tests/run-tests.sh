@@ -621,9 +621,9 @@ fi
 # TEST 15: Settlement Parse Errors — Check if parsing errors are tracked
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Errors: GET /v1/settlement/errors"
-if [ -n "$API_KEY" ]; then
+if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
   ERRS_RESP=$(curl -s -w "\n%{http_code}" \
-    "${BASE_URL}/v1/settlement/errors" \
+    "${BASE_URL}/v1/settlement/errors?tenant_id=${TENANT_ID}" \
     -H "Authorization: Bearer ${API_KEY}")
   ERRS_HTTP=$(echo "${ERRS_RESP}" | tail -1)
 

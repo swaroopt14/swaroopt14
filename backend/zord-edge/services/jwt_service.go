@@ -5,16 +5,30 @@ import (
 	"os"
 	"time"
 
-	"zord-edge/vault"
-
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
 const (
-	accessTokenTTL  = 24 * time.Hour
+	accessTokenTTL  = 1 * time.Hour
 	refreshTokenTTL = 30 * 24 * time.Hour
 )
+
+// jwtSigningSecret holds the HMAC shared secret used to sign/verify JWTs.
+// Loaded from the JWT_SIGNING_SECRET environment variable at startup.
+// This same secret is configured in Kong for gateway-level token validation.
+var jwtSigningSecret []byte
+
+// InitJWTSigningSecret loads the HS256 signing secret from environment.
+// Must be called during application startup (e.g. in main.go).
+func InitJWTSigningSecret() error {
+	secret := os.Getenv("JWT_SIGNING_SECRET")
+	if secret == "" {
+		return errors.New("JWT_SIGNING_SECRET environment variable is required")
+	}
+	jwtSigningSecret = []byte(secret)
+	return nil
+}
 
 type AccessClaims struct {
 	TenantID uuid.UUID `json:"tenant_id"`
@@ -56,15 +70,17 @@ func audience() string {
 }
 
 func IssueTokens(tenantID, userID uuid.UUID, email, role string) (*IssuedTokens, error) {
-	if vault.SigningKey == nil {
-		return nil, errors.New("signing key not initialized")
+	if len(jwtSigningSecret) == 0 {
+		return nil, errors.New("JWT signing secret not initialized")
 	}
 	now := time.Now().UTC()
 	sessionID := uuid.New()
 	refreshTokenID := uuid.New()
 
+	// Access token — HS256, validated by Kong at the gateway level.
+	// Kong checks: algorithm (HS256), iss claim ("zord-edge"), exp claim.
 	accessExp := now.Add(accessTokenTTL)
-	access := jwt.NewWithClaims(jwt.SigningMethodEdDSA, AccessClaims{
+	access := jwt.NewWithClaims(jwt.SigningMethodHS256, AccessClaims{
 		TenantID: tenantID,
 		UserID:   userID,
 		Email:    email,
@@ -79,13 +95,14 @@ func IssueTokens(tenantID, userID uuid.UUID, email, role string) (*IssuedTokens,
 			ID:        uuid.NewString(),
 		},
 	})
-	accessStr, err := access.SignedString(vault.SigningKey)
+	accessStr, err := access.SignedString(jwtSigningSecret)
 	if err != nil {
 		return nil, err
 	}
 
+	// Refresh token — HS256, only validated by zord-edge (not Kong).
 	refreshExp := now.Add(refreshTokenTTL)
-	refresh := jwt.NewWithClaims(jwt.SigningMethodEdDSA, RefreshClaims{
+	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, RefreshClaims{
 		TenantID:  tenantID,
 		UserID:    userID,
 		SessionID: sessionID,
@@ -100,7 +117,7 @@ func IssueTokens(tenantID, userID uuid.UUID, email, role string) (*IssuedTokens,
 			ID:        refreshTokenID.String(),
 		},
 	})
-	refreshStr, err := refresh.SignedString(vault.SigningKey)
+	refreshStr, err := refresh.SignedString(jwtSigningSecret)
 	if err != nil {
 		return nil, err
 	}
@@ -116,15 +133,14 @@ func IssueTokens(tenantID, userID uuid.UUID, email, role string) (*IssuedTokens,
 }
 
 func parseToken(tokenStr string, claims jwt.Claims) error {
-	if vault.SigningKey == nil {
-		return errors.New("signing key not initialized")
+	if len(jwtSigningSecret) == 0 {
+		return errors.New("JWT signing secret not initialized")
 	}
-	publicKey := vault.SigningKey.Public()
 	_, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodEd25519); !ok {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, errors.New("unexpected signing method")
 		}
-		return publicKey, nil
+		return jwtSigningSecret, nil
 	}, jwt.WithIssuer(issuer()), jwt.WithAudience(audience()))
 	return err
 }

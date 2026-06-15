@@ -89,6 +89,7 @@ done
 ```bash
 # Check all pods are running
 kubectl get pods -n zord
+kubectl get pods -n api-gateway -w
 
 # Check no CrashLoopBackOff
 kubectl get pods -n zord | grep -v Running | grep -v Completed

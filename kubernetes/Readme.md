@@ -392,15 +392,22 @@ Paste this trust policy and replace:
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
-        "StringEquals": {
+        "StringLike": {
           "<OIDC_WITHOUT_HTTPS>:aud": "sts.amazonaws.com",
-          "<OIDC_WITHOUT_HTTPS>:sub": "system:serviceaccount:zord:zord-aws-access"
+          "<OIDC_WITHOUT_HTTPS>:sub": [
+            "system:serviceaccount:zord:zord-aws-access",
+            "system:serviceaccount:api-gateway:zord-aws-access"
+          ]
         }
       }
     }
   ]
 }
 ```
+
+> **Note:** Both the `zord` namespace (app services) and `api-gateway` namespace (Kong)
+> need access to AWS Secrets Manager. The `api-gateway` ServiceAccount pulls the
+> `JWT_SIGNING_SECRET` used by Kong to validate JWT tokens at the gateway level.
 
 Example with real values:
 
@@ -411,18 +418,22 @@ Example with real values:
     {
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam::522189039032:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/ABC123"
+        "Federated": "arn:aws:iam::522189039032:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/09562C64F0660D8AD0F20E6745688055"
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
-        "StringEquals": {
-          "oidc.eks.ap-south-1.amazonaws.com/id/ABC123:aud": "sts.amazonaws.com",
-          "oidc.eks.ap-south-1.amazonaws.com/id/ABC123:sub": "system:serviceaccount:zord:zord-aws-access"
+        "StringLike": {
+          "oidc.eks.ap-south-1.amazonaws.com/id/09562C64F0660D8AD0F20E6745688055:sub": [
+            "system:serviceaccount:zord:zord-aws-access",
+            "system:serviceaccount:api-gateway:zord-aws-access"
+          ],
+          "oidc.eks.ap-south-1.amazonaws.com/id/09562C64F0660D8AD0F20E6745688055:aud": "sts.amazonaws.com"
         }
       }
     }
   ]
 }
+
 ```
 
 Click `Next`.

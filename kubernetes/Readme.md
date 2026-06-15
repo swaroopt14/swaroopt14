@@ -88,6 +88,7 @@ Copy this entire JSON and paste as the secret value:
   "INTERNAL_ADMIN_KEY": "",
   "MASTER_KEY": "",
   "TOKEN_SECRET": "",
+  "JWT_SIGNING_SECRET": "",
   "EVIDENCE_SIGNING_PRIVATE_KEY_BASE64": "",
   "EVIDENCE_ARCHIVE_ENCRYPTION_KEY_BASE64": "",
   "GEMINI_API_KEYS": "",
@@ -108,7 +109,7 @@ Copy this entire JSON and paste as the secret value:
 }
 ```
 
-**Total: 29 keys**
+**Total: 31 keys** (includes JWT_SIGNING_SECRET for Kong JWT plugin)
 
 ### 1.3 Value for `ZORD_EDGE_SIGNING_KEY_JSON`
 
@@ -268,6 +269,8 @@ These 3 files need manual values set once:
 ### 6.1 Service Account IAM Role
 
 File: `kubernetes/eks/shared/serviceaccount.yaml`
+and
+File : 'kubernetes\api-gateway\kong\serviceaccount.yaml'
 
 ```yaml
 annotations:

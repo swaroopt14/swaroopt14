@@ -89,6 +89,7 @@ Copy this entire JSON and paste as the secret value:
   "MASTER_KEY": "",
   "TOKEN_SECRET": "",
   "JWT_SIGNING_SECRET": "",
+  "ENCLAVE_INTERNAL_TOKEN": "",
   "EVIDENCE_SIGNING_PRIVATE_KEY_BASE64": "",
   "EVIDENCE_ARCHIVE_ENCRYPTION_KEY_BASE64": "",
   "GEMINI_API_KEYS": "",
@@ -105,11 +106,12 @@ Copy this entire JSON and paste as the secret value:
   "INTENT_READ_DSN": "postgres://intent_user:intent_password@zord-postgres:5432/zord_intent_engine_db?sslmode=disable",
   "RELAY_READ_DSN": "postgres://relay_user:relay_password@zord-postgres:5432/zord_relay_db?sslmode=disable",
   "INTELLIGENCE_READ_DSN": "postgres://zpi:zpi_secret@zord-postgres:5432/zord_intelligence?sslmode=disable",
-  "EVIDENCE_READ_DSN": "postgres://evidence_user:evidence_password@zord-postgres:5432/zord_evidence_db?sslmode=disable"
+  "EVIDENCE_READ_DSN": "postgres://evidence_user:evidence_password@zord-postgres:5432/zord_evidence_db?sslmode=disable",
+  "OUTCOME_READ_DSN": "postgres://outcome_user:outcome_password@zord-postgres:5432/zord_outcome_db?sslmode=disable"
 }
 ```
 
-**Total: 31 keys** (includes JWT_SIGNING_SECRET for Kong JWT plugin)
+**Total: 32 keys** (includes JWT_SIGNING_SECRET for Kong JWT plugin, ENCLAVE_INTERNAL_TOKEN for token-enclave auth, OUTCOME_READ_DSN for prompt-layer)
 
 ### 1.3 Value for `ZORD_EDGE_SIGNING_KEY_JSON`
 
@@ -392,15 +394,22 @@ Paste this trust policy and replace:
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
-        "StringEquals": {
+        "StringLike": {
           "<OIDC_WITHOUT_HTTPS>:aud": "sts.amazonaws.com",
-          "<OIDC_WITHOUT_HTTPS>:sub": "system:serviceaccount:zord:zord-aws-access"
+          "<OIDC_WITHOUT_HTTPS>:sub": [
+            "system:serviceaccount:zord:zord-aws-access",
+            "system:serviceaccount:api-gateway:zord-aws-access"
+          ]
         }
       }
     }
   ]
 }
 ```
+
+> **Note:** Both the `zord` namespace (app services) and `api-gateway` namespace (Kong)
+> need access to AWS Secrets Manager. The `api-gateway` ServiceAccount pulls the
+> `JWT_SIGNING_SECRET` used by Kong to validate JWT tokens at the gateway level.
 
 Example with real values:
 
@@ -411,18 +420,22 @@ Example with real values:
     {
       "Effect": "Allow",
       "Principal": {
-        "Federated": "arn:aws:iam::522189039032:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/ABC123"
+        "Federated": "arn:aws:iam::522189039032:oidc-provider/oidc.eks.ap-south-1.amazonaws.com/id/09562C64F0660D8AD0F20E6745688055"
       },
       "Action": "sts:AssumeRoleWithWebIdentity",
       "Condition": {
-        "StringEquals": {
-          "oidc.eks.ap-south-1.amazonaws.com/id/ABC123:aud": "sts.amazonaws.com",
-          "oidc.eks.ap-south-1.amazonaws.com/id/ABC123:sub": "system:serviceaccount:zord:zord-aws-access"
+        "StringLike": {
+          "oidc.eks.ap-south-1.amazonaws.com/id/09562C64F0660D8AD0F20E6745688055:sub": [
+            "system:serviceaccount:zord:zord-aws-access",
+            "system:serviceaccount:api-gateway:zord-aws-access"
+          ],
+          "oidc.eks.ap-south-1.amazonaws.com/id/09562C64F0660D8AD0F20E6745688055:aud": "sts.amazonaws.com"
         }
       }
     }
   ]
 }
+
 ```
 
 Click `Next`.

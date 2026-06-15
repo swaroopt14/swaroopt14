@@ -126,15 +126,15 @@ const PLANS: { id: PlanId; name: string; price: string; features: string[]; reco
   {
     id: 'pro',
     name: 'Pro',
-    price: '$49/mo',
-    features: ['1,000 intents/mo', 'Email + chat support', 'Basic analytics'],
+    price: 'Pricing at activation',
+    features: ['Higher intent volume', 'Email + chat support', 'Basic analytics'],
     recommended: true,
   },
   {
     id: 'business',
     name: 'Business',
-    price: '$199/mo',
-    features: ['10k intents/mo', 'Phone support', 'Advanced analytics', 'Team seats'],
+    price: 'Pricing at activation',
+    features: ['Team-scale volume', 'Phone support', 'Advanced analytics', 'Team seats'],
   },
 ]
 

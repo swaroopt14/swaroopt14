@@ -949,7 +949,7 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
 
     await page.goto('/payout-command-view/today?dock=proof')
     await expect(page.getByTestId('evidence-kpi-hero')).toBeVisible({ timeout: 20_000 })
-    await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(6)
+    await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(5)
   })
 
   test('leakage keeps 2x2 KPI structure with dark hero styling', async ({ page }) => {
@@ -989,12 +989,13 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.getByText('Preview', { exact: true })).toHaveCount(0)
   })
 
-  test('ambiguity shows Preview on velocity scatter', async ({ page }) => {
+  test('ambiguity shows awaiting-live state when velocity scatter is empty', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=ambiguity')
     await expect(page.getByText('Ambiguity Velocity')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText(/Preview ·|batch batch_live_001|60 batches/).first()).toBeVisible({
+    await expect(page.getByText('Awaiting live data', { exact: true })).toBeVisible({
       timeout: 20_000,
     })
+    await expect(page.getByText('Preview', { exact: true })).toHaveCount(0)
   })
 
   test('connectors renders API-driven routing sections', async ({ page }) => {
@@ -1048,12 +1049,15 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.getByText('Razorpay')).toHaveCount(0)
   })
 
-  test('evidence charts show Preview when packs empty', async ({ page }) => {
+  test('evidence shows empty pack state when no live packs', async ({ page }) => {
     await page.goto(`/payout-command-view/today?dock=proof&batch_id=${encodeURIComponent(BATCH_ID)}`)
     await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
-    await expect(page.getByText('Preview', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('Preview', { exact: true })).toHaveCount(0)
+    await expect(
+      page.getByText(/No evidence packs|pack not found|Select a batch|awaiting/i).first(),
+    ).toBeVisible({ timeout: 15_000 })
   })
 
   for (const path of STANDALONE_ROUTES) {

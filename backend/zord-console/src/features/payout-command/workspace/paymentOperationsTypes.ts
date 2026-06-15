@@ -25,13 +25,20 @@ export type ReviewBreakdownRow = {
   value: string
 }
 
+export type OperationalQueueRow = {
+  label: string
+  value: string
+}
+
 export type PaymentOperationsSummary = {
   inScope: string
   inScopeSub: string
-  valueObserved: string
-  valueObservedSub: string
-  needingReview: string
-  needingReviewSub: string
+  paymentInstructionValue: string
+  paymentInstructionSub: string
+  settlementValueObserved: string
+  settlementObservedSub: string
+  unmatchedIntentValue: string
+  unmatchedIntentSub: string
   matchConfidence: string
   matchConfidenceSub: string
   proofReadiness: string
@@ -59,7 +66,7 @@ export type PaymentOperationsViewModel = {
     proofReady: string
     metrics: HealthMetricRow[]
   }
-  itemsNeedingReview: string
+  operationalQueues: OperationalQueueRow[]
   reviewBreakdown: ReviewBreakdownRow[]
   showRoutingNotice: boolean
   lastUpdatedIso: string | null

@@ -10,12 +10,10 @@ import { fmtInrFromMinorExact, parseMinorField } from '../command-center/command
 import { derivePaymentCommandDataState } from '../command-center/paymentCommandDataState'
 import { usePaymentCommandDataSources } from '../command-center/usePaymentCommandDataSources'
 import type { DataSourceBadgeStatus } from '../command-center/usePaymentCommandDataSources'
-import {
-  PAYMENT_OPERATIONS,
-  SUMMARY_TILE_LABELS,
-  WORKSPACE_HERO_COPY,
-} from './paymentOperationsCopy'
+import { normalizePercentRatio } from '../evidence/utils/evidencePercent'
+import { PAYMENT_OPERATIONS, WORKSPACE_HERO_COPY } from './paymentOperationsCopy'
 import type {
+  OperationalQueueRow,
   PaymentOperationsViewModel,
   ReviewBreakdownRow,
   SourceHealthRow,
@@ -35,13 +33,6 @@ const STATUS_DISPLAY: Record<DataSourceBadgeStatus, string> = {
   partial: 'Partial',
   ready: 'Ready',
   processing: 'Processing',
-}
-
-function parseMinorStrict(value: string | number | undefined | null): number | null {
-  if (value == null || value === '') return null
-  const n = typeof value === 'number' ? value : Number(value)
-  if (!Number.isFinite(n)) return null
-  return parseMinorField(value)
 }
 
 function sourceIssue(status: DataSourceBadgeStatus): string {
@@ -83,7 +74,7 @@ export function usePaymentOperationsView(batchId?: string): {
   const dataSources = usePaymentCommandDataSources({
     tenantReady,
     evidencePackRate: evidenceRate,
-    auditReadyPct: auditReady != null ? auditReady / 100 : null,
+    auditReadyPct: normalizePercentRatio(auditReady),
   })
   const { refresh: refreshDataSources, loading: dataSourcesLoading } = dataSources
 
@@ -121,17 +112,15 @@ export function usePaymentOperationsView(batchId?: string): {
     const inScopeCount = patternsOk ? patterns.total_count : null
 
     const matchConf = ambiguityOk ? ambiguity.avg_attachment_confidence : null
-    const refCompleteness = ambiguityOk
-      ? ambiguity.carrier_completeness_rate ?? 1 - ambiguity.provider_ref_missing_rate
-      : null
+    const refCompleteness =
+      ambiguityOk && ambiguity.carrier_completeness_rate != null
+        ? ambiguity.carrier_completeness_rate
+        : null
 
     const proofRate = defensibilityOk ? defensibility.evidence_pack_rate : null
     const governance = defensibilityOk ? defensibility.governance_coverage_pct : null
     const replay = defensibilityOk ? defensibility.replayability_pct : null
     const disputeReady = defensibilityOk ? defensibility.dispute_ready_pct : null
-
-    const valueObservedMinor =
-      intendedMinor > 0 ? intendedMinor : settledMinor > 0 ? settledMinor : null
 
     const lastUpdatedIso =
       (leakageOk && leakage.computed_at) ||
@@ -200,40 +189,54 @@ export function usePaymentOperationsView(batchId?: string): {
       })
     }
 
-    const itemsCount =
-      manualReviewCount != null
-        ? manualReviewCount
-        : recommendationsOk
-          ? recommendations.total_actions
-          : ambiguityOk
-            ? ambiguity.ambiguous_intent_count
-            : patternsOk
-              ? patterns.pending_count
-              : 0
+    const ingestFailures =
+      manualReviewLoading && manualReviewCount == null
+        ? '…'
+        : manualReviewCount != null
+          ? formatCount(manualReviewCount)
+          : '—'
+    const matchReviewCases = ambiguityOk ? formatCount(ambiguity.ambiguous_intent_count) : '—'
+    const financialExceptionCases = '—'
+    const openRecommendations = recommendationsOk ? formatCount(recommendations.total_actions) : '—'
+
+    const operationalQueues: OperationalQueueRow[] = [
+      { label: 'Ingest failures (DLQ)', value: ingestFailures },
+      { label: 'Match review cases', value: matchReviewCases },
+      { label: 'Financial exception cases', value: financialExceptionCases },
+      { label: 'Open recommendations', value: openRecommendations },
+    ]
 
     const hasLiveData =
-      leakageOk || ambiguityOk || defensibilityOk || patternsOk || recommendationsOk || manualReviewCount != null
+      leakageOk ||
+      ambiguityOk ||
+      defensibilityOk ||
+      patternsOk ||
+      recommendationsOk ||
+      manualReviewCount != null
 
     return {
       summary: {
         inScope: hasLiveData && inScopeCount != null ? formatCount(inScopeCount) : '—',
         inScopeSub: patternsOk ? `${patterns.success_count} confirmed` : 'Upload data to populate',
-        valueObserved: valueObservedMinor != null ? fmtInrFromMinorExact(valueObservedMinor) : '—',
-        valueObservedSub:
-          intendedMinor > 0 ? 'From payment instructions' : settledMinor > 0 ? 'From settlement' : '—',
-        needingReview: reviewMinor != null ? fmtInrFromMinorExact(reviewMinor) : '—',
-        needingReviewSub:
+        paymentInstructionValue:
+          leakageOk && intendedMinor > 0 ? fmtInrFromMinorExact(intendedMinor) : '—',
+        paymentInstructionSub: leakageOk ? 'From payment instructions' : '—',
+        settlementValueObserved:
+          leakageOk && settledMinor > 0 ? fmtInrFromMinorExact(settledMinor) : '—',
+        settlementObservedSub: leakageOk ? 'From bank/settlement confirmation' : '—',
+        unmatchedIntentValue: reviewMinor != null ? fmtInrFromMinorExact(reviewMinor) : '—',
+        unmatchedIntentSub:
           reviewMinor == null
-            ? 'No review value data available'
+            ? 'No unmatched intent data available'
             : reviewMinor <= 0
               ? PAYMENT_OPERATIONS.reviewZeroHint
-              : 'Unmatched payment value from leakage dashboard',
+              : 'Unmatched intent value from leakage dashboard',
         matchConfidence: matchConf != null ? formatPct(matchConf) : '—',
         matchConfidenceSub: ambiguityOk ? 'Average attachment confidence' : '—',
         proofReadiness: proofRate != null ? formatPct(proofRate) : '—',
         proofReadinessSub:
           defensibilityOk
-            ? `Governance ${Math.round(governance ?? 0)}% · Replay ${Math.round(replay ?? 0)}%`
+            ? `Governance ${Math.round((normalizePercentRatio(governance) ?? 0) * 100)}% · Replay ${Math.round((normalizePercentRatio(replay) ?? 0) * 100)}%`
             : '—',
       },
       hero: {
@@ -246,9 +249,9 @@ export function usePaymentOperationsView(batchId?: string): {
       sourceRows,
       clarityRows: leakageOk
         ? [
-            { label: 'Intended value', value: fmtInrFromMinorExact(intendedMinor) },
-            { label: 'Settled value observed', value: fmtInrFromMinorExact(settledMinor) },
-            { label: 'Unmatched value', value: fmtInrFromMinorExact(unmatched) },
+            { label: 'Payment instruction value', value: fmtInrFromMinorExact(intendedMinor) },
+            { label: 'Settlement value observed', value: fmtInrFromMinorExact(settledMinor) },
+            { label: 'Unmatched intent value', value: fmtInrFromMinorExact(unmatched) },
             { label: 'Short-settled value', value: fmtInrFromMinorExact(under) },
             { label: 'Unlinked settlement', value: fmtInrFromMinorExact(unlinkedSettlement) },
             { label: 'Reversal exposure', value: fmtInrFromMinorExact(reversal) },
@@ -258,19 +261,12 @@ export function usePaymentOperationsView(batchId?: string): {
       clarityState,
       healthBrief: {
         cleanCount: patternsOk ? formatCount(patterns.success_count) : '—',
-        needsReview:
-          manualReviewLoading && manualReviewCount == null
-            ? '…'
-            : manualReviewCount != null
-              ? formatCount(manualReviewCount)
-              : ambiguityOk
-                ? formatCount(ambiguity.ambiguous_intent_count)
-                : '—',
+        needsReview: ingestFailures,
         proofReady:
           disputeReady != null && patternsOk
-            ? formatCount(Math.round(patterns.success_count * disputeReady))
+            ? formatCount(Math.round(patterns.success_count * (normalizePercentRatio(disputeReady) ?? 0)))
             : disputeReady != null
-              ? formatPct(disputeReady)
+              ? formatPct(normalizePercentRatio(disputeReady) ?? 0)
               : '—',
         metrics: [
           {
@@ -285,19 +281,12 @@ export function usePaymentOperationsView(batchId?: string): {
           },
           {
             label: 'Evidence coverage',
-            value: proofRate != null ? formatPct(proofRate) : '—',
-            pct: proofRate != null ? proofRate * 100 : 0,
+            value: proofRate != null ? formatPct(normalizePercentRatio(proofRate) ?? 0) : '—',
+            pct: proofRate != null ? (normalizePercentRatio(proofRate) ?? 0) * 100 : 0,
           },
         ],
       },
-      itemsNeedingReview:
-        manualReviewLoading && manualReviewCount == null
-          ? '…'
-          : manualReviewCount != null
-            ? formatCount(manualReviewCount)
-            : hasLiveData
-              ? formatCount(itemsCount)
-              : '—',
+      operationalQueues,
       reviewBreakdown,
       showRoutingNotice: true,
       lastUpdatedIso,
@@ -309,10 +298,9 @@ export function usePaymentOperationsView(batchId?: string): {
       },
       hasLiveData,
       reviewMinor,
-      ambiguousIntentCount:
-        manualReviewCount != null ? manualReviewCount : ambiguityOk ? ambiguity.ambiguous_intent_count : 0,
+      ambiguousIntentCount: ambiguityOk ? ambiguity.ambiguous_intent_count : 0,
       matchConfidencePct: matchConf != null ? matchConf * 100 : null,
-      refCompletenessPct: refCompleteness != null ? refCompleteness * 100 : null,
+      refCompletenessPct: refCompleteness != null ? refCompleteness * 100 : 0,
     }
   }, [
     leakage,

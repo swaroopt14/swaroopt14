@@ -37,6 +37,13 @@ export type ResolvedSettlementIntelligenceKpis = {
   clientReferenceCoverage: string | null
 }
 
+/** Interim stand-in for `confirmed_matched_value_minor` until a dedicated KPI exists. */
+export function confirmedMatchedValueMinorFromBatchContract(
+  batchContract: BatchContractKpiResponse | null | undefined,
+): number | null {
+  return parseApiAmount(batchContract?.total_confirmed_amount)
+}
+
 export function resolveSettlementIntelligenceKpis(
   batchContract: BatchContractKpiResponse | null,
   batchDetail: BatchDetailResponse | null,

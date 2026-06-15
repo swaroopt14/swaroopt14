@@ -262,7 +262,7 @@ data:
               - https
           - name: intelligence-rca
             paths:
-              - /v1/rca
+              - /v1/intelligence/rca
             strip_path: false
             preserve_host: true
             protocols:
@@ -518,6 +518,8 @@ data:
     # ═══════════════════════════════════════════════════════════════════════════
 
       # ── JWT: zord-edge protected routes ─────────────────────────────────────
+      # edge-admin requires BOTH JWT + X-Zord-ADMIN-KEY (double auth).
+      # Kong validates the JWT, zord-edge validates the admin key internally.
       - name: jwt
         route: edge-admin
         config:

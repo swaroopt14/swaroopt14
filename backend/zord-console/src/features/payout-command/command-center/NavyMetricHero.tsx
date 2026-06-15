@@ -19,6 +19,8 @@ type NavyMetricHeroProps = {
   value: string
   /** Shown smaller after value, e.g. `/mo` */
   valueSuffix?: string
+  /** Native hover tooltip on eyebrow + value (e.g. score scale explanation). */
+  tooltip?: string
   deltaPill?: string
   subcopy: string
   buckets?: readonly NavyHeroBucket[]
@@ -60,6 +62,7 @@ export function NavyMetricHero({
   eyebrow,
   value,
   valueSuffix,
+  tooltip,
   deltaPill,
   subcopy,
   buckets,
@@ -79,9 +82,17 @@ export function NavyMetricHero({
       className={`overflow-hidden rounded-[20px] bg-[#0f172a] p-6 text-white shadow-[0_16px_48px_-12px_rgba(15,23,42,0.45)] ring-1 ring-white/[0.08] ${className}`}
       data-testid={testId}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">{eyebrow}</p>
+      <p
+        className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55"
+        title={tooltip}
+      >
+        {eyebrow}
+      </p>
       <div className="mt-3 flex flex-wrap items-baseline gap-3">
-        <p className="text-[53px] font-light leading-none tracking-[-0.03em] tabular-nums">
+        <p
+          className="text-[53px] font-light leading-none tracking-[-0.03em] tabular-nums"
+          title={tooltip}
+        >
           {value}
           {valueSuffix ? (
             <span className="ml-1.5 text-[27px] font-light tracking-[-0.02em] text-white/45">{valueSuffix}</span>

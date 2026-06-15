@@ -39,6 +39,7 @@ import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-gu
 import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCard'
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import {
+  confirmedMatchedValueMinorFromBatchContract,
   parseMatchConfidence,
   parsePercentValue,
 } from '@/features/payout-command/settlement-journal/selectors/resolveSettlementIntelligenceKpis'
@@ -291,6 +292,14 @@ export function HomeSurface({
   const reversalMinor = parseMinorStrict(leakageData?.reversal_exposure_minor)
   const observedMinor = parseMinorStrict(leakageData?.total_observed_settled_amount_minor)
 
+  const confirmedMatchedMinor = useMemo(() => {
+    if (!batchId?.trim()) return null
+    if (batchContractLoading) return null
+    return confirmedMatchedValueMinorFromBatchContract(batchContract)
+  }, [batchId, batchContract, batchContractLoading])
+
+  const settlementHeroMinor = batchId?.trim() ? (confirmedMatchedMinor ?? observedMinor) : observedMinor
+
   const bankConfirmedMinor = observedMinor
 
   const reviewMinor = leakageData != null ? parseMinorField(leakageData.unmatched_amount_minor) : null
@@ -400,9 +409,10 @@ export function HomeSurface({
       if (missingPct != null) return `${Math.max(0, 100 - missingPct).toFixed(0)}%`
       return batchContractLoading ? '…' : '—'
     }
-    return ambData
-      ? `${Math.max(0, 100 - (ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(0)}%`
-      : '—'
+    if (ambData?.carrier_completeness_rate != null) {
+      return `${(ambData.carrier_completeness_rate * 100).toFixed(0)}%`
+    }
+    return '—'
   }, [batchId, batchContract, batchContractLoading, ambData])
 
   const proofCoveragePct = defData
@@ -818,17 +828,33 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            fullyMatchedValue={observedMinor !== null ? fmtInrFromMinorExact(observedMinor) : loading ? '…' : '—'}
-            fullyMatchedSub="Payment value matched between instruction and confirmation."
-            fullyMatchedFooter="Fully matched means Zord can link the original payment instruction to a bank or settlement outcome."
+            fullyMatchedValue={
+              settlementHeroMinor !== null
+                ? fmtInrFromMinorExact(settlementHeroMinor)
+                : batchId?.trim() && batchContractLoading
+                  ? '…'
+                  : loading
+                    ? '…'
+                    : '—'
+            }
+            fullyMatchedSub={
+              batchId?.trim()
+                ? 'Confirmed matched value from batch contract (total_confirmed_amount interim mapping).'
+                : 'Settlement value observed from bank or PSP confirmation signals.'
+            }
+            fullyMatchedFooter={
+              batchId?.trim()
+                ? 'Batch-scoped confirmed matched value from batch_contract until confirmed_matched_value_minor KPI ships.'
+                : 'Observed settlement is the value Zord can link to a bank or settlement outcome — not the same as fully matched intent.'
+            }
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={
               leakageData != null
-                ? 'Unmatched payment value from bank/settlement matching.'
+                ? 'Unmatched intent value from payment-to-settlement matching.'
                 : 'No leakage data available for this period.'
             }
-            reviewFooter="This shows payment value affected by missing matches, short settlement, reversals, or unclear status."
+            reviewFooter="This is unmatched intent value only — not total review exposure across all exception types."
             unmatchedDisplay={leakageData ? fmtInrFromMinorExact(unmatchedMinor) : '—'}
             shortSettledDisplay={leakageData ? fmtInrFromMinorExact(underSettlementMinor) : '—'}
             unlinkedDisplay={leakageData ? fmtInrFromMinorExact(unlinkedSettlementMinor) : '—'}
@@ -842,7 +868,9 @@ export function HomeSurface({
             missingRefRate={missingRefRate}
             refCompleteness={refCompleteness}
             multiMatchRate={
-              ambData ? `${((ambData.ambiguity_rate ?? 0) * 100).toFixed(1)}%` : '—'
+              ambData?.candidate_collision_rate != null
+                ? `${(ambData.candidate_collision_rate * 100).toFixed(1)}%`
+                : '—'
             }
             proofCoverageDisplay={proofCoveragePct}
             proofSub="Evidence coverage for audit or export"

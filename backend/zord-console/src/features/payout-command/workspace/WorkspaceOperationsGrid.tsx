@@ -28,7 +28,7 @@ export function WorkspaceOperationsGrid({
   viewModel: PaymentOperationsViewModel
   loading?: boolean
 }) {
-  const { hero, sourceRows, clarityRows, clarityHero, clarityState, healthBrief, itemsNeedingReview, reviewBreakdown } =
+  const { hero, sourceRows, clarityRows, clarityHero, clarityState, healthBrief, operationalQueues, reviewBreakdown } =
     viewModel
 
   return (
@@ -96,7 +96,7 @@ export function WorkspaceOperationsGrid({
           <div className={`mt-4 text-[2.5rem] font-light tracking-[-0.05em] ${WORKSPACE_TEXT_PRIMARY}`}>
             {loading ? '…' : clarityHero}
           </div>
-          <p className={`mt-1 text-[12px] ${WORKSPACE_TEXT_MUTED}`}>Value needing review</p>
+          <p className={`mt-1 text-[12px] ${WORKSPACE_TEXT_MUTED}`}>Unmatched intent value</p>
           {clarityRows.length > 0 ? (
             <div className="mt-4 space-y-2">
               {clarityRows.map((row) => (
@@ -157,10 +157,17 @@ export function WorkspaceOperationsGrid({
         <div className={`text-[11px] font-medium uppercase tracking-[0.1em] ${WORKSPACE_TEXT_LABEL}`}>
           {PAYMENT_OPERATIONS.itemsNeedingReviewTitle}
         </div>
-        <div className={`mt-4 text-[3rem] font-light tracking-[-0.05em] ${WORKSPACE_TEXT_PRIMARY}`}>
-          {loading ? '…' : itemsNeedingReview}
-        </div>
-        <p className={`mt-2 text-[13px] leading-relaxed ${WORKSPACE_TEXT_MUTED}`}>
+        <ul className="mt-4 space-y-3">
+          {operationalQueues.map((row) => (
+            <li key={row.label} className="flex justify-between gap-3 text-[13px]">
+              <span className={WORKSPACE_TEXT_MUTED}>{row.label}</span>
+              <span className={`font-medium tabular-nums ${WORKSPACE_TEXT_PRIMARY}`}>
+                {loading ? '…' : row.value}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className={`mt-4 text-[13px] leading-relaxed ${WORKSPACE_TEXT_MUTED}`}>
           {PAYMENT_OPERATIONS.itemsNeedingReviewMeta}
         </p>
         {reviewBreakdown.length > 0 ? (

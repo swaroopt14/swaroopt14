@@ -2,34 +2,31 @@ import { evidenceCopy } from '../copy/evidenceCopy'
 import type { EvidenceKpiCard } from '../types/evidenceViewModels'
 import { EXPECTED_PROOF_ITEMS } from '../types/evidenceViewModels'
 import type {
-  AmbiguityKpiResolved,
   DefensibilityKpiResolved,
-  LeakageKpiResolved,
   BatchHealth,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { fmtInrFull } from '../../command-center/commandCenterFormat'
 import { isExportReadyStatus, mapProofStatusFromPack } from '../mappers/mapProofStatus'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { formatPercentLabel, normalizePercentRatio } from '../utils/evidencePercent'
 
 type PackRowInput = { summary: EvidencePackSummaryRow; itemCount?: number }
 
-function formatMinorInrLabel(minor: string | number | undefined | null): string {
-  if (minor == null || minor === '') return '—'
-  const n = typeof minor === 'number' ? minor : Number(minor)
-  if (!Number.isFinite(n)) return '—'
-  return fmtInrFull(n, { decimals: 2 })
+const EVIDENCE_INDEX_MAX_POINTS = 65
+
+function buildEvidenceIndexTooltip(score: number, defensibility: DefensibilityKpiResolved): string {
+  const evidencePct = formatPercentLabel(defensibility.evidence_pack_rate)
+  const govPct = formatPercentLabel(defensibility.governance_coverage_pct)
+  const replayPct = formatPercentLabel(defensibility.replayability_pct)
+  return `${score.toFixed(1)} of ${EVIDENCE_INDEX_MAX_POINTS} points on the Evidence Completeness Index — composite score from evidence pack coverage (${evidencePct}), governance checks (${govPct}), replay readiness (${replayPct}), and artifact completeness (amount processing excluded).`
 }
 
 export function deriveEvidenceKpis(input: {
   defensibility: DefensibilityKpiResolved | null
-  leakage: LeakageKpiResolved | null
-  ambiguity: AmbiguityKpiResolved | null
   packRows: PackRowInput[]
   batchHealth?: BatchHealth | null
   batchId?: string
 }): EvidenceKpiCard[] {
-  const { defensibility, leakage, packRows } = input
+  const { defensibility, packRows } = input
   const packCount = packRows.length
 
   let readyCount = 0
@@ -49,28 +46,34 @@ export function deriveEvidenceKpis(input: {
     }
   }
 
-  const defScore = defensibility ? defensibility.defensibility_score.toFixed(1) : '—'
+  const defScoreRaw = defensibility ? defensibility.defensibility_score : null
+  const defScore = defScoreRaw != null ? defScoreRaw.toFixed(1) : '—'
   const evidencePct = defensibility ? formatPercentLabel(defensibility.evidence_pack_rate) : '—'
   const govPct = defensibility ? formatPercentLabel(defensibility.governance_coverage_pct) : '—'
+  const replayPct = defensibility ? formatPercentLabel(defensibility.replayability_pct) : '—'
   const disputePct = defensibility ? formatPercentLabel(defensibility.dispute_ready_pct) : '—'
-  let readinessSub = defensibility
-    ? `Evidence Packs: ${evidencePct} · Dispute-ready: ${disputePct}`
-    : '—'
-  if (defensibility) readinessSub += ` · ${evidenceCopy.defensibilityScaleNote}`
 
-  if (defensibility?.weak_evidence_count != null && defensibility.weak_evidence_count > 0) {
+  let readinessSub = defensibility
+    ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct} · Dispute-ready: ${disputePct}`
+    : '—'
+
+  if (defensibility && defensibility.weak_evidence_count != null && defensibility.weak_evidence_count > 0) {
     readinessSub += ` · ${defensibility.weak_evidence_count} weak evidence items`
   }
 
   let readinessExplanation: string | undefined
-  if (defensibility && (normalizePercentRatio(defensibility.evidence_pack_rate) ?? 0) >= 0.99 && defensibility.defensibility_score < 50) {
+  if (
+    defensibility &&
+    (normalizePercentRatio(defensibility.evidence_pack_rate) ?? 0) >= 0.99 &&
+    defensibility.defensibility_score < 50
+  ) {
     readinessExplanation = evidenceCopy.scoreLowExplanation
   }
 
-  const exposureValue = leakage ? formatMinorInrLabel(leakage.unmatched_amount_minor) : '—'
-  const exposureSub: string = leakage
-    ? 'Unmatched payment value from leakage dashboard'
-    : evidenceCopy.valueReviewHelper
+  const readinessTooltip =
+    defScoreRaw != null && defensibility
+      ? buildEvidenceIndexTooltip(defScoreRaw, defensibility)
+      : undefined
 
   const packsSub =
     packCount > 0
@@ -82,6 +85,10 @@ export function deriveEvidenceKpis(input: {
       ? `${readyCount} ready to export · ${incompleteCount} incomplete · ${reviewCount} need review`
       : '—'
 
+  const missingValue = packCount > 0 ? missingItems.toLocaleString('en-IN') : '—'
+  const missingSub =
+    packCount > 0 ? 'Critical proof artifacts still missing across loaded packs' : '—'
+
   return [
     {
       id: 'readiness',
@@ -90,6 +97,7 @@ export function deriveEvidenceKpis(input: {
       sub: readinessSub,
       accent: true,
       explanation: readinessExplanation,
+      tooltip: readinessTooltip,
     },
     {
       id: 'packs',
@@ -106,16 +114,10 @@ export function deriveEvidenceKpis(input: {
         : '—',
     },
     {
-      id: 'exposure',
-      label: evidenceCopy.kpi.valueNeedingReview,
-      value: exposureValue,
-      sub: exposureSub,
-    },
-    {
       id: 'missing',
       label: evidenceCopy.kpi.missingProofItems,
-      value: packCount > 0 ? missingItems.toLocaleString('en-IN') : '—',
-      sub: packCount > 0 ? 'Critical proof artifacts still missing' : '—',
+      value: missingValue,
+      sub: missingSub,
     },
     {
       id: 'dispute',

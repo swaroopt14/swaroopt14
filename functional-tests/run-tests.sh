@@ -94,38 +94,95 @@ if [ "$RESP" = "200" ] || [ "$RESP" = "404" ]; then log_pass "zord-relay health"
 else log_fail "zord-relay health" "Expected 200, got ${RESP}"; fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TEST 2: Tenant Registration — Create + Verify in DB
+# TEST 2: Auth — Get JWT token for Kong-protected routes (including admin)
 # ══════════════════════════════════════════════════════════════════════════════
+# Kong JWT plugin requires a valid JWT on ALL protected routes (including admin).
+# We signup first to get a JWT, then use it for tenant registration and all other calls.
+run_test "Auth: Get JWT for protected routes"
+JWT_TOKEN=""
 TENANT_NAME="func-test-$(date +%s)"
+AUTH_TEST_EMAIL="functest-$(date +%s)@${TENANT_NAME}.zordnet.com"
+AUTH_TEST_PASS="FuncTest123!Secure"
 
-run_test "Tenant Registration: Create tenant"
+SIGNUP_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/signup" \
+  -H "Content-Type: application/json" \
+  -d "{\"tenant_name\": \"${TENANT_NAME}\", \"name\": \"FuncTest Runner\", \"email\": \"${AUTH_TEST_EMAIL}\", \"password\": \"${AUTH_TEST_PASS}\"}")
+SIGNUP_HTTP=$(echo "${SIGNUP_RESP}" | tail -1)
+SIGNUP_BODY=$(echo "${SIGNUP_RESP}" | sed '$d')
+
+if [ "$SIGNUP_HTTP" = "201" ]; then
+  JWT_TOKEN=$(echo "${SIGNUP_BODY}" | jq -r '.access_token // empty')
+  # Capture tenant_id from signup
+  TENANT_ID=$(echo "${SIGNUP_BODY}" | jq -r '.user.tenant_id // empty')
+  if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+    log_pass "Get JWT token" "Signup succeeded, JWT issued, tenant=${TENANT_ID}"
+  else
+    log_fail "Get JWT token" "Signup 201 but no access_token in response"
+  fi
+elif [ "$SIGNUP_HTTP" = "409" ]; then
+  # Tenant name taken — try login
+  LOGIN_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{\"email\": \"${AUTH_TEST_EMAIL}\", \"password\": \"${AUTH_TEST_PASS}\"}")
+  LOGIN_HTTP=$(echo "${LOGIN_RESP}" | tail -1)
+  LOGIN_BODY=$(echo "${LOGIN_RESP}" | sed '$d')
+  if [ "$LOGIN_HTTP" = "200" ]; then
+    JWT_TOKEN=$(echo "${LOGIN_BODY}" | jq -r '.access_token // empty')
+    TENANT_ID=$(echo "${LOGIN_BODY}" | jq -r '.user.tenant_id // empty')
+    if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+      log_pass "Get JWT token" "Logged in, JWT issued"
+    else
+      log_fail "Get JWT token" "Login 200 but no access_token"
+    fi
+  else
+    log_fail "Get JWT token" "Signup 409, login failed: HTTP ${LOGIN_HTTP}"
+  fi
+else
+  log_fail "Get JWT token" "Expected 201, got ${SIGNUP_HTTP}: $(echo ${SIGNUP_BODY} | head -c 100)"
+fi
+
+# Use JWT for Kong-protected routes
+if [ -n "$JWT_TOKEN" ] && [ "$JWT_TOKEN" != "null" ]; then
+  AUTH_BEARER="${JWT_TOKEN}"
+else
+  AUTH_BEARER=""
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# TEST 3: Tenant Registration — Create a SECOND tenant + Verify in DB
+# ══════════════════════════════════════════════════════════════════════════════
+TENANT_NAME_ADMIN="func-admin-$(date +%s)"
+
+run_test "Tenant Registration: Create tenant (JWT + Admin Key)"
 REG_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/admin/tenantReg" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${AUTH_BEARER:-}" \
   -H "X-Zord-ADMIN-KEY: ${ADMIN_KEY}" \
-  -d "{\"name\": \"${TENANT_NAME}\"}")
+  -d "{\"name\": \"${TENANT_NAME_ADMIN}\"}")
 REG_HTTP=$(echo "${REG_RESP}" | tail -1)
 REG_BODY=$(echo "${REG_RESP}" | sed '$d')
 
 if [ "$REG_HTTP" = "201" ]; then
-  TENANT_ID=$(echo "${REG_BODY}" | jq -r '.TenantId')
+  ADMIN_TENANT_ID=$(echo "${REG_BODY}" | jq -r '.TenantId')
   API_KEY=$(echo "${REG_BODY}" | jq -r '.APIKEY')
-  if [ -n "$TENANT_ID" ] && [ "$TENANT_ID" != "null" ] && [ -n "$API_KEY" ] && [ "$API_KEY" != "null" ]; then
-    log_pass "Create tenant" "TenantId=${TENANT_ID}"
+  if [ -n "$ADMIN_TENANT_ID" ] && [ "$ADMIN_TENANT_ID" != "null" ] && [ -n "$API_KEY" ] && [ "$API_KEY" != "null" ]; then
+    log_pass "Create tenant" "TenantId=${ADMIN_TENANT_ID}"
   else
     log_fail "Create tenant" "201 but missing TenantId/APIKEY in response"
-    TENANT_ID=""
+    ADMIN_TENANT_ID=""
     API_KEY=""
   fi
 else
   log_fail "Create tenant" "Expected 201, got ${REG_HTTP}: ${REG_BODY}"
-  TENANT_ID=""
+  ADMIN_TENANT_ID=""
   API_KEY=""
 fi
 
 # Verify tenant exists by querying it back
 run_test "Tenant Verification: Query tenant by ID"
-if [ -n "$TENANT_ID" ]; then
-  VERIFY_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/admin/tenants/${TENANT_ID}" \
+if [ -n "$ADMIN_TENANT_ID" ]; then
+  VERIFY_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/admin/tenants/${ADMIN_TENANT_ID}" \
+    -H "Authorization: Bearer ${AUTH_BEARER:-}" \
     -H "X-Zord-ADMIN-KEY: ${ADMIN_KEY}")
   VERIFY_HTTP=$(echo "${VERIFY_RESP}" | tail -1)
   VERIFY_BODY=$(echo "${VERIFY_RESP}" | sed '$d')
@@ -145,14 +202,14 @@ else
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
-# TEST 3: Single Payment Ingest — Create + Verify in intent-engine
+# TEST 4: Single Payment Ingest — Create + Verify in intent-engine
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Single Ingest: POST /v1/ingest"
-if [ -n "$API_KEY" ]; then
+if [ -n "$AUTH_BEARER" ]; then
   IDEMP_KEY="func-test-$(date +%s)-${RANDOM}"
   INGEST_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/ingest" \
     -H "Content-Type: application/json" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Authorization: Bearer ${AUTH_BEARER}" \
     -H "X-Idempotency-Key: ${IDEMP_KEY}" \
     -H "X-Zord-Source-Type: CSV" \
     -H "X-Zord-Source-Class: INTENT" \
@@ -182,14 +239,14 @@ if [ -n "$API_KEY" ]; then
     log_fail "Single ingest" "Expected 200/201/202, got ${INGEST_HTTP}: $(echo ${INGEST_BODY} | head -c 100)"
   fi
 else
-  log_fail "Single ingest" "Skipped — no API key"
+  log_fail "Single ingest" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 4: Bulk CSV Ingest — Upload file + Verify accepted
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Bulk CSV Ingest: POST /v1/bulk-ingest"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   # Create test CSV matching zord_payout_1000_varied.csv format (24 columns)
   CSV_FILE="${RESULTS_DIR}/test-payment.csv"
   cat > "${CSV_FILE}" << CSVEOF
@@ -199,7 +256,7 @@ Razorpay,FUNC_BATCH_001,FUNC_PAY_002,INV-F002,VOUCH-F002,,VEND-F002,FuncTest Use
 CSVEOF
 
   BULK_RESP=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/v1/bulk-ingest" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Authorization: Bearer ${AUTH_BEARER}" \
     -H "X-Zord-Source-Type: CSV" \
     -H "X-Zord-Source-Class: INTENT" \
     -H "X-Zord-Tenant-Type: BANK" \
@@ -232,17 +289,17 @@ CSVEOF
     log_fail "Bulk CSV ingest" "Expected 200/201/202, got ${BULK_HTTP}: $(echo ${BULK_BODY} | head -c 100)"
   fi
 else
-  log_fail "Bulk CSV ingest" "Skipped — no API key or tenant ID"
+  log_fail "Bulk CSV ingest" "Skipped — no auth token or tenant ID"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 5: Query Intents — Verify records exist in intent-engine DB
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Query Intents: GET /v1/intents"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
-  sleep 2  # Give time for async processing
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
+  sleep 10  # Wait for Kafka consumer to process ingest events
   INTENT_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/intents?tenant_id=${TENANT_ID}&page_size=5" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   INTENT_HTTP=$(echo "${INTENT_RESP}" | tail -1)
   INTENT_BODY=$(echo "${INTENT_RESP}" | sed '$d')
 
@@ -257,19 +314,19 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
     log_fail "Query intents" "Expected 200, got ${INTENT_HTTP}: $(echo ${INTENT_BODY} | head -c 100)"
   fi
 else
-  log_fail "Query intents" "Skipped — no API key"
+  log_fail "Query intents" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 5b: Deep Verify — Did ingest actually create a record in intent-engine DB?
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Deep Verify: Ingest record exists in DB"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   # If we got an EnvelopeID from ingest, the edge accepted it.
   # But did it reach intent-engine via Kafka? Check if total > 0.
   DV_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/intents?tenant_id=${TENANT_ID}&page_size=1" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   DV_HTTP=$(echo "${DV_RESP}" | tail -1)
   DV_BODY=$(echo "${DV_RESP}" | sed '$d')
 
@@ -285,15 +342,16 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
     log_fail "Ingest DB verification" "Cannot query intents: HTTP ${DV_HTTP}"
   fi
 else
-  log_fail "Ingest DB verification" "Skipped — no API key"
+  log_fail "Ingest DB verification" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
 # TEST 6: Settlement — Supported PSPs + Upload
 # ══════════════════════════════════════════════════════════════════════════════
+JOB_ID=""
 run_test "Settlement: GET supported PSPs"
 PSP_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/settlement/supported-psps" \
-  -H "Authorization: Bearer ${API_KEY:-dummy}")
+  -H "Authorization: Bearer ${AUTH_BEARER:-dummy}")
 PSP_HTTP=$(echo "${PSP_RESP}" | tail -1)
 PSP_BODY=$(echo "${PSP_RESP}" | sed '$d')
 
@@ -313,7 +371,7 @@ fi
 # TEST 6b: Settlement Upload — POST /v1/settlement/upload with CSV
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Upload: POST /v1/settlement/upload"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   # Use the real XLSX file (same as developers test with)
   SETTLE_FILE="functional-tests/test-data/zord_settlement_1000_varied.xlsx"
 
@@ -330,7 +388,7 @@ SETTLEEOF
 
   SETTLE_RESP=$(curl -s -w "\n%{http_code}" -X POST \
     "${BASE_URL}/v1/settlement/upload?tenant_id=${TENANT_ID}&psp=razorpay" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Authorization: Bearer ${AUTH_BEARER}" \
     -F "file=@${SETTLE_FILE}")
   SETTLE_HTTP=$(echo "${SETTLE_RESP}" | tail -1)
   SETTLE_BODY=$(echo "${SETTLE_RESP}" | sed '$d')
@@ -351,7 +409,7 @@ SETTLEEOF
     log_fail "Settlement upload" "Expected 200/201/202, got ${SETTLE_HTTP}: $(echo ${SETTLE_BODY} | head -c 150)"
   fi
 else
-  log_fail "Settlement upload" "Skipped — no API key or tenant ID"
+  log_fail "Settlement upload" "Skipped — no auth token or tenant ID"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -359,12 +417,12 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Job Status: GET /v1/settlement/jobs/:id"
 if [ -n "$JOB_ID" ] && [ "$JOB_ID" != "null" ] && [ -n "$TENANT_ID" ]; then
-  echo "  Waiting 5 seconds for background parsing..."
-  sleep 5
+  echo "  Waiting 15 seconds for background parsing..."
+  sleep 15
 
   JOB_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/settlement/jobs/${JOB_ID}?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   JOB_HTTP=$(echo "${JOB_RESP}" | tail -1)
   JOB_BODY=$(echo "${JOB_RESP}" | sed '$d')
 
@@ -397,10 +455,10 @@ fi
 # TEST 6d: Settlement Observations — Verify data stored in outcome DB
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Observations: GET /v1/settlement/observations/batches"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   OBS_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/settlement/observations/batches?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   OBS_HTTP=$(echo "${OBS_RESP}" | tail -1)
   OBS_BODY=$(echo "${OBS_RESP}" | sed '$d')
 
@@ -425,7 +483,7 @@ fi
 run_test "Intelligence: GET /v1/projections (KPIs)"
 if [ -n "$TENANT_ID" ]; then
   INTEL_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/projections?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY:-dummy}")
+    -H "Authorization: Bearer ${AUTH_BEARER:-dummy}")
   INTEL_HTTP=$(echo "${INTEL_RESP}" | tail -1)
   INTEL_BODY=$(echo "${INTEL_RESP}" | sed '$d')
 
@@ -446,9 +504,9 @@ fi
 # TEST 8: DLQ — Check dead letter queue accessible
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "DLQ: GET /v1/dlq"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   DLQ_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/dlq?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   DLQ_HTTP=$(echo "${DLQ_RESP}" | tail -1)
   DLQ_BODY=$(echo "${DLQ_RESP}" | sed '$d')
 
@@ -459,7 +517,7 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
     log_fail "DLQ query" "Expected 200, got ${DLQ_HTTP} — intent-engine DLQ table not accessible. Check DB connection."
   fi
 else
-  log_fail "DLQ query" "Skipped — no API key"
+  log_fail "DLQ query" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -467,6 +525,7 @@ fi
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "List Tenants: GET /v1/admin/tenants"
 LIST_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/admin/tenants?page=1&page_size=5" \
+  -H "Authorization: Bearer ${AUTH_BEARER:-}" \
   -H "X-Zord-ADMIN-KEY: ${ADMIN_KEY}")
 LIST_HTTP=$(echo "${LIST_RESP}" | tail -1)
 LIST_BODY=$(echo "${LIST_RESP}" | sed '$d')
@@ -486,10 +545,10 @@ fi
 # TEST 10: Reconciliation — Verify outcome-engine recon endpoint
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Reconciliation: GET /v1/reconciliation"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   RECON_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/reconciliation?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   RECON_HTTP=$(echo "${RECON_RESP}" | tail -1)
   RECON_BODY=$(echo "${RECON_RESP}" | sed '$d')
 
@@ -508,11 +567,11 @@ fi
 # TEST 11: Evidence Packs — Verify evidence service can query
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Evidence: GET /v1/evidence/packs"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   # Evidence requires intent_id or client_batch_id — use a test batch
   EV_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/evidence/packs?tenant_id=${TENANT_ID}&client_batch_id=FUNC_BATCH_001" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   EV_HTTP=$(echo "${EV_RESP}" | tail -1)
   EV_BODY=$(echo "${EV_RESP}" | sed '$d')
 
@@ -535,10 +594,10 @@ fi
 # TEST 12: Intelligence Leakage — Deep intelligence surface check
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Intelligence Leakage: GET /v1/rca"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   RCA_RESP=$(curl -s -w "\n%{http_code}" \
-    "${BASE_URL}/v1/rca?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    "${BASE_URL}/v1/intelligence/rca/clusters?tenant_id=${TENANT_ID}" \
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   RCA_HTTP=$(echo "${RCA_RESP}" | tail -1)
 
   if [ "$RCA_HTTP" = "200" ]; then
@@ -556,10 +615,10 @@ fi
 # TEST 13: Dispatch Status — Verify relay service
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Dispatch: GET /v1/dispatch"
-if [ -n "$TENANT_ID" ] && [ -n "$API_KEY" ]; then
+if [ -n "$TENANT_ID" ] && [ -n "$AUTH_BEARER" ]; then
   DISP_RESP=$(curl -s -w "\n%{http_code}" \
     "${BASE_URL}/v1/dispatch?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   DISP_HTTP=$(echo "${DISP_RESP}" | tail -1)
 
   if [ "$DISP_HTTP" = "200" ]; then
@@ -621,10 +680,10 @@ fi
 # TEST 15: Settlement Parse Errors — Check if parsing errors are tracked
 # ══════════════════════════════════════════════════════════════════════════════
 run_test "Settlement Errors: GET /v1/settlement/errors"
-if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
+if [ -n "$AUTH_BEARER" ] && [ -n "$TENANT_ID" ]; then
   ERRS_RESP=$(curl -s -w "\n%{http_code}" \
-    "${BASE_URL}/v1/settlement/errors?tenant_id=${TENANT_ID}" \
-    -H "Authorization: Bearer ${API_KEY}")
+    "${BASE_URL}/v1/settlement/errors?tenant_id=${TENANT_ID}&batch_id=${TENANT_NAME_ADMIN:-FUNC_BATCH_001}" \
+    -H "Authorization: Bearer ${AUTH_BEARER}")
   ERRS_HTTP=$(echo "${ERRS_RESP}" | tail -1)
 
   if [ "$ERRS_HTTP" = "200" ]; then
@@ -635,7 +694,7 @@ if [ -n "$API_KEY" ] && [ -n "$TENANT_ID" ]; then
     log_fail "Settlement errors" "Expected 200, got ${ERRS_HTTP} — settlement error tracking broken"
   fi
 else
-  log_fail "Settlement errors" "Skipped — no API key"
+  log_fail "Settlement errors" "Skipped — no auth token"
 fi
 
 # ══════════════════════════════════════════════════════════════════════════════

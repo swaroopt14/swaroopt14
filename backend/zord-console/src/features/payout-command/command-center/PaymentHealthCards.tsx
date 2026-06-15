@@ -91,12 +91,12 @@ export function PaymentHealthCards({
       <article className={COMMAND_CENTER_KPI_CARD + ' min-h-[280px]'}>
         <CommandCenterCardGlow />
         <div className="relative z-[1]">
-          <h3 className="text-[14px] font-medium text-[#000000]">Fully Matched Value</h3>
+          <h3 className="text-[14px] font-medium text-[#000000]">Settlement Value Observed</h3>
           {awaitingConfirmation ? (
             <>
               <p className={`mt-4 text-[18px] font-semibold ${HOME_TITLE_BLACK}`}>Awaiting confirmation data</p>
               <p className={`mt-2 ${HOME_BODY_IMPERIAL_SM}`}>
-                Upload bank/settlement records to calculate fully matched value.
+                Upload bank/settlement records to calculate settlement value observed.
               </p>
             </>
           ) : (
@@ -119,7 +119,7 @@ export function PaymentHealthCards({
       >
         <CommandCenterCardGlow />
         <div className="relative z-[1]">
-          <h3 className="text-[14px] font-medium text-[#000000]">Value Needing Review</h3>
+          <h3 className="text-[14px] font-medium text-[#000000]">Unmatched Intent Value</h3>
           <p className="mt-4 text-center text-[36px] leading-none">
             <HeroMetricWithSuperPercent text={reviewValue} />
           </p>

@@ -283,5 +283,21 @@ func EnsureTables(ctx context.Context, d *sql.DB) error {
 			return fmt.Errorf("ensure table: %w (stmt: %.80s)", err, s)
 		}
 	}
+
+	// ── Schema migrations (add columns that may be missing on older DBs) ──────
+	// Add new ALTER TABLE statements here when columns are added to existing tables.
+	// These are idempotent — safe to run on every startup.
+	migrations := []string{
+		// Add future column migrations here, e.g.:
+		// `ALTER TABLE evidence_packs ADD COLUMN IF NOT EXISTS new_column TEXT;`,
+		`ALTER TABLE pending_leaf_candidates ADD COLUMN IF NOT EXISTS client_payout_ref TEXT;`,
+		`ALTER TABLE evidence_packs ADD COLUMN IF NOT EXISTS client_payout_ref TEXT;`,
+	}
+	for _, m := range migrations {
+		if _, err := d.ExecContext(ctx, m); err != nil {
+			return fmt.Errorf("migration: %w (stmt: %.80s)", err, m)
+		}
+	}
+
 	return nil
 }

@@ -706,6 +706,10 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ON unresolved_intent_records(intent_id);`,
 		`CREATE INDEX IF NOT EXISTS unresolved_intent_records_batch_idx
 			ON unresolved_intent_records(batch_id) WHERE batch_id IS NOT NULL;`,
+
+		// ── Schema migrations (add columns that may be missing on older DBs) ──
+		`ALTER TABLE canonical_settlement_observations ADD COLUMN IF NOT EXISTS bank_id TEXT;`,
+		`ALTER TABLE outcome_outbox ADD COLUMN IF NOT EXISTS bank_id TEXT;`,
 	}
 
 	for _, s := range stmts {

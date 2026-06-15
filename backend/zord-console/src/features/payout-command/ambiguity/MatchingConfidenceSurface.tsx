@@ -23,7 +23,9 @@ import { BatchesNeedingReviewTable } from './components/BatchesNeedingReviewTabl
 import { AmbiguityMixDonut } from './components/AmbiguityMixDonut'
 import { BatchControlList, DataQualityAuditCard } from './components/BatchControlList'
 import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import { LiveDataHint } from '../shared'
+import { BATCH_KPI_UNAVAILABLE } from '../shared/batchKpiScope'
 
 export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const pathname = usePathname()
@@ -55,6 +57,9 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
   }, [initialBatchId])
 
   const effectiveAmb = useMemo((): AmbiguityKpiResolved | null => {
+    if (selectedBatchId && !batchHealth && !batchHealthLoading) {
+      return null
+    }
     if (batchHealth && selectedBatchId) {
       const kpis = batchHealthToAmbiguityKpis(batchHealth)
       return {
@@ -69,14 +74,24 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         risk_tier: amb?.risk_tier ?? 'LOW',
       } as AmbiguityKpiResolved
     }
+    if (selectedBatchId) return null
     return amb
-  }, [amb, batchHealth, selectedBatchId])
+  }, [amb, batchHealth, batchHealthLoading, selectedBatchId])
+
+  const handlePageRefresh = useCallback(async () => {
+    await Promise.all([refresh(), refreshHeatmap()])
+  }, [refresh, refreshHeatmap])
+
+  useRegisterPayoutPageActions({
+    refresh: tenantReady ? handlePageRefresh : undefined,
+    refreshing: kpiLoading || heatmapLoading || batchHealthLoading,
+  })
 
   const kpiScopeHint =
     selectedBatchId && batchHealth
       ? 'Batch health projection'
       : selectedBatchId
-        ? 'Tenant-wide snapshot'
+        ? BATCH_KPI_UNAVAILABLE
         : 'Tenant-wide snapshot'
 
   const stripLoading =
@@ -118,7 +133,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-[1.25rem] font-bold tracking-tight text-[#000000]">
-              Ambiguity &amp; Match Confidence
+              Ambiguity &amp; Match Review
             </h1>
             <Link
               href={`${pathname}?dock=leakage`}
@@ -138,7 +153,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
             <select
               value={selectedBatchId ?? ''}
               onChange={(e) => handleSelectBatch(e.target.value || undefined)}
-              className="h-9 appearance-none rounded-full border border-slate-200 bg-white pl-4 pr-8 text-[13px] font-medium text-slate-700 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              className="h-9 appearance-none rounded-full border border-slate-200 bg-white pl-4 pr-8 text-[13px] font-medium text-slate-700 shadow-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
             >
               <option value="">All Batches (Tenant)</option>
               {batches.map((b) => (

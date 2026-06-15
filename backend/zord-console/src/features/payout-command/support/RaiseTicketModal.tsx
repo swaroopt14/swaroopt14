@@ -85,7 +85,7 @@ export function RaiseTicketModal({ onClose, onSubmit }: RaiseTicketModalProps) {
 
         <div className="mt-5 space-y-4">
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#16a34a]">
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#000000]">
               Category
             </span>
             <select
@@ -102,7 +102,7 @@ export function RaiseTicketModal({ onClose, onSubmit }: RaiseTicketModalProps) {
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#16a34a]">
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#000000]">
               Subject
             </span>
             <input
@@ -114,7 +114,7 @@ export function RaiseTicketModal({ onClose, onSubmit }: RaiseTicketModalProps) {
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#16a34a]">
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#000000]">
               Description
             </span>
             <textarea
@@ -127,7 +127,7 @@ export function RaiseTicketModal({ onClose, onSubmit }: RaiseTicketModalProps) {
           </label>
 
           <label className="block">
-            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#16a34a]">
+            <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#000000]">
               Your email
             </span>
             <input
@@ -152,7 +152,7 @@ export function RaiseTicketModal({ onClose, onSubmit }: RaiseTicketModalProps) {
           </label>
 
           <fieldset className="flex flex-wrap gap-4">
-            <legend className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#16a34a]">
+            <legend className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#000000]">
               Priority
             </legend>
             {(['normal', 'urgent'] as const).map((p) => (

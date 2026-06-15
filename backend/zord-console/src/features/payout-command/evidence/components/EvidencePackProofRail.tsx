@@ -38,7 +38,7 @@ function TimelineRow({ entry, index }: { entry: EvidenceTimelineEntry; index: nu
   return (
     <li className="relative pb-5 last:pb-0">
       <span
-        className="absolute -left-[21px] top-1.5 flex h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500 ring-1 ring-emerald-500/30"
+        className="absolute -left-[21px] top-1.5 flex h-2.5 w-2.5 rounded-full border-2 border-white bg-black ring-1 ring-black/30"
         aria-hidden
       />
       <p className="text-[11px] font-semibold tabular-nums text-slate-400">{formatTimelineTime(entry.timestamp)}</p>

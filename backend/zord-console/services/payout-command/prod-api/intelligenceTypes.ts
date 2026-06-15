@@ -179,6 +179,15 @@ export type FinalityStatus =
   | 'PROCESSING'
   | 'FULLY_SETTLED'
   | string
+export type ProviderDecisionStats = {
+  total_decisions: number
+  successful_decision_count: number
+  decision_success_rate: number | string
+  ambiguity_rate: number | string
+  unresolved_decisions: number
+  orphan_rate: number | string
+}
+
 export type PatternsKpiResolved = Resolved<{
   batch_id?: string
   batch_anomaly_score: number
@@ -203,8 +212,42 @@ export type PatternsKpiResolved = Resolved<{
   value_date_mismatch_rate?: number
   settlement_delay_p95_days?: number
   same_beneficiary_amount_density?: number
+  /** A9 — tenant-wide decision success rate (present even when data_available is false). */
+  decision_success_rate?: number | string
+  /** A9 — per-provider breakdown from pattern.provider projections. */
+  by_provider?: Record<string, ProviderDecisionStats>
 }>
-export type PatternsKpiResponse = PatternsKpiResolved | EmptyKpiResponse
+export type PatternsKpiResponse =
+  | PatternsKpiResolved
+  | (EmptyKpiResponse & {
+      tenant_id?: string
+      intelligence_mode?: string
+      batch_id?: string
+      decision_success_rate?: number | string
+      by_provider?: Record<string, ProviderDecisionStats>
+      batch_anomaly_score?: number
+      anomaly_level?: AnomalyLevel
+      value_date_mismatch_count?: number
+      value_date_mismatch_rate?: number
+    })
+
+// ── Batch contract dashboard (settlement journal KPIs) ────────────────────
+export type BatchContractKpiResponse = {
+  tenant_id: string
+  intelligence_mode?: string
+  batch_id: string
+  bank_reference_coverage?: string | null
+  settlement_ref_count?: number
+  bank_ref_present_count?: number
+  client_ref_present_count?: number
+  client_reference_coverage?: string | null
+  variance_amount?: MinorAmountField
+  orphan_amount?: MinorAmountField
+  unmatch_amount?: MinorAmountField
+  total_confirmed_amount?: MinorAmountField
+  match_confidence?: number | null
+  missing_reference_rate?: string | number
+}
 
 // ── KPIs 15–16: Recommendations ───────────────────────────────────────────
 export type RecommendationsKpiResolved = Resolved<{
@@ -235,7 +278,10 @@ export type RcaKpiResponse = RcaKpiResolved | EmptyKpiResponse
 export type IntelligenceBatchRow = {
   batch_id: string
   tenant_id: string
+  /** Settlement source / partner label from batch_contracts (when present). */
+  source_reference?: string | null
   finality_status: FinalityStatus
+  batch_finality_status?: FinalityStatus
   total_count: number
   success_count: number
   failed_count: number
@@ -246,6 +292,13 @@ export type IntelligenceBatchRow = {
   unmatched_amount_minor?: MinorAmountField
   unexplained_variance_minor?: MinorAmountField
   total_variance_minor?: MinorAmountField
+  total_confirmed_amount_minor?: MinorAmountField
+  total_intended_amount_minor?: MinorAmountField
+  orphan_amount_minor?: MinorAmountField
+  missing_ref_count?: number
+  settlement_ref_count?: number
+  bank_ref_present_count?: number
+  ambiguity_score?: number | null
   status_label?: string
 }
 export type BatchesListResponse = {

@@ -7,7 +7,7 @@ import { PORTAL_CARD } from './portal/batchPortalTokens'
 function PipelineNode({ state, stepNumber }: { state: BatchStepState; stepNumber: number }) {
   if (state === 'done') {
     return (
-      <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#16a34a] text-white shadow-[0_0_0_4px_#fff]">
+      <span className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#000000] text-white shadow-[0_0_0_4px_#fff]">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden>
           <path d="M3 7.2L5.8 10L11 4.8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -55,7 +55,7 @@ export function BatchProgressPanel({
       <div className="relative mt-6 hidden md:block">
         <div className="absolute left-4 right-4 top-4 h-0.5 rounded-full bg-[#e8edf3]" aria-hidden />
         <div
-          className="absolute left-4 top-4 h-0.5 rounded-full bg-gradient-to-r from-[#2563eb] to-[#22c55e] transition-[width] duration-700"
+          className="absolute left-4 top-4 h-0.5 rounded-full bg-gradient-to-r from-[#2563eb] to-[#000000] transition-[width] duration-700"
           style={{ width: `calc((100% - 2rem) * ${Math.min(100, progressPct) / 100})` }}
         />
         <ol className="relative flex justify-between gap-1">

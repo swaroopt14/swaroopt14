@@ -46,7 +46,7 @@ export function BatchControlList({ batches }: BatchControlListProps) {
                 </div>
                 <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                   <div
-                    className="h-full rounded-full bg-emerald-400 transition-all duration-700"
+                    className="h-full rounded-full bg-black transition-all duration-700"
                     style={{ width: `${pct ?? 0}%` }}
                   />
                 </div>

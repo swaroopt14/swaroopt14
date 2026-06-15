@@ -30,7 +30,7 @@ const LOADING_PHASES: WorkspaceLoadingPhase[] = [
 
 const LOADING_PHASE_LABEL: Record<WorkspaceLoadingPhase, string> = {
   understanding: 'Understanding your question…',
-  fetching: 'Fetching evidence from prompt-layer…',
+  fetching: "Searching your workspace's payment data…",
   listing: 'Listing related payout records…',
   checking: 'Checking signals and posture…',
   summarizing: 'Summarizing answer…',
@@ -123,6 +123,7 @@ export type WorkspaceState = {
   selectThread: (threadId: string) => void
   deleteThread: (threadId: string) => void
   submitPrompt: (prompt: string) => Promise<void>
+  refreshStarterAnswer: () => void
   resetForTab: (tab: WorkspaceTab) => void
 }
 
@@ -354,13 +355,13 @@ export function useWorkspaceState(
               : `HTTP ${result.httpStatus}`
 
           throw new Error(
-            `Prompt-layer returned an error (${detail}). Ensure zord-prompt-layer is running on port 8086.`,
+            `Ask Zord could not complete your request (${detail}). Try again or ask a more specific question.`,
           )
         }
 
         const mapped = mapLiveAnswer(result.payload)
         if (!mapped?.body.trim()) {
-          throw new Error('Prompt-layer returned an empty answer. Try a more specific payout question.')
+          throw new Error('Ask Zord returned an empty answer. Try a more specific payout question.')
         }
 
         const citationSnippet = mapped.citations[0]?.snippet ?? null
@@ -389,7 +390,7 @@ export function useWorkspaceState(
         const message =
           error instanceof Error
             ? error.message
-            : 'Could not reach prompt-layer. Start the service on port 8086 or set PROMPT_LAYER_URL.'
+            : 'Could not reach Ask Zord. Check your connection and try again.'
 
         const finalMessages: WorkspaceConversationMessage[] = [
           ...withUser,
@@ -481,6 +482,13 @@ export function useWorkspaceState(
     }
   }, [activeTab, activeThreadId, authLoading, initialAnswerNonce, tenantId, tenantReady, user?.id])
 
+  const refreshStarterAnswer = useCallback(() => {
+    const hasUserTurn = conversationRef.current.some((m) => m.role === 'user')
+    if (hasUserTurn || activeThreadId) return
+    setInitialAnswer({ body: '', status: 'idle' })
+    setInitialAnswerNonce((n) => n + 1)
+  }, [activeThreadId])
+
   return {
     promptInput,
     setPromptInput,
@@ -495,5 +503,6 @@ export function useWorkspaceState(
     deleteThread,
     submitPrompt,
     resetForTab,
+    refreshStarterAnswer,
   }
 }

@@ -3,12 +3,13 @@
 import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntelligenceKpiHero'
 import { useJournalBatchSelection } from '../context/JournalBatchSelectionContext'
 import { useJournalBatchMetrics } from '../hooks/useJournalBatchMetrics'
-import { useJournalIntelligenceBatch } from '../hooks/useJournalIntelligenceBatch'
 import { intentJournalCopy } from '../copy/intentJournalCopy'
 import { fmtInrFromMinorExact } from '../../command-center/commandCenterFormat'
 import { formatConfidencePct } from '../intentJournalSidebarUtils'
 import { useDlqManualReviewCount } from '../hooks/useDlqManualReviewCount'
 import { IntentJournalExportMenu } from './IntentJournalExportMenu'
+
+const INTENDED_VALUE_SUB = 'Sum of payment instruction amounts'
 
 type IntentJournalHeroBannerProps = {
   onExportIntents: () => void
@@ -16,6 +17,11 @@ type IntentJournalHeroBannerProps = {
   exportDisabled?: boolean
   intentExportCount?: number
   reviewExportCount?: number
+}
+
+function formatApiCount(count: number | null | undefined, loading: boolean): string {
+  if (count != null) return count.toLocaleString('en-IN')
+  return loading ? '…' : '—'
 }
 
 export function IntentJournalHeroBanner({
@@ -27,14 +33,21 @@ export function IntentJournalHeroBanner({
 }: IntentJournalHeroBannerProps) {
   const { selectedBatchId, journalEnabled } = useJournalBatchSelection()
   const { batch, metrics, loading } = useJournalBatchMetrics(selectedBatchId, journalEnabled)
-  const { detail: intelDetail } = useJournalIntelligenceBatch(selectedBatchId, journalEnabled)
+  const totalAmount = batch?.totalValue ?? metrics?.intendedValue ?? null
   const { displayCount: manualReviewCount, loading: manualReviewLoading } = useDlqManualReviewCount(
     journalEnabled,
     selectedBatchId,
   )
 
-  const valueLabel = fmtInrFromMinorExact(metrics?.intendedValue ?? batch?.totalValue ?? 0)
-  const instructionCount = metrics?.instructionCount ?? batch?.transactions ?? 0
+  const instructionCount = metrics?.instructionCount ?? null
+  const instructionCountDisplay = formatApiCount(instructionCount, loading)
+  const valueLabel =
+    loading && totalAmount == null
+      ? '—'
+      : totalAmount != null
+        ? fmtInrFromMinorExact(totalAmount)
+        : '—'
+  const intendedValueSub = totalAmount != null ? INTENDED_VALUE_SUB : '—'
   const qualityPct = formatConfidencePct(metrics?.batchAggregateConfidenceScore ?? null)
   const needsReviewDisplay =
     manualReviewCount != null ? manualReviewCount.toLocaleString('en-IN') : manualReviewLoading ? '…' : '—'
@@ -44,28 +57,29 @@ export function IntentJournalHeroBanner({
       : manualReviewLoading
         ? 'Loading manual-review count…'
         : '—'
-  const finalityLabel = intelDetail?.batch?.finality_status
-    ? intelDetail.batch.finality_status.replace(/_/g, ' ')
-    : 'Awaiting finality'
 
   const buckets = [
     {
       label: intentJournalCopy.kpi.paymentWorkflow,
-      value: batch?.apiType && batch.apiType !== '—' ? batch.apiType : 'Payment batch',
-      sub: batch?.source ?? 'Payment instructions',
+      value: 'Payment batch',
+      sub: 'Payment instructions',
     },
     {
       label: intentJournalCopy.kpi.instructionsCreated,
-      value: instructionCount.toLocaleString('en-IN'),
+      value: instructionCountDisplay,
       sub:
-        instructionCount > 0
+        instructionCount != null && instructionCount > 0
           ? `${instructionCount.toLocaleString('en-IN')} payment instruction${instructionCount === 1 ? '' : 's'}`
-          : 'No instructions yet',
+          : instructionCount === 0
+            ? 'No instructions yet'
+            : loading
+              ? 'Loading instruction count…'
+              : '—',
     },
     {
       label: intentJournalCopy.kpi.intendedValue,
       value: valueLabel,
-      sub: 'Sum of payment instruction amounts',
+      sub: intendedValueSub,
     },
     {
       label: intentJournalCopy.kpi.readiness,
@@ -83,9 +97,8 @@ export function IntentJournalHeroBanner({
     <JournalIntelligenceKpiHero
       className="mb-4"
       eyebrow={intentJournalCopy.hero.label}
-      value={loading && !batch ? '—' : valueLabel}
-      deltaPill={finalityLabel}
-      subcopy={`${selectedBatchId || intentJournalCopy.sidebar.selectBatch} · ${instructionCount.toLocaleString('en-IN')} ${intentJournalCopy.sidebar.instructions}`}
+      value={valueLabel}
+      subcopy={`${selectedBatchId || intentJournalCopy.sidebar.selectBatch} · ${instructionCountDisplay} ${intentJournalCopy.sidebar.instructions}`}
       buckets={buckets}
       testId="intent-kpi-hero"
       footer={

@@ -31,7 +31,7 @@ export type AskZordPromptLayerProps = {
 function ZordAssistantAvatar({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#39E07E] text-[#0A0A0A] shadow-sm ring-1 ring-[#39E07E]/40 ${className}`}
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#000000] text-[#0A0A0A] shadow-sm ring-1 ring-[#000000]/40 ${className}`}
       aria-hidden
     >
       <Glyph name="zap" className="h-[18px] w-[18px]" />
@@ -133,7 +133,7 @@ function AssistantBubble({
             {body}
           </ReactMarkdown>
           {isStreaming ? (
-            <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-[#39E07E] align-middle" />
+            <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-[#000000] align-middle" />
           ) : null}
         </div>
       </div>
@@ -142,12 +142,12 @@ function AssistantBubble({
 }
 
 function footerCaption(status: HomeCommandStatus, tenantReady: boolean, tenantId: string) {
-  if (status === 'loading') return 'Querying prompt-layer (port 8086)…'
-  if (status === 'typing') return 'Drafting answer from session tenant evidence…'
+  if (status === 'loading') return "Searching your workspace's payment data…"
+  if (status === 'typing') return 'Drafting answer from your workspace data…'
   if (tenantReady && tenantId.trim()) {
-    return 'KPIs and charts load from /api/prod · answers from POST /api/prompt-layer/query'
+    return 'Charts load from your payment data · Ask Zord answers from your workspace context'
   }
-  return 'Sign in to resolve session tenant_id before querying prompt-layer.'
+  return 'Sign in and select a workspace to use Ask Zord.'
 }
 
 /** Single Ask Zord chat shell — only mounted inside `AskZordPanel` when opened. */

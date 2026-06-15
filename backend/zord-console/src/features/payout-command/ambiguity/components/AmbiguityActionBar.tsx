@@ -13,7 +13,7 @@ export function AmbiguityActionBar() {
     <div className="flex flex-wrap items-center gap-3">
       <Link
         href={`${pathname}?dock=grid`}
-        className="rounded-full bg-emerald-50 px-5 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-emerald-600 transition hover:bg-emerald-100"
+        className="rounded-full bg-neutral-100 px-5 py-2.5 text-[12px] font-semibold uppercase tracking-wider text-black transition hover:bg-neutral-200"
       >
         {ambiguityCopy.actions.reviewUnclear}
       </Link>
@@ -38,7 +38,7 @@ export function AmbiguityActionBar() {
       >
         {ambiguityCopy.actions.exportList}
       </button>
-      {message ? <p className="w-full text-[12px] text-emerald-600">{message}</p> : null}
+      {message ? <p className="w-full text-[12px] text-black">{message}</p> : null}
     </div>
   )
 }

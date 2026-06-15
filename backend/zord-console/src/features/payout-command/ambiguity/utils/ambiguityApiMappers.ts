@@ -69,44 +69,22 @@ export function getValueAtRiskDelta(amb: AmbiguityKpiResolved | null): string | 
   return formatDeltaPct(delta)
 }
 
-const MIX_COLORS = ['#0d9488', '#34d399', '#a7f3d0', '#c4b5fd', '#6ee7b7', '#059669']
+const MIX_COLORS = ['#000000', '#334155', '#64748b', '#00239C', '#94a3b8', '#cbd5e1']
 
 export function getAmbiguityMix(
   amb: AmbiguityKpiResolved | null,
 ): { segments: AmbiguityMixSegment[]; centerPct: string | null; colors: string[] } {
-  if (!amb) return { segments: [], centerPct: null, colors: [] }
-
-  if (amb.ambiguity_mix_segments?.length) {
-    const center =
-      amb.clearing_pct != null
-        ? `${amb.clearing_pct.toFixed(1)}%`
-        : `${(amb.avg_attachment_confidence * 100).toFixed(1)}%`
-    return {
-      segments: amb.ambiguity_mix_segments,
-      centerPct: center,
-      colors: amb.ambiguity_mix_segments.map((_, i) => MIX_COLORS[i % MIX_COLORS.length]),
-    }
+  if (!amb?.ambiguity_mix_segments?.length) {
+    return { segments: [], centerPct: null, colors: [] }
   }
 
-  const missing = Math.round(amb.provider_ref_missing_rate * 100)
-  const ambiguous = Math.round(amb.ambiguity_rate * 100)
-  const lowConf =
-    amb.low_confidence_rate != null
-      ? Math.round(amb.low_confidence_rate * 100)
-      : Math.max(0, Math.round((1 - amb.avg_attachment_confidence) * 100) - ambiguous)
-  const highConf = Math.max(0, 100 - missing - ambiguous - lowConf)
-
-  const segments: AmbiguityMixSegment[] = [
-    { name: 'High Confidence', pct: highConf },
-    { name: 'Low Confidence', pct: lowConf },
-    { name: 'Ambiguous', pct: ambiguous },
-    { name: 'Missing Refs', pct: missing },
-  ].filter((s) => s.pct > 0)
+  const center =
+    amb.clearing_pct != null ? `${amb.clearing_pct.toFixed(1)}%` : null
 
   return {
-    segments,
-    centerPct: `${(amb.avg_attachment_confidence * 100).toFixed(1)}%`,
-    colors: segments.map((_, i) => MIX_COLORS[i % MIX_COLORS.length]),
+    segments: amb.ambiguity_mix_segments,
+    centerPct: center,
+    colors: amb.ambiguity_mix_segments.map((_, i) => MIX_COLORS[i % MIX_COLORS.length]),
   }
 }
 

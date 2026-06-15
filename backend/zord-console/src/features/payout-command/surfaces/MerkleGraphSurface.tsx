@@ -64,7 +64,7 @@ export type {
  * Layout: Leaves (left) → Intermediate hashes (middle) → Merkle Root (right).
  * Pill nodes on a grid canvas with curved Bezier connectors.
  *
- *   Valid    → green  (#4ADE80)
+ *   Valid    → green  (#000000)
  *   Missing  → amber  (#F59E0B)
  *   Invalid  → red    (#EF4444)
  *   Derived  → grey   (#888888)
@@ -72,147 +72,9 @@ export type {
  * Color is meaningful here (verification state). Page chrome stays minimal.
  */
 
-// ─── Sample data ──────────────────────────────────────────────────────────────
+// ─── Empty shell (no sample packs in live payout-command flow) ───────────────
 
-// Mode A — Intent + Settlement Attachment (Service 6 §12.1). The minimal serious pack.
-const VERIFIED_LEAVES: LeafNode[] = [
-  { id: 'L1', name: 'Raw Ingress Envelope', artifact: 'ingress_envelope.json', itemType: 'RAW_INGRESS_ENVELOPE', stableRef: 'env_8a21f', version: 'v1', sourceService: 'zord-ingress', hashFull: 'sha256:a1f3d2c4e5b8f0a9d6c2e1b4f7a8d3c5e9b2f1a4d7c8e3b6f9a2d5', hashShort: 'a1f3…', leafHash: 'sha256:9c3e1b…leaf01', source: 'Service 1 — Ingress', receivedAt: '10:01 AM', status: 'valid', impact: 'Original raw intent envelope as received.', iconName: 'document' },
-  { id: 'L2', name: 'Canonical Intent', artifact: 'canonical_intent.json', itemType: 'CANONICAL_INTENT', stableRef: 'INT-1023', version: 'intent_schema_v1', sourceService: 'zord-intent-engine', hashFull: 'sha256:7b9e2c4a8f1d3b6e5a9c2f4d7b8e1a3c6f9d2b5e8a1c4f7d3b6e9a2c', hashShort: '7b9e…', leafHash: 'sha256:2d8a4f…leaf02', source: 'Service 2 — Canonical', receivedAt: '10:01 AM', status: 'valid', impact: 'Normalised payout intent — schema v1.', iconName: 'zap' },
-  { id: 'L3', name: 'Governance @ Canonical', artifact: 'governance_decision.json', itemType: 'GOVERNANCE_DECISION_AT_CANONICAL', stableRef: 'gov_dec_4421', version: 'rs-2026.05.1', sourceService: 'zord-governance', hashFull: 'sha256:c2e8a4f1b6d9e3c5a8f2b7d4e1a9c6f3b8d5e2a7f4c1b9e6d3a8f5b2', hashShort: 'c2e8…', leafHash: 'sha256:5b1f7c…leaf03', source: 'Service 3 — Governance', receivedAt: '10:01 AM', status: 'valid', impact: 'Why this payout was allowed — 11 gates passed.', iconName: 'shield' },
-  { id: 'L4', name: 'Raw Settlement Envelope', artifact: 'settlement_envelope.json', itemType: 'RAW_SETTLEMENT_ENVELOPE', stableRef: 'env_set_771', version: 'v1', sourceService: 'zord-ingress', hashFull: 'sha256:f4d7c1b8e3a6f2d5b9e1c4a7f8d2e6b3c9a5f1d8e4b7c2a6f9d3e5b1', hashShort: 'f4d7…', leafHash: 'sha256:8e4c2a…leaf04', source: 'Service 1 — Ingress', receivedAt: '10:02 AM', status: 'valid', impact: 'Bank statement / outcome file as received.', iconName: 'arrow-up-right' },
-  { id: 'L5', name: 'Canonical Settlement', artifact: 'canonical_settlement.json', itemType: 'CANONICAL_SETTLEMENT_OBSERVATION', stableRef: 'set_obs_991', version: 'outcome_schema_v1', sourceService: 'zord-outcome', hashFull: 'sha256:c9d1e4a7f2b8d5c3e6a1f9b4d7c2e8a5f3b6d9c1e4a7f2b5d8c3e6a9', hashShort: 'c9d1…', leafHash: 'sha256:3a7d9b…leaf05', source: 'Service 5 — Outcome', receivedAt: '10:03 AM', status: 'valid', impact: 'Canonicalised settlement-side truth.', iconName: 'bank' },
-  { id: 'L6', name: 'Attachment Decision', artifact: 'attachment_decision.json', itemType: 'ATTACHMENT_DECISION', stableRef: 'att_dec_5512', version: 'attach_v1.0', sourceService: 'zord-attach', hashFull: 'sha256:b6e2f8a4c1d7b3e9a5f2c8d4b1e7a3f9c5d2b8e4a1f7c3d9b5e2a8f4', hashShort: 'b6e2…', leafHash: 'sha256:6c2e8a…leaf06', source: 'Service 5 — Attach', receivedAt: '10:14 AM', status: 'valid', impact: 'Exact / high-confidence attachment to intent.', iconName: 'bank' },
-  { id: 'L7', name: 'Final Evidence View', artifact: 'final_evidence_view.json', itemType: 'FINAL_EVIDENCE_VIEW', stableRef: 'CTR-7781', version: 'contract_schema_v1', sourceService: 'zord-contracts', hashFull: 'sha256:d3a8c5e2b9f4d1a7c6e3b8f5a2d9c4e1b6f3a8d5c2e9b4f1a7d6c3e8', hashShort: 'd3a8…', leafHash: 'sha256:1f9b4d…leaf07', source: 'Service 6 — Evidence', receivedAt: '10:14 AM', status: 'valid', impact: 'Customer-facing proof-ready truth artifact.', iconName: 'grid' },
-]
-
-const INTERMEDIATES: IntermediateNode[] = [
-  { id: 'H1', hashFull: 'sha256:e5a2b8d4c1f7e3a9d6b2c8f5e1a7d4c9b6f2e8a5d1c7b4f9e6a2d8c5', hashShort: 'e5a2…', derivedFrom: ['L1', 'L2'] },
-  { id: 'H2', hashFull: 'sha256:f7b9d3a6e1c8b4f2d9a5c7e3b6f1d8a4c9e2b7f5d1a8c4e6b3f9d2a5', hashShort: 'f7b9…', derivedFrom: ['L3', 'L4'] },
-  { id: 'H3', hashFull: 'sha256:c4e8b1d7a3f6c9b5e2d8a4f1c7b3e9d6a2f8c5b1e4d7a9f3c6b2e8d4', hashShort: 'c4e8…', derivedFrom: ['L5', 'L6', 'L7'] },
-]
-
-// A batch is an upstream grouping of many intents (1000s). Each intent has its own
-// evidence pack. Service 6 §4: "one evidence pack = one lifecycle commitment".
 const SHARED_SCHEMAS = { intent: 'v1', outcome: 'v1', contract: 'v1', attachment: 'v1' }
-
-const SAMPLE_PACK: EvidencePackGraph = {
-  packId: 'EP-2041',
-  intentId: 'INT-1023',
-  contractId: 'CTR-7781',
-  batchId: 'BATCH-001',
-  tenantId: 'tnt_acme',
-  mode: 'INTELLIGENCE_ATTACH',
-  rulesetVersion: 'attach_v1.0',
-  schemaVersions: SHARED_SCHEMAS,
-  createdAt: '2026-05-08T10:14:00Z',
-  defensibilityScore: 98,
-  proofScore: 98,
-  leaves: VERIFIED_LEAVES,
-  intermediates: INTERMEDIATES,
-  root: {
-    id: 'root',
-    hashFull: 'sha256:9f2c4a6b8e1d3f7a5c9b2e4d6f8a1c3e5b7d9f2a4c6e8b1d3f5a7c9e2b4d6f8',
-    hashShort: '9f2c4a6b…b2d4f6',
-    status: 'verified',
-    tamper: 'no-changes',
-  },
-}
-
-const SAMPLE_PACK_PARTNER: EvidencePackGraph = {
-  packId: 'EP-2042',
-  intentId: 'INT-1024',
-  contractId: 'CTR-7782',
-  batchId: 'BATCH-001',
-  tenantId: 'tnt_acme',
-  mode: 'INTELLIGENCE_ATTACH',
-  rulesetVersion: 'attach_v1.0',
-  schemaVersions: SHARED_SCHEMAS,
-  createdAt: '2026-05-08T10:18:00Z',
-  defensibilityScore: 94,
-  proofScore: 94,
-  leaves: VERIFIED_LEAVES.map((leaf) =>
-    leaf.id === 'L7' ? { ...leaf, status: 'missing' as LeafStatus, impact: 'Final evidence view not yet exposed for this intent.' } : leaf,
-  ),
-  intermediates: INTERMEDIATES,
-  root: {
-    id: 'root',
-    hashFull: 'sha256:5d2a8c7e1f9b4d6a3c8e5f2b9d7a4c1e6b8f3d5a2c9e7b4d1f6a8c3e5b2d9f7a',
-    hashShort: '5d2a8c7e…d9f7a',
-    status: 'partial',
-    tamper: 'no-changes',
-  },
-}
-
-const SAMPLE_PACK_THIRD: EvidencePackGraph = {
-  packId: 'EP-2043',
-  intentId: 'INT-1025',
-  contractId: 'CTR-7783',
-  batchId: 'BATCH-001',
-  tenantId: 'tnt_acme',
-  mode: 'SECONDARY_DISPATCH',
-  rulesetVersion: 'attach_v1.0',
-  schemaVersions: SHARED_SCHEMAS,
-  createdAt: '2026-05-08T10:21:00Z',
-  defensibilityScore: 89,
-  proofScore: 89,
-  leaves: VERIFIED_LEAVES,
-  intermediates: INTERMEDIATES,
-  root: {
-    id: 'root',
-    hashFull: 'sha256:7c4e2b9a8d1f5c3e6b9a4d7f2c8e5b1a9f6d3c8e4b7a2f5d1c9e6b3a8f4d7c2e',
-    hashShort: '7c4e2b9a…d7c2e',
-    status: 'verified',
-    tamper: 'no-changes',
-  },
-}
-
-const SAMPLE_PACK_TAMPERED: EvidencePackGraph = {
-  packId: 'EP-2039',
-  intentId: 'INT-1019',
-  contractId: 'CTR-7790',
-  batchId: 'BATCH-002',
-  tenantId: 'tnt_acme',
-  mode: 'FULL_CONTROL',
-  rulesetVersion: 'fusion_v1.0',
-  schemaVersions: SHARED_SCHEMAS,
-  createdAt: '2026-05-08T09:42:00Z',
-  defensibilityScore: 72,
-  proofScore: 72,
-  leaves: VERIFIED_LEAVES.map((leaf) => {
-    if (leaf.id === 'L6') return { ...leaf, status: 'missing' as LeafStatus, impact: 'Attachment decision missing — independent confirmation absent.' }
-    if (leaf.id === 'L4') return { ...leaf, status: 'invalid' as LeafStatus, impact: 'Settlement envelope hash mismatch — file altered.' }
-    return leaf
-  }),
-  intermediates: INTERMEDIATES,
-  root: {
-    id: 'root',
-    hashFull: 'sha256:3e7b1a4d8c2f5e9b6d1a4f7c2e8b5d9a3f6c1e4b8d7a2f5c9e3b6d1a4f7c2e8b',
-    hashShort: '3e7b1a4d…c2e8b',
-    status: 'partial',
-    tamper: 'changes-detected',
-  },
-}
-
-const SAMPLE_PACKS: Record<string, EvidencePackGraph> = {
-  [SAMPLE_PACK.packId]: SAMPLE_PACK,
-  [SAMPLE_PACK_PARTNER.packId]: SAMPLE_PACK_PARTNER,
-  [SAMPLE_PACK_THIRD.packId]: SAMPLE_PACK_THIRD,
-  [SAMPLE_PACK_TAMPERED.packId]: SAMPLE_PACK_TAMPERED,
-}
-
-// Batch-level metadata. Real batches contain hundreds-to-thousands of intents — the
-// `totalIntents` here is the upstream truth, while only a sample slice is loaded into
-// `SAMPLE_PACKS` for the demo UI.
-const SAMPLE_BATCHES: Record<string, BatchMeta> = {
-  'BATCH-001': { batchId: 'BATCH-001', totalIntents: 1000, totalTransactions: 300, receivedAt: '2026-05-08T09:55:00Z' },
-  'BATCH-002': { batchId: 'BATCH-002', totalIntents: 84, totalTransactions: 84, receivedAt: '2026-05-08T09:30:00Z' },
-}
-
-function packsForBatch(batchId: string): EvidencePackGraph[] {
-  return Object.values(SAMPLE_PACKS).filter((p) => p.batchId === batchId)
-}
-
-const ALL_BATCH_IDS = Object.keys(SAMPLE_BATCHES)
 
 /** Safe graph shell when live pack is not loaded (hooks must not see null). */
 const EMPTY_LIVE_PACK: EvidencePackGraph = {
@@ -243,7 +105,7 @@ type SelectedNode =
 export type MerkleGraphSurfaceProps = {
   /** Deep-link from `/payout-command-view/evidence-pack/[packId]`. */
   initialPackId?: string
-  /** Demo / fallback graph when no session tenant (local UI only). */
+  /** Fallback graph shell when pack APIs return nothing (no sample data). */
   pack?: EvidencePackGraph
   /** Embedded in pack detail Graph tab or Evidence dock — hides page chrome. */
   embedMode?: boolean
@@ -261,7 +123,7 @@ export type MerkleGraphSurfaceProps = {
 
 export function MerkleGraphSurface({
   initialPackId,
-  pack: initialPack = SAMPLE_PACK,
+  pack: initialPack = EMPTY_LIVE_PACK,
   embedMode = false,
   controlledBatchId,
   controlledPackId,
@@ -306,7 +168,7 @@ export function MerkleGraphSurface({
     refresh: refreshKpis,
   } = useIntelligenceKpis({ tenantReady, batchId: activeBatchId, intervalMs: 0 })
   const defensibilityResolved = isDataAvailable(defensibility) ? defensibility : null
-  const defensibilityScore = defensibilityResolved?.defensibility_score ?? 55
+  const defensibilityScore = defensibilityResolved?.defensibility_score ?? 0
 
   const isBatchScopedPack = useCallback(
     (summary: EvidencePackSummaryRow | null | undefined, full: EvidencePackFull): boolean => {
@@ -551,9 +413,6 @@ export function MerkleGraphSurface({
     resolveActiveBatchId,
   ])
 
-  const demoPack = SAMPLE_PACKS[activePackId] ?? initialPack
-  const demoBatchPacks = useMemo(() => packsForBatch(activeBatchId), [activeBatchId])
-
   const liveBatchPacks = useMemo(() => {
     const graphs: EvidencePackGraph[] = []
     const seen = new Set<string>()
@@ -713,10 +572,10 @@ export function MerkleGraphSurface({
     liveBatchPacks[0] ??
     null
 
-  const livePackMissing = useLive && livePack === null && !pinnedGraphLoading
-  const pack = (useLive ? livePack : demoPack) ?? EMPTY_LIVE_PACK
-  const batchPacks = useLive ? liveBatchPacks : demoBatchPacks
-  const showGraph = !useLive || (tenantReady && !livePackMissing && !pinnedGraphLoading)
+  const livePackMissing = tenantReady && livePack === null && !pinnedGraphLoading
+  const pack = livePack ?? EMPTY_LIVE_PACK
+  const batchPacks = liveBatchPacks
+  const showGraph = tenantReady && !livePackMissing && !pinnedGraphLoading
 
   const handleManualRefresh = useCallback(async () => {
     if (!useLive) return
@@ -820,12 +679,6 @@ export function MerkleGraphSurface({
     }
   }, [useLive, batchPacks, activePackId, pinnedPackId])
 
-  useEffect(() => {
-    if (useLive) return
-    const inBatch = batchPacks.some((p) => p.packId === activePackId)
-    if (!inBatch && batchPacks[0]) setActivePackId(batchPacks[0].packId)
-  }, [useLive, activeBatchId, batchPacks, activePackId])
-
   const [zoom, setZoom] = useState(100)
   const [collapsed, setCollapsed] = useState(false)
   const [highlightMissing, setHighlightMissing] = useState(false)
@@ -890,7 +743,7 @@ export function MerkleGraphSurface({
     return { defensibility, proofScore, valid, missing, invalid, total, status }
   }, [batchPacks])
 
-  const displayDefensibility = batchAggregate.proofScore
+  const displayDefensibility = batchPacks.length > 0 && batchAggregate.total > 0 ? batchAggregate.proofScore : null
   const displayCounts = {
     valid: batchAggregate.valid,
     missing: batchAggregate.missing,
@@ -898,7 +751,7 @@ export function MerkleGraphSurface({
   }
   const displayStatus = batchAggregate.status
   const displayStatusLabel = displayStatus === 'verified' ? 'Verified' : displayStatus === 'partial' ? 'Partial' : 'Invalid'
-  const displayStatusDot = displayStatus === 'verified' ? 'bg-[#4ADE80]' : displayStatus === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+  const displayStatusDot = displayStatus === 'verified' ? 'bg-[#000000]' : displayStatus === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
 
   const handleCopy = useCallback((key: string, value: string) => {
     if (typeof navigator === 'undefined' || !navigator.clipboard) return
@@ -919,7 +772,6 @@ export function MerkleGraphSurface({
   )
 
   const batchMetaResolved = useMemo((): BatchMeta | undefined => {
-    if (!useLive) return SAMPLE_BATCHES[activeBatchId]
     const row = intelBatches.find((b) => b.batch_id === activeBatchId)
     if (row) {
       return {
@@ -938,7 +790,7 @@ export function MerkleGraphSurface({
       }
     }
     return undefined
-  }, [useLive, activeBatchId, intelBatches])
+  }, [activeBatchId, intelBatches])
 
   return (
     <div className="space-y-5">
@@ -969,7 +821,7 @@ export function MerkleGraphSurface({
 
       {!tenantReady && useLive ? (
         <section className="rounded-[16px] border border-slate-200 bg-white p-6 text-[15px] text-slate-600">
-          Sign in to load evidence packs from your session tenant. Demo graph data is not shown in live mode.
+          Sign in to load evidence packs from your workspace. Demo graph data is not shown in live mode.
         </section>
       ) : null}
 
@@ -1005,8 +857,8 @@ export function MerkleGraphSurface({
               disabled={Boolean(apiTrimmedString(controlledBatchId))}
               className="mt-0.5 cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[17px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa]"
             >
-              {useLive
-                ? intelBatchOptions.map((b) => (
+              {intelBatchOptions.length > 0 ? (
+                intelBatchOptions.map((b) => (
                     <option key={b.batch_id} value={b.batch_id}>
                       {b.batch_id}
                       {intelBatches.some((x) => apiTrimmedString(x.batch_id) === apiTrimmedString(b.batch_id))
@@ -1014,11 +866,11 @@ export function MerkleGraphSurface({
                         : ' (evidence)'}
                     </option>
                   ))
-                : ALL_BATCH_IDS.map((b) => (
-                    <option key={b} value={b}>
-                      {b}
-                    </option>
-                  ))}
+              ) : (
+                <option value="" disabled>
+                  No batches available
+                </option>
+              )}
             </select>
           </div>
         ) : apiTrimmedString(controlledBatchId) ? (
@@ -1030,7 +882,7 @@ export function MerkleGraphSurface({
           {!hideScopePickers ? (
           <div>
             <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Intent · pack</p>
-            {useLive ? (
+            {tenantReady ? (
               <select
                 value={packSelectValue}
                 onChange={(e) => {
@@ -1060,21 +912,7 @@ export function MerkleGraphSurface({
                 )}
               </select>
             ) : (
-              <select
-                value={activePackId}
-                onChange={(e) => {
-                  setActivePackId(e.target.value)
-                  setSelected(null)
-                }}
-                disabled={batchPacks.length === 0}
-                className="mt-0.5 min-w-[12rem] max-w-[20rem] cursor-pointer rounded-[6px] border border-[#E5E5E5] bg-white px-1.5 py-0.5 font-mono text-[15px] font-semibold text-[#111111] outline-none transition hover:bg-[#fafafa] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {batchPacks.map((p) => (
-                  <option key={p.packId} value={p.packId}>
-                    {p.intentId} · {p.packId}
-                  </option>
-                ))}
-              </select>
+              <p className="mt-0.5 font-mono text-[15px] font-semibold text-[#94a3b8]">—</p>
             )}
             <p className="mt-1 max-w-[20rem] text-[12px] leading-snug text-[#94a3b8]">
               {resolvingIntentId
@@ -1088,7 +926,9 @@ export function MerkleGraphSurface({
         <div>
           <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Proof score</p>
           <div className="mt-0.5 flex items-baseline gap-1">
-            <span className="text-[24px] font-semibold leading-none tabular-nums text-[#111111]">{displayDefensibility}</span>
+            <span className="text-[24px] font-semibold leading-none tabular-nums text-[#111111]">
+              {displayDefensibility ?? '—'}
+            </span>
             <span className="text-[15px] text-[#94a3b8]">/ 100</span>
           </div>
         </div>
@@ -1102,7 +942,7 @@ export function MerkleGraphSurface({
 
         {/* Status summary chips */}
         <div className="flex items-center gap-1.5">
-          <SummaryChip dot="bg-[#4ADE80]" label="Valid" count={displayCounts.valid} />
+          <SummaryChip dot="bg-[#000000]" label="Valid" count={displayCounts.valid} />
           {displayCounts.missing > 0 ? <SummaryChip dot="bg-[#F59E0B]" label="Missing" count={displayCounts.missing} /> : null}
           {displayCounts.invalid > 0 ? <SummaryChip dot="bg-[#EF4444]" label="Invalid" count={displayCounts.invalid} /> : null}
         </div>
@@ -1196,7 +1036,7 @@ export function MerkleGraphSurface({
         ) : null}
 
         <div className="ml-auto flex items-center gap-3 text-[14px] text-[#6f716d]">
-          <Legend dot="bg-[#4ADE80]" label="Valid" />
+          <Legend dot="bg-[#000000]" label="Valid" />
           <Legend dot="bg-[#F59E0B]" label="Missing" />
           <Legend dot="bg-[#EF4444]" label="Invalid" />
           <Legend dot="bg-[#888888]" label="Derived" />
@@ -1253,7 +1093,7 @@ const PAD_X = 28
 const PAD_Y = 32
 
 function edgeColor(status: LeafStatus | 'derived'): string {
-  if (status === 'valid') return '#4ADE80'
+  if (status === 'valid') return '#000000'
   if (status === 'missing') return '#F59E0B'
   if (status === 'invalid') return '#EF4444'
   return '#cfcfcf'
@@ -1366,7 +1206,7 @@ function GraphCanvas({
             aria-hidden
           >
             <defs>
-              {(['#4ADE80', '#F59E0B', '#EF4444', '#cfcfcf'] as const).map((c) => (
+              {(['#000000', '#F59E0B', '#EF4444', '#cfcfcf'] as const).map((c) => (
                 <marker
                   key={c}
                   id={`arrow-${c.replace('#', '')}`}
@@ -1413,7 +1253,7 @@ function GraphCanvas({
               const allValid = inter.derivedFrom.every(
                 (id) => pack.leaves.find((l) => l.id === id)?.status === 'valid',
               )
-              const color = allValid ? '#4ADE80' : '#F59E0B'
+              const color = allValid ? '#000000' : '#F59E0B'
               const dim = dimRootEdge(inter.id)
               const inLineage = lineage?.has(inter.id) && lineage?.has('root')
               return (
@@ -1542,7 +1382,7 @@ function LeafPill({
   highlight: boolean
 }) {
   const dot =
-    node.status === 'valid' ? 'bg-[#4ADE80]' : node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+    node.status === 'valid' ? 'bg-[#000000]' : node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
   const border =
     node.status === 'valid'
       ? 'border-[#E5E5E5]'
@@ -1556,7 +1396,7 @@ function LeafPill({
       title={`${node.name} · ${node.hashFull}`}
       style={{ left: x, top: y, width: PILL_W, height: PILL_H }}
       className={`absolute flex items-center gap-2.5 rounded-full border bg-white pl-2.5 pr-3 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition ${border} ${
-        selected ? 'ring-2 ring-[#4ADE80] ring-offset-2 ring-offset-[#fafafa]' : 'hover:border-[#cfcfcf] hover:shadow-[0_2px_8px_rgba(15,23,42,0.06)]'
+        selected ? 'ring-2 ring-[#000000] ring-offset-2 ring-offset-[#fafafa]' : 'hover:border-[#cfcfcf] hover:shadow-[0_2px_8px_rgba(15,23,42,0.06)]'
       } ${dim ? 'opacity-25' : ''} ${highlight ? 'shadow-[0_0_0_3px_#F59E0B]' : ''}`}
     >
       <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#fafafa] text-[#475569]">
@@ -1596,7 +1436,7 @@ function IntermediatePill({
   const allValid = node.derivedFrom.every(
     (id) => leafLookup.find((l) => l.id === id)?.status === 'valid',
   )
-  const dotColor = allValid ? 'bg-[#4ADE80]' : 'bg-[#F59E0B]'
+  const dotColor = allValid ? 'bg-[#000000]' : 'bg-[#F59E0B]'
   return (
     <button
       type="button"
@@ -1637,7 +1477,7 @@ const RootPill = forwardRef<HTMLButtonElement, RootPillProps>(function RootPill(
   ref,
 ) {
   const dot =
-    node.status === 'verified' ? 'bg-[#4ADE80]' : node.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+    node.status === 'verified' ? 'bg-[#000000]' : node.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
   return (
     <button
       ref={ref}
@@ -1646,10 +1486,10 @@ const RootPill = forwardRef<HTMLButtonElement, RootPillProps>(function RootPill(
       title={`Merkle Root · ${node.hashFull}`}
       style={{ left: x, top: y, width: ROOT_W, height: PILL_H }}
       className={`absolute flex items-center gap-2.5 rounded-full border bg-[#0f172a] pl-2.5 pr-3 text-left text-white shadow-[0_4px_14px_rgba(15,23,42,0.18)] transition ${
-        selected ? 'ring-2 ring-[#4ADE80] ring-offset-2 ring-offset-[#fafafa]' : 'border-[#0f172a]'
+        selected ? 'ring-2 ring-[#000000] ring-offset-2 ring-offset-[#fafafa]' : 'border-[#0f172a]'
       } ${dim ? 'opacity-25' : ''} ${highlight ? 'shadow-[0_0_0_3px_#F59E0B]' : ''}`}
     >
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#4ADE80]">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/10 text-[#000000]">
         <Glyph name="shield" className="h-3.5 w-3.5" />
       </span>
       <span className="flex min-w-0 flex-1 flex-col leading-tight">
@@ -1733,7 +1573,7 @@ function SidePanel({
   if (selected.kind === 'leaf') {
     const inter = intermediateForLeaf.get(selected.node.id)
     const dot =
-      selected.node.status === 'valid' ? 'bg-[#4ADE80]' : selected.node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+      selected.node.status === 'valid' ? 'bg-[#000000]' : selected.node.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
     return (
       <aside className="rounded-[16px] border border-[#E5E5E5] bg-white p-5">
         <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">{evidenceCopy.nodeDrawer.proofItem}</p>
@@ -1855,7 +1695,7 @@ function SidePanel({
               const leaf = pack.leaves.find((l) => l.id === id)
               if (!leaf) return null
               const dot =
-                leaf.status === 'valid' ? 'bg-[#4ADE80]' : leaf.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+                leaf.status === 'valid' ? 'bg-[#000000]' : leaf.status === 'missing' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
               return (
                 <li key={id}>
                   <button
@@ -1890,7 +1730,7 @@ function SidePanel({
 
   // root
   const dot =
-    selected.node.status === 'verified' ? 'bg-[#4ADE80]' : selected.node.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+    selected.node.status === 'verified' ? 'bg-[#000000]' : selected.node.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
   return (
     <aside className="rounded-[16px] border border-[#E5E5E5] bg-white p-5">
       <p className="text-[14px] font-semibold uppercase tracking-[0.12em] text-[#94a3b8]">Merkle root</p>
@@ -1921,7 +1761,7 @@ function SidePanel({
             const allValid = inter.derivedFrom.every(
               (id) => pack.leaves.find((l) => l.id === id)?.status === 'valid',
             )
-            const branchDot = allValid ? 'bg-[#4ADE80]' : 'bg-[#F59E0B]'
+            const branchDot = allValid ? 'bg-[#000000]' : 'bg-[#F59E0B]'
             return (
               <li key={inter.id}>
                 <button
@@ -2035,7 +1875,7 @@ function BatchSummary({
           const valid = p.leaves.filter((l) => l.status === 'valid').length
           const missing = p.leaves.filter((l) => l.status === 'missing').length
           const invalid = p.leaves.filter((l) => l.status === 'invalid').length
-          const dot = p.root.status === 'verified' ? 'bg-[#4ADE80]' : p.root.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
+          const dot = p.root.status === 'verified' ? 'bg-[#000000]' : p.root.status === 'partial' ? 'bg-[#F59E0B]' : 'bg-[#EF4444]'
           return (
             <li key={p.packId}>
               <button
@@ -2056,7 +1896,7 @@ function BatchSummary({
                   <span className="text-[12px] text-[#94a3b8]">/100</span>
                 </span>
                 <span className="flex items-center gap-1 text-[13px] text-[#6f716d]">
-                  <SummaryChip dot="bg-[#4ADE80]" label="Valid" count={valid} />
+                  <SummaryChip dot="bg-[#000000]" label="Valid" count={valid} />
                   {missing > 0 ? <SummaryChip dot="bg-[#F59E0B]" label="Missing" count={missing} /> : null}
                   {invalid > 0 ? <SummaryChip dot="bg-[#EF4444]" label="Invalid" count={invalid} /> : null}
                 </span>

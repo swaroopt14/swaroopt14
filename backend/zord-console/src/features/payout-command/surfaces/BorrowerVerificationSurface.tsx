@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { DM_Mono } from 'next/font/google'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { clampPage } from '../_lib/clampPage'
 import {
   BORROWER_VERIFICATION_MOCK,
   type BorrowerQueueRow,
@@ -56,20 +57,20 @@ function formatClock(d: Date): string {
 }
 
 function statusBadgeTone(status: BorrowerQueueStatus): string {
-  if (status === 'Safe') return 'border border-[#bbf7d0] bg-[#dcfce7] text-[#166534]'
+  if (status === 'Safe') return 'border border-[#e5e5e5] bg-[#f4f4f5] text-[#000000]'
   if (status === 'Review') return 'border border-[#fde68a] bg-[#fef3c7] text-[#92400e]'
   if (status === 'Blocked') return 'border border-[#fecaca] bg-[#fee2e2] text-[#b91c1c]'
   return 'border border-[#e2e8f0] bg-slate-100 text-[#475569]'
 }
 
 function riskScoreTone(score: number): string {
-  if (score < 30) return 'text-[#166534]'
+  if (score < 30) return 'text-[#000000]'
   if (score < 60) return 'text-[#92400e]'
   return 'text-[#b91c1c]'
 }
 
 function signalDotTone(level: SignalLevel): string {
-  if (level === 'pass') return 'bg-[#16a34a]'
+  if (level === 'pass') return 'bg-[#000000]'
   if (level === 'warn') return 'bg-[#d97706]'
   return 'bg-[#dc2626]'
 }
@@ -264,6 +265,10 @@ export function BorrowerVerificationSurface() {
   const pageStart = (safePage - 1) * ROWS_PER_PAGE
   const pageRows = sortedRows.slice(pageStart, pageStart + ROWS_PER_PAGE)
 
+  useEffect(() => {
+    setPage((p) => clampPage(p, totalPages))
+  }, [totalPages])
+
   const baseFunnel = source.funnel[0]?.count ?? 1
   const funnelRows = source.funnel.map((step, index) => {
     const ratio = Math.max(1, (step.count / baseFunnel) * 100)
@@ -378,7 +383,7 @@ export function BorrowerVerificationSurface() {
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className={`text-[1.35rem] font-semibold tracking-[-0.02em] ${HOME_TITLE_BLACK}`}>{source.header.title}</h2>
-            <span className="inline-flex items-center rounded-full border border-[#86efac] bg-[#f0fdf4] px-2.5 py-0.5 text-[12px] font-semibold text-[#166534]">
+            <span className="inline-flex items-center rounded-full border border-[#cbd5e1] bg-[#f4f4f5] px-2.5 py-0.5 text-[12px] font-semibold text-[#000000]">
               {source.header.statusPill}
             </span>
             <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2.5 py-0.5 text-[12px] font-semibold text-sky-700">
@@ -441,7 +446,7 @@ export function BorrowerVerificationSurface() {
                   <dt className="font-medium text-[#00239C]">{metric.label}</dt>
                   <dd
                     className={`font-semibold tabular-nums ${
-                      metric.tone === 'good' ? 'text-[#166534]' : metric.tone === 'warn' ? 'text-[#92400e]' : 'text-[#b91c1c]'
+                      metric.tone === 'good' ? 'text-[#000000]' : metric.tone === 'warn' ? 'text-[#92400e]' : 'text-[#b91c1c]'
                     } ${dmMono.className}`}
                   >
                     {metric.value}
@@ -483,7 +488,7 @@ export function BorrowerVerificationSurface() {
               <li key={insight.title} className="flex items-start gap-2.5">
                 <span
                   className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                    insight.severity === 'high' ? 'bg-[#fda4af]' : insight.severity === 'medium' ? 'bg-[#fcd34d]' : 'bg-[#86efac]'
+                    insight.severity === 'high' ? 'bg-[#fda4af]' : insight.severity === 'medium' ? 'bg-[#fcd34d]' : 'bg-[#cbd5e1]'
                   }`}
                 />
                 <div className="min-w-0">
@@ -684,7 +689,8 @@ export function BorrowerVerificationSurface() {
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-slate-700"
+                disabled={safePage <= 1}
+                className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Prev
               </button>
@@ -694,7 +700,8 @@ export function BorrowerVerificationSurface() {
               <button
                 type="button"
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-slate-700"
+                disabled={safePage >= totalPages}
+                className="rounded border border-slate-300 px-2 py-1 text-[12px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next
               </button>

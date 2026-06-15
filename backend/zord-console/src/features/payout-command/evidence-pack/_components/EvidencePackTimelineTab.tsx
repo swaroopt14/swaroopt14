@@ -82,7 +82,7 @@ export function EvidencePackTimelineTab({ pack, packId, loading }: EvidencePackT
     <ol className="relative space-y-0 border-l border-[#E5E5E5] pl-6">
       {events.map((ev, i) => (
         <li key={`${ev.time}-${i}`} className="relative pb-6 last:pb-0">
-          <span className="absolute -left-[25px] top-1 flex h-3 w-3 rounded-full border-2 border-white bg-[#4ADE80] ring-1 ring-[#4ADE80]/30" />
+          <span className="absolute -left-[25px] top-1 flex h-3 w-3 rounded-full border-2 border-white bg-[#000000] ring-1 ring-[#000000]/30" />
           <p className="text-[13px] font-semibold tabular-nums text-[#94a3b8]">{ev.time}</p>
           <p className="mt-0.5 text-[16px] font-semibold text-[#111111]">{ev.label}</p>
           {ev.detail ? <p className="mt-0.5 font-mono text-[12px] text-[#6f716d]">{ev.detail}</p> : null}

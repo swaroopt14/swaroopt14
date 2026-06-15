@@ -4,9 +4,10 @@ import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntellig
 import { formatJournalMoney } from '../../intent-journal/formatJournalMoney'
 import { useSettlementBatchSelection } from '../context/SettlementBatchSelectionContext'
 import { useSettlementBatchSummary } from '../hooks/useSettlementBatchSummary'
+import { useSettlementBatchIntelligence } from '../hooks/useSettlementBatchIntelligence'
 import { settlementJournalCopy } from '../copy/settlementJournalCopy'
-import { deriveNetSettledDisplay } from '../selectors/deriveNetSettledDisplay'
-import { deriveSettlementDataHealth } from '../selectors/deriveSettlementDataHealth'
+import { derivePaymentPartnerLabel } from '../selectors/derivePaymentPartnerLabel'
+import { outcomeFromMatchConfidence } from '../settlementJournalSidebarUtils'
 
 type SettlementJournalHeroBannerProps = {
   onExport: () => void
@@ -15,49 +16,82 @@ type SettlementJournalHeroBannerProps = {
   filtersActive: boolean
 }
 
+function parseBatchContractAmount(value: unknown): number | null {
+  if (value == null || value === '') return null
+  const n = typeof value === 'number' ? value : Number.parseFloat(String(value).replace(/,/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
 export function SettlementJournalHeroBanner({
   onExport,
   exportDisabled,
   filteredCount,
   filtersActive,
 }: SettlementJournalHeroBannerProps) {
-  const { selectedClientBatchId } = useSettlementBatchSelection()
-  const { totalAmount, totalSettled, loading, rows, outcome } = useSettlementBatchSummary()
+  const { selectedClientBatchId, journalEnabled, tenantReady } = useSettlementBatchSelection()
+  const { loading, rows, observationTotal } = useSettlementBatchSummary()
+  const { batchContract, kpis, loading: intelligenceLoading } = useSettlementBatchIntelligence(
+    selectedClientBatchId,
+    journalEnabled && tenantReady,
+  )
 
   const copy = settlementJournalCopy.kpi
-  const netSettled = deriveNetSettledDisplay(totalAmount, totalSettled, outcome.settled, rows.length)
+  const totalSettlementValue = parseBatchContractAmount(
+    (batchContract as { original_settled_amount?: unknown } | null)?.original_settled_amount,
+  )
   const observedValue =
-    loading && !rows.length ? '—' : rows.length === 0 ? '—' : formatJournalMoney(totalAmount)
-  const countLine = rows.length.toLocaleString('en-IN')
-  const health = deriveSettlementDataHealth(rows)
-  const explicitMatches = rows.filter((r) => r.matchedIntentId && r.matchedIntentId !== '—').length
-  const matchedDisplay =
-    explicitMatches > 0 ? explicitMatches.toLocaleString('en-IN') : health.matchedCount.toLocaleString('en-IN')
-  const matchedSub =
-    explicitMatches > 0
-      ? copy.matchedFromIntentId
-      : rows.length > 0 && health.matchedCount === 0
-        ? copy.matchedAwaitingPipeline
-        : 'Heuristic match status until upstream match IDs ship'
-  const obsSub = filtersActive
-    ? `${filteredCount.toLocaleString('en-IN')} filtered · ${rows.length.toLocaleString('en-IN')} total`
-    : `${rows.length.toLocaleString('en-IN')} settlement records`
+    intelligenceLoading && totalSettlementValue == null
+      ? '—'
+      : totalSettlementValue != null
+        ? formatJournalMoney(totalSettlementValue)
+        : '—'
+  const recordsTotal = observationTotal ?? null
+  const countLine =
+    recordsTotal != null ? recordsTotal.toLocaleString('en-IN') : loading ? '…' : '—'
+  const paymentPartner = derivePaymentPartnerLabel(rows)
+  const recordsReceivedDisplay =
+    loading && recordsTotal == null ? '—' : recordsTotal != null ? recordsTotal.toLocaleString('en-IN') : '—'
+  const settlementMatchedDisplay =
+    intelligenceLoading && kpis.settlementValueMatched == null
+      ? '—'
+      : kpis.settlementValueMatched != null
+        ? formatJournalMoney(kpis.settlementValueMatched)
+        : '—'
+  const varianceAmount = parseBatchContractAmount(batchContract?.variance_amount)
+  const varianceDisplay =
+    intelligenceLoading && varianceAmount == null
+      ? '—'
+      : varianceAmount != null
+        ? formatJournalMoney(varianceAmount)
+        : '—'
+  const varianceSub = varianceAmount != null ? copy.amountVariance : '—'
+
+  const matchOutcome = outcomeFromMatchConfidence(kpis.matchConfidence)
+  const deltaPill =
+    kpis.matchConfidence != null
+      ? `${matchOutcome.label} · ${matchOutcome.progressPct}% match`
+      : intelligenceLoading
+        ? '…'
+        : '—'
+
+  const obsSub =
+    filtersActive && recordsTotal != null
+      ? `${filteredCount.toLocaleString('en-IN')} filtered · ${recordsTotal.toLocaleString('en-IN')} total`
+      : recordsTotal != null
+        ? copy.recordsReceivedSub(recordsTotal.toLocaleString('en-IN'))
+        : loading
+          ? 'Loading observation count…'
+          : '—'
 
   const buckets = [
-    { label: copy.linkedBatch, value: selectedClientBatchId || '—', sub: `Outcome · ${outcome.label}` },
-    { label: copy.recordsReceived, value: filteredCount.toLocaleString('en-IN'), sub: obsSub },
+    { label: copy.paymentPartner, value: paymentPartner, sub: copy.paymentPartnerSub },
+    { label: copy.recordsReceived, value: recordsReceivedDisplay, sub: obsSub },
     {
-      label: copy.recordsMarkedSettled,
-      value: outcome.settled.toLocaleString('en-IN'),
-      sub:
-        outcome.failed > 0
-          ? `${outcome.failed.toLocaleString('en-IN')} failed · ${rows.length.toLocaleString('en-IN')} total rows`
-          : outcome.settledPct != null
-            ? `${outcome.settledPct}% of rows marked settled in source`
-            : '—',
+      label: copy.settlementValueMatched,
+      value: settlementMatchedDisplay,
+      sub: copy.settlementValueMatchedSub,
     },
-    { label: copy.netSettled, value: netSettled.value, sub: netSettled.sub },
-    { label: copy.matchedToIntents, value: matchedDisplay, sub: matchedSub },
+    { label: copy.amountVariance, value: varianceDisplay, sub: varianceSub },
   ] as const
 
   return (
@@ -65,7 +99,7 @@ export function SettlementJournalHeroBanner({
       className="mb-4"
       eyebrow={settlementJournalCopy.hero.label}
       value={observedValue}
-      deltaPill={outcome.label}
+      deltaPill={deltaPill}
       subcopy={`${selectedClientBatchId || settlementJournalCopy.sidebar.selectBatch} · ${countLine} ${settlementJournalCopy.sidebar.records}`}
       buckets={buckets}
       testId="settlement-kpi-hero"

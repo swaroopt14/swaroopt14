@@ -2,7 +2,9 @@ import type { IntentJournalPaymentIntentItem, IntentJournalDlqItem } from '@/ser
 import { readIntentQualityScore } from '@/services/payout-command/prod-api/resolveIntentQualityScore'
 import { READINESS_REVIEW_THRESHOLD } from '../mappers/mapIntentTableRow'
 export type IntentBatchMetrics = {
-  instructionCount: number
+  /** Authoritative count from payment-intents `pagination.total`; null when API total missing. */
+  instructionCount: number | null
+  /** Batch total from batch-ids `total_amount`, else sum of loaded payment-intent amounts. */
   intendedValue: number
   avgReadinessPct: number | null
   /** Batch aggregate from intent-engine `aggregate_confidence_score` (0–1). */
@@ -19,20 +21,33 @@ function parseAmount(raw: string | number | undefined): number {
   return Number.isFinite(n) ? n : 0
 }
 
+export type DeriveIntentBatchMetricsOptions = {
+  /** Authoritative batch intent count from payment-intents `pagination.total`. */
+  paymentIntentTotal?: number | null
+  /** Authoritative batch value from batch-ids `total_amount` (major INR units). */
+  batchTotalAmount?: number | null
+}
+
 export function deriveIntentBatchMetrics(
   paymentIntents: IntentJournalPaymentIntentItem[],
   dlqItems: IntentJournalDlqItem[],
+  options?: DeriveIntentBatchMetricsOptions,
 ): IntentBatchMetrics {
-  const instructionCount = paymentIntents.length
+  const apiTotal = options?.paymentIntentTotal
+  const instructionCount =
+    apiTotal != null && Number.isFinite(apiTotal) && apiTotal >= 0 ? apiTotal : null
   // Sum via integer milli-rupees (3 dp) to eliminate float-drift over large batches.
   // JS floating-point accumulation across 1000s of additions can drift by ~₹1+;
   // rounding each amount to the nearest 0.001 before summing keeps the result
   // consistent with a spreadsheet sum of the same values.
-  const intendedValueMillis = paymentIntents.reduce(
+  const summedValueMillis = paymentIntents.reduce(
     (sum, item) => sum + Math.round(parseAmount(item.amount) * 1000),
     0,
   )
-  const intendedValue = intendedValueMillis / 1000
+  const summedValue = summedValueMillis / 1000
+  const batchTotal = options?.batchTotalAmount
+  const intendedValue =
+    batchTotal != null && Number.isFinite(batchTotal) && batchTotal >= 0 ? batchTotal : summedValue
 
   const readScore = (raw: unknown): number | null => {
     if (typeof raw === 'number' && Number.isFinite(raw)) return raw
@@ -99,10 +114,10 @@ export function deriveIntentBatchHealth(metrics: IntentBatchMetrics): {
   if (metrics.needsReviewCount > 0) {
     return { status: 'Needs Review', reasons }
   }
-  if (metrics.instructionCount > 0 && metrics.dlqCount === 0 && metrics.lowReadinessCount === 0) {
+  if ((metrics.instructionCount ?? 0) > 0 && metrics.dlqCount === 0 && metrics.lowReadinessCount === 0) {
     return { status: 'Ready', reasons: ['All instructions passed validation'] }
   }
-  if (metrics.instructionCount > 0) {
+  if ((metrics.instructionCount ?? 0) > 0) {
     return { status: 'Awaiting Confirmation', reasons: ['Payment instructions received — awaiting bank confirmation'] }
   }
   return { status: 'Ready', reasons: [] }

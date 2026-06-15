@@ -29,7 +29,7 @@ export function PaymentCommandCenterBand({
       <div className="rounded-[12px] border border-slate-200/90 bg-white/95 px-3 py-2.5 shadow-[0_2px_12px_rgba(15,23,42,0.04)] sm:px-3.5 sm:py-2.5">
         <h2
           id="home-today-command-center-title"
-          className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#39E07E] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-[#000000] shadow-sm ring-1 ring-[#39E07E]/30"
+          className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-full bg-[#000000] px-3.5 py-1.5 text-[14px] font-medium tracking-[0] text-white shadow-sm ring-1 ring-black/30"
         >
           {PAYMENT_COMMAND_CENTER.sectionTitle}
         </h2>

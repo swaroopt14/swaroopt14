@@ -32,6 +32,7 @@ export function EvidenceKpiStrip({ cards, loading, defensibilityTier }: Evidence
     <JournalIntelligenceKpiHero
       eyebrow={evidenceCopy.kpi.proofReadinessScore}
       value={primaryValue}
+      tooltip={readiness?.tooltip}
       deltaPill={tierPill}
       subcopy={primarySubcopy}
       buckets={buckets}

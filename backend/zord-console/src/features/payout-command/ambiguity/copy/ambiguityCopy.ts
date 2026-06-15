@@ -1,4 +1,4 @@
-/** Customer-facing copy for Matching Confidence. */
+/** Customer-facing copy for Match Review (ambiguity). */
 
 import type { RiskTier } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { mapReviewPriorityLabel, mapReviewPriorityShort } from '../../leakage/copy/leakageCopy'
@@ -6,9 +6,9 @@ import { mapReviewPriorityLabel, mapReviewPriorityShort } from '../../leakage/co
 export { mapReviewPriorityLabel, mapReviewPriorityShort }
 
 export const ambiguityCopy = {
-  pageTitle: 'Matching Confidence',
+  pageTitle: 'Match Review',
   pageSubtitle:
-    'Payments Zord cannot yet confidently connect to bank or settlement outcomes. Review unclear matches, missing references, and batches that need attention.',
+    'See where Zord cannot confidently connect payment instructions to bank, PSP, or settlement outcomes.',
   linkPaymentGaps: 'See payment gaps in rupees',
   kpi: {
     paymentsNeedingReview: 'Payments Needing Match Review',
@@ -86,7 +86,7 @@ export const ambiguityCopy = {
 } as const
 
 export function reviewRateColor(rate: number): { bar: string; text: string } {
-  if (rate < 0.03) return { bar: 'bg-emerald-500', text: 'text-emerald-900' }
+  if (rate < 0.03) return { bar: 'bg-black', text: 'text-white' }
   if (rate <= 0.08) return { bar: 'bg-amber-500', text: 'text-amber-950' }
   return { bar: 'bg-red-600', text: 'text-red-950' }
 }

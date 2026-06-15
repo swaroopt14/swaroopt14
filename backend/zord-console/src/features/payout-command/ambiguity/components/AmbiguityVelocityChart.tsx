@@ -151,7 +151,7 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
     <article className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="h-2 w-2 animate-pulse rounded-full" style={{ background: '#3dff82' }} />
+          <div className="h-2 w-2 animate-pulse rounded-full" style={{ background: '#000000' }} />
           <span className="text-[12px] font-semibold uppercase tracking-wider text-[#000000]">
             Ambiguity Velocity
           </span>
@@ -177,7 +177,7 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
             {varDelta ? (
               <span
                 className="ml-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold text-[#000000]"
-                style={{ background: '#3dff82' }}
+                style={{ background: '#000000' }}
               >
                 {varDelta.startsWith('-') ? '▼' : '▲'} {varDelta.replace(/^[+-]/, '')}
               </span>

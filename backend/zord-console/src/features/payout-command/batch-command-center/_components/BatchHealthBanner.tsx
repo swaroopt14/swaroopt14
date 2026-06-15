@@ -16,7 +16,7 @@ export function BatchHealthBanner({ state }: { state: BatchHealthState }) {
       ? 'border-amber-200 bg-amber-50 text-amber-950'
       : state === 'waiting'
         ? 'border-sky-200 bg-sky-50 text-sky-950'
-        : 'border-emerald-200 bg-emerald-50 text-emerald-950'
+        : 'border-black/30 bg-neutral-100 text-black'
 
   return (
     <div className={`rounded-xl border px-4 py-4 ${tone}`} data-testid="batch-health-banner">

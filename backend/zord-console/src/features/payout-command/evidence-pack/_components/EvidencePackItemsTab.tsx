@@ -124,7 +124,7 @@ export function EvidencePackItemsTab({ pack, loading }: EvidencePackItemsTabProp
     {
       label: 'Source File',
       reason: 'Bank file used for settlement',
-      tooltip: 'Source settlement file used for this proof pack',
+      tooltip: 'Source settlement file used for this Evidence Pack',
       status: settlementAvailable ? 'Verified' : 'Missing',
       ok: settlementAvailable,
     },

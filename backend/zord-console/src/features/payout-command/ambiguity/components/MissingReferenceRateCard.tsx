@@ -18,7 +18,7 @@ export function MissingReferenceRateCard({ amb }: { amb: AmbiguityKpiResolved | 
       </div>
       <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
         <div className="flex items-center gap-2">
-          <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          <div className="h-1.5 w-1.5 rounded-full bg-black" />
           <p className="text-[12px] font-semibold text-slate-900">{ambiguityCopy.missingRef.benchmarkTitle}</p>
         </div>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-600">{ambiguityCopy.missingRef.benchmarkBody}</p>

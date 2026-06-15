@@ -5,12 +5,12 @@ export const PAYMENT_OPERATIONS = {
     'Track payment instructions, bank confirmations, settlement gaps, proof readiness, and review actions in one place.',
   routingNoticeTitle: 'Routing not active yet',
   routingNoticeBody:
-    'Zord is analyzing payment proof and settlement clarity. PSP/bank routing intelligence becomes available after Mode C integration.',
+    'Zord is analyzing payment proof and settlement clarity. PSP/bank routing intelligence becomes available once bank/PSP dispatch is connected.',
   sourcesTitle: 'Connected Sources',
   sourcesFooter: 'Zord needs both payment instructions and outcome signals to complete proof.',
-  clarityTitle: 'Payment Clarity',
+  clarityTitle: 'Value at Risk',
   clarityIncomplete: 'Incomplete',
-  clarityIncompleteHint: 'Upload missing intent or bank confirmation data to calculate payment clarity.',
+  clarityIncompleteHint: 'Upload missing intent or bank confirmation data to calculate value at risk.',
   intentMissingTitle: 'Intent data missing',
   intentMissingHint:
     'Zord received settlement data, but original payment instructions are missing. Upload the payment file/API data to calculate gaps.',
@@ -18,9 +18,9 @@ export const PAYMENT_OPERATIONS = {
   healthBriefTitle: 'Payment Health Brief',
   healthBriefBody:
     'Zord checks whether payment instructions can be linked to bank, PSP, settlement, or statement records. Items with missing references, weak matches, or settlement gaps are moved to review.',
-  itemsNeedingReviewTitle: 'Items Needing Review',
+  itemsNeedingReviewTitle: 'Operational Review Queues',
   itemsNeedingReviewMeta:
-    'Payments or records in the manual-review DLQ queue that need finance/ops review before they can be marked clean.',
+    'Separate counts for ingest failures, match review, financial exceptions, and open recommendations — no combined fallback.',
   askPanelTitle: 'Ask Zord About This Payment Data',
   askPanelSubtitle:
     'Ask questions about payment gaps, missing references, proof readiness, and review items.',
@@ -28,7 +28,8 @@ export const PAYMENT_OPERATIONS = {
   composerPlaceholder: 'Ask anything or search',
   composerHint: 'Ask: "Which payments need review?" or "What data is missing?"',
   footerLabel: 'Ask Zord about payments, gaps, or proof',
-  routingTabDisabled: 'Routing — Coming after bank/PSP dispatch integration',
+  routingTabDisabled:
+    'Model is still in training phase, please make sure to include words like intent and settlement before use.',
 } as const
 
 export const WORKSPACE_HERO_COPY = {
@@ -59,7 +60,7 @@ export const workspacePromptCopyByTab = {
   Today: {
     question: PAYMENT_OPERATIONS.askPrompt,
     supporting:
-      'Grounded on payment instructions, settlement outcomes, match confidence, and proof readiness for your signed-in tenant.',
+      'Grounded on payment instructions, settlement outcomes, match confidence, and proof readiness for your signed-in workspace.',
     suggestions: [
       'Which payments need review?',
       'Why is proof incomplete for this period?',
@@ -68,7 +69,7 @@ export const workspacePromptCopyByTab = {
       'What should the accounts team upload next?',
     ],
   },
-  'Payment Clarity': {
+  'Value at Risk': {
     question: 'What payment value is unmatched, short-settled, or at risk?',
     supporting: 'Grounded on leakage KPIs: intended vs observed settlement and review exposure.',
     suggestions: [
@@ -79,17 +80,16 @@ export const workspacePromptCopyByTab = {
     ],
   },
   Proof: {
-    question: 'What proof packs or evidence are ready for finance or audit?',
+    question: 'What evidence packs are ready for finance or audit?',
     supporting: 'Grounded on defensibility, evidence pack rate, and governance coverage.',
     suggestions: [
-      'Why is proof incomplete for this period?',
-      'Which proof packs can finance close now?',
+      'Which evidence packs can finance close now?',
       'What evidence is still missing today?',
       'What is blocking proof export?',
     ],
   },
   Sources: {
-    question: 'Which data sources has Zord received for this tenant?',
+    question: 'Which data sources has Zord received for this workspace?',
     supporting: 'Grounded on ingest status for intent files, settlement files, bank statements, and evidence.',
     suggestions: [
       'What should the accounts team upload next?',
@@ -117,8 +117,9 @@ export const workspacePromptCopyByTab = {
 
 export const SUMMARY_TILE_LABELS = {
   inScope: 'Payments in Scope',
-  valueObserved: 'Payment Value Observed',
-  needingReview: 'Value Needing Review',
+  paymentInstructionValue: 'Payment Instruction Value',
+  settlementValueObserved: 'Settlement Value Observed',
+  unmatchedIntentValue: 'Unmatched Intent Value',
   matchConfidence: 'Average Match Confidence',
   proofReadiness: 'Proof Readiness',
 } as const

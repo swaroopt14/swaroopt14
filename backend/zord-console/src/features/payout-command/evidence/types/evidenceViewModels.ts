@@ -16,6 +16,8 @@ export type EvidenceKpiCard = {
   sub: string
   accent?: boolean
   explanation?: string
+  /** Hover-only context (e.g. Evidence Completeness Index X of 65 points). */
+  tooltip?: string
 }
 
 export type ProofBreakdownRow = {

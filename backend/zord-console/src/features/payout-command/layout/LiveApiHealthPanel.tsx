@@ -14,7 +14,7 @@ type LiveApiHealthPanelProps = {
 }
 
 function statusClass(status: LiveApiCheckStatus): string {
-  if (status === 'ok') return 'bg-emerald-50 text-emerald-800 border-emerald-200'
+  if (status === 'ok') return 'bg-neutral-100 text-black border-black/30'
   if (status === 'empty') return 'bg-sky-50 text-sky-800 border-sky-200'
   if (status === 'error') return 'bg-red-50 text-red-800 border-red-200'
   return 'bg-slate-50 text-slate-600 border-slate-200'

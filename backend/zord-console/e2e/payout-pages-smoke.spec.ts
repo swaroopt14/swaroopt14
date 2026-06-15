@@ -16,12 +16,12 @@ const DOCK_CASES: { dock: string; title: string }[] = [
   { dock: 'home', title: 'Payment Command Center' },
   { dock: 'workspace', title: 'Payment Operations View' },
   { dock: 'leakage', title: 'Payment Gaps & Value at Risk' },
-  { dock: 'ambiguity', title: 'Matching Confidence' },
+  { dock: 'ambiguity', title: 'Match Review' },
   { dock: 'verification', title: 'Borrower Verification' },
   { dock: 'monitoring', title: 'Post-Disbursal Monitoring' },
   { dock: 'grid', title: 'Intent Journal' },
   { dock: 'settlement', title: 'Settlement Journal' },
-  { dock: 'connectors', title: 'Routing & Network Intelligence' },
+  { dock: 'connectors', title: 'Connector Performance & Leakage' },
   { dock: 'proof', title: 'Evidence & Dispute Resolution' },
   { dock: 'billing', title: 'Billing' },
 ]
@@ -211,7 +211,48 @@ function emptyProdBody(path: string): unknown {
     return { tenant_id: SESSION_TENANT, batches: [{ batch_id: BATCH_ID, finality_status: 'OPEN', total_count: 1 }] }
   }
   if (path.includes('/intelligence/batches/')) {
-    return { batch_id: BATCH_ID, tenant_id: SESSION_TENANT, data_available: false }
+    return {
+      tenant_id: SESSION_TENANT,
+      intelligence_mode: 'GRADE_A',
+      batch: {
+        batch_id: BATCH_ID,
+        tenant_id: SESSION_TENANT,
+        total_count: 20,
+        success_count: 18,
+        failed_count: 1,
+        pending_count: 1,
+        total_confirmed_amount_minor: 52_653.42,
+        total_variance_minor: -388.32,
+        missing_ref_count: 0,
+        settlement_ref_count: 20,
+        ambiguity_score: 0.75,
+      },
+      batch_health: {
+        total_confirmed_amount_minor: 52_653.42,
+        total_variance_minor: -388.32,
+        total_intended_amount_minor: 53_041.74,
+        ambiguity_score: 0.75,
+        finality_status: 'FULLY_SETTLED',
+      },
+    }
+  }
+  if (path.includes('/intelligence/batch_contract/')) {
+    return {
+      tenant_id: SESSION_TENANT,
+      intelligence_mode: 'GRADE_A',
+      batch_id: BATCH_ID,
+      bank_reference_coverage: '100.00%',
+      settlement_ref_count: 20,
+      bank_ref_present_count: 20,
+      client_ref_present_count: 20,
+      client_reference_coverage: '100.00%',
+      variance_amount: -388.32,
+      orphan_amount: 22_381.29,
+      unmatch_amount: 0,
+      total_confirmed_amount: 52_653.42,
+      match_confidence: 0.75,
+      missing_reference_rate: '0.00%',
+    }
   }
   if (path.endsWith('/intents/payment-intents') || path.endsWith('/intents/dlq-items')) {
     return { items: [] }
@@ -223,7 +264,21 @@ function emptyProdBody(path: string): unknown {
     return { packs: [], total: 0 }
   }
   if (path.endsWith('/intelligence/timeseries/leakage')) {
-    return { data_available: false, points: [], granularity: 'day' }
+    return {
+      data_available: true,
+      tenant_id: SESSION_TENANT,
+      computed_at: '2026-06-09T16:06:41.126247Z',
+      window_start: '2026-06-09T00:00:00Z',
+      window_end: '2026-06-09T00:00:00Z',
+      granularity: 'day',
+      series: [
+        {
+          date: '2026-06-09',
+          current_leakage_minor: 5_714_479.85,
+          predicted_leakage_minor: 13_498_147,
+        },
+      ],
+    }
   }
   if (path.endsWith('/intelligence/leakage')) {
     return {
@@ -277,6 +332,14 @@ function emptyProdBody(path: string): unknown {
       avg_attachment_confidence: 0.82,
       provider_ref_missing_rate: 0.16,
       ambiguous_intent_count: 12,
+      ambiguity_rate: 0.08,
+      clearing_pct: 82,
+      ambiguity_mix_segments: [
+        { name: 'High Confidence', pct: 68 },
+        { name: 'Low Confidence', pct: 8 },
+        { name: 'Ambiguous', pct: 8 },
+        { name: 'Missing Refs', pct: 16 },
+      ],
     }
   }
   if (path.endsWith('/intelligence/recommendations')) {
@@ -314,6 +377,25 @@ function emptyProdBody(path: string): unknown {
       data_available: true,
       tenant_id: SESSION_TENANT,
       computed_at: '2026-06-02T07:00:00Z',
+      decision_success_rate: '64.95%',
+      by_provider: {
+        cashfree: {
+          total_decisions: 25,
+          successful_decision_count: 22,
+          decision_success_rate: '88.00%',
+          ambiguity_rate: '0.00%',
+          unresolved_decisions: 0,
+          orphan_rate: '20.00%',
+        },
+        razorpay: {
+          total_decisions: 17,
+          successful_decision_count: 15,
+          decision_success_rate: '88.24%',
+          ambiguity_rate: '0.00%',
+          unresolved_decisions: 0,
+          orphan_rate: '5.88%',
+        },
+      },
       batch_anomaly_score: 0.31,
       anomaly_level: 'MEDIUM',
       batch_risk_score: 0.39,
@@ -419,7 +501,18 @@ function emptyProdBody(path: string): unknown {
     }
   }
   if (path.endsWith('/settlement/observations/batches')) {
-    return { items: [], client_batch_ids: [BATCH_ID] }
+    return {
+      items: [{ client_batch_id: BATCH_ID }],
+      pagination: { page: 1, page_size: 20, total: 1 },
+    }
+  }
+  if (path.endsWith('/settlement/errors')) {
+    return {
+      items: [
+        { source_row_ref: '2', error_stage: 'PARSING', reason_code: 'EMPTY_RAW_ROW', severity: 'LOW' },
+      ],
+      pagination: { page: 1, page_size: 4, total: 4 },
+    }
   }
   if (path.includes('/intelligence/')) {
     return { data_available: false, tenant_id: SESSION_TENANT }
@@ -677,6 +770,25 @@ function installEmptyProdMocks(page: Page) {
       return
     }
     let body: unknown = emptyProdBody(path)
+    if (path.endsWith('/settlement/observations/batches') && url.searchParams.get('client_batch_id')) {
+      const clientBatchId = url.searchParams.get('client_batch_id') ?? BATCH_ID
+      body = {
+        items: [
+          {
+            settlement_observation_id: 'obs-1',
+            client_batch_id: clientBatchId,
+            provider_reference: 'razorpay',
+            source_system: 'razorpay',
+            amount: 2500,
+            settlement_status: 'SETTLED',
+            source_row_ref: '1',
+            client_reference_candidate: 'PAY-001',
+            bank_reference: 'UTR123',
+          },
+        ],
+        pagination: { page: 1, page_size: 20, total: 20 },
+      }
+    }
     if (/\/evidence\/packs\/[^/]+\/timeline$/.test(path)) {
       body = {
         evidence_pack_id: path.split('/').slice(-2, -1)[0],
@@ -829,7 +941,7 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
 
     await page.goto('/payout-command-view/today?dock=settlement')
     await expect(page.getByTestId('settlement-kpi-hero')).toBeVisible({ timeout: 20_000 })
-    await expect(page.locator('[data-testid^="settlement-kpi-hero-bucket-"]')).toHaveCount(5)
+    await expect(page.locator('[data-testid^="settlement-kpi-hero-bucket-"]')).toHaveCount(4)
 
     await page.goto('/payout-command-view/today?dock=ambiguity')
     await expect(page.getByTestId('ambiguity-kpi-hero')).toBeVisible({ timeout: 20_000 })
@@ -837,7 +949,7 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
 
     await page.goto('/payout-command-view/today?dock=proof')
     await expect(page.getByTestId('evidence-kpi-hero')).toBeVisible({ timeout: 20_000 })
-    await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(6)
+    await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(5)
   })
 
   test('leakage keeps 2x2 KPI structure with dark hero styling', async ({ page }) => {
@@ -849,17 +961,41 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.locator('[data-testid^="leakage-kpi-secondary-"]')).toHaveCount(4)
   })
 
-  test('leakage shows Preview on comparison chart', async ({ page }) => {
-    await page.goto('/payout-command-view/today?dock=leakage')
-    await expect(page.getByText('Preview', { exact: true }).first()).toBeVisible({ timeout: 20_000 })
+  test('view batches navigates from ambiguity dock header', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=ambiguity')
+    await expect(page.getByTestId('ambiguity-kpi-hero')).toBeVisible({ timeout: 20_000 })
+    const viewBatches = page.getByTestId('view-batches-link')
+    await expect(viewBatches).toHaveAttribute('href', /\/payout-command-view\/batch-command-center/)
+    await viewBatches.click()
+    await expect(page).toHaveURL(/\/payout-command-view\/batch-command-center/, { timeout: 15_000 })
   })
 
-  test('ambiguity shows Preview on velocity scatter', async ({ page }) => {
+  test('view batches link works from settlement and intent journal docks', async ({ page }) => {
+    for (const dock of ['settlement', 'grid'] as const) {
+      await page.goto(`/payout-command-view/today?dock=${dock}`)
+      await expect(page.getByTestId('view-batches-link')).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByTestId('view-batches-link')).toHaveAttribute(
+        'href',
+        /\/payout-command-view\/batch-command-center/,
+      )
+      await page.getByTestId('view-batches-link').click()
+      await expect(page).toHaveURL(/\/payout-command-view\/batch-command-center/, { timeout: 15_000 })
+    }
+  })
+
+  test('leakage hides Preview when live comparison timeseries is available', async ({ page }) => {
+    await page.goto('/payout-command-view/today?dock=leakage')
+    await expect(page.getByText('Current leakage').first()).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('Preview', { exact: true })).toHaveCount(0)
+  })
+
+  test('ambiguity shows awaiting-live state when velocity scatter is empty', async ({ page }) => {
     await page.goto('/payout-command-view/today?dock=ambiguity')
     await expect(page.getByText('Ambiguity Velocity')).toBeVisible({ timeout: 20_000 })
-    await expect(page.getByText(/Preview ·|batch batch_live_001|60 batches/).first()).toBeVisible({
+    await expect(page.getByText('Awaiting live data', { exact: true })).toBeVisible({
       timeout: 20_000,
     })
+    await expect(page.getByText('Preview', { exact: true })).toHaveCount(0)
   })
 
   test('connectors renders API-driven routing sections', async ({ page }) => {
@@ -872,10 +1008,12 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     })
 
     await page.goto('/payout-command-view/today?dock=connectors')
-    await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'Connector Performance & Leakage', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
     await expect(page.getByTestId('routing-kpi-bar')).toBeVisible({ timeout: 25_000 })
+    await expect(page.getByTestId('network-health-chart')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByTestId('leakage-composition-chart')).toBeVisible({ timeout: 15_000 })
     await expect(page.getByTestId('connector-grid')).toContainText('Cashfree', { timeout: 15_000 })
     await expect(page.getByTestId('connector-grid')).toContainText('Strengthen provider contract')
     await expect(page.getByTestId('recommended-routes')).toHaveCount(0)
@@ -902,7 +1040,7 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     })
 
     await page.goto('/payout-command-view/today?dock=connectors')
-    await expect(page.getByRole('heading', { name: 'Routing & Network Intelligence', level: 1 })).toBeVisible({
+    await expect(page.getByRole('heading', { name: 'Connector Performance & Leakage', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
     await expect(page.getByTestId('routing-empty-state')).toBeVisible({ timeout: 20_000 })
@@ -911,12 +1049,15 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.getByText('Razorpay')).toHaveCount(0)
   })
 
-  test('evidence charts show Preview when packs empty', async ({ page }) => {
+  test('evidence shows empty pack state when no live packs', async ({ page }) => {
     await page.goto(`/payout-command-view/today?dock=proof&batch_id=${encodeURIComponent(BATCH_ID)}`)
     await expect(page.getByRole('heading', { name: 'Evidence & Dispute Resolution', level: 1 })).toBeVisible({
       timeout: 25_000,
     })
-    await expect(page.getByText('Preview', { exact: true }).first()).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText('Preview', { exact: true })).toHaveCount(0)
+    await expect(
+      page.getByText(/No evidence packs|pack not found|Select a batch|awaiting/i).first(),
+    ).toBeVisible({ timeout: 15_000 })
   })
 
   for (const path of STANDALONE_ROUTES) {

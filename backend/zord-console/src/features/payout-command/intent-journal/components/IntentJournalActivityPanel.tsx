@@ -612,7 +612,7 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                     <thead className="bg-[#f8fafc]">
                       <tr>
                           {[
-                          { key: 'batch', label: 'Batch', icon: 'reference' as const },
+                          { key: 'zordId', label: intentJournalCopy.table.headers.zordId, icon: 'reference' as const },
                             { key: 'rownum', label: 'Row #', icon: 'reference' as const },
                           { key: 'amount', label: 'Amount', icon: 'amount' as const },
                           { key: 'connector', label: 'Connector', icon: 'payment' as const },
@@ -642,7 +642,12 @@ export function IntentJournalActivityPanel({ vm, isSandboxRoute = false }: Inten
                           key={row.requestId}
                           className={`border-t border-[#f3f4f6] hover:bg-[#f9fafb] ${rowIndex % 2 === 1 ? 'bg-slate-50/40' : ''}`}
                         >
-                          <td className="px-3 py-2.5 text-[15px] text-[#475569]">{row.batchId}</td>
+                          <td
+                            className="truncate px-3 py-2.5 font-mono text-[12px] text-[#334155]"
+                            title={row.zordId ?? row.requestId}
+                          >
+                            {row.zordId ?? row.requestId}
+                          </td>
                           <td className="px-3 py-2.5 text-[15px] text-[#475569] tabular-nums">
                             {row.sourceRowNum ?? '—'}
                           </td>

@@ -129,6 +129,8 @@ function formatDlqUpdatedAt(iso?: string): string {
 
 export type JournalFailureRow = {
   batchId: string
+  /** DLQ-scoped display id for Zord ID column (same ZRD- format as intents). */
+  zordId?: string
   requestId: string
   sourceRowNum?: number | null
   reference: string
@@ -323,6 +325,7 @@ export function mapDlqToFailureRow(row: ApiDlqRow, opts?: { inManualReviewQueue?
     apiTrimmedString(row.dlq_status) === 'NEEDS_MANUAL_REVIEW'
   return {
     batchId,
+    zordId: buildZordId(row.dlq_id, batchId),
     requestId: row.dlq_id,
     sourceRowNum: typeof row.source_row_num === 'number' ? row.source_row_num : null,
     reference: row.dlq_id,

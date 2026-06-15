@@ -128,9 +128,6 @@ function generatedAtFrom(inputs: Array<string | undefined | null>): string {
   return new Date(Math.max(...times)).toISOString()
 }
 
-function exposureWeight(connector: ConnectorHealthRow): number {
-  return Math.max(connector.failurePct, 1)
-}
 
 /** Recommendation card lookup keyed by affected source system / provider. */
 function buildCardLookup(cards: RecommendationCard[]): Map<string, RecommendationCard> {
@@ -184,43 +181,18 @@ function resolveExposureTotals(
     (isDataAvailable(recommendations)
       ? readMinor(recommendations.recommendation_impact_estimate_minor)
       : 0)
-  const preventableLeakageMinor = recommendationImpact || unconfirmedExposureMinor * 0.65
+  const preventableLeakageMinor = recommendationImpact
   return { totalIntendedMinor, moneyAtRiskMinor: unconfirmedExposureMinor, preventableLeakageMinor }
 }
 
 function applyLiveExposure(
   connectors: ConnectorHealthRow[],
-  leakage: LeakageKpiResponse | null,
-  ambiguity: AmbiguityKpiResponse | null,
-  recommendations: RecommendationsKpiResponse | null,
-  recommendation: RecommendationSnapshotData | null,
+  _leakage: LeakageKpiResponse | null,
+  _ambiguity: AmbiguityKpiResponse | null,
+  _recommendations: RecommendationsKpiResponse | null,
+  _recommendation: RecommendationSnapshotData | null,
 ): ConnectorHealthRow[] {
-  if (!connectors.length) return []
-  const hasSignal =
-    isDataAvailable(leakage) ||
-    isDataAvailable(ambiguity) ||
-    isDataAvailable(recommendations) ||
-    Boolean(recommendation)
-  if (!hasSignal) return connectors
-
-  const totalWeight = connectors.reduce((sum, connector) => sum + exposureWeight(connector), 0)
-  const { totalIntendedMinor, moneyAtRiskMinor, preventableLeakageMinor } = resolveExposureTotals(
-    leakage,
-    ambiguity,
-    recommendations,
-    recommendation,
-  )
-
-  return connectors.map((connector) => {
-    const share = totalWeight > 0 ? exposureWeight(connector) / totalWeight : 1 / connectors.length
-    return {
-      ...connector,
-      volumeMinor: totalIntendedMinor > 0 ? totalIntendedMinor * share : connector.volumeMinor,
-      moneyAtRiskMinor: moneyAtRiskMinor > 0 ? moneyAtRiskMinor * share : connector.moneyAtRiskMinor,
-      preventableLeakageMinor:
-        preventableLeakageMinor > 0 ? preventableLeakageMinor * share : connector.preventableLeakageMinor,
-    }
-  })
+  return connectors
 }
 
 /** Provider quality patterns → PSP rows for the Connector Grid. */
@@ -462,7 +434,7 @@ function actionsFromCards(cards: RecommendationCard[]): ActionRecommendation[] {
         id: card.card_id || `rec-card-${index}`,
         title,
         impactMinor,
-        preventableMinor: impactMinor * preventableShare(card.confidence),
+        preventableMinor: impactMinor > 0 ? impactMinor * preventableShare(card.confidence) : 0,
         impactLabel: formatRecommendationImpactLabel(card),
       }
     })

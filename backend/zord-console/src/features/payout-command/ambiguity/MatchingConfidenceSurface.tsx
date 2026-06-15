@@ -25,6 +25,7 @@ import { BatchControlList, DataQualityAuditCard } from './components/BatchContro
 import { useBatchSelectWithUrl } from '../hooks/useIntelligenceBatchUrlSync'
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import { LiveDataHint } from '../shared'
+import { BATCH_KPI_UNAVAILABLE } from '../shared/batchKpiScope'
 
 export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const pathname = usePathname()
@@ -56,6 +57,9 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
   }, [initialBatchId])
 
   const effectiveAmb = useMemo((): AmbiguityKpiResolved | null => {
+    if (selectedBatchId && !batchHealth && !batchHealthLoading) {
+      return null
+    }
     if (batchHealth && selectedBatchId) {
       const kpis = batchHealthToAmbiguityKpis(batchHealth)
       return {
@@ -70,8 +74,9 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         risk_tier: amb?.risk_tier ?? 'LOW',
       } as AmbiguityKpiResolved
     }
+    if (selectedBatchId) return null
     return amb
-  }, [amb, batchHealth, selectedBatchId])
+  }, [amb, batchHealth, batchHealthLoading, selectedBatchId])
 
   const handlePageRefresh = useCallback(async () => {
     await Promise.all([refresh(), refreshHeatmap()])
@@ -86,7 +91,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
     selectedBatchId && batchHealth
       ? 'Batch health projection'
       : selectedBatchId
-        ? 'Tenant-wide snapshot'
+        ? BATCH_KPI_UNAVAILABLE
         : 'Tenant-wide snapshot'
 
   const stripLoading =

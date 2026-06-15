@@ -18,9 +18,9 @@ export const PAYMENT_OPERATIONS = {
   healthBriefTitle: 'Payment Health Brief',
   healthBriefBody:
     'Zord checks whether payment instructions can be linked to bank, PSP, settlement, or statement records. Items with missing references, weak matches, or settlement gaps are moved to review.',
-  itemsNeedingReviewTitle: 'Items Needing Review',
+  itemsNeedingReviewTitle: 'Operational Review Queues',
   itemsNeedingReviewMeta:
-    'Payments or records that need finance/ops review before they can be marked clean.',
+    'Separate counts for ingest failures, match review, financial exceptions, and open recommendations — no combined fallback.',
   askPanelTitle: 'Ask Zord About This Payment Data',
   askPanelSubtitle:
     'Ask questions about payment gaps, missing references, proof readiness, and review items.',
@@ -117,8 +117,9 @@ export const workspacePromptCopyByTab = {
 
 export const SUMMARY_TILE_LABELS = {
   inScope: 'Payments in Scope',
-  valueObserved: 'Payment Value Observed',
-  needingReview: 'Value Needing Review',
+  paymentInstructionValue: 'Payment Instruction Value',
+  settlementValueObserved: 'Settlement Value Observed',
+  unmatchedIntentValue: 'Unmatched Intent Value',
   matchConfidence: 'Average Match Confidence',
   proofReadiness: 'Proof Readiness',
 } as const

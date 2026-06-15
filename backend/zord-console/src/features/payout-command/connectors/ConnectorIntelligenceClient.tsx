@@ -100,7 +100,7 @@ function buildImpactSeries(snapshot: RoutingKpiSnapshot) {
       id: action.id,
       action: action.title.length > 26 ? `${action.title.slice(0, 26)}…` : action.title,
       currentMinor: action.impactMinor,
-      preventableMinor: action.preventableMinor ?? action.impactMinor * 0.65,
+      preventableMinor: action.preventableMinor ?? 0,
     }))
 }
 

@@ -3,17 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
-  getAmbiguityKpis,
   getDefensibilityKpis,
   getIntelligenceBatches,
-  getLeakageKpis,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type {
-  AmbiguityKpiResolved,
   DefensibilityKpiResolved,
   IntelligenceBatchRow,
-  LeakageKpiResolved,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { stubIntelligenceBatchRow } from '@/services/payout-command/prod-api/evidenceBatchScope'
@@ -38,6 +34,7 @@ import { deriveEvidenceKpis } from './selectors/deriveEvidenceKpis'
 import { deriveProofBreakdown } from './selectors/deriveProofBreakdown'
 import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
 import type { EvidencePageTab } from './types/evidenceViewModels'
+import { isTenantIntelligenceKpiUnavailableForBatch } from '../shared/batchKpiScope'
 
 /** Prefer batches like 1234 over 123 when both exist in the journal list. */
 function sortBatchPickerRows(rows: IntelligenceBatchRow[]): IntelligenceBatchRow[] {
@@ -47,11 +44,10 @@ function sortBatchPickerRows(rows: IntelligenceBatchRow[]): IntelligenceBatchRow
 }
 
 /**
- * APIs (5 on workspace load):
+ * APIs (3 on workspace load):
  * 1. GET /api/prod/intelligence/defensibility
- * 2. GET /api/prod/intelligence/leakage?batch_id=
- * 3. GET /api/prod/intelligence/batches
- * 4. GET /api/prod/evidence/packs (+ intent journal for full batch list)
+ * 2. GET /api/prod/intelligence/batches
+ * 3. GET /api/prod/evidence/packs (+ intent journal for full batch list)
  * Export tab: GET /api/prod/evidence/packs/{packId} on demand
  */
 export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
@@ -63,8 +59,6 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const [packListError, setPackListError] = useState<string | null>(null)
   const [packsLoading, setPacksLoading] = useState(false)
   const [defensibility, setDefensibility] = useState<DefensibilityKpiResolved | null>(null)
-  const [leakage, setLeakage] = useState<LeakageKpiResolved | null>(null)
-  const [ambiguity, setAmbiguity] = useState<AmbiguityKpiResolved | null>(null)
   const [kpisLoading, setKpisLoading] = useState(false)
   const autoBatchFallbackPending = useRef(!apiTrimmedString(initialBatchId))
 
@@ -117,24 +111,19 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   useEffect(() => {
     if (!tenantReady) {
       setDefensibility(null)
-      setLeakage(null)
-      setAmbiguity(null)
       return
     }
-    const bid = apiTrimmedString(batchId) || undefined
     let cancelled = false
     setKpisLoading(true)
-    void Promise.all([getDefensibilityKpis(), getLeakageKpis(undefined, bid), getAmbiguityKpis(undefined, bid)]).then(([def, leak, amb]) => {
+    void getDefensibilityKpis().then((def) => {
       if (cancelled) return
       setDefensibility(isDataAvailable(def) ? def : null)
-      setLeakage(isDataAvailable(leak) ? leak : null)
-      setAmbiguity(isDataAvailable(amb) ? amb : null)
       setKpisLoading(false)
     })
     return () => {
       cancelled = true
     }
-  }, [tenantReady, batchId])
+  }, [tenantReady])
 
   useEffect(() => {
     const bid = apiTrimmedString(batchId)
@@ -227,8 +216,8 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const batchPackId = batchBrowserRow?.packId
 
   const kpiCards = useMemo(
-    () => deriveEvidenceKpis({ defensibility, leakage, ambiguity, packRows, batchHealth, batchId }),
-    [defensibility, leakage, ambiguity, packRows, batchHealth, batchId],
+    () => deriveEvidenceKpis({ defensibility, packRows, batchHealth, batchId }),
+    [defensibility, packRows, batchHealth, batchId],
   )
 
   const breakdownRows = useMemo(

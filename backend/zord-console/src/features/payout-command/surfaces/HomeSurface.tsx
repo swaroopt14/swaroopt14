@@ -400,9 +400,10 @@ export function HomeSurface({
       if (missingPct != null) return `${Math.max(0, 100 - missingPct).toFixed(0)}%`
       return batchContractLoading ? '…' : '—'
     }
-    return ambData
-      ? `${Math.max(0, 100 - (ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(0)}%`
-      : '—'
+    if (ambData?.carrier_completeness_rate != null) {
+      return `${(ambData.carrier_completeness_rate * 100).toFixed(0)}%`
+    }
+    return '—'
   }, [batchId, batchContract, batchContractLoading, ambData])
 
   const proofCoveragePct = defData
@@ -819,16 +820,16 @@ export function HomeSurface({
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
             fullyMatchedValue={observedMinor !== null ? fmtInrFromMinorExact(observedMinor) : loading ? '…' : '—'}
-            fullyMatchedSub="Payment value matched between instruction and confirmation."
-            fullyMatchedFooter="Fully matched means Zord can link the original payment instruction to a bank or settlement outcome."
+            fullyMatchedSub="Settlement value observed from bank or PSP confirmation signals."
+            fullyMatchedFooter="Observed settlement is the value Zord can link to a bank or settlement outcome — not the same as fully matched intent."
             awaitingConfirmation={bankConfirmedMinor == null}
             reviewValue={reviewDisplay}
             reviewSub={
               leakageData != null
-                ? 'Unmatched payment value from bank/settlement matching.'
+                ? 'Unmatched intent value from payment-to-settlement matching.'
                 : 'No leakage data available for this period.'
             }
-            reviewFooter="This shows payment value affected by missing matches, short settlement, reversals, or unclear status."
+            reviewFooter="This is unmatched intent value only — not total review exposure across all exception types."
             unmatchedDisplay={leakageData ? fmtInrFromMinorExact(unmatchedMinor) : '—'}
             shortSettledDisplay={leakageData ? fmtInrFromMinorExact(underSettlementMinor) : '—'}
             unlinkedDisplay={leakageData ? fmtInrFromMinorExact(unlinkedSettlementMinor) : '—'}
@@ -842,7 +843,9 @@ export function HomeSurface({
             missingRefRate={missingRefRate}
             refCompleteness={refCompleteness}
             multiMatchRate={
-              ambData ? `${((ambData.ambiguity_rate ?? 0) * 100).toFixed(1)}%` : '—'
+              ambData?.candidate_collision_rate != null
+                ? `${(ambData.candidate_collision_rate * 100).toFixed(1)}%`
+                : '—'
             }
             proofCoverageDisplay={proofCoveragePct}
             proofSub="Evidence coverage for audit or export"

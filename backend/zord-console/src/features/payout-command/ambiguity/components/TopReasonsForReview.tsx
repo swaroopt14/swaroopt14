@@ -15,7 +15,7 @@ export function TopReasonsForReview({ amb }: TopReasonsForReviewProps) {
     <article className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <svg className="h-4 w-4" style={{ color: '#3dff82' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <svg className="h-4 w-4 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
         </svg>
         <span className="text-[12px] font-bold uppercase tracking-wider text-[#000000]">
@@ -31,7 +31,7 @@ export function TopReasonsForReview({ amb }: TopReasonsForReviewProps) {
           ) : count != null ? (
             <>
               &ldquo;Detected{' '}
-              <span style={{ color: '#16a34a' }}>{count.toLocaleString('en-IN')}</span> intents needing
+              <span style={{ color: '#000000' }}>{count.toLocaleString('en-IN')}</span> intents needing
               review.&rdquo;
             </>
           ) : (
@@ -46,8 +46,7 @@ export function TopReasonsForReview({ amb }: TopReasonsForReviewProps) {
       {/* CTA button */}
       <button
         type="button"
-        className="mt-5 w-full rounded-xl py-3 text-[12px] font-bold uppercase tracking-widest text-[#000000] transition hover:opacity-90"
-        style={{ background: '#3dff82' }}
+        className="mt-5 w-full rounded-xl bg-black py-3 text-[12px] font-bold uppercase tracking-widest text-white transition hover:opacity-90"
       >
         Execute Optimization
       </button>
@@ -69,7 +68,7 @@ export function TopReasonsForReview({ amb }: TopReasonsForReviewProps) {
                     ? 'bg-red-500'
                     : r.severity === 'medium'
                     ? 'bg-amber-500'
-                    : 'bg-emerald-500'
+                    : 'bg-neutral-500'
                 }`}
               />
               <span className="text-[12px] leading-snug text-slate-700">{r.label}</span>

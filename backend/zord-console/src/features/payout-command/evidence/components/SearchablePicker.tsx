@@ -64,7 +64,7 @@ function saveRecent(key: string | undefined, value: string) {
 
 function badgeClasses(tone: PickerOption['badgeTone']): string {
   if (tone === 'accent') return 'border-violet-200 bg-violet-50 text-violet-800'
-  if (tone === 'success') return 'border-emerald-200 bg-emerald-50 text-emerald-800'
+  if (tone === 'success') return 'border-black/30 bg-neutral-100 text-black'
   if (tone === 'warn') return 'border-amber-200 bg-amber-50 text-amber-900'
   return 'border-slate-200 bg-slate-50 text-slate-600'
 }
@@ -223,7 +223,7 @@ export function SearchablePicker({
         type="button"
         disabled={disabled || !hasOptions}
         onClick={() => setOpen((o) => !o)}
-        className="mt-1 flex h-10 w-full items-center justify-between gap-2 rounded-[0.75rem] border border-slate-200 bg-white px-3 text-left text-[13.5px] font-semibold text-slate-900 outline-none transition hover:border-slate-300 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+        className="mt-1 flex h-10 w-full items-center justify-between gap-2 rounded-[0.75rem] border border-slate-200 bg-white px-3 text-left text-[13.5px] font-semibold text-slate-900 outline-none transition hover:border-slate-300 focus:border-black/60 focus:ring-2 focus:ring-black/15 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
@@ -252,7 +252,7 @@ export function SearchablePicker({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onKeyDown}
               placeholder={searchPlaceholder}
-              className="h-9 w-full rounded-[0.6rem] border border-slate-200 bg-white pl-8 pr-2 text-[13px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-emerald-400/60 focus:ring-2 focus:ring-emerald-400/15"
+              className="h-9 w-full rounded-[0.6rem] border border-slate-200 bg-white pl-8 pr-2 text-[13px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-black/60 focus:ring-2 focus:ring-black/15"
             />
             <Glyph name="search" className="pointer-events-none absolute left-5 top-[14px] h-4 w-4 text-slate-400" />
           </div>
@@ -371,7 +371,7 @@ function PickerRow({
         </span>
       ) : null}
       {selected ? (
-        <span className="ml-auto text-[11px] font-semibold text-emerald-700">Selected</span>
+        <span className="ml-auto text-[11px] font-semibold text-black">Selected</span>
       ) : null}
     </button>
   )

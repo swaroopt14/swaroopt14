@@ -22,7 +22,7 @@ const PAGE_SIZE = 6
 function statusMeta(status: string): { dot: string; label: string; badge: string } {
   switch (status) {
     case 'SETTLED':
-      return { dot: 'bg-emerald-500', label: 'Active', badge: 'bg-emerald-50 text-emerald-700' }
+      return { dot: 'bg-black', label: 'Active', badge: 'bg-black text-white' }
     case 'REQUIRES_REVIEW':
       return { dot: 'bg-amber-500', label: 'Review', badge: 'bg-amber-50 text-amber-700' }
     case 'PARTIALLY_SETTLED':
@@ -59,13 +59,12 @@ export function BatchesNeedingReviewTable({ batches, loading, finalityFilter, on
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <div className="h-2 w-2 animate-pulse rounded-full" style={{ background: '#3dff82' }} />
+          <div className="h-2 w-2 animate-pulse rounded-full bg-black" />
           <span className="text-[12px] font-semibold uppercase tracking-wider text-[#000000]">
             Batch Performance
           </span>
           <span
-            className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#000000]"
-            style={{ background: '#3dff82' }}
+            className="rounded-full bg-black px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white"
           >
             Live Tracking
           </span>
@@ -73,7 +72,7 @@ export function BatchesNeedingReviewTable({ batches, loading, finalityFilter, on
         <select
           value={finalityFilter}
           onChange={(e) => { onFilterChange(e.target.value as '' | FinalityStatus); setPage(0) }}
-          className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[12px] font-medium text-slate-700 focus:border-emerald-500 focus:outline-none appearance-none"
+          className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-[12px] font-medium text-slate-700 focus:border-black focus:outline-none appearance-none"
         >
           {FINALITY_FILTERS.map((f) => (
             <option key={f.label} value={f.value}>{f.label}</option>

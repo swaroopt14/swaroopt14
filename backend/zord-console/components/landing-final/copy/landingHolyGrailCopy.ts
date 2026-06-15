@@ -46,7 +46,7 @@ export const PAYOUT_COMMAND_HOLY_GRAIL = {
   },
   pages: {
     paymentGaps: 'Payment Gaps & Value at Risk',
-    matchingConfidence: 'Matching Confidence',
+    matchingConfidence: 'Match Review',
     borrowerVerification: 'Borrower Verification',
     postDisbursalMonitoring: 'Post-Disbursal Monitoring',
   },

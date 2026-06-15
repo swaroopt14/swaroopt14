@@ -1,6 +1,6 @@
 /**
  * Home / Today / Batch command center — Manrope scale (see `homeDashboardTypography.tsx`).
- * Titles #000000 · supporting prose imperial blue #00239C · micro labels #888888 · accent green in components.
+ * Titles #000000 · supporting prose imperial blue #00239C · micro labels #888888 · accent black in components.
  */
 export const HOME_TITLE_BLACK = 'text-[#000000]'
 export const HOME_BODY_IMPERIAL =
@@ -18,12 +18,19 @@ export const HOME_INSIGHT_PROSE_STRONG = 'font-semibold text-[#000000]'
 export const HOME_INSIGHT_EDITORIAL =
   'text-[20px] font-normal leading-[1.45] tracking-[0] text-[#00239C]'
 
-export const HOME_NEON = '#3dff82'
-export const HOME_NEON_RING = 'rgba(61,255,130,0.22)'
+export const PAYOUT_ACCENT_BLACK = '#000000'
+export const PAYOUT_ACCENT_BLACK_RING = 'rgba(0,0,0,0.22)'
+export const PAYOUT_BADGE_BLACK = 'bg-[#000000] text-white'
 
-/** Green micro-labels for KPI / exception categories (batch + command center). */
+/** @deprecated Use PAYOUT_ACCENT_BLACK — kept for imports that reference HOME_NEON */
+export const HOME_NEON = PAYOUT_ACCENT_BLACK
+/** @deprecated Use PAYOUT_ACCENT_BLACK_RING */
+export const HOME_NEON_RING = PAYOUT_ACCENT_BLACK_RING
+
+/** Black micro-labels for KPI / exception categories (batch + command center). */
 export const COMMAND_CENTER_LABEL_GREEN =
-  'text-[11px] font-semibold uppercase tracking-[0.08em] text-[#16a34a]'
+  'text-[11px] font-semibold uppercase tracking-[0.08em] text-[#000000]'
+export const COMMAND_CENTER_LABEL_BLACK = COMMAND_CENTER_LABEL_GREEN
 
 /** Canonical intelligence blue gradient (Home insights + Leakage hero). */
 export const INTELLIGENCE_BLUE_GRADIENT =
@@ -43,9 +50,9 @@ export const JOURNAL_KPI_STAT_VALUE =
 export const JOURNAL_KPI_STAT_VALUE_MONO =
   'mt-1 break-all font-mono text-[14px] font-semibold tabular-nums tracking-tight text-white'
 
-/** Green insight callout (white copy) — batch trend / ops hints. */
+/** Black insight callout (white copy) — batch trend / ops hints. */
 export const COMMAND_CENTER_INSIGHT_GREEN_CARD =
-  'rounded-xl bg-gradient-to-br from-[#166534] via-[#16a34a] to-[#22c55e] px-4 py-3.5 shadow-[0_8px_28px_rgba(22,163,74,0.32)] ring-1 ring-white/25'
+  'rounded-xl bg-[#000000] px-4 py-3.5 shadow-[0_8px_28px_rgba(0,0,0,0.32)] ring-1 ring-white/25'
 
 /** Journal hero — black account-insight style (Intent + Settlement gross value). */
 export const JOURNAL_HERO_BLACK_CARD =

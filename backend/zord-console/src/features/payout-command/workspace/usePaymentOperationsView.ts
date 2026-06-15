@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
@@ -54,15 +54,17 @@ function sourceIssue(status: DataSourceBadgeStatus): string {
 export function usePaymentOperationsView(batchId?: string): {
   viewModel: PaymentOperationsViewModel
   loading: boolean
+  refresh: () => Promise<void>
 } {
   const { tenantReady } = useSessionTenant()
-  const { displayCount: manualReviewCount, loading: manualReviewLoading } = useDlqManualReviewCount(
+  const { displayCount: manualReviewCount, loading: manualReviewLoading, refetch: refetchManualReview } = useDlqManualReviewCount(
     tenantReady,
     batchId,
   )
   const dateQuery = useMemo(() => commandPeriodToDateRange('month'), [])
 
   const intelligence = useIntelligenceKpis({ tenantReady, batchId, dateQuery })
+  const { refresh: refreshIntelligence, loading: intelligenceLoading } = intelligence
   const leakage = intelligence.leakage
   const ambiguity = intelligence.ambiguity
   const defensibility = intelligence.defensibility
@@ -83,6 +85,7 @@ export function usePaymentOperationsView(batchId?: string): {
     evidencePackRate: evidenceRate,
     auditReadyPct: auditReady != null ? auditReady / 100 : null,
   })
+  const { refresh: refreshDataSources, loading: dataSourcesLoading } = dataSources
 
   const viewModel = useMemo((): PaymentOperationsViewModel => {
     const intendedMinor = leakageOk ? parseMinorField(leakage.total_intended_amount_minor) : 0
@@ -328,8 +331,18 @@ export function usePaymentOperationsView(batchId?: string): {
     manualReviewLoading,
   ])
 
+  const refresh = useCallback(async () => {
+    if (!tenantReady) return
+    await Promise.all([
+      refreshIntelligence(),
+      refreshDataSources(),
+      refetchManualReview(),
+    ])
+  }, [tenantReady, refreshIntelligence, refreshDataSources, refetchManualReview])
+
   return {
     viewModel,
-    loading: intelligence.loading || dataSources.loading || manualReviewLoading,
+    loading: intelligenceLoading || dataSourcesLoading || manualReviewLoading,
+    refresh,
   }
 }

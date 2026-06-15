@@ -22,6 +22,12 @@ function formatVarianceAmount(value: number | null): string {
   return `${prefix}${formatJournalMoney(value)}`
 }
 
+function parseBatchContractAmount(value: unknown): number | null {
+  if (value == null || value === '') return null
+  const n = typeof value === 'number' ? value : Number.parseFloat(String(value).replace(/,/g, ''))
+  return Number.isFinite(n) ? n : null
+}
+
 export function SettlementJournalHeroBanner({
   onExport,
   exportDisabled,
@@ -29,15 +35,22 @@ export function SettlementJournalHeroBanner({
   filtersActive,
 }: SettlementJournalHeroBannerProps) {
   const { selectedClientBatchId, journalEnabled, tenantReady } = useSettlementBatchSelection()
-  const { totalAmount, loading, rows, observationTotal } = useSettlementBatchSummary()
-  const { kpis, loading: intelligenceLoading } = useSettlementBatchIntelligence(
+  const { loading, rows, observationTotal } = useSettlementBatchSummary()
+  const { batchContract, kpis, loading: intelligenceLoading } = useSettlementBatchIntelligence(
     selectedClientBatchId,
     journalEnabled && tenantReady,
   )
 
   const copy = settlementJournalCopy.kpi
+  const totalSettlementValue = parseBatchContractAmount(
+    (batchContract as { original_settled_amount?: unknown } | null)?.original_settled_amount,
+  )
   const observedValue =
-    loading && !rows.length ? '—' : rows.length === 0 ? '—' : formatJournalMoney(totalAmount)
+    intelligenceLoading && totalSettlementValue == null
+      ? '—'
+      : totalSettlementValue != null
+        ? formatJournalMoney(totalSettlementValue)
+        : '—'
   const recordsTotal = observationTotal ?? null
   const countLine =
     recordsTotal != null ? recordsTotal.toLocaleString('en-IN') : loading ? '…' : '—'

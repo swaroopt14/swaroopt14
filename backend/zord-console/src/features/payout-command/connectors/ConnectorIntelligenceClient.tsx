@@ -51,13 +51,13 @@ function trendArrow(trend: TrendDirection): string {
 }
 
 function statusTone(status: ConnectorHealthRow['status']): string {
-  if (status === 'Healthy' || status === 'Reliable') return 'text-emerald-700'
+  if (status === 'Healthy' || status === 'Reliable') return 'text-black'
   if (status === 'Degraded' || status === 'Risk' || status === 'Load') return 'text-amber-700'
   return 'text-slate-700'
 }
 
 function confidenceTone(confidence: RecommendationConfidence): string {
-  if (confidence === 'High') return 'border-emerald-200 bg-emerald-50 text-emerald-700'
+  if (confidence === 'High') return 'border-black/30 bg-neutral-100 text-black'
   if (confidence === 'Medium') return 'border-amber-200 bg-amber-50 text-amber-700'
   return 'border-rose-200 bg-rose-50 text-rose-700'
 }

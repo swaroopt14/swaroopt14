@@ -229,10 +229,10 @@ export const dockItems = [
   },
   {
     id: 'ambiguity',
-    label: 'Matching',
-    navLabel: 'Matching',
-    title: 'Matching Confidence',
-    breadcrumbLabel: 'Matching',
+    label: 'Match Review',
+    navLabel: 'Match Review',
+    title: 'Match Review',
+    breadcrumbLabel: 'Match Review',
     summary:
       'See where Zord cannot confidently connect payment instructions to bank, PSP, or settlement outcomes.',
     icon: 'chart',

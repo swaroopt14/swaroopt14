@@ -31,7 +31,7 @@ export type AskZordPromptLayerProps = {
 function ZordAssistantAvatar({ className = '' }: { className?: string }) {
   return (
     <span
-      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#39E07E] text-[#0A0A0A] shadow-sm ring-1 ring-[#39E07E]/40 ${className}`}
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[#000000] text-[#0A0A0A] shadow-sm ring-1 ring-[#000000]/40 ${className}`}
       aria-hidden
     >
       <Glyph name="zap" className="h-[18px] w-[18px]" />
@@ -133,7 +133,7 @@ function AssistantBubble({
             {body}
           </ReactMarkdown>
           {isStreaming ? (
-            <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-[#39E07E] align-middle" />
+            <span className="ml-0.5 inline-block h-3.5 w-px animate-pulse bg-[#000000] align-middle" />
           ) : null}
         </div>
       </div>

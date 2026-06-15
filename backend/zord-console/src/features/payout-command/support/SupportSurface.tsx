@@ -107,7 +107,7 @@ function categoryAvatarColor(category: string) {
   const hash = category.split('').reduce((s, c) => s + c.charCodeAt(0), 0)
   const palette = [
     'bg-[#dbeafe] text-[#1e40af]',
-    'bg-[#dcfce7] text-[#166534]',
+    'bg-[#f4f4f5] text-[#000000]',
     'bg-[#fef3c7] text-[#92400e]',
     'bg-[#ede9fe] text-[#5b21b6]',
     'bg-[#ffe4e6] text-[#9f1239]',
@@ -127,7 +127,7 @@ function statusTone(status: string) {
   const s = status.toUpperCase()
   if (s.includes('FAIL')) return 'text-rose-600'
   if (s.includes('PEND') || s.includes('PROC')) return 'text-amber-600'
-  if (s.includes('SUCCESS') || s.includes('SETTL') || s.includes('CONFIRM')) return 'text-emerald-600'
+  if (s.includes('SUCCESS') || s.includes('SETTL') || s.includes('CONFIRM')) return 'text-black'
   return 'text-slate-600'
 }
 
@@ -165,11 +165,11 @@ function StatusBadge({ ticket, compact }: { ticket: SupportTicket; compact?: boo
   }
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-800 ${
+      className={`inline-flex items-center gap-1 rounded-full bg-neutral-200 px-2 py-0.5 font-semibold text-black ${
         compact ? 'text-[10px]' : 'text-[11px]'
       }`}
     >
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden />
+      <span className="h-1.5 w-1.5 rounded-full bg-black" aria-hidden />
       Active
     </span>
   )
@@ -401,7 +401,7 @@ function CreditsTab({ tickets }: { tickets: SupportTicket[] }) {
               <tr key={r.id} className="border-t border-slate-100">
                 <td className="py-2">{r.at}</td>
                 <td className="py-2">{i === 0 ? 'Added credits' : 'API usage'}</td>
-                <td className={`py-2 text-right font-semibold ${i === 0 ? 'text-emerald-700' : 'text-slate-700'}`}>
+                <td className={`py-2 text-right font-semibold ${i === 0 ? 'text-black' : 'text-slate-700'}`}>
                   {i === 0 ? `+${money(10000)}` : `-${money(150 + i * 35)}`}
                 </td>
               </tr>
@@ -442,7 +442,7 @@ function ProcessingOverviewTab({ overview, loading }: { overview: ProcessingOver
 
       <FieldCard title="Status breakdown">
         <div className="grid gap-3 sm:grid-cols-4 text-[14px]">
-          <div>✔ Success <span className="font-semibold text-emerald-700">{overview.successPct.toFixed(1)}%</span></div>
+          <div>✔ Success <span className="font-semibold text-black">{overview.successPct.toFixed(1)}%</span></div>
           <div>⚠ Failed <span className="font-semibold text-rose-700">{overview.failedPct.toFixed(1)}%</span></div>
           <div>⏳ Processing <span className="font-semibold text-amber-700">{overview.processingPct.toFixed(1)}%</span></div>
           <div>❓ Unresolved <span className="font-semibold text-blue-700">{overview.unresolvedPct.toFixed(1)}%</span></div>
@@ -454,7 +454,7 @@ function ProcessingOverviewTab({ overview, loading }: { overview: ProcessingOver
           <div className="grid grid-cols-12 gap-1">
             {overview.heatmap.flatMap((row, rowIdx) =>
               row.map((cell, colIdx) => {
-                const color = cell === 0 ? 'bg-slate-200' : cell === 1 ? 'bg-emerald-400' : cell === 2 ? 'bg-amber-400' : 'bg-rose-500'
+                const color = cell === 0 ? 'bg-slate-200' : cell === 1 ? 'bg-neutral-700' : cell === 2 ? 'bg-amber-400' : 'bg-rose-500'
                 return <span key={`${rowIdx}-${colIdx}`} className={`h-3.5 rounded-sm ${color}`} title={`${overview.heatmapLabels[rowIdx] || 'Day'} intensity ${cell}`} />
               }),
             )}
@@ -668,7 +668,7 @@ function SupportRequestsTab({
           <div className="border-t border-slate-200/60 px-5 py-3">
             <button type="button" onClick={() => void copySupportEmail()} className={`w-full text-left text-[12px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>
               {emailCopied ? (
-                <span className="text-emerald-700">Copied {ZORD_SUPPORT_EMAIL}</span>
+                <span className="text-black">Copied {ZORD_SUPPORT_EMAIL}</span>
               ) : (
                 <>
                   Or email us at <span className="font-semibold text-[#00239C] underline">{ZORD_SUPPORT_EMAIL}</span>

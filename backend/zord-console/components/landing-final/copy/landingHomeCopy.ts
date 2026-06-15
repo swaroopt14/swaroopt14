@@ -77,7 +77,7 @@ export const landingHomeCopy = {
         panelCopy: 'Move from provider acknowledgement to bank movement to Evidence Packs without losing the trail between PSP ops, finance, and engineering.',
         panelCapabilities: [
           'Connector Performance & Leakage',
-          'Matching Confidence heatmap',
+          'Match Review heatmap',
           'Settlement Journal linkage',
           'Evidence & Dispute Resolution',
         ],

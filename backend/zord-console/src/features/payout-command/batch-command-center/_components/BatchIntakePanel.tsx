@@ -418,7 +418,7 @@ export function BatchIntakePanel({
           <div
             id="batch-intake-step-1"
             className={`scroll-mt-24 rounded-2xl border p-4 ${
-              intentIngestOk ? 'border-emerald-200 bg-emerald-50/20' : 'border-[#e2e8f0] bg-white'
+              intentIngestOk ? 'border-black/30 bg-neutral-100/80' : 'border-[#e2e8f0] bg-white'
             }`}
           >
             <p className={PORTAL_BLUE_TITLE}>{c.intake.uploadFilesLabel}</p>
@@ -450,7 +450,7 @@ export function BatchIntakePanel({
             id="batch-intake-step-2"
             className={`scroll-mt-24 rounded-2xl border p-4 ${
               settlementIngestOk
-                ? 'border-emerald-200 bg-emerald-50/20'
+                ? 'border-black/30 bg-neutral-100/80'
                 : settlementCredentialsReady
                   ? 'border-[#e2e8f0] bg-white'
                   : 'border-dashed border-[#e2e8f0] bg-[#fafafa]'

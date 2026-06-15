@@ -123,6 +123,7 @@ export type WorkspaceState = {
   selectThread: (threadId: string) => void
   deleteThread: (threadId: string) => void
   submitPrompt: (prompt: string) => Promise<void>
+  refreshStarterAnswer: () => void
   resetForTab: (tab: WorkspaceTab) => void
 }
 
@@ -481,6 +482,13 @@ export function useWorkspaceState(
     }
   }, [activeTab, activeThreadId, authLoading, initialAnswerNonce, tenantId, tenantReady, user?.id])
 
+  const refreshStarterAnswer = useCallback(() => {
+    const hasUserTurn = conversationRef.current.some((m) => m.role === 'user')
+    if (hasUserTurn || activeThreadId) return
+    setInitialAnswer({ body: '', status: 'idle' })
+    setInitialAnswerNonce((n) => n + 1)
+  }, [activeThreadId])
+
   return {
     promptInput,
     setPromptInput,
@@ -495,5 +503,6 @@ export function useWorkspaceState(
     deleteThread,
     submitPrompt,
     resetForTab,
+    refreshStarterAnswer,
   }
 }

@@ -278,6 +278,8 @@ export type RcaKpiResponse = RcaKpiResolved | EmptyKpiResponse
 export type IntelligenceBatchRow = {
   batch_id: string
   tenant_id: string
+  /** Settlement source / partner label from batch_contracts (when present). */
+  source_reference?: string | null
   finality_status: FinalityStatus
   batch_finality_status?: FinalityStatus
   total_count: number

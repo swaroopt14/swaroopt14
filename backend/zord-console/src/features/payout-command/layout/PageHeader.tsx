@@ -164,13 +164,14 @@ export function PageHeader({
           </button>
         ) : null}
 
-        <Link
+        <a
           href={batchCenterHref}
+          data-testid="view-batches-link"
           className="inline-flex h-9 items-center rounded-[8px] border border-[#111111] bg-white px-2.5 text-[14px] font-semibold text-[#111111] hover:bg-[#fafafa]"
           title="View batch-level payment details"
         >
           View Batches
-        </Link>
+        </a>
 
         <ApiKeysPopoverButton label="Integrations" />
 

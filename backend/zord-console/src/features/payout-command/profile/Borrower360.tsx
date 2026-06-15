@@ -34,7 +34,7 @@ function formatInr(amount: number): string {
 
 function docStateChip(state: DocumentState) {
   if (state === 'verified')
-    return <span className="inline-flex items-center gap-1 rounded-full bg-[#dcfce7] px-2 py-0.5 text-[11px] font-semibold text-[#166534]">✓ Verified</span>
+    return <span className="inline-flex items-center gap-1 rounded-full bg-black px-2 py-0.5 text-[11px] font-semibold text-white">✓ Verified</span>
   if (state === 'pending')
     return <span className="inline-flex items-center gap-1 rounded-full bg-[#fef3c7] px-2 py-0.5 text-[11px] font-semibold text-[#92400e]">Pending</span>
   return <span className="inline-flex items-center gap-1 rounded-full bg-[#fee2e2] px-2 py-0.5 text-[11px] font-semibold text-[#b91c1c]">Failed</span>
@@ -42,12 +42,12 @@ function docStateChip(state: DocumentState) {
 
 function resultDot(result: 'pass' | 'warn' | 'fail' | 'pending') {
   const tone =
-    result === 'pass' ? 'bg-[#16a34a]' : result === 'warn' ? 'bg-[#d97706]' : result === 'fail' ? 'bg-[#dc2626]' : 'bg-slate-300'
+    result === 'pass' ? 'bg-[#000000]' : result === 'warn' ? 'bg-[#d97706]' : result === 'fail' ? 'bg-[#dc2626]' : 'bg-slate-300'
   return <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${tone}`} />
 }
 
 function checklistGlyph(state: ChecklistItem['state']) {
-  if (state === 'done') return <span className="font-semibold text-[#16a34a]">✓</span>
+  if (state === 'done') return <span className="font-semibold text-[#000000]">✓</span>
   if (state === 'pending') return <span className="font-semibold text-[#d97706]">○</span>
   return <span className="font-semibold text-slate-400">—</span>
 }
@@ -74,7 +74,7 @@ function DocumentSampleCard({ doc }: { doc: BorrowerDocument }) {
           <div
             className="grid h-12 w-12 place-items-center rounded-full"
             style={{
-              background: `conic-gradient(#16a34a ${Math.min(100, livenessScore * 100)}%, #e2e8f0 0)`,
+              background: `conic-gradient(#000000 ${Math.min(100, livenessScore * 100)}%, #e2e8f0 0)`,
             }}
           >
             <div className="grid h-9 w-9 place-items-center rounded-full bg-white">
@@ -162,7 +162,7 @@ function BackBar({ onBack, label }: { onBack: () => void; label: string }) {
 }
 
 function statusPillTone(status: string): string {
-  if (status === 'Safe' || status === 'Confirmed') return 'bg-[#16a34a]/15 text-[#86efac] ring-1 ring-[#16a34a]/40'
+  if (status === 'Safe' || status === 'Confirmed') return 'bg-[#000000]/15 text-[#cbd5e1] ring-1 ring-[#000000]/40'
   if (status === 'Review' || status === 'Pending') return 'bg-[#d97706]/15 text-[#fcd34d] ring-1 ring-[#d97706]/40'
   return 'bg-[#dc2626]/15 text-[#fca5a5] ring-1 ring-[#dc2626]/40'
 }
@@ -275,13 +275,13 @@ export function BorrowerProfilePage({ borrowerId, onBack }: { borrowerId: string
               </div>
               <div className="flex items-center justify-between">
                 <dt className={FIELD_LABEL}>Penny-drop name match</dt>
-                <dd className={`font-semibold ${profile.bank.pennyDropMatchPct === 100 ? 'text-[#166534]' : profile.bank.pennyDropMatchPct > 0 ? 'text-[#92400e]' : 'text-[#b91c1c]'}`}>
+                <dd className={`font-semibold ${profile.bank.pennyDropMatchPct === 100 ? 'text-[#000000]' : profile.bank.pennyDropMatchPct > 0 ? 'text-[#92400e]' : 'text-[#b91c1c]'}`}>
                   {profile.bank.pennyDropMatchPct > 0 ? `${profile.bank.pennyDropMatchPct}%` : 'Failed'}
                 </dd>
               </div>
               <div className="flex items-center justify-between">
                 <dt className={FIELD_LABEL}>eNACH mandate</dt>
-                <dd className={`font-semibold ${profile.bank.mandateStatus === 'Registered' ? 'text-[#166534]' : profile.bank.mandateStatus === 'Pending' ? 'text-[#92400e]' : 'text-[#b91c1c]'}`}>
+                <dd className={`font-semibold ${profile.bank.mandateStatus === 'Registered' ? 'text-[#000000]' : profile.bank.mandateStatus === 'Pending' ? 'text-[#92400e]' : 'text-[#b91c1c]'}`}>
                   {profile.bank.mandateStatus}
                 </dd>
               </div>
@@ -318,7 +318,7 @@ export function BorrowerProfilePage({ borrowerId, onBack }: { borrowerId: string
 // ── Loan 360 (monitoring dock) ───────────────────────────────────────────────
 
 function emiChipTone(status: EmiHistoryEntry['status']): string {
-  if (status === 'Paid') return 'bg-[#dcfce7] text-[#166534] border-[#bbf7d0]'
+  if (status === 'Paid') return 'bg-[#f4f4f5] text-[#000000] border-[#e5e5e5]'
   if (status === 'Bounced') return 'bg-[#fee2e2] text-[#b91c1c] border-[#fecaca]'
   if (status === 'Due') return 'bg-[#fef3c7] text-[#92400e] border-[#fde68a]'
   return 'bg-slate-100 text-slate-500 border-slate-200'
@@ -345,7 +345,7 @@ export function LoanProfilePage({ loanId, onBack }: { loanId: string; onBack: ()
 
   const dpdPill =
     profile.dpd === 0
-      ? 'bg-[#16a34a]/15 text-[#86efac] ring-1 ring-[#16a34a]/40'
+      ? 'bg-[#000000]/15 text-[#cbd5e1] ring-1 ring-[#000000]/40'
       : profile.dpd <= 30
         ? 'bg-[#d97706]/15 text-[#fcd34d] ring-1 ring-[#d97706]/40'
         : 'bg-[#dc2626]/15 text-[#fca5a5] ring-1 ring-[#dc2626]/40'
@@ -396,7 +396,7 @@ export function LoanProfilePage({ loanId, onBack }: { loanId: string; onBack: ()
               </div>
               <div className="flex items-center justify-between gap-3">
                 <dt className={FIELD_LABEL}>Bank confirmed</dt>
-                <dd className={`font-semibold ${profile.disbursal.confirmedAt ? 'text-[#166534]' : 'text-[#92400e]'}`}>
+                <dd className={`font-semibold ${profile.disbursal.confirmedAt ? 'text-[#000000]' : 'text-[#92400e]'}`}>
                   {profile.disbursal.confirmedAt ?? 'Awaiting confirmation'}
                 </dd>
               </div>
@@ -475,7 +475,7 @@ export function LoanProfilePage({ loanId, onBack }: { loanId: string; onBack: ()
               </div>
               <div className="flex items-center justify-between">
                 <dt className={FIELD_LABEL}>DPD</dt>
-                <dd className={`font-semibold ${profile.dpd === 0 ? 'text-[#166534]' : profile.dpd <= 30 ? 'text-[#92400e]' : 'text-[#b91c1c]'} ${dmMono.className}`}>
+                <dd className={`font-semibold ${profile.dpd === 0 ? 'text-[#000000]' : profile.dpd <= 30 ? 'text-[#92400e]' : 'text-[#b91c1c]'} ${dmMono.className}`}>
                   {profile.dpd} days
                 </dd>
               </div>

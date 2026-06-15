@@ -116,8 +116,12 @@ export async function GET(request: NextRequest) {
       return res
     }
 
-    const payload = (await upstream.json()) as { items?: PaymentIntentLiteUpstream[] }
+    const payload = (await upstream.json()) as {
+      items?: PaymentIntentLiteUpstream[]
+      pagination?: { page?: number; page_size?: number; total?: number }
+    }
     const rawItems = payload.items ?? []
+    const upstreamPagination = payload.pagination
 
     const items = rawItems.map((item) => {
       const resolvedBatchId =
@@ -152,9 +156,9 @@ export async function GET(request: NextRequest) {
     const res = NextResponse.json({
       items,
       pagination: {
-        page: 1,
-        page_size: items.length,
-        total: items.length,
+        page: upstreamPagination?.page ?? 1,
+        page_size: upstreamPagination?.page_size ?? items.length,
+        total: upstreamPagination?.total ?? items.length,
       },
     })
     applyRefreshedSessionCookies(res, gate.refreshedPayload)

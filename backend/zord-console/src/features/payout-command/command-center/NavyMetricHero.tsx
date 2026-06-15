@@ -19,7 +19,7 @@ type NavyMetricHeroProps = {
   value: string
   /** Shown smaller after value, e.g. `/mo` */
   valueSuffix?: string
-  deltaPill: string
+  deltaPill?: string
   subcopy: string
   buckets?: readonly NavyHeroBucket[]
   bucketCols?: BucketCols
@@ -87,9 +87,11 @@ export function NavyMetricHero({
             <span className="ml-1.5 text-[27px] font-light tracking-[-0.02em] text-white/45">{valueSuffix}</span>
           ) : null}
         </p>
-        <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[12px] font-medium text-white/75">
-          {deltaPill}
-        </span>
+        {deltaPill ? (
+          <span className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-0.5 text-[12px] font-medium text-white/75">
+            {deltaPill}
+          </span>
+        ) : null}
       </div>
       <p className="mt-2 text-[13px] leading-relaxed text-white/65">{subcopy}</p>
       {footer ? <div className="mt-4 flex flex-wrap gap-2">{footer}</div> : null}
@@ -113,7 +115,7 @@ export function NavyMetricHero({
 }
 
 const SPARK_STROKE: Record<NonNullable<NavyHeroBucket['sparkTone']>, string> = {
-  good: '#34d399',
+  good: '#000000',
   warn: '#fbbf24',
   bad: '#f87171',
   neutral: 'rgba(255,255,255,0.65)',

@@ -163,25 +163,25 @@ REG_HTTP=$(echo "${REG_RESP}" | tail -1)
 REG_BODY=$(echo "${REG_RESP}" | sed '$d')
 
 if [ "$REG_HTTP" = "201" ]; then
-  TENANT_ID=$(echo "${REG_BODY}" | jq -r '.TenantId')
+  ADMIN_TENANT_ID=$(echo "${REG_BODY}" | jq -r '.TenantId')
   API_KEY=$(echo "${REG_BODY}" | jq -r '.APIKEY')
-  if [ -n "$TENANT_ID" ] && [ "$TENANT_ID" != "null" ] && [ -n "$API_KEY" ] && [ "$API_KEY" != "null" ]; then
-    log_pass "Create tenant" "TenantId=${TENANT_ID}"
+  if [ -n "$ADMIN_TENANT_ID" ] && [ "$ADMIN_TENANT_ID" != "null" ] && [ -n "$API_KEY" ] && [ "$API_KEY" != "null" ]; then
+    log_pass "Create tenant" "TenantId=${ADMIN_TENANT_ID}"
   else
     log_fail "Create tenant" "201 but missing TenantId/APIKEY in response"
-    TENANT_ID=""
+    ADMIN_TENANT_ID=""
     API_KEY=""
   fi
 else
   log_fail "Create tenant" "Expected 201, got ${REG_HTTP}: ${REG_BODY}"
-  TENANT_ID=""
+  ADMIN_TENANT_ID=""
   API_KEY=""
 fi
 
 # Verify tenant exists by querying it back
 run_test "Tenant Verification: Query tenant by ID"
-if [ -n "$TENANT_ID" ]; then
-  VERIFY_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/admin/tenants/${TENANT_ID}" \
+if [ -n "$ADMIN_TENANT_ID" ]; then
+  VERIFY_RESP=$(curl -s -w "\n%{http_code}" "${BASE_URL}/v1/admin/tenants/${ADMIN_TENANT_ID}" \
     -H "Authorization: Bearer ${AUTH_BEARER:-}" \
     -H "X-Zord-ADMIN-KEY: ${ADMIN_KEY}")
   VERIFY_HTTP=$(echo "${VERIFY_RESP}" | tail -1)

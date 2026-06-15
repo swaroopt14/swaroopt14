@@ -16,12 +16,6 @@ type SettlementJournalHeroBannerProps = {
   filtersActive: boolean
 }
 
-function formatVarianceAmount(value: number | null): string {
-  if (value == null) return '—'
-  const prefix = value > 0 ? '+' : ''
-  return `${prefix}${formatJournalMoney(value)}`
-}
-
 function parseBatchContractAmount(value: unknown): number | null {
   if (value == null || value === '') return null
   const n = typeof value === 'number' ? value : Number.parseFloat(String(value).replace(/,/g, ''))
@@ -63,12 +57,14 @@ export function SettlementJournalHeroBanner({
       : kpis.settlementValueMatched != null
         ? formatJournalMoney(kpis.settlementValueMatched)
         : '—'
+  const varianceAmount = parseBatchContractAmount(batchContract?.variance_amount)
   const varianceDisplay =
-    intelligenceLoading && kpis.varianceAmount == null
+    intelligenceLoading && varianceAmount == null
       ? '—'
-      : formatVarianceAmount(kpis.varianceAmount)
-  const varianceSub =
-    kpis.varianceAmount != null ? copy.amountVarianceSub : copy.amountVarianceAwaiting
+      : varianceAmount != null
+        ? formatJournalMoney(varianceAmount)
+        : '—'
+  const varianceSub = varianceAmount != null ? copy.amountVariance : '—'
 
   const matchOutcome = outcomeFromMatchConfidence(kpis.matchConfidence)
   const deltaPill =

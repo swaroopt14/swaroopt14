@@ -15,6 +15,7 @@ spec:
     spec:
       securityContext:
         fsGroup: 999
+      priorityClassName: infra-critical
       containers:
         - name: postgres
           image: postgres:16-alpine

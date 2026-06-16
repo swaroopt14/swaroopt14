@@ -20,12 +20,7 @@ kubectl apply -k kubernetes/eks
 ```
 
 ```bash
-kubectl rollout restart deployment,statefulset,daemonset --all -n zord
-```
-
-# Wait for all deployments to finish rolling out
-```bash
-kubectl rollout status deployment --all -n zord --timeout=300s
+kubectl get deployment,statefulset,daemonset -n zord -o name | xargs -n1 kubectl rollout restart -n zord
 ```
 To monitor the restart:
 

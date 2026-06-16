@@ -17,10 +17,29 @@ git pull
 
 # Apply changes
 kubectl apply -k kubernetes/eks
-
-# Restart affected services to pick up new config
-kubectl rollout restart deployment zord-edge zord-intent-engine -n zord
 ```
+
+```bash
+kubectl rollout restart deployment,statefulset,daemonset --all -n zord
+```
+
+# Wait for all deployments to finish rolling out
+```bash
+kubectl rollout status deployment --all -n zord --timeout=300s
+```
+To monitor the restart:
+
+```bash
+kubectl get pods -n zord -w
+```
+
+Or verify the workloads:
+
+```bash
+kubectl get deploy,sts,ds -n zord
+```
+
+
 
 ---
 

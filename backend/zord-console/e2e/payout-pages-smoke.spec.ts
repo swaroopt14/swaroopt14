@@ -1047,6 +1047,7 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.getByTestId('routing-kpi-bar')).toHaveCount(0)
     await expect(page.getByTestId('connector-grid')).toHaveCount(0)
     await expect(page.getByText('Razorpay')).toHaveCount(0)
+    await expect(page.getByTestId('preventable-leakage-impact')).toHaveCount(0)
   })
 
   test('evidence shows empty pack state when no live packs', async ({ page }) => {

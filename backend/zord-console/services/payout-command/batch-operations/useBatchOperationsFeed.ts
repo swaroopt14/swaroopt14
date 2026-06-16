@@ -237,7 +237,7 @@ export function useBatchOperationsFeed(options: {
           getPatternsKpis(id),
           getLeakageKpis(undefined, id),
           getAmbiguityKpis(undefined, id),
-          getDefensibilityKpis(),
+          getDefensibilityKpis(undefined, id),
           getSettlementObservationsForClientBatch(id),
         ])
 

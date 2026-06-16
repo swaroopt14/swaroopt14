@@ -5,8 +5,13 @@ import { usePathname } from 'next/navigation'
 import type { AmbiguityKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntelligenceKpiHero'
 import { ambiguityCopy } from '../copy/ambiguityCopy'
-import { formatAmbiguityInr } from '../utils/formatAmbiguityInr'
 import { formatDeltaPct, getKpiDeltas } from '../utils/ambiguityApiMappers'
+import {
+  formatKpiCount,
+  formatKpiMoneyMinor,
+  formatKpiRatePercent,
+  KPI_UNAVAILABLE,
+} from '../../shared/formatKpiDisplay'
 
 type Props = { amb: AmbiguityKpiResolved | null; loading?: boolean; scopeHint?: string }
 
@@ -22,15 +27,13 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
   }
 
   const deltas = getKpiDeltas(amb)
-  const rate = amb?.ambiguity_rate
-  const missingRate = amb?.provider_ref_missing_rate
-  const ambiguityRateLabel = rate != null ? `${(rate * 100).toFixed(1)}%` : '—'
-  const ambiguityRateDelta = formatDeltaPct(amb?.ambiguity_rate_delta_pct) ?? '—'
+  const ambiguityRateLabel = formatKpiRatePercent(amb?.ambiguity_rate)
+  const ambiguityRateDelta = formatDeltaPct(amb?.ambiguity_rate_delta_pct) ?? KPI_UNAVAILABLE
 
   const buckets = [
     {
       label: 'Ambiguous intents',
-      value: amb?.ambiguous_intent_count != null ? amb.ambiguous_intent_count.toLocaleString('en-IN') : '—',
+      value: formatKpiCount(amb?.ambiguous_intent_count),
       sub: deltas.ambiguousIntents ?? 'Payments needing match review',
     },
     {
@@ -40,12 +43,12 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
     },
     {
       label: 'Missing ref rate',
-      value: missingRate != null ? `${(missingRate * 100).toFixed(1)}%` : '—',
+      value: formatKpiRatePercent(amb?.provider_ref_missing_rate),
       sub: deltas.missingRefRate ?? 'Missing bank or PSP references',
     },
     {
       label: 'Value at risk',
-      value: formatAmbiguityInr(amb?.value_at_risk_minor),
+      value: formatKpiMoneyMinor(amb?.value_at_risk_minor),
       sub: deltas.valueAtRisk ?? 'Exposure at risk from uncertain matches',
     },
   ] as const

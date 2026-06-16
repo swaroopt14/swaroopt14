@@ -6,15 +6,9 @@ import Link from 'next/link'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { useAmbiguityHeatmap } from '@/services/payout-command/prod-api/useAmbiguityHeatmap'
-import { batchHealthToAmbiguityKpis } from '@/services/payout-command/prod-api/mapBatchHealthKpis'
-import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type {
-  AmbiguityKpiResolved,
-  FinalityStatus,
-  IntelligenceBatchRow,
-} from '@/services/payout-command/prod-api/intelligenceTypes'
+import type { FinalityStatus, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { MatchingConfidenceKpiStrip } from './components/MatchingConfidenceKpiStrip'
 import { TopReasonsForReview } from './components/TopReasonsForReview'
 import { AmbiguityVelocityChart } from './components/AmbiguityVelocityChart'
@@ -46,44 +40,10 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
   } = useAmbiguityHeatmap(tenantReady)
   const amb = isDataAvailable(ambiguity) ? ambiguity : null
 
-  const { batchHealth, loading: batchHealthLoading } = useIntelligenceBatchHealth(
-    tenantReady,
-    selectedBatchId,
-  )
-
   useEffect(() => {
     const pinned = initialBatchId?.trim()
     if (pinned) setSelectedBatchId(pinned)
   }, [initialBatchId])
-
-  const effectiveAmb = useMemo((): AmbiguityKpiResolved | null => {
-    if (amb) {
-      if (batchHealth && selectedBatchId) {
-        const kpis = batchHealthToAmbiguityKpis(batchHealth)
-        return {
-          ...amb,
-          ambiguous_intent_count: kpis.ambiguous_intent_count,
-          ambiguity_rate: kpis.ambiguity_rate,
-          provider_ref_missing_rate: kpis.provider_ref_missing_rate,
-        }
-      }
-      return amb
-    }
-    if (selectedBatchId && batchHealth) {
-      const kpis = batchHealthToAmbiguityKpis(batchHealth)
-      return {
-        data_available: true,
-        tenant_id: '',
-        ambiguous_intent_count: kpis.ambiguous_intent_count,
-        ambiguity_rate: kpis.ambiguity_rate,
-        provider_ref_missing_rate: kpis.provider_ref_missing_rate,
-        value_at_risk_minor: '',
-        avg_attachment_confidence: 0,
-        risk_tier: 'LOW',
-      } as AmbiguityKpiResolved
-    }
-    return null
-  }, [amb, batchHealth, selectedBatchId])
 
   const handlePageRefresh = useCallback(async () => {
     await Promise.all([refresh(), refreshHeatmap()])
@@ -91,12 +51,11 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
 
   useRegisterPayoutPageActions({
     refresh: tenantReady ? handlePageRefresh : undefined,
-    refreshing: kpiLoading || heatmapLoading || batchHealthLoading,
+    refreshing: kpiLoading || heatmapLoading,
   })
 
   const kpiScopeHint = intelligenceKpiScopeLabel(selectedBatchId)
-
-  const stripLoading = kpiLoading && !effectiveAmb
+  const stripLoading = kpiLoading && !amb
 
   const [finalityFilter, setFinalityFilter] = useState<'' | FinalityStatus>('')
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
@@ -208,7 +167,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
       </header>
 
       <LiveDataHint
-        isLive={Boolean(tenantReady && (effectiveAmb || amb))}
+        isLive={Boolean(tenantReady && amb)}
         source="intelligence"
       />
 
@@ -219,13 +178,13 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         <div className="flex flex-col gap-4">
           {/* KPI cards strip */}
           <MatchingConfidenceKpiStrip
-            amb={effectiveAmb}
+            amb={amb}
             loading={stripLoading}
             scopeHint={kpiScopeHint}
           />
 
           {/* Ambiguity Velocity chart */}
-          <AmbiguityVelocityChart amb={effectiveAmb ?? amb} batchId={selectedBatchId} />
+          <AmbiguityVelocityChart amb={amb} batchId={selectedBatchId} />
         </div>
 
         {/* Right column: Zord Intelligence + Heatmap */}

@@ -43,7 +43,7 @@ spec:
             - name: xpack.security.http.ssl.enabled
               value: "false"
             - name: ES_JAVA_OPTS
-              value: "-Xms1g -Xmx1g"
+              value: "-Xms512m -Xmx512m"
             - name: cluster.name
               value: zord-logs
             - name: node.name
@@ -56,10 +56,10 @@ spec:
           resources:
             requests:
               cpu: 500m
-              memory: 2Gi
+              memory: 1Gi
             limits:
               cpu: "2"
-              memory: 3Gi
+              memory: 2Gi
           readinessProbe:
             httpGet:
               path: /_cluster/health?local=true

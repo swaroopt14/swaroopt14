@@ -40,12 +40,19 @@ data:
     <filter kubernetes.**>
       @type record_transformer
       enable_ruby true
+      remove_keys kubernetes,docker,logtag
       <record>
         cluster zord-eks-prod
         namespace ${record.dig("kubernetes", "namespace_name") rescue "unknown"}
         pod ${record.dig("kubernetes", "pod_name") rescue "unknown"}
         container ${record.dig("kubernetes", "container_name") rescue "unknown"}
-        service ${(record.dig("kubernetes", "labels", "app.kubernetes.io/name") || record.dig("kubernetes", "labels", "app")) rescue "unknown"}
+        service ${(record.dig("kubernetes", "labels", "app.kubernetes.io/name") || record.dig("kubernetes", "labels", "app") || record.dig("kubernetes", "container_name")) rescue "unknown"}
+        image ${record.dig("kubernetes", "container_image") rescue "unknown"}
+        image_id ${record.dig("kubernetes", "container_image_id") rescue ""}
+        pod_id ${record.dig("kubernetes", "pod_id") rescue ""}
+        pod_ip ${record.dig("kubernetes", "pod_ip") rescue ""}
+        host ${record.dig("kubernetes", "host") rescue "unknown"}
+        container_id ${record.dig("docker", "container_id") rescue ""}
       </record>
     </filter>
 
@@ -105,7 +112,7 @@ data:
         @type file
         path /var/log/fluentd-buffers/kubernetes.system.buffer
         flush_mode interval
-        flush_interval 5s
+        flush_interval 2s
         flush_thread_count 2
         retry_type exponential_backoff
         retry_forever true

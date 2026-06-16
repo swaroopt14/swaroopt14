@@ -69,6 +69,10 @@ kubectl rollout restart deployment otel-collector jaeger -n tracing
 ```
 
 ---
+```bash
+# Force secret sync
+kubectl annotate externalsecret zord-app-secrets -n zord force-sync=$(date +%s) --overwrite
+```
 
 ## Rollback (If Something Goes Wrong)
 

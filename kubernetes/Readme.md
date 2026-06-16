@@ -995,9 +995,16 @@ kubectl wait --for=condition=Ready pod/zord-kafka-0 -n zord --timeout=300s
 kubectl apply -k kubernetes/api-gateway
 
 # 4. Deploy observability
-kubectl apply -k kubernetes/monitoring
+# 1. Logging FIRST (wait for ES to be ready)
 kubectl apply -k kubernetes/logging
+kubectl wait --for=condition=Ready pod -l app=elasticsearch -n logging --timeout=120s
+
+# 2. Then monitoring
+kubectl apply -k kubernetes/monitoring
+
+# 3. Then tracing
 kubectl apply -k kubernetes/tracing
+
 
 # 5. Verify all pods
 kubectl get pods -n zord

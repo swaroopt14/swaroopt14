@@ -21,13 +21,11 @@ const leakageFeatureVersion = "leakage_batch_features_v1"
 const leakagePredictionModelID = "leakage_prediction_v1"
 
 type LeakagePredictionService struct {
-	batchRepo         *persistence.BatchContractRepo
-	projRepo          *persistence.ProjectionRepo
-	mlRepo            *persistence.MLFeatureStoreRepo
-	predRepo          *persistence.MLPredictionRepo
-	mlClient          *mlclient.Client
-	intentRepo        *persistence.IntentBridgeRepo
-	outcomeIntentRepo *persistence.OutcomeIntentBridgeRepo
+	batchRepo *persistence.BatchContractRepo
+	projRepo  *persistence.ProjectionRepo
+	mlRepo    *persistence.MLFeatureStoreRepo
+	predRepo  *persistence.MLPredictionRepo
+	mlClient  *mlclient.Client
 }
 
 func NewLeakagePredictionService(
@@ -36,61 +34,16 @@ func NewLeakagePredictionService(
 	mlRepo *persistence.MLFeatureStoreRepo,
 	predRepo *persistence.MLPredictionRepo,
 	mlClient *mlclient.Client,
-	intentRepo *persistence.IntentBridgeRepo,
-	outcomeIntentRepo *persistence.OutcomeIntentBridgeRepo,
 ) *LeakagePredictionService {
 	return &LeakagePredictionService{
-		batchRepo:         batchRepo,
-		projRepo:          projRepo,
-		mlRepo:            mlRepo,
-		predRepo:          predRepo,
-		mlClient:          mlClient,
-		intentRepo:        intentRepo,
-		outcomeIntentRepo: outcomeIntentRepo,
+		batchRepo: batchRepo,
+		projRepo:  projRepo,
+		mlRepo:    mlRepo,
+		predRepo:  predRepo,
+		mlClient:  mlClient,
 	}
 }
 
-func (s *LeakagePredictionService) SyncIntentPredictionIfStale(
-	ctx context.Context,
-	tenantID, batchID string,
-) error {
-	if s == nil || s.intentRepo == nil || tenantID == "" || batchID == "" {
-		return nil
-	}
-
-	snapshot, err := s.intentRepo.GetBatchSnapshot(ctx, tenantID, batchID)
-	if err != nil {
-		return err
-	}
-	if snapshot == nil {
-		return nil
-	}
-	if err := s.syncOutcomeCanonicalIntents(ctx, tenantID, batchID); err != nil {
-		return err
-	}
-
-	current, err := s.batchRepo.GetByID(ctx, batchID)
-	if err != nil {
-		return err
-	}
-	if current != nil && intentPredictionCurrent(current, snapshot) {
-		return nil
-	}
-
-	if err := s.batchRepo.UpsertIntentSnapshot(ctx, snapshot.ToBatchContract()); err != nil {
-		return err
-	}
-
-	anchor := time.Now().UTC()
-	if snapshot.BusinessBatchAt != nil {
-		anchor = snapshot.BusinessBatchAt.UTC()
-	} else if snapshot.FirstIntentCreatedAt != nil {
-		anchor = snapshot.FirstIntentCreatedAt.UTC()
-	}
-	window := todayWindow(anchor)
-	s.ScoreBatchAsync(ctx, tenantID, batchID, window.start, window.end)
-	return nil
-}
 
 func (s *LeakagePredictionService) ScoreBatchAsync(
 	ctx context.Context,
@@ -271,22 +224,6 @@ func (s *LeakagePredictionService) TrainOnLabel(
 	})
 }
 
-func (s *LeakagePredictionService) syncOutcomeCanonicalIntents(
-	ctx context.Context,
-	tenantID, batchID string,
-) error {
-	if s == nil || s.intentRepo == nil || s.outcomeIntentRepo == nil {
-		return nil
-	}
-	records, err := s.intentRepo.ListOutcomeCanonicalIntents(ctx, tenantID, batchID)
-	if err != nil {
-		return err
-	}
-	if len(records) == 0 {
-		return nil
-	}
-	return s.outcomeIntentRepo.UpsertBatch(ctx, records)
-}
 
 func (s *LeakagePredictionService) buildFeatureRow(
 	ctx context.Context,
@@ -298,18 +235,6 @@ func (s *LeakagePredictionService) buildFeatureRow(
 	}
 	if batch == nil {
 		return nil, nil, nil
-	}
-
-	var snapshot *persistence.IntentBatchSnapshot
-	if s.intentRepo != nil && shouldHydrateLeakageIntentSnapshot(batch) {
-		intentSnapshot, snapshotErr := s.intentRepo.GetBatchSnapshot(ctx, tenantID, batchID)
-		if snapshotErr != nil {
-			log.Printf("leakage_prediction_svc: intent snapshot fallback failed tenant=%s batch=%s: %v",
-				tenantID, batchID, snapshotErr)
-		} else if intentSnapshot != nil {
-			snapshot = intentSnapshot
-			batch = mergeBatchWithIntentSnapshot(batch, snapshot)
-		}
 	}
 
 	var density models.PatternBatchIntentDensityValue
@@ -393,38 +318,6 @@ func (s *LeakagePredictionService) buildFeatureRow(
 		sameBeneficiaryDensity = clampLeakage01(density.SameBeneficiaryAmountDensity)
 		maxPairCount = density.MaxPairCount
 	}
-	if snapshot != nil {
-		if snapshot.ParseSuccessRate != nil {
-			parseSuccessRate = snapshot.ParseSuccessRate
-			canonicalizationErrorRate = clampLeakage01(1.0 - clampLeakage01(*snapshot.ParseSuccessRate))
-		}
-		if snapshot.AvgMappingConfidenceScore != nil {
-			mappingConfidenceScore = snapshot.AvgMappingConfidenceScore
-		}
-		if snapshot.AvgSchemaCompletenessScore != nil {
-			requiredFieldCompleteness = clampLeakage01(*snapshot.AvgSchemaCompletenessScore)
-		}
-		if snapshot.MissingRequiredFieldRate != nil {
-			missingRequiredFieldRate = clampLeakage01(*snapshot.MissingRequiredFieldRate)
-		}
-		if snapshot.UnknownColumnCount != nil {
-			unknownColumnCount = *snapshot.UnknownColumnCount
-		}
-		if snapshot.InvalidAmountRate != nil {
-			invalidAmountRate = clampLeakage01(*snapshot.InvalidAmountRate)
-		}
-		if snapshot.InvalidBeneficiaryRate != nil {
-			invalidBeneficiaryRate = clampLeakage01(*snapshot.InvalidBeneficiaryRate)
-		}
-		if snapshot.ReceivedCount > 0 {
-			canonicalizationErrorRate = clampLeakage01(1.0 - clampLeakage01(snapshot.CanonicalizationSuccessRate))
-		}
-		if snapshot.MaxPairCount > 0 || snapshot.SameBeneficiaryAmountDensity > 0 {
-			sameBeneficiaryDensity = clampLeakage01(snapshot.SameBeneficiaryAmountDensity)
-			maxPairCount = snapshot.MaxPairCount
-		}
-	}
-
 	var settlementP50 any
 	var settlementP95 any
 	if patternSummary != nil {
@@ -549,107 +442,3 @@ func boolInt(v bool) int {
 	return 0
 }
 
-func shouldHydrateLeakageIntentSnapshot(batch *persistence.BatchContract) bool {
-	if batch == nil {
-		return false
-	}
-	if batch.IntentRowCount <= 0 || batch.IntentTotalAmountMinor.LessThanOrEqual(decimal.Zero) {
-		return true
-	}
-	if batch.BatchCurrency == nil || strings.TrimSpace(*batch.BatchCurrency) == "" {
-		return true
-	}
-	if batch.BatchSourceSystem == nil || strings.TrimSpace(*batch.BatchSourceSystem) == "" {
-		return true
-	}
-	if batch.BatchRail == nil || strings.TrimSpace(*batch.BatchRail) == "" {
-		return true
-	}
-	if batch.BatchIntentType == nil || strings.TrimSpace(*batch.BatchIntentType) == "" {
-		return true
-	}
-	if batch.BatchProviderKey == nil || strings.TrimSpace(*batch.BatchProviderKey) == "" {
-		return true
-	}
-	return batch.PredictedLeakageRate == nil && batch.BatchFinalityStatus == "PROCESSING"
-}
-
-func mergeBatchWithIntentSnapshot(
-	batch *persistence.BatchContract,
-	snapshot *persistence.IntentBatchSnapshot,
-) *persistence.BatchContract {
-	if batch == nil || snapshot == nil {
-		return batch
-	}
-	merged := *batch
-	if merged.IntentRowCount <= 0 {
-		merged.IntentRowCount = snapshot.IntentRowCount
-	}
-	if merged.IntentTotalAmountMinor.LessThanOrEqual(decimal.Zero) {
-		merged.IntentTotalAmountMinor = snapshot.IntentTotalAmountMinor
-	}
-	if merged.IntentAmountSquareSum.LessThanOrEqual(decimal.Zero) {
-		merged.IntentAmountSquareSum = snapshot.IntentAmountSquareSum
-	}
-	if merged.IntentMinAmountMinor.LessThanOrEqual(decimal.Zero) {
-		merged.IntentMinAmountMinor = snapshot.IntentMinAmountMinor
-	}
-	if merged.IntentMaxAmountMinor.LessThanOrEqual(decimal.Zero) {
-		merged.IntentMaxAmountMinor = snapshot.IntentMaxAmountMinor
-	}
-	if merged.ClientPayoutRefPresentCount <= 0 {
-		merged.ClientPayoutRefPresentCount = snapshot.ClientPayoutRefPresentCount
-	}
-	if merged.TotalCount <= 0 {
-		merged.TotalCount = snapshot.IntentRowCount
-	}
-	if merged.PendingCount <= 0 && merged.BatchFinalityStatus == "PROCESSING" {
-		merged.PendingCount = snapshot.IntentRowCount
-	}
-	if merged.TotalIntendedAmountMinor.LessThanOrEqual(decimal.Zero) {
-		merged.TotalIntendedAmountMinor = snapshot.IntentTotalAmountMinor
-	}
-	if merged.BatchCurrency == nil || strings.TrimSpace(*merged.BatchCurrency) == "" {
-		currency := snapshot.Currency
-		merged.BatchCurrency = &currency
-	}
-	if merged.BatchSourceSystem == nil || strings.TrimSpace(*merged.BatchSourceSystem) == "" {
-		sourceSystem := snapshot.SourceSystem
-		merged.BatchSourceSystem = &sourceSystem
-	}
-	if merged.BatchRail == nil || strings.TrimSpace(*merged.BatchRail) == "" {
-		rail := snapshot.Rail
-		merged.BatchRail = &rail
-	}
-	if merged.BatchIntentType == nil || strings.TrimSpace(*merged.BatchIntentType) == "" {
-		intentType := snapshot.IntentType
-		merged.BatchIntentType = &intentType
-	}
-	if merged.BatchProviderKey == nil || strings.TrimSpace(*merged.BatchProviderKey) == "" {
-		providerKey := snapshot.ProviderKey
-		merged.BatchProviderKey = &providerKey
-	}
-	if merged.FirstIntentCreatedAt == nil && snapshot.FirstIntentCreatedAt != nil {
-		merged.FirstIntentCreatedAt = snapshot.FirstIntentCreatedAt
-	}
-	return &merged
-}
-
-func intentPredictionCurrent(
-	batch *persistence.BatchContract,
-	snapshot *persistence.IntentBatchSnapshot,
-) bool {
-	if batch == nil || snapshot == nil || batch.PredictedAt == nil {
-		return false
-	}
-	if batch.IntentRowCount != snapshot.IntentRowCount {
-		return false
-	}
-	if !batch.IntentTotalAmountMinor.Equal(snapshot.IntentTotalAmountMinor) {
-		return false
-	}
-	if batch.BatchSourceSystem == nil || strings.TrimSpace(*batch.BatchSourceSystem) == "" {
-		return false
-	}
-	return true
-}

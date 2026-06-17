@@ -20,6 +20,9 @@ export const BACKEND_SERVICES = {
       AUTH_PRINCIPAL: '/v1/auth/principal',
       AUTH_ADMIN_USERS: '/v1/auth/admin/users',
       AUTH_ADMIN_USER_STATUS: (id: string) => `/v1/auth/admin/users/${encodeURIComponent(id)}/status`,
+      SESSION_STATUS: '/v1/session/status',
+      SESSION_REFRESH: '/v1/session/refresh',
+      SESSION_LOGOUT_ALL: '/v1/session/logout-all',
     },
   },
 

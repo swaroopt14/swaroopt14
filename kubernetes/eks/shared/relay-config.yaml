@@ -66,6 +66,7 @@ data:
       timeout_seconds: 10
 
     dispatch:
+      enabled: false
       consumer_group_id: "dispatch-loop-group"
       topic: "payments.intent.events.v1"
       poll_timeout: 200ms

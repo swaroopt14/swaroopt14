@@ -589,95 +589,20 @@ Deploy in order — wait for each group to be healthy before moving to the next.
 ```bash
 # Apply namespace, secrets, configmaps, postgres, kafka, redis
 kubectl apply -f kubernetes/eks/namespace.yaml
+
+# Step 7: Redeploy everything from scratch
 kubectl apply -k kubernetes/eks
 
-# Wait for Postgres to be ready
+# Step 8: Wait for infrastructure
 kubectl wait --for=condition=Ready pod/zord-postgres-0 -n zord --timeout=300s
-echo "Postgres is ready"
-
-# Wait for Kafka to be ready
-kubectl wait --for=condition=Ready pod/zord-kafka-0 -n zord --timeout=300s
-echo "Kafka is ready"
-
-# Wait for Redis to be ready
-kubectl wait --for=condition=Ready pod -l app.kubernetes.io/name=zord-prompt-layer-redis -n zord --timeout=60s
-echo "Redis is ready"
-```
-
-If Kafka shows `CrashLoopBackOff` with `lost+found` error:
-```bash
-kubectl delete statefulset zord-kafka -n zord
-kubectl delete pvc data-zord-kafka-0 -n zord
-kubectl apply -k kubernetes/eks
 kubectl wait --for=condition=Ready pod/zord-kafka-0 -n zord --timeout=300s
 ```
 
-### 8.2 Verify Kafka Topics Created
-
-```bash
-kubectl wait --for=condition=Complete job/zord-kafka-topics -n zord --timeout=120s
-kubectl exec -n zord zord-kafka-0 -- kafka-topics --bootstrap-server localhost:9092 --list
-```
-
-### 8.3 Deploy Core Services (Edge + Intent Engine + Token Enclave)
-
-```bash
-# Check these 3 are running
-kubectl get pods -n zord -l app.kubernetes.io/name=zord-edge
-kubectl get pods -n zord -l app.kubernetes.io/name=zord-intent-engine
-kubectl get pods -n zord -l app.kubernetes.io/name=zord-token-enclave
-
-# If any are in CrashLoopBackOff, restart them now that Kafka is ready
-kubectl rollout restart deployment zord-edge -n zord
-kubectl rollout restart deployment zord-intent-engine -n zord
-kubectl rollout restart deployment zord-token-enclave -n zord
-
-# Wait for them
-kubectl rollout status deployment/zord-edge -n zord --timeout=120s
-kubectl rollout status deployment/zord-intent-engine -n zord --timeout=120s
-kubectl rollout status deployment/zord-token-enclave -n zord --timeout=120s
-echo "Core services ready"
-```
-
-### 8.4 Deploy Relay + Outcome Engine + Evidence
-
-```bash
-kubectl rollout restart deployment zord-relay -n zord
-kubectl rollout restart deployment zord-outcome-engine -n zord
-kubectl rollout restart deployment zord-evidence -n zord
-
-# Wait for them
-kubectl rollout status deployment/zord-relay -n zord --timeout=120s
-kubectl rollout status deployment/zord-outcome-engine -n zord --timeout=120s
-kubectl rollout status deployment/zord-evidence -n zord --timeout=120s
-echo "Relay + Outcome + Evidence ready"
-```
-
-### 8.5 Deploy Intelligence + Prompt Layer + Console
-
-```bash
-kubectl rollout restart deployment zord-intelligence -n zord
-kubectl rollout restart deployment zord-prompt-layer -n zord
-kubectl rollout restart deployment zord-console -n zord
-
-# Wait for them
-kubectl rollout status deployment/zord-intelligence -n zord --timeout=180s
-kubectl rollout status deployment/zord-prompt-layer -n zord --timeout=120s
-kubectl rollout status deployment/zord-console -n zord --timeout=120s
-echo "All services ready"
-```
-
-### 8.6 Final Check — All Pods Running
+### 8.2 Final Check — All Pods Running
 
 ```bash
 kubectl get pods -n zord
 ```
-
-Expected: All pods `Running` (or `Completed` for kafka-topics job). No `CrashLoopBackOff`.
-
-**If pods are stuck in `Pending`:**
-- Cluster Autoscaler will add nodes automatically (wait 2-3 minutes)
-- Or manually scale: `aws eks update-nodegroup-config --cluster-name arealis-zord-prod-eks --nodegroup-name <nodegroup> --scaling-config desiredSize=5,minSize=3,maxSize=7 --region ap-south-1`
 
 ---
 
@@ -1038,106 +963,62 @@ For higher production reliability:
 
 ---
 
-## Destroy — Complete Platform Teardown
+## Destroy & Redeploy
 
-Run in reverse order of deployment. Each step is independent — you can destroy only what you need.
-
-### Destroy Observability Only
+### Delete Everything
 
 ```bash
-kubectl delete -k kubernetes/tracing
-kubectl delete -k kubernetes/logging
-kubectl delete -k kubernetes/monitoring
-```
+# Delete all (one command)
+kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-not-found
 
-### Destroy Kong API Gateway Only
-
-```bash
-kubectl delete -k kubernetes/api-gateway
-```
-
-### Destroy Argo CD Only
-
-```bash
-kubectl delete -f kubernetes/argocd/apps/
-kubectl delete -f kubernetes/argocd/ingress.yaml
-kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.3/manifests/install.yaml
-kubectl delete -f kubernetes/argocd/namespace.yaml
-```
-
-### Destroy Application Services Only
-
-```bash
-kubectl delete -k kubernetes/eks
-```
-
-### Destroy Everything (Full Teardown)
-
-```bash
-# Step 1: Argo CD
-kubectl delete -f kubernetes/argocd/apps/ --ignore-not-found
-kubectl delete -f kubernetes/argocd/ingress.yaml --ignore-not-found
-kubectl delete -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.3/manifests/install.yaml --ignore-not-found
-kubectl delete ns argocd --ignore-not-found
-
-# Step 2: Observability
-kubectl delete -k kubernetes/tracing --ignore-not-found
-kubectl delete -k kubernetes/logging --ignore-not-found
-kubectl delete -k kubernetes/monitoring --ignore-not-found
-
-# Step 3: Kong API Gateway
-kubectl delete -k kubernetes/api-gateway --ignore-not-found
-
-# Step 4: Application Services
-kubectl delete -k kubernetes/eks --ignore-not-found
-
-# Step 5: Delete persistent data (IRREVERSIBLE)
+# Delete persistent data (Postgres + Kafka data gone forever)
 kubectl delete pvc --all -n zord --ignore-not-found
-kubectl delete pvc --all -n monitoring --ignore-not-found
 kubectl delete pvc --all -n logging --ignore-not-found
-kubectl delete pvc --all -n tracing --ignore-not-found
 
-# Step 6: Delete namespaces
-kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-not-found
-
-# Step 7: Verify everything is gone
+# Verify
 kubectl get ns
-kubectl get pods --all-namespaces | grep -E "zord|kong|grafana|kibana|jaeger|argocd|prometheus|elasticsearch|fluentd"
 ```
 
-### AWS Resources to Clean Up Manually
-
-These are NOT deleted by `kubectl delete` — clean them in AWS Console:
-
-| Resource | Location | Action |
-|----------|----------|--------|
-| ALB (Kong) | EC2 → Load Balancers | Auto-deleted after ingress removal (wait 5 min) |
-| ALB (Observability) | EC2 → Load Balancers | Auto-deleted after ingress removal (wait 5 min) |
-| EBS Volumes | EC2 → Volumes | Delete any `Available` volumes tagged with `zord` |
-| ECR Images | ECR → Repositories | Delete if no longer needed |
-| Secrets Manager | Secrets Manager | Keep or delete `production/zord/*` secrets |
-| EKS Cluster | EKS → Clusters | Delete via Terraform: `terraform destroy` |
-| Node Group | EKS → Compute | Deleted with cluster |
-| IAM Roles | IAM → Roles | Delete `ZordAppS3AccessRole` if no longer needed |
-| ACM Certificate | ACM | Delete if domain no longer used |
-| Route53 Records | Route53 | Delete DNS records for zordnet.com subdomains |
-
-### Quick Destroy (Single Command — DANGEROUS)
+### Redeploy Fresh
 
 ```bash
-kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-not-found
-```
+cd ~/Arealis-Zord-intent && git pull
 
-**WARNING:** This deletes everything immediately. All data is permanently lost. No confirmation. Use only when you want to completely wipe the platform.
+# 1. Deploy app services + infra
+kubectl apply -k kubernetes/eks
+
+# 2. Wait for DB + Kafka
+kubectl wait --for=condition=Ready pod/zord-postgres-0 -n zord --timeout=300s
+kubectl wait --for=condition=Ready pod/zord-kafka-0 -n zord --timeout=300s
+
+# 3. Deploy Kong
+kubectl apply -k kubernetes/api-gateway
+
+# 4. Deploy observability
+# 1. Logging FIRST (wait for ES to be ready)
+kubectl apply -k kubernetes/logging
+kubectl wait --for=condition=Ready pod -l app=elasticsearch -n logging --timeout=120s
+
+# 2. Then monitoring
+kubectl apply -k kubernetes/monitoring
+
+# 3. Then tracing
+kubectl apply -k kubernetes/tracing
+
+
+# 5. Verify all pods
+kubectl get pods -n zord
+kubectl get pods -n api-gateway
+
+# 6. Check ALB + DNS
+kubectl get ingress -n api-gateway
+curl -s https://api.zordnet.com/edge/health
+```
 
 ### Destroy EKS Cluster (Terraform)
 
 After all Kubernetes resources are deleted:
 
 ```
-Go to Zord-Infrastructure-aws repo → Actions → EKS Terraform → Run workflow:
-  - Set action = destroy
-  - Click "Run workflow"
+Zord-Infrastructure-aws repo → Actions → EKS Terraform → action = destroy → Run
 ```
-
-This removes the EKS cluster, node groups, VPC, and all associated AWS resources.

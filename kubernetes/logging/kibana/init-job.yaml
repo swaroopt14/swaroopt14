@@ -22,6 +22,53 @@ spec:
               done
               echo "Kibana is ready. Creating data views..."
 
+              # ── Step 0: Create ES index template with keyword mappings ──
+              echo "Creating Elasticsearch index template..."
+              curl -s -X PUT "http://elasticsearch.logging.svc.cluster.local:9200/_index_template/zord-logs-template" \
+                -H "Content-Type: application/json" \
+                -d '{
+                  "index_patterns": ["zord-logs-*"],
+                  "priority": 200,
+                  "template": {
+                    "settings": {
+                      "number_of_shards": 1,
+                      "number_of_replicas": 0,
+                      "index.mapping.total_fields.limit": 500
+                    },
+                    "mappings": {
+                      "dynamic_templates": [
+                        {
+                          "strings_as_keywords": {
+                            "match_mapping_type": "string",
+                            "mapping": {
+                              "type": "keyword",
+                              "ignore_above": 1024
+                            }
+                          }
+                        }
+                      ],
+                      "properties": {
+                        "message": {"type": "text"},
+                        "stream": {"type": "keyword"},
+                        "container": {"type": "keyword"},
+                        "namespace": {"type": "keyword"},
+                        "pod": {"type": "keyword"},
+                        "service": {"type": "keyword"},
+                        "cluster": {"type": "keyword"},
+                        "logtag": {"type": "keyword"},
+                        "tag": {"type": "keyword"},
+                        "@timestamp": {"type": "date"},
+                        "time": {"type": "date"}
+                      }
+                    }
+                  }
+                }' && echo " -> ES index template created (no duplicate .keyword fields)"
+
+              # Also disable wildcard destructive protection
+              curl -s -X PUT "http://elasticsearch.logging.svc.cluster.local:9200/_cluster/settings" \
+                -H "Content-Type: application/json" \
+                -d '{"transient":{"action.destructive_requires_name":false}}' > /dev/null
+
               # Create zord-logs data view
               curl -s -X POST "http://kibana.logging.svc.cluster.local:5601/api/data_views/data_view" \
                 -H "kbn-xsrf: true" \
@@ -79,13 +126,13 @@ spec:
                 -H "Content-Type: application/json" \
                 -d '{
                   "name": "Service Error Logs Detected",
-                  "consumer": "alerts",
+                  "consumer": "stackAlerts",
                   "rule_type_id": ".es-query",
                   "schedule": {"interval": "1m"},
                   "params": {
                     "index": ["zord-logs-*"],
                     "timeField": "@timestamp",
-                    "esQuery": "{\"query\":{\"bool\":{\"must\":[{\"match_phrase\":{\"stream\":\"stderr\"}}]}}}",
+                    "esQuery": "{\"query\":{\"bool\":{\"must\":[{\"term\":{\"stream\":\"stderr\"}},{\"range\":{\"@timestamp\":{\"gte\":\"now-5m\"}}}]}}}",
                     "timeWindowSize": 5,
                     "timeWindowUnit": "m",
                     "threshold": [10],
@@ -102,13 +149,13 @@ spec:
                 -H "Content-Type: application/json" \
                 -d '{
                   "name": "Critical Error (panic/fatal)",
-                  "consumer": "alerts",
+                  "consumer": "stackAlerts",
                   "rule_type_id": ".es-query",
                   "schedule": {"interval": "1m"},
                   "params": {
                     "index": ["zord-logs-*"],
                     "timeField": "@timestamp",
-                    "esQuery": "{\"query\":{\"bool\":{\"should\":[{\"match_phrase\":{\"log\":\"panic\"}},{\"match_phrase\":{\"log\":\"fatal\"}},{\"match_phrase\":{\"log\":\"FATAL\"}}],\"minimum_should_match\":1}}}",
+                    "esQuery": "{\"query\":{\"bool\":{\"should\":[{\"match_phrase\":{\"message\":\"panic\"}},{\"match_phrase\":{\"message\":\"fatal\"}},{\"match_phrase\":{\"message\":\"FATAL\"}}],\"minimum_should_match\":1,\"filter\":[{\"range\":{\"@timestamp\":{\"gte\":\"now-5m\"}}}]}}}",
                     "timeWindowSize": 5,
                     "timeWindowUnit": "m",
                     "threshold": [1],
@@ -125,13 +172,13 @@ spec:
                 -H "Content-Type: application/json" \
                 -d '{
                   "name": "Database Connection Errors",
-                  "consumer": "alerts",
+                  "consumer": "stackAlerts",
                   "rule_type_id": ".es-query",
                   "schedule": {"interval": "2m"},
                   "params": {
                     "index": ["zord-logs-*"],
                     "timeField": "@timestamp",
-                    "esQuery": "{\"query\":{\"bool\":{\"should\":[{\"match_phrase\":{\"log\":\"connection refused\"}},{\"match_phrase\":{\"log\":\"dial tcp\"}},{\"match_phrase\":{\"log\":\"pq:\"}},{\"match_phrase\":{\"log\":\"database\"}}],\"minimum_should_match\":1}}}",
+                    "esQuery": "{\"query\":{\"bool\":{\"should\":[{\"match_phrase\":{\"message\":\"connection refused\"}},{\"match_phrase\":{\"message\":\"dial tcp\"}},{\"match_phrase\":{\"message\":\"pq:\"}}],\"minimum_should_match\":1,\"filter\":[{\"range\":{\"@timestamp\":{\"gte\":\"now-5m\"}}}]}}}",
                     "timeWindowSize": 5,
                     "timeWindowUnit": "m",
                     "threshold": [3],
@@ -148,13 +195,13 @@ spec:
                 -H "Content-Type: application/json" \
                 -d '{
                   "name": "Kafka Connection Errors",
-                  "consumer": "alerts",
+                  "consumer": "stackAlerts",
                   "rule_type_id": ".es-query",
                   "schedule": {"interval": "2m"},
                   "params": {
                     "index": ["zord-logs-*"],
                     "timeField": "@timestamp",
-                    "esQuery": "{\"query\":{\"bool\":{\"should\":[{\"match_phrase\":{\"log\":\"kafka\"}},{\"match_phrase\":{\"log\":\"broker\"}}],\"must\":[{\"match_phrase\":{\"stream\":\"stderr\"}}],\"minimum_should_match\":1}}}",
+                    "esQuery": "{\"query\":{\"bool\":{\"must\":[{\"match_phrase\":{\"message\":\"kafka\"}},{\"term\":{\"stream\":\"stderr\"}}],\"filter\":[{\"range\":{\"@timestamp\":{\"gte\":\"now-5m\"}}}]}}}",
                     "timeWindowSize": 5,
                     "timeWindowUnit": "m",
                     "threshold": [5],
@@ -165,19 +212,19 @@ spec:
                   "enabled": true
                 }' && echo " -> Alert: Kafka Connection Errors created"
 
-              # Alert 5: High log volume (possible log storm / crash loop)
+              # Alert 5: High log volume (possible crash loop)
               curl -s -X POST "http://kibana.logging.svc.cluster.local:5601/api/alerting/rule" \
                 -H "kbn-xsrf: true" \
                 -H "Content-Type: application/json" \
                 -d '{
                   "name": "High Error Log Volume (possible crash loop)",
-                  "consumer": "alerts",
+                  "consumer": "stackAlerts",
                   "rule_type_id": ".es-query",
                   "schedule": {"interval": "2m"},
                   "params": {
                     "index": ["zord-logs-*"],
                     "timeField": "@timestamp",
-                    "esQuery": "{\"query\":{\"bool\":{\"must\":[{\"match_phrase\":{\"stream\":\"stderr\"}}]}}}",
+                    "esQuery": "{\"query\":{\"bool\":{\"must\":[{\"term\":{\"stream\":\"stderr\"}}],\"filter\":[{\"range\":{\"@timestamp\":{\"gte\":\"now-2m\"}}}]}}}",
                     "timeWindowSize": 2,
                     "timeWindowUnit": "m",
                     "threshold": [100],
@@ -194,13 +241,13 @@ spec:
                 -H "Content-Type: application/json" \
                 -d '{
                   "name": "Authentication Failures",
-                  "consumer": "alerts",
+                  "consumer": "stackAlerts",
                   "rule_type_id": ".es-query",
                   "schedule": {"interval": "2m"},
                   "params": {
                     "index": ["zord-logs-*"],
                     "timeField": "@timestamp",
-                    "esQuery": "{\"query\":{\"bool\":{\"should\":[{\"match_phrase\":{\"log\":\"unauthorized\"}},{\"match_phrase\":{\"log\":\"401\"}},{\"match_phrase\":{\"log\":\"invalid token\"}},{\"match_phrase\":{\"log\":\"auth failed\"}}],\"minimum_should_match\":1}}}",
+                    "esQuery": "{\"query\":{\"bool\":{\"should\":[{\"match_phrase\":{\"message\":\"unauthorized\"}},{\"match_phrase\":{\"message\":\"401\"}},{\"match_phrase\":{\"message\":\"invalid token\"}}],\"minimum_should_match\":1,\"filter\":[{\"range\":{\"@timestamp\":{\"gte\":\"now-5m\"}}}]}}}",
                     "timeWindowSize": 5,
                     "timeWindowUnit": "m",
                     "threshold": [10],
@@ -250,19 +297,36 @@ spec:
                   }
                 }' && echo " -> ILM policy created (delete after 30 days)"
 
-              # Apply ILM policy to zord-logs index template
+              # Apply ILM policy to zord-logs index template (merged with keyword mappings)
               curl -s -X PUT "http://elasticsearch.logging.svc.cluster.local:9200/_index_template/zord-logs-template" \
                 -H "Content-Type: application/json" \
                 -d '{
                   "index_patterns": ["zord-logs-*"],
+                  "priority": 200,
                   "template": {
                     "settings": {
                       "index.lifecycle.name": "zord-logs-policy",
                       "number_of_shards": 1,
                       "number_of_replicas": 0
+                    },
+                    "mappings": {
+                      "dynamic": true,
+                      "properties": {
+                        "message": {"type": "text"},
+                        "stream": {"type": "keyword"},
+                        "container": {"type": "keyword"},
+                        "namespace": {"type": "keyword"},
+                        "pod": {"type": "keyword"},
+                        "service": {"type": "keyword"},
+                        "cluster": {"type": "keyword"},
+                        "logtag": {"type": "keyword"},
+                        "tag": {"type": "keyword"},
+                        "@timestamp": {"type": "date"},
+                        "time": {"type": "date"}
+                      }
                     }
                   }
-                }' && echo " -> ILM template applied to zord-logs-*"
+                }' && echo " -> ILM + keyword mappings template applied to zord-logs-*"
 
               # Apply ILM policy to kong-access index template
               curl -s -X PUT "http://elasticsearch.logging.svc.cluster.local:9200/_index_template/kong-access-template" \

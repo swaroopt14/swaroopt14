@@ -15,6 +15,7 @@ spec:
     spec:
       securityContext:
         fsGroup: 1000
+      priorityClassName: infra-critical
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:7.6.0
@@ -35,7 +36,7 @@ spec:
             - name: KAFKA_LISTENERS
               value: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
             - name: KAFKA_ADVERTISED_LISTENERS
-              value: PLAINTEXT://zord-kafka:9092
+              value: PLAINTEXT://zord-kafka.zord.svc.cluster.local:9092
             - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
               value: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
             - name: KAFKA_INTER_BROKER_LISTENER_NAME
@@ -73,7 +74,7 @@ spec:
           resources:
             requests:
               cpu: 500m
-              memory: 2Gi
+              memory: 1Gi
             limits:
               cpu: "2"
               memory: 4Gi

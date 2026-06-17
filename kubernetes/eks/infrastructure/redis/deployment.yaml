@@ -12,6 +12,7 @@ spec:
       labels:
         app.kubernetes.io/name: zord-prompt-layer-redis
     spec:
+      priorityClassName: infra-critical
       containers:
         - name: redis
           image: redis:7-alpine

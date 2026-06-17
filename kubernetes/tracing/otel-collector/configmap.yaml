@@ -24,6 +24,11 @@ data:
         tls:
           insecure: true
 
+      prometheusremotewrite:
+        endpoint: http://prometheus.monitoring.svc.cluster.local:9090/api/v1/write
+        tls:
+          insecure: true
+
       debug:
         verbosity: basic
 
@@ -33,3 +38,7 @@ data:
           receivers: [otlp]
           processors: [batch]
           exporters: [otlp/jaeger, debug]
+        metrics:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [prometheusremotewrite, debug]

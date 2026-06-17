@@ -9,6 +9,7 @@ labels:
 
 resources:
   - namespace.yaml
+  - shared/priority-classes.yaml
   - shared/serviceaccount.yaml
   - shared/secret-store.yaml
   - shared/external-secret-app-secrets.yaml

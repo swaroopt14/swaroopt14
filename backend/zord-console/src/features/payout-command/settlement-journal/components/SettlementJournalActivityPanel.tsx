@@ -87,6 +87,7 @@ export type SettlementJournalActivityViewModel = {
   parseErrorTotalLoading: boolean
   filteredCount: number
   tableTotal: number
+  observationTotal: number | null
   filtersActive: boolean
   serverPagination: boolean
   paginationStart: number
@@ -140,6 +141,7 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
     parseErrorTotalLoading,
     filteredCount,
     tableTotal,
+    observationTotal,
     filtersActive,
     serverPagination,
     paginationStart,
@@ -317,7 +319,7 @@ export function SettlementJournalActivityPanel({ vm }: SettlementJournalActivity
         </>
       ) : null}
       <span className="rounded-full border border-black/30 bg-black px-2 py-0.5 text-[12px] font-semibold text-white">
-        {filteredCount.toLocaleString('en-US')} rows
+        {(observationTotal ?? tableTotal).toLocaleString('en-US')} rows
       </span>{' '}
       match filters
     </p>

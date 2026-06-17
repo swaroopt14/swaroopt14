@@ -46,7 +46,7 @@ spec:
               app.kubernetes.io/name: zord-intent-engine
       containers:
         - name: zord-intent-engine
-          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-intent-engine:v3
+          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-intent-engine:v4
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8083

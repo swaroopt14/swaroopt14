@@ -22,10 +22,6 @@ services:
 
       # Database URL
       - DATABASE_URL=postgres://zpi:zpi_secret@zord-intelligence-postgres:5432/zord_intelligence?sslmode=disable
-      - INTENT_DATABASE_URL=postgres://intent_user:intent_password@zord-intent-postgres:5432/zord_intent_engine_db?sslmode=disable
-      - OUTCOME_DATABASE_URL=postgres://outcome_user:outcome_password@zord-outcome-postgres:5432/zord_outcome_db?sslmode=disable
-      - INTENT_BRIDGE_POLL_INTERVAL_SECONDS=2
-      - INTENT_BRIDGE_LOOKBACK_HOURS=48
 
       # DB Config
       - DB_HOST=zord-intelligence-postgres

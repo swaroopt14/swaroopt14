@@ -43,9 +43,7 @@ type Config struct {
 	Environment string
 
 	// ── Database ────────────────────────────────────────────────
-	DatabaseURL        string
-	IntentDatabaseURL  string
-	OutcomeDatabaseURL string
+	DatabaseURL string
 
 	// ── Kafka ───────────────────────────────────────────────────
 	KafkaBrokers string
@@ -89,9 +87,6 @@ type Config struct {
 	TopicMLRequest string
 	TopicMLResult  string
 
-	IntentBridgePollIntervalSeconds int
-	IntentBridgeLookbackHours       int
-
 	// ── PHASE 6: Dual-Mode Architecture ─────────────────────────
 	//
 	// IntelligenceMode controls which intelligence surfaces ZPI computes
@@ -120,9 +115,7 @@ func Load() *Config {
 		Environment: getWithDefault("ENVIRONMENT", "development"),
 
 		// ── Database ────────────────────────────────────────────
-		DatabaseURL:        getRequired("DATABASE_URL"),
-		IntentDatabaseURL:  getWithDefault("INTENT_DATABASE_URL", ""),
-		OutcomeDatabaseURL: getWithDefault("OUTCOME_DATABASE_URL", ""),
+		DatabaseURL: getRequired("DATABASE_URL"),
 
 		// ── Kafka ───────────────────────────────────────────────
 		KafkaBrokers: getRequired("KAFKA_BROKERS"),
@@ -159,9 +152,6 @@ func Load() *Config {
 		// ── ML Service Topics ────────────────────────────────────────
 		TopicMLRequest:                  getWithDefault("TOPIC_ML_REQUEST", "ml.request.events"),
 		TopicMLResult:                   getWithDefault("TOPIC_ML_RESULT", "ml.result.events"),
-		IntentBridgePollIntervalSeconds: getIntWithDefault("INTENT_BRIDGE_POLL_INTERVAL_SECONDS", 2),
-		IntentBridgeLookbackHours:       getIntWithDefault("INTENT_BRIDGE_LOOKBACK_HOURS", 48),
-
 		// ── PHASE 6: Intelligence Mode ────────────────────────────
 		IntelligenceMode: mode,
 	}

@@ -25,7 +25,7 @@ func SessionActivityMiddleware() gin.HandlerFunc {
 		}
 
 		userID := userIDVal.(uuid.UUID)
-		_ = tenantIDVal.(uuid.UUID)
+		tenantID := tenantIDVal.(uuid.UUID)
 		sessionID := sessionIDVal.(uuid.UUID)
 
 		// 1. Fetch the session info from the database to enforce server-side validation.
@@ -38,10 +38,10 @@ func SessionActivityMiddleware() gin.HandlerFunc {
 		err := db.DB.QueryRowContext(c.Request.Context(), `
 			SELECT revoked_at, idle_expires_at, absolute_expires_at
 			FROM auth_refresh_tokens
-			WHERE session_id = $1
+			WHERE session_id = $1 AND user_id = $2 AND tenant_id = $3
 			ORDER BY created_at DESC
 			LIMIT 1
-		`, sessionID).Scan(&revokedAt, &idleExpiresAt, &absoluteExpires)
+		`, sessionID, userID, tenantID).Scan(&revokedAt, &idleExpiresAt, &absoluteExpires)
 
 		if err != nil {
 			// If session doesn't exist, block access.

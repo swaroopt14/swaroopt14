@@ -369,8 +369,8 @@ data:
       # ── Rate Limiting (Global — per IP) ─────────────────────────────────────
       - name: rate-limiting
         config:
-          minute: 300
-          hour: 10000
+          minute: 1000
+          hour: 30000
           policy: local
           fault_tolerant: true
           hide_client_headers: false

@@ -42,9 +42,9 @@ import (
 //
 //	{
 //	  "tenant_id":                 "uuid",
-//	  "job_scope_type":            "SETTLEMENT_BATCH" | "SINGLE_OBSERVATION" | "INGEST_RUN",
+//	  "job_scope_type":            "SETTLEMENT_BATCH" | "SINGLE_INTENT" | "INGEST_RUN",
 //	  "settlement_batch_ref":      "batch-ref-string",   // for SETTLEMENT_BATCH
-//	  "settlement_observation_id": "uuid",               // for SINGLE_OBSERVATION
+//	  "intent_id":                 "uuid",               // for SINGLE_INTENT
 //	  "ingest_run_id":             "uuid-string"         // for INGEST_RUN
 //	}
 func (h *Handler) RunAttachmentHandler(c *gin.Context) {
@@ -80,19 +80,19 @@ func (h *Handler) RunAttachmentHandler(c *gin.Context) {
 			return engine.RunForBatch(context.Background(), tenantID, ref)
 		}
 
-	case models.JobScopeSingleObservation:
-		if req.SettlementObservationID == nil || *req.SettlementObservationID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "settlement_observation_id is required for SINGLE_OBSERVATION scope"})
+	case models.JobScopeSingleIntent:
+		if req.IntentID == nil || *req.IntentID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "intent_id is required for SINGLE_INTENT scope"})
 			return
 		}
-		obsID, parseErr := uuid.Parse(*req.SettlementObservationID)
+		intentID, parseErr := uuid.Parse(*req.IntentID)
 		if parseErr != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid settlement_observation_id"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid intent_id"})
 			return
 		}
-		scopeRef = obsID.String()
+		scopeRef = intentID.String()
 		fn = func() (*models.AttachmentJob, error) {
-			return engine.RunForSingleObservation(context.Background(), tenantID, obsID)
+			return engine.RunForSingleIntent(context.Background(), tenantID, intentID)
 		}
 
 	case models.JobScopeIngestRun:
@@ -107,7 +107,7 @@ func (h *Handler) RunAttachmentHandler(c *gin.Context) {
 		}
 
 	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "job_scope_type must be SETTLEMENT_BATCH, SINGLE_OBSERVATION, or INGEST_RUN"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "job_scope_type must be SETTLEMENT_BATCH, SINGLE_INTENT, or INGEST_RUN"})
 		return
 	}
 

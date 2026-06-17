@@ -72,7 +72,7 @@ const (
 
 const (
 	JobScopeSettlementBatch   = "SETTLEMENT_BATCH"
-	JobScopeSingleObservation = "SINGLE_OBSERVATION"
+	JobScopeSingleIntent = "SINGLE_INTENT"
 	JobScopeIngestRun         = "INGEST_RUN"
 	JobScopeReplay            = "REPLAY"
 	JobScopeBackfill          = "BACKFILL"
@@ -178,8 +178,8 @@ type AttachmentCandidate struct {
 type AttachmentDecision struct {
 	AttachmentDecisionID     uuid.UUID       `json:"attachment_decision_id" db:"attachment_decision_id"`
 	TenantID                 uuid.UUID       `json:"tenant_id" db:"tenant_id"`
-	SettlementObservationID  uuid.UUID       `json:"settlement_observation_id" db:"settlement_observation_id"`
-	IntentID                 *uuid.UUID      `json:"intent_id,omitempty" db:"intent_id"`
+	SettlementObservationID  *uuid.UUID      `json:"settlement_observation_id,omitempty" db:"settlement_observation_id"`
+	IntentID                 uuid.UUID       `json:"intent_id" db:"intent_id"`
 	AttachmentJobID          uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
 	DecisionType             string          `json:"decision_type" db:"decision_type"`
 	DecisionReasonCode       string          `json:"decision_reason_code" db:"decision_reason_code"`
@@ -272,6 +272,25 @@ type UnresolvedIntentRecord struct {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ORPHAN SETTLEMENT RECORD — reverse scan output.
+//
+// Records every canonical settlement observation that was not matched during an
+// attachment job.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type OrphanSettlementRecord struct {
+	OrphanID                uuid.UUID       `json:"orphan_id" db:"orphan_id"`
+	TenantID                uuid.UUID       `json:"tenant_id" db:"tenant_id"`
+	AttachmentJobID         uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
+	SettlementObservationID uuid.UUID       `json:"settlement_observation_id" db:"settlement_observation_id"`
+	BatchID                 *string         `json:"batch_id,omitempty" db:"batch_id"`
+	UnresolvedReason        string          `json:"unresolved_reason" db:"unresolved_reason"`
+	Amount                  decimal.Decimal `json:"amount" db:"amount"`
+	CurrencyCode            string          `json:"currency_code" db:"currency_code"`
+	CreatedAt               time.Time       `json:"created_at" db:"created_at"`
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // BATCH ATTACHMENT SUMMARY — derived batch-level attachment picture.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -283,12 +302,14 @@ type BatchAttachmentSummary struct {
 	AttachmentJobID          uuid.UUID `json:"attachment_job_id" db:"attachment_job_id"`
 
 	// Counts
-	TotalIntentCount    int `json:"total_intent_count" db:"total_intent_count"`
-	ExactMatchCount     int `json:"exact_match_count" db:"exact_match_count"`
-	HighConfidenceCount int `json:"high_confidence_count" db:"high_confidence_count"`
-	AmbiguousCount      int `json:"ambiguous_count" db:"ambiguous_count"`
-	UnresolvedCount     int `json:"unresolved_count" db:"unresolved_count"`
-	ConflictedCount     int `json:"conflicted_count" db:"conflicted_count"`
+	TotalIntentCount         int `json:"total_intent_count" db:"total_intent_count"`
+	TotalObservationCount    int `json:"total_observation_count" db:"total_observation_count"`
+	ExactMatchCount          int `json:"exact_match_count" db:"exact_match_count"`
+	HighConfidenceCount      int `json:"high_confidence_count" db:"high_confidence_count"`
+	AmbiguousCount           int `json:"ambiguous_count" db:"ambiguous_count"`
+	UnresolvedCount          int `json:"unresolved_count" db:"unresolved_count"`
+	ConflictedCount          int `json:"conflicted_count" db:"conflicted_count"`
+	OrphanObservationCount   int `json:"orphan_observation_count" db:"orphan_observation_count"`
 
 	// Amount aggregates
 	TotalIntendedAmount      decimal.Decimal `json:"total_intended_amount" db:"total_intended_amount"`
@@ -363,9 +384,9 @@ type AttachmentOutboxEvent struct {
 type AttachmentRequest struct {
 	TenantID                string  `json:"tenant_id" binding:"required"`
 	SettlementBatchRef      *string `json:"settlement_batch_ref,omitempty"`
-	SettlementObservationID *string `json:"settlement_observation_id,omitempty"`
+	IntentID                *string `json:"intent_id,omitempty"`
 	IngestRunID             *string `json:"ingest_run_id,omitempty"`
-	JobScopeType            string  `json:"job_scope_type"` // SETTLEMENT_BATCH | SINGLE_OBSERVATION | INGEST_RUN
+	JobScopeType            string  `json:"job_scope_type"` // SETTLEMENT_BATCH | SINGLE_INTENT | INGEST_RUN
 }
 
 // AttachmentResponse is returned after a job completes (sync) or is queued (async).

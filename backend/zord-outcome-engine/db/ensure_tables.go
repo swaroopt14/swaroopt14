@@ -455,9 +455,9 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			created_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
-		// One authoritative decision per observation. Replays upsert by this key.
-		`CREATE UNIQUE INDEX IF NOT EXISTS attachment_decisions_obs_uq
-			ON attachment_decisions(settlement_observation_id, attachment_job_id);`,
+		// One authoritative decision per intent. Replays upsert by this key.
+		`CREATE UNIQUE INDEX IF NOT EXISTS attachment_decisions_intent_uq
+			ON attachment_decisions(intent_id, attachment_job_id);`,
 		`CREATE INDEX IF NOT EXISTS attachment_decisions_intent_idx
 			ON attachment_decisions(intent_id) WHERE intent_id IS NOT NULL;`,
 		`CREATE INDEX IF NOT EXISTS attachment_decisions_type_idx
@@ -540,11 +540,13 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 
 			-- counts
 			total_intent_count          INT NOT NULL DEFAULT 0,
+			total_observation_count     INT NOT NULL DEFAULT 0,
 			exact_match_count           INT NOT NULL DEFAULT 0,
 			high_confidence_count       INT NOT NULL DEFAULT 0,
 			ambiguous_count             INT NOT NULL DEFAULT 0,
 			unresolved_count            INT NOT NULL DEFAULT 0,
 			conflicted_count            INT NOT NULL DEFAULT 0,
+			orphan_observation_count    INT NOT NULL DEFAULT 0,
 
 			-- amount aggregates
 			original_intended_amount   NUMERIC(20,2) NOT NULL DEFAULT 0,
@@ -706,6 +708,29 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ON unresolved_intent_records(intent_id);`,
 		`CREATE INDEX IF NOT EXISTS unresolved_intent_records_batch_idx
 			ON unresolved_intent_records(batch_id) WHERE batch_id IS NOT NULL;`,
+
+		// ── orphan_settlement_records ─────────────────────────────────────────
+		// Records every canonical settlement observation that was not matched
+		// during an attachment job (reverse scan for intent-centric engine).
+		`CREATE TABLE IF NOT EXISTS orphan_settlement_records (
+			orphan_id            UUID PRIMARY KEY,
+			tenant_id            UUID NOT NULL,
+			attachment_job_id    UUID NOT NULL REFERENCES attachment_jobs(attachment_job_id),
+			settlement_observation_id UUID NOT NULL,
+			batch_id             TEXT,
+			unresolved_reason    TEXT NOT NULL,
+			amount               NUMERIC(20,2) NOT NULL,
+			currency_code        TEXT NOT NULL,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS orphan_settlement_records_tenant_idx
+			ON orphan_settlement_records(tenant_id);`,
+		`CREATE INDEX IF NOT EXISTS orphan_settlement_records_job_idx
+			ON orphan_settlement_records(attachment_job_id);`,
+		`CREATE INDEX IF NOT EXISTS orphan_settlement_records_obs_idx
+			ON orphan_settlement_records(settlement_observation_id);`,
+		`CREATE INDEX IF NOT EXISTS orphan_settlement_records_batch_idx
+			ON orphan_settlement_records(batch_id) WHERE batch_id IS NOT NULL;`,
 
 		// ── Schema migrations (add columns that may be missing on older DBs) ──
 		`ALTER TABLE canonical_settlement_observations ADD COLUMN IF NOT EXISTS bank_id TEXT;`,

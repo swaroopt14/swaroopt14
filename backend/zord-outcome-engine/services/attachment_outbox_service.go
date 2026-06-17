@@ -72,8 +72,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 	intentLookup := make(map[uuid.UUID]intentInfo)
 	var intentIDs []uuid.UUID
 	for _, d := range decisions {
-		if d.IntentID != nil {
-			intentIDs = append(intentIDs, *d.IntentID)
+		if d.IntentID != uuid.Nil {
+			intentIDs = append(intentIDs, d.IntentID)
 		}
 	}
 	if len(intentIDs) > 0 {
@@ -131,8 +131,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 		intendedAmount := decimal.Zero
 		settledAmount := decimal.Zero
 
-		if d.IntentID != nil {
-			if info, ok := intentLookup[*d.IntentID]; ok {
+		if d.IntentID != uuid.Nil {
+			if info, ok := intentLookup[d.IntentID]; ok {
 				cID = info.ContractID
 				corrID = info.CorridorID
 				curr = info.Currency
@@ -146,61 +146,38 @@ func (s *AttachmentOutboxService) EmitForJob(
 		var bankRef, clientRefCandidate string
 		var obsCreatedAt time.Time
 		var parsedCreatedAt time.Time
-		if obs, ok := obsMap[d.SettlementObservationID]; ok {
-			bID = obs.ClientBatchID
-			if bID == "" && obs.BatchReference != nil {
-				bID = *obs.BatchReference
-			}
-			settledAmount = obs.Amount
-			if corrID == "" {
-				corrID = obs.CorridorID
-			}
-			if curr == "" {
-				curr = obs.CurrencyCode
-			}
-			if obs.TraceID != nil {
-				tID = *obs.TraceID
-			}
-			if obs.BankReference != nil {
-				bankRef = *obs.BankReference
-			}
-			if obs.ClientReferenceCandidate != nil {
-				clientRefCandidate = *obs.ClientReferenceCandidate
-			}
-			obsCreatedAt = obs.CreatedAt
+		if d.SettlementObservationID != nil {
+			if obs, ok := obsMap[*d.SettlementObservationID]; ok {
+				bID = obs.ClientBatchID
+				if bID == "" && obs.BatchReference != nil {
+					bID = *obs.BatchReference
+				}
+				settledAmount = obs.Amount
+				if corrID == "" {
+					corrID = obs.CorridorID
+				}
+				if curr == "" {
+					curr = obs.CurrencyCode
+				}
+				if obs.TraceID != nil {
+					tID = *obs.TraceID
+				}
+				if obs.BankReference != nil {
+					bankRef = *obs.BankReference
+				}
+				if obs.ClientReferenceCandidate != nil {
+					clientRefCandidate = *obs.ClientReferenceCandidate
+				}
+				obsCreatedAt = obs.CreatedAt
 
-			if pr, ok2 := parsedByRowRef[obs.SourceRowRef]; ok2 {
-				parsedCreatedAt = pr.CreatedAt
-			}
-		}
-
-		// If IntentID is missing, try to find it by reference from the observation (user request: take from table directly)
-		intentID := d.IntentID
-		if intentID == nil {
-			if obs, ok := obsMap[d.SettlementObservationID]; ok && obs.ClientReferenceCandidate != nil {
-				var foundID uuid.UUID
-				err := db.DB.QueryRowContext(ctx, `
-					SELECT intent_id FROM canonical_intents 
-					WHERE client_payout_ref = $1 AND tenant_id = $2 
-					LIMIT 1`, *obs.ClientReferenceCandidate, d.TenantID).Scan(&foundID)
-				if err == nil {
-					intentID = &foundID
-					// Re-enrich identifiers from the found intent
-					var corrIDStr string
-					var foundContractID uuid.UUID
-					_ = db.DB.QueryRowContext(ctx, `
-						SELECT 
-							contract_id,
-							COALESCE(corridor, ''),
-							currency_code,
-							amount
-						FROM canonical_intents
-						WHERE intent_id = $1`, foundID).Scan(&foundContractID, &corrIDStr, &curr, &intendedAmount)
-					cID = foundContractID
-					corrID = corrIDStr
+				if pr, ok2 := parsedByRowRef[obs.SourceRowRef]; ok2 {
+					parsedCreatedAt = pr.CreatedAt
 				}
 			}
 		}
+
+		// intentID is always populated now
+		intentID := d.IntentID
 
 		// Defensive enrichment for contract_id if still missing
 		if cID == uuid.Nil && corrID != "" {
@@ -212,7 +189,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		}
 
 		intentIDStr := ""
-		if intentID != nil {
+		if intentID != uuid.Nil {
 			intentIDStr = intentID.String()
 		}
 
@@ -228,12 +205,20 @@ func (s *AttachmentOutboxService) EmitForJob(
 		}
 
 		// Fetch observation for metadata enrichment
-		obs, ok := obsMap[d.SettlementObservationID]
-		if !ok {
-			log.Printf("attachment.outbox.missing_obs decision=%s obs=%s", d.AttachmentDecisionID, d.SettlementObservationID)
-			continue
+		var envelopeID string
+		if d.SettlementObservationID != nil {
+			obs, ok := obsMap[*d.SettlementObservationID]
+			if !ok {
+				log.Printf("attachment.outbox.missing_obs decision=%s obs=%s", d.AttachmentDecisionID, d.SettlementObservationID)
+				continue
+			}
+			envelopeID = obs.SettlementEnvelopeID.String()
 		}
-		envelopeID := obs.SettlementEnvelopeID.String()
+
+		var obsIDStr string
+		if d.SettlementObservationID != nil {
+			obsIDStr = d.SettlementObservationID.String()
+		}
 
 		payload := map[string]interface{}{
 			"event_id":                     uuid.New().String(),
@@ -242,13 +227,13 @@ func (s *AttachmentOutboxService) EmitForJob(
 			"tenant_id":                    d.TenantID,
 			"trace_id":                     tID.String(),
 			"occurred_at":                  time.Now().UTC().Format(time.RFC3339),
-			"settlement_observation_id":    d.SettlementObservationID,
+			"settlement_observation_id":    obsIDStr,
 			"intent_id":                    intentIDStr,
 			"contract_id":                  contractIDStr,
 			"corridor_id":                  corrID,
 			"batch_id":                     bID,
 			"settled_amount":               settledAmount.String(),
-			"source_system":                obs.SourceSystem, // ProviderID in zord-intelligence
+			"source_system":                "", // TODO: handle source system for unmatched
 			"intended_amount":              intendedAmount.String(),
 			"currency":                     curr,
 			"candidate_set_size":           d.CandidateSetSize,
@@ -296,7 +281,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 			flagPayload := map[string]interface{}{
 				"attachment_decision_id":    d.AttachmentDecisionID,
 				"tenant_id":                 d.TenantID,
-				"settlement_observation_id": d.SettlementObservationID,
+				"settlement_observation_id": obsIDStr,
 				"ambiguity_score":           d.AmbiguityScore,
 				"candidate_set_hash":        d.CandidateSetHash,
 				"reason_code":               d.DecisionReasonCode,
@@ -313,7 +298,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 			flagPayload := map[string]interface{}{
 				"attachment_decision_id":    d.AttachmentDecisionID,
 				"tenant_id":                 d.TenantID,
-				"settlement_observation_id": d.SettlementObservationID,
+				"settlement_observation_id": obsIDStr,
 				"reason_code":               d.DecisionReasonCode,
 				"ambiguity_score":           d.AmbiguityScore,
 			}
@@ -330,7 +315,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 			reviewPayload := map[string]interface{}{
 				"attachment_decision_id":    d.AttachmentDecisionID,
 				"tenant_id":                 d.TenantID,
-				"settlement_observation_id": d.SettlementObservationID,
+				"settlement_observation_id": obsIDStr,
 				"reason_code":               d.DecisionReasonCode,
 				"winning_score":             d.WinningScore,
 				"runner_up_score":           d.RunnerUpScore,
@@ -489,8 +474,10 @@ func (s *AttachmentOutboxService) EmitForJob(
 	// 2. Fetch corridor_id from the first observation in this job
 	if len(decisions) > 0 {
 		firstObsID := decisions[0].SettlementObservationID
-		if obs, ok := obsMap[firstObsID]; ok {
-			corridorID = obs.CorridorID
+		if firstObsID != nil {
+			if obs, ok := obsMap[*firstObsID]; ok {
+				corridorID = obs.CorridorID
+			}
 		}
 	}
 
@@ -768,12 +755,12 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 	}
 
 	for _, d := range decisions {
-		// Only emit for decisions that resolved to a specific intent.
-		if d.IntentID == nil {
+		// Only emit for decisions that resolved to a specific observation.
+		if d.SettlementObservationID == nil {
 			continue
 		}
 
-		obs, ok := obsMap[d.SettlementObservationID]
+		obs, ok := obsMap[*d.SettlementObservationID]
 		if !ok {
 			log.Printf("leaf_bundle.obs_missing decision=%s obs=%s", d.AttachmentDecisionID, d.SettlementObservationID)
 			continue
@@ -898,7 +885,7 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 //	SHA256( selected_intent | settlement_observation | candidate_set | match_score | ruleset_version )
 func computeAttachmentDecisionLeafHash(d models.AttachmentDecision) string {
 	intent := ""
-	if d.IntentID != nil {
+	if d.IntentID != uuid.Nil {
 		intent = d.IntentID.String()
 	}
 	raw := fmt.Sprintf("%s|%s|%s|%f|%s",

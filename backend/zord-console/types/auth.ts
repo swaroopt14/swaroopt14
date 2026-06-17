@@ -11,4 +11,7 @@ export interface User {
   name: string
   mfaEnabled?: boolean
   sessionExpiresAt?: string
+  idleExpiresAt?: string
+  absoluteExpiresAt?: string
 }
+

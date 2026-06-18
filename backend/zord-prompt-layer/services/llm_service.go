@@ -267,15 +267,16 @@ func (s *LLMService) ClassifyQueryIntent(userQuery string) (QueryClassDecision, 
 		"4. evidence_or_dispute_query\n" +
 		"5. out_of_scope\n\n" +
 		"Definitions:\n" +
-		"- operational_data_query: user asks about current payment data, payment instructions, batches, payouts, settlements, confirmations, pending items, failures, duplicate processing, unmatched value, review value, proof readiness, evidence coverage, risk, trends, uploaded files, value status, or operational status. The user does not need to use technical words like intent.\n" +
-		"- product_explanation: user asks what Zord is, how Zord works, what a product term means, or what a feature means without asking about current tenant data.\n" +
+		"- operational_data_query: user asks about current payment data, payment instructions, batches, payouts, settlements, settlement matching, confirmations, pending items, failures, duplicate processing, unmatched value, unresolved value, review value, proof readiness, evidence coverage, risk, trends, uploaded files, value status, or operational status. The user does not need to use technical words like intent.\n" +
+		"- product_explanation: user asks what Zord is, how Zord works, what a product term means, what payment instructions/intents mean, or what a feature means without asking about current tenant data.\n" +
 		"- navigation_or_how_to: user asks where to click, how to upload, how to export, how to review, how to open a batch, how to use the dashboard, or what to do next inside Zord.\n" +
-		"- evidence_or_dispute_query: user asks about proof packs, evidence, dispute resolution, audit export, verification, proof readiness, missing evidence, or whether a payment can be supported for review.\n" +
+		"- evidence_or_dispute_query: user asks specifically about proof packs, evidence packs, dispute resolution, audit export, verification, missing evidence, missing proof, or whether a payment can be supported for review/export.\n" +
 		"- out_of_scope: unrelated personal/general chatter not relevant to Zord, payment operations, proof, settlement, payout, evidence, or product usage.\n\n" +
 		"Rules:\n" +
-		"- Be conservative. If a query could reasonably be about payment operations, classify it as operational_data_query.\n" +
-		"- Do not require the user to say intent, database, table, schema, or any backend term.\n" +
-		"- Questions like 'how many came in', 'what is pending', 'what failed', 'what is stuck', 'when will settlement arrive', and 'what is unmatched' are operational_data_query when they refer to Zord workspace context.\n" +
+		"- If a query is related to Zord, payments, payout operations, settlement, proof, evidence, upload, review, or resolution, it is never out_of_scope.\n" +
+		"- Mixed questions like 'explain intents and what measures should I take to resolve it' are in-scope. Classify them as product_explanation if mostly conceptual, or operational_data_query if asking about current tenant data.\n" +
+		"- Questions like 'how many came in', 'what is pending', 'what failed', 'what is stuck', 'when will settlement arrive', 'what is unmatched', 'what is unresolved', and 'what needs review' are operational_data_query when they refer to Zord workspace context.\n" +
+		"- Use evidence_or_dispute_query only for explicit evidence pack, proof pack, dispute, audit export, or verification questions.\n" +
 		"- needs_visualization=true only if the user explicitly asks for chart, graph, trend, visualization, comparison over time, or visual breakdown.\n" +
 		"- needs_data=true for operational_data_query and evidence_or_dispute_query.\n" +
 		"- needs_data=false for product_explanation and navigation_or_how_to unless the user asks about current data.\n" +
@@ -345,6 +346,11 @@ func (s *LLMService) GenerateOperationalJSON(userQuery, context, visRule string)
 			"- Clearly distinguish payment instructions received, payment instructions processed, failed payment instructions, DLQ entries, and unique payment instructions affected by DLQ.\n" +
 			"- If CONTEXT includes a status breakdown, explain the most important status groups in business language.\n" +
 			"- If aggregate summary is missing for a count question, say the total cannot be calculated from current data.\n\n" +
+			"Outcome summary rules:\n" +
+			"- If CONTEXT contains Outcome settlement matching summary, use it as the strongest source for settlement matching, unmatched value, unresolved payments, match confidence, and batch review status.\n" +
+			"- payment_instructions_covered means payment instructions included in settlement matching coverage. Do not describe it as every payment instruction received in the entire system unless CONTEXT also says that.\n" +
+			"- For raw received-payment count questions, prefer explicit payment instruction aggregate context when present. If only outcome summary exists, clearly say the count is for settlement matching coverage.\n" +
+			"- Do not infer totals from sample payment rows when outcome or aggregate summary is present.\n\n" +
 			"Policy rules:\n" +
 			"- Follow the policy facts provided in CONTEXT. Do not invent policy outcomes.\n" +
 			"- If a policy summary is present, treat it as more reliable than sample records.\n\n" +

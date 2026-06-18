@@ -78,38 +78,6 @@ func NewDefaultRAGService(model string, defaultK int, retriever EvidenceRetrieve
 		memory:       memory,
 	}
 }
-func classifyDeterministic(q string) queryClass {
-	s := strings.ToLower(strings.TrimSpace(q))
-	if s == "" {
-		return classOutOfScope
-	}
-
-	if isGreetingOnly(s) {
-		return classProduct
-	}
-
-	if isProductExplanationQuery(s) {
-		return classProduct
-	}
-
-	if isNavigationQuery(s) {
-		return classNavigation
-	}
-
-	if isEvidenceQuery(s) {
-		return classEvidence
-	}
-
-	if isClearlyOperationalQuery(s) {
-		return classOperational
-	}
-
-	if isClearlyOutOfScopeQuery(s) {
-		return classOutOfScope
-	}
-
-	return classUnknown
-}
 
 func isGreetingOnly(s string) bool {
 	switch strings.TrimSpace(s) {
@@ -374,31 +342,24 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 			NextActions:   []string{},
 		}, nil
 	}
-	class := classifyDeterministic(req.Query)
-	classSource := "local"
+	log.Printf("[prompt-layer][llm] call=classifier tenant=%s", req.TenantID)
 
-	if class == classUnknown {
-		classSource = "llm"
-		log.Printf("[prompt-layer][llm] call=classifier tenant=%s", req.TenantID)
-
-		dec, err := s.llm.ClassifyQueryIntent(req.Query)
-		if err != nil {
-			log.Printf("[prompt-layer][classify] llm-classifier failed err=%v; defaulting general", err)
-			class = classProduct
-		} else if dec.Confidence >= 0.60 {
-			class = mapLLMClass(dec.Class)
-		} else {
-			class = classProduct
-		}
+	dec, err := s.llm.ClassifyQueryIntent(req.Query)
+	if err != nil {
+		log.Printf("[prompt-layer][classify] llm-classifier failed tenant=%s err=%v; defaulting general", req.TenantID, err)
+		return buildGeneralResponse(), nil
 	}
 
-	log.Printf("[prompt-layer][router] route=%s source=%s tenant=%s", class, classSource, req.TenantID)
+	class := mapLLMClass(dec.Class)
+	if dec.Confidence < 0.50 {
+		log.Printf("[prompt-layer][classify] low confidence tenant=%s class=%s confidence=%.2f; defaulting general", req.TenantID, dec.Class, dec.Confidence)
+		class = classProduct
+	}
+
+	log.Printf("[prompt-layer][router] route=%s source=llm confidence=%.2f tenant=%s", class, dec.Confidence, req.TenantID)
 	log.Printf("[prompt-layer][classify] class=%s tenant=%s", class, req.TenantID)
 
 	if class == classProduct {
-		if isGreetingOnly(strings.ToLower(strings.TrimSpace(req.Query))) {
-			return buildGeneralResponse(), nil
-		}
 
 		log.Printf("[prompt-layer][llm] call=product_explanation tenant=%s", req.TenantID)
 
@@ -976,7 +937,7 @@ func sourceDiversity(chunks []model.RetrievedChunk) float64 {
 			seen[group] = struct{}{}
 		}
 	}
-	v := float64(len(seen)) / 5.0 // edge, intent, relay, intelligence, evidence
+	v := float64(len(seen)) / 6.0 // edge, intent, relay, intelligence, evidence
 	if v > 1 {
 		return 1
 	}
@@ -999,6 +960,8 @@ func sourceGroup(sourceType string) string {
 		return "intelligence"
 	case strings.HasPrefix(s, "evidence_"):
 		return "evidence"
+	case strings.HasPrefix(s, "outcome_"):
+		return "outcome"
 	default:
 		return ""
 	}

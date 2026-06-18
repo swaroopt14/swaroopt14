@@ -144,20 +144,24 @@ func isNavigationQuery(s string) bool {
 }
 
 func isEvidenceQuery(s string) bool {
-	evidenceSignals := []string{
-		"evidence",
-		"proof",
+	strongEvidenceSignals := []string{
 		"proof pack",
-		"audit",
+		"evidence pack",
+		"audit export",
+		"export proof",
 		"dispute",
+		"dispute resolution",
 		"defend",
 		"defended",
 		"verification",
-		"verify",
-		"export proof",
+		"verify evidence",
+		"missing evidence",
 		"missing proof",
+		"proof items",
+		"evidence items",
 	}
-	return containsAnyPhrase(s, evidenceSignals)
+
+	return containsAnyPhrase(s, strongEvidenceSignals)
 }
 
 func isClearlyOperationalQuery(s string) bool {

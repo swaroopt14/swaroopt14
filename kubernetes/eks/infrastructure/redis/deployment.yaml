@@ -13,6 +13,13 @@ spec:
         app.kubernetes.io/name: zord-prompt-layer-redis
     spec:
       priorityClassName: infra-critical
+      # Schedule on the stateful on-demand node group
+      tolerations:
+        - key: workload
+          value: stateful
+          effect: NoSchedule
+      nodeSelector:
+        workload: stateful
       containers:
         - name: redis
           image: redis:7-alpine

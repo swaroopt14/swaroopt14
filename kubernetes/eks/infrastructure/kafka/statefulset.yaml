@@ -16,6 +16,13 @@ spec:
       securityContext:
         fsGroup: 1000
       priorityClassName: infra-critical
+      # Schedule on the stateful on-demand node group
+      tolerations:
+        - key: workload
+          value: stateful
+          effect: NoSchedule
+      nodeSelector:
+        workload: stateful
       containers:
         - name: kafka
           image: confluentinc/cp-kafka:7.6.0

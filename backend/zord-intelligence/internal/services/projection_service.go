@@ -46,8 +46,6 @@ type ProjectionService struct {
 	policyService *PolicyService
 	slaRepo       *persistence.SLATimerRepo
 	batchRepo     *persistence.BatchContractRepo
-	intentRepo    *persistence.IntentBridgeRepo
-	outcomeRepo   *persistence.OutcomeIntentBridgeRepo
 
 	// ── Phase 4: Six intelligence layer services ──────────────────────────
 	leakageSvc        *LeakageIntelligenceService
@@ -81,8 +79,6 @@ func NewProjectionService(
 	rcaSvc *RCAIntelligenceService,
 	patternSvc *PatternIntelligenceService,
 	recommendationSvc *RecommendationIntelligenceService,
-	intentRepo *persistence.IntentBridgeRepo,
-	outcomeRepo *persistence.OutcomeIntentBridgeRepo,
 	mode models.IntelligenceMode, // PHASE 6
 ) *ProjectionService {
 	// Normalise empty string to GRADE_A so handlers can safely call IsGradeB()
@@ -101,8 +97,6 @@ func NewProjectionService(
 		rcaSvc:            rcaSvc,
 		patternSvc:        patternSvc,
 		recommendationSvc: recommendationSvc,
-		intentRepo:        intentRepo,
-		outcomeRepo:       outcomeRepo,
 		mode:              mode, // PHASE 6
 	}
 }
@@ -163,11 +157,6 @@ func (s *ProjectionService) HandleIntentCreated(
 		return nil
 	}
 	window := todayWindow(e.CreatedAt)
-
-	if err := s.syncOutcomeCanonicalIntentFromEvent(ctx, e); err != nil {
-		log.Printf("HandleIntentCreated: outcome canonical intent mirror failed intent=%s batch=%s: %v",
-			e.IntentID, e.ClientBatchRef, err)
-	}
 
 	if intendedMinor, err := decimal.NewFromString(e.Amount); err != nil {
 		log.Printf("HandleIntentCreated: could not parse amount=%q intent=%s tenant=%s: %v",
@@ -1226,21 +1215,10 @@ func (s *ProjectionService) HandleAttachmentDecision(
 
 	window := todayWindow(e.OccurredAt)
 	supportingCarriers := supportingCarrierNames(e.SupportingCarriers)
-	batchIDForAttribution := s.resolveRuntimeBatchID(ctx, e.TenantID, e.IntentID, e.BatchID)
+	batchIDForAttribution := e.BatchID
 	isUnresolvedDecision := strings.EqualFold(e.DecisionType, "MATCH_UNRESOLVED")
 	isAmbiguousDecision := strings.EqualFold(e.DecisionType, "MATCH_AMBIGUOUS")
 	intendedAmountMinor := e.IntendedAmountMinor
-	if (isUnresolvedDecision || isAmbiguousDecision) && !intendedAmountMinor.IsPositive() {
-		recoveredAmount, recoverErr := s.resolveAttachmentIntendedAmount(ctx, e)
-		if recoverErr != nil {
-			log.Printf("HandleAttachmentDecision: intended amount recovery failed decision=%s intent=%s batch=%s: %v",
-				e.DecisionID, e.IntentID, e.BatchID, recoverErr)
-		} else if recoveredAmount.IsPositive() {
-			intendedAmountMinor = recoveredAmount
-			log.Printf("HandleAttachmentDecision: recovered intended amount=%s for decision_type=%s decision=%s intent=%s batch=%s",
-				intendedAmountMinor, e.DecisionType, e.DecisionID, e.IntentID, e.BatchID)
-		}
-	}
 
 	// ── Step 1: Update LEAKAGE projection for MATCH_UNRESOLVED ───────────
 	// A MATCH_UNRESOLVED decision means a settlement observation exists but
@@ -1416,84 +1394,6 @@ func (s *ProjectionService) HandleAttachmentDecision(
 	return nil
 }
 
-func (s *ProjectionService) syncOutcomeCanonicalIntentFromEvent(
-	ctx context.Context,
-	e models.IntentCreatedEvent,
-) error {
-	if s == nil || s.outcomeRepo == nil || e.IntentID == "" || e.TenantID == "" {
-		return nil
-	}
-	amount, err := decimal.NewFromString(e.Amount)
-	if err != nil || !amount.IsPositive() {
-		return err
-	}
-	record := persistence.OutcomeCanonicalIntentRecord{
-		IntentID:               e.IntentID,
-		TenantID:               e.TenantID,
-		ContractID:             e.ContractID,
-		ClientPayoutRef:        e.ClientPayoutRef,
-		ClientBatchRef:         e.ClientBatchRef,
-		BusinessIdempotencyKey: e.BusinessIdempotencyKey,
-		Amount:                 amount,
-		CurrencyCode:           e.Currency,
-		IntendedExecutionAt:    e.IntendedExecutionAt,
-		PayoutType:             e.IntentType,
-		ProviderHint:           e.ProviderHint,
-		Corridor:               e.CorridorID,
-		ProofReadinessScore:    e.ProofReadinessScore,
-		MatchabilityScore:      e.MatchabilityScore,
-		CanonicalHash:          e.CanonicalHash,
-		GovernanceState:        e.GovernanceState,
-		BeneficiaryFingerprint: e.BeneficiaryFingerprint,
-		ZordSignatureCarrier:   e.ClientPayoutRef,
-		CreatedAt:              e.CreatedAt,
-	}
-	return s.outcomeRepo.UpsertBatch(ctx, []persistence.OutcomeCanonicalIntentRecord{record})
-}
-
-func (s *ProjectionService) resolveAttachmentIntendedAmount(
-	ctx context.Context,
-	e models.AttachmentDecisionCreatedEvent,
-) (decimal.Decimal, error) {
-	if s == nil || s.intentRepo == nil {
-		return decimal.Zero, nil
-	}
-	if amount, ok, err := s.intentRepo.ResolveIntentAmountByIntentID(ctx, e.TenantID, e.IntentID); err != nil {
-		return decimal.Zero, err
-	} else if ok {
-		return amount, nil
-	}
-
-	clientRef := extractClientPayoutRefCandidate(e.SupportingCarriers)
-	if clientRef == "" {
-		return decimal.Zero, nil
-	}
-	amount, ok, err := s.intentRepo.ResolveIntentAmountByClientPayoutRef(ctx, e.TenantID, e.BatchID, clientRef)
-	if err != nil || !ok {
-		return amount, err
-	}
-	return amount, nil
-}
-
-func (s *ProjectionService) resolveRuntimeBatchID(
-	ctx context.Context,
-	tenantID, intentID, fallbackBatchID string,
-) string {
-	if s == nil || s.intentRepo == nil {
-		return fallbackBatchID
-	}
-	batchID, ok, err := s.intentRepo.ResolveBatchIDByIntentID(ctx, tenantID, intentID)
-	if err != nil {
-		log.Printf("projection_service: resolve runtime batch failed tenant=%s intent=%s fallback_batch=%s: %v",
-			tenantID, intentID, fallbackBatchID, err)
-		return fallbackBatchID
-	}
-	if ok && batchID != "" {
-		return batchID
-	}
-	return fallbackBatchID
-}
-
 func supportingCarrierNames(raw json.RawMessage) []string {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil
@@ -1607,7 +1507,7 @@ func (s *ProjectionService) HandleVarianceRecord(
 	}
 
 	window := todayWindow(e.OccurredAt)
-	batchIDForAttribution := s.resolveRuntimeBatchID(ctx, e.TenantID, e.IntentID, e.BatchID)
+	batchIDForAttribution := e.BatchID
 
 	// ── Per-batch attribution: reversal exposure ─────────────────────────────
 	if e.VarianceType == "REVERSAL" && batchIDForAttribution != "" {

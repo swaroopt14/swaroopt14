@@ -952,13 +952,21 @@ func (r *PaymentIntentRepo) UpdateBatchAggregateConfidence(ctx context.Context, 
 	breakdownJSON, _ := json.Marshal(batchBreakdown)
 
 	_, err = r.db.ExecContext(ctx, `
-        UPDATE outbox
+        WITH locked AS (
+            SELECT event_id
+            FROM outbox
+            WHERE tenant_id = $3 AND batchid = $4
+            ORDER BY event_id
+            FOR UPDATE
+        )
+        UPDATE outbox o
         SET aggregate_confidence_score = $1,
             payload = jsonb_set(
-                jsonb_set(payload, '{aggregate_confidence_score}', to_jsonb($1::numeric)),
+                jsonb_set(o.payload, '{aggregate_confidence_score}', to_jsonb($1::numeric)),
                 '{batch_quality_breakdown}', $2::jsonb
             )
-        WHERE tenant_id = $3 AND batchid = $4
+        FROM locked l
+        WHERE o.event_id = l.event_id
     `, batchScore, breakdownJSON, tenantID, batchID)
 	if err != nil {
 		return 0, err

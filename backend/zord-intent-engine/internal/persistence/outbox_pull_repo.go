@@ -230,14 +230,22 @@ ORDER BY created_at ASC;
 
 func (r *OutboxPullRepo) AckOutboxBatch(ctx context.Context, leaseID string, eventIDs []string) (int64, error) {
 	query := `
-UPDATE outbox
+WITH locked AS (
+	SELECT event_id
+	FROM outbox
+	WHERE lease_id = $1::uuid
+	  AND event_id = ANY($2::uuid[])
+	ORDER BY event_id
+	FOR UPDATE
+)
+UPDATE outbox o
 SET status = 'SENT',
     sent_at = NOW(),
     lease_id = NULL,
     leased_by = NULL,
     lease_until = NULL
-WHERE lease_id = $1::uuid
-  AND event_id = ANY($2::uuid[]);
+FROM locked l
+WHERE o.event_id = l.event_id;
 `
 	res, err := r.db.ExecContext(ctx, query, leaseID, pq.Array(eventIDs))
 	if err != nil {
@@ -248,24 +256,32 @@ WHERE lease_id = $1::uuid
 
 func (r *OutboxPullRepo) NackOutboxBatch(ctx context.Context, leaseID string, eventIDs []string) (int64, error) {
 	query := `
-UPDATE outbox
-SET retry_count = retry_count + 1,
+WITH locked AS (
+	SELECT event_id
+	FROM outbox
+	WHERE lease_id = $1::uuid
+	  AND event_id = ANY($2::uuid[])
+	  AND status = 'PENDING'
+	ORDER BY event_id
+	FOR UPDATE
+)
+UPDATE outbox o
+SET retry_count = o.retry_count + 1,
 	status = CASE
-        WHEN retry_count + 1>= $3 OR created_at < NOW() - ($4::int * INTERVAL '1 hour') THEN 'FAILED'
+        WHEN o.retry_count + 1 >= $3 OR o.created_at < NOW() - ($4::int * INTERVAL '1 hour') THEN 'FAILED'
         ELSE 'PENDING'
     END,
     next_attempt_at = CASE
-        WHEN retry_count + 1>= $3 OR created_at < NOW() - ($4::int * INTERVAL '1 hour') THEN NULL
+        WHEN o.retry_count + 1 >= $3 OR o.created_at < NOW() - ($4::int * INTERVAL '1 hour') THEN NULL
         ELSE NOW() + (
-			LEAST(3600, GREATEST(1, POWER(2, retry_count))) * (0.8 + random() * 0.4)
+			LEAST(3600, GREATEST(1, POWER(2, o.retry_count))) * (0.8 + random() * 0.4)
 		) * INTERVAL '1 second'
     END,
     lease_id = NULL,
     leased_by = NULL,
     lease_until = NULL
-WHERE lease_id = $1::uuid
-  AND event_id = ANY($2::uuid[])
-  AND status = 'PENDING';
+FROM locked l
+WHERE o.event_id = l.event_id;
 `
 	res, err := r.db.ExecContext(ctx, query, leaseID, pq.Array(eventIDs), maxOutboxAttempts, maxOutboxAgeHours)
 	if err != nil {

@@ -434,7 +434,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		`CREATE TABLE IF NOT EXISTS attachment_decisions (
 			attachment_decision_id      UUID PRIMARY KEY,
 			tenant_id                   UUID NOT NULL,
-			settlement_observation_id   UUID NOT NULL,
+			settlement_observation_id   UUID,
 			intent_id                   UUID,
 			attachment_job_id           UUID NOT NULL REFERENCES attachment_jobs(attachment_job_id),
 			decision_type               TEXT NOT NULL,
@@ -458,6 +458,13 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		// One authoritative decision per intent. Replays upsert by this key.
 		`CREATE UNIQUE INDEX IF NOT EXISTS attachment_decisions_intent_uq
 			ON attachment_decisions(intent_id, attachment_job_id);`,
+		// One observed decision per settlement observation in a job. Unresolved
+		// intent decisions intentionally have no observation id.
+		`CREATE UNIQUE INDEX IF NOT EXISTS attachment_decisions_observation_job_uq
+			ON attachment_decisions(settlement_observation_id, attachment_job_id)
+			WHERE settlement_observation_id IS NOT NULL;`,
+		`CREATE INDEX IF NOT EXISTS attachment_decisions_observation_idx
+			ON attachment_decisions(settlement_observation_id) WHERE settlement_observation_id IS NOT NULL;`,
 		`CREATE INDEX IF NOT EXISTS attachment_decisions_intent_idx
 			ON attachment_decisions(intent_id) WHERE intent_id IS NOT NULL;`,
 		`CREATE INDEX IF NOT EXISTS attachment_decisions_type_idx
@@ -735,6 +742,9 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		// ── Schema migrations (add columns that may be missing on older DBs) ──
 		`ALTER TABLE canonical_settlement_observations ADD COLUMN IF NOT EXISTS bank_id TEXT;`,
 		`ALTER TABLE outcome_outbox ADD COLUMN IF NOT EXISTS bank_id TEXT;`,
+		`ALTER TABLE attachment_decisions ALTER COLUMN settlement_observation_id DROP NOT NULL;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS total_observation_count INT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS orphan_observation_count INT NOT NULL DEFAULT 0;`,
 	}
 
 	for _, s := range stmts {

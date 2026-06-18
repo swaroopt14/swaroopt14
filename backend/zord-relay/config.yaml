@@ -49,6 +49,13 @@ services:
     default_topic: payments.intent.dlq
     is_dlq: true
 
+  - name: intent-engine-batch
+    base_url: http://zord-intent-engine-service:8083
+    auth_token: "dev-dummy-token-123"
+    http_timeout: 15s
+    default_topic: batch.canonicalization.completed
+    is_batch: true
+
   - name: ledger-service
     base_url: http://zord-edge-service:8080
     auth_token: "dev-dummy-token-123"

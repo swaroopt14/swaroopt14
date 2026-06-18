@@ -12,7 +12,7 @@ import (
 // session. Rate-limited: only writes if last_recorded_at is older than 45 s.
 func RecordSessionActivity(ctx context.Context, db *sql.DB, sessionID uuid.UUID) error {
 	now := time.Now().UTC()
-	
+
 	// Create table if not exists for the rate limiter.
 	_, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS auth_session_activity (

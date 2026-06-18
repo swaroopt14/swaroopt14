@@ -302,34 +302,47 @@ type BatchAttachmentSummary struct {
 	AttachmentJobID          uuid.UUID `json:"attachment_job_id" db:"attachment_job_id"`
 
 	// Counts
-	TotalIntentCount       int `json:"total_intent_count" db:"total_intent_count"`
-	TotalObservationCount  int `json:"total_observation_count" db:"total_observation_count"`
-	ExactMatchCount        int `json:"exact_match_count" db:"exact_match_count"`
-	HighConfidenceCount    int `json:"high_confidence_count" db:"high_confidence_count"`
-	AmbiguousCount         int `json:"ambiguous_count" db:"ambiguous_count"`
-	UnresolvedCount        int `json:"unresolved_count" db:"unresolved_count"`
-	ConflictedCount        int `json:"conflicted_count" db:"conflicted_count"`
-	OrphanObservationCount int `json:"orphan_observation_count" db:"orphan_observation_count"`
+	TotalIntentCount         int `json:"total_intent_count" db:"total_intent_count"`
+	TotalObservationCount    int `json:"total_observation_count" db:"total_observation_count"`
+	MatchedIntentCount       int `json:"matched_intent_count" db:"matched_intent_count"`
+	MatchedObservationCount  int `json:"matched_observation_count" db:"matched_observation_count"`
+	ExactMatchCount          int `json:"exact_match_count" db:"exact_match_count"`
+	HighConfidenceCount      int `json:"high_confidence_count" db:"high_confidence_count"`
+	AmbiguousCount           int `json:"ambiguous_count" db:"ambiguous_count"`
+	UnresolvedCount          int `json:"unresolved_count" db:"unresolved_count"`
+	ConflictedCount          int `json:"conflicted_count" db:"conflicted_count"`
+	OrphanObservationCount   int `json:"orphan_observation_count" db:"orphan_observation_count"`
 
 	// Amount aggregates
 	TotalIntendedAmount      decimal.Decimal `json:"total_intended_amount" db:"total_intended_amount"`
 	OriginalIntendedAmount   decimal.Decimal `json:"original_intended_amount" db:"original_intended_amount"`
+	MatchedIntendedAmount    decimal.Decimal `json:"matched_intended_amount" db:"matched_intended_amount"`
 	UnresolvedIntendedAmount decimal.Decimal `json:"unresolved_intended_amount" db:"unresolved_intended_amount"`
 	TotalObservedAmount      decimal.Decimal `json:"total_observed_amount" db:"total_observed_amount"`
 	OriginalSettledAmount    decimal.Decimal `json:"original_settled_amount" db:"original_settled_amount"`
+	MatchedObservedAmount    decimal.Decimal `json:"matched_observed_amount" db:"matched_observed_amount"`
+	OrphanObservedAmount     decimal.Decimal `json:"orphan_observed_amount" db:"orphan_observed_amount"`
 	AmbiguousObservedAmount  decimal.Decimal `json:"ambiguous_observed_amount" db:"ambiguous_observed_amount"`
 	ConflictedObservedAmount decimal.Decimal `json:"conflicted_observed_amount" db:"conflicted_observed_amount"`
 	UnresolvedObservedAmount decimal.Decimal `json:"unresolved_observed_amount" db:"unresolved_observed_amount"`
 	TotalFeeAmount           decimal.Decimal `json:"total_fee_amount" db:"total_fee_amount"`
 	TotalDeductionAmount     decimal.Decimal `json:"total_deduction_amount" db:"total_deduction_amount"`
 	TotalVariance            decimal.Decimal `json:"total_variance" db:"total_variance"`
+	MatchedPairVariance      decimal.Decimal `json:"matched_pair_variance" db:"matched_pair_variance"`
+	NetBatchDelta            decimal.Decimal `json:"net_batch_delta" db:"net_batch_delta"`
 	NetUnexplainedVariance   decimal.Decimal `json:"net_unexplained_variance" db:"net_unexplained_variance"`
+
+	// Coverage (0–1 ratios)
+	IntentCountCoverage              float64 `json:"intent_count_coverage" db:"intent_count_coverage"`
+	IntentValueCoverage              float64 `json:"intent_value_coverage" db:"intent_value_coverage"`
+	ObservedCountAllocationCoverage  float64 `json:"observed_count_allocation_coverage" db:"observed_count_allocation_coverage"`
+	ObservedValueAllocationCoverage  float64 `json:"observed_value_allocation_coverage" db:"observed_value_allocation_coverage"`
 
 	// Derived status
 	BatchAttachmentStatus    string    `json:"batch_attachment_status" db:"batch_attachment_status"`
-	AggregateScore           float64   `json:"aggregate_score" db:"avg_matched_attachment_quality"`
-	AggregateMatchConfidence float64   `json:"aggregate_match_confidence" db:"avg_matched_attachment_confidence"`
-	AmbiguityScore           float64   `json:"ambiguity_score" db:"avg_matched_attachment_ambiguity"`
+	AggregateScore           float64   `json:"avg_matched_attachment_quality" db:"avg_matched_attachment_quality"`
+	AggregateMatchConfidence float64   `json:"avg_matched_attachment_confidence" db:"avg_matched_attachment_confidence"`
+	AmbiguityScore           float64   `json:"avg_matched_attachment_ambiguity" db:"avg_matched_attachment_ambiguity"`
 	CreatedAt                time.Time `json:"created_at" db:"created_at"`
 	UpdatedAt                time.Time `json:"updated_at" db:"updated_at"`
 }
@@ -401,7 +414,7 @@ type AttachmentResponse struct {
 	Message             string `json:"message"`
 }
 
-// AttachmentDecisionResponse is returned when fetching the decision for one observation.
+// AttachmentDecisionResponse is returned when fetching the decision for one intent.
 type AttachmentDecisionResponse struct {
 	Decision     *AttachmentDecision     `json:"decision"`
 	Variance     *VarianceRecord         `json:"variance,omitempty"`

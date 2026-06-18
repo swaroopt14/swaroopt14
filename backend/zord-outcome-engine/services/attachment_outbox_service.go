@@ -454,7 +454,15 @@ func (s *AttachmentOutboxService) EmitForJob(
 		SELECT 
 			batch_id, source_reference, total_intended_amount, 
 			total_observed_amount, total_variance, batch_attachment_status,
-			avg_matched_attachment_ambiguity, avg_matched_attachment_confidence
+			avg_matched_attachment_ambiguity, avg_matched_attachment_confidence,
+			avg_matched_attachment_quality,
+			matched_intent_count, total_intent_count,
+			matched_pair_variance, net_batch_delta, orphan_observed_amount,
+			unresolved_intended_amount, orphan_observation_count, unresolved_count,
+			intent_count_coverage, intent_value_coverage,
+			observed_count_allocation_coverage, observed_value_allocation_coverage,
+			original_intended_amount, original_settled_amount,
+			matched_intended_amount, matched_observed_amount
 		FROM batch_attachment_summaries 
 		WHERE attachment_job_id = $1 
 		LIMIT 1`,
@@ -464,7 +472,24 @@ func (s *AttachmentOutboxService) EmitForJob(
 	var summarySourceRef string
 	var summaryAmbiguity float64
 	var summaryMatchConfidence float64
-	if err := row.Scan(&summaryBatchID, &summarySourceRef, &totalIntendedAmount, &totalConfirmedAmount, &totalVariance, &finalityStatus, &summaryAmbiguity, &summaryMatchConfidence); err == nil {
+	var summaryQualityScore float64
+	var matchedIntentCount, totalIntentCount int
+	var matchedPairVariance, netBatchDelta, orphanObservedAmount, unresolvedIntendedAmount decimal.Decimal
+	var orphanObservationCount, unresolvedIntentCount int
+	var intentCountCoverage, intentValueCoverage, observedCountCoverage, observedValueCoverage float64
+	var originalIntendedAmount, matchedIntendedAmount, matchedObservedAmount decimal.Decimal
+	if err := row.Scan(
+		&summaryBatchID, &summarySourceRef, &totalIntendedAmount,
+		&totalConfirmedAmount, &totalVariance, &finalityStatus,
+		&summaryAmbiguity, &summaryMatchConfidence, &summaryQualityScore,
+		&matchedIntentCount, &totalIntentCount,
+		&matchedPairVariance, &netBatchDelta, &orphanObservedAmount,
+		&unresolvedIntendedAmount, &orphanObservationCount, &unresolvedIntentCount,
+		&intentCountCoverage, &intentValueCoverage,
+		&observedCountCoverage, &observedValueCoverage,
+		&originalIntendedAmount, &originalSettledAmount,
+		&matchedIntendedAmount, &matchedObservedAmount,
+	); err == nil {
 		if summaryBatchID != nil {
 			batchID = *summaryBatchID
 		}
@@ -531,12 +556,31 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"pending_count":                pendingCount,
 		"reversed_count":               reversedCount,
 		"partial_recon_count":          0,
+		"total_intent_count":           totalIntentCount,
+		"matched_intent_count":         matchedIntentCount,
+		"unresolved_intent_count":      unresolvedIntentCount,
+		"orphan_observation_count":     orphanObservationCount,
 		"total_intended_amount_minor":  totalIntendedAmount.String(),
 		"total_confirmed_amount_minor": totalConfirmedAmount.String(),
+		"original_intended_amount":     originalIntendedAmount.String(),
 		"original_settled_amount":      originalSettledAmount.String(),
+		"matched_intended_amount":      matchedIntendedAmount.String(),
+		"matched_observed_amount":      matchedObservedAmount.String(),
+		"unresolved_intended_amount":   unresolvedIntendedAmount.String(),
+		"orphan_observed_amount":       orphanObservedAmount.String(),
+		"matched_pair_variance":        matchedPairVariance.String(),
+		"net_batch_delta":              netBatchDelta.String(),
 		"total_variance_minor":         totalVariance.String(),
-		"ambiguity_score":              aggregateAmbiguity,
-		"aggregate_match_confidence":   summaryMatchConfidence,
+		"intent_count_coverage":        intentCountCoverage,
+		"intent_value_coverage":        intentValueCoverage,
+		"observed_count_allocation_coverage": observedCountCoverage,
+		"observed_value_allocation_coverage": observedValueCoverage,
+		"avg_matched_attachment_ambiguity": aggregateAmbiguity,
+		"ambiguity_score":                    aggregateAmbiguity,
+		"avg_matched_attachment_confidence": summaryMatchConfidence,
+		"avg_matched_attachment_quality":   summaryQualityScore,
+		"aggregate_score":                  summaryQualityScore,
+		"aggregate_match_confidence":         summaryMatchConfidence,
 		"batch_finality_status":        finalityStatus,
 		"job_status":                   job.Status,
 	}
@@ -882,15 +926,19 @@ func (s *AttachmentOutboxService) EmitLeafBundlesForJob(
 // computeAttachmentDecisionLeafHash returns a deterministic SHA-256 hex hash of the
 // attachment decision fields that matter for evidence integrity:
 //
-//	SHA256( selected_intent | settlement_observation | candidate_set | match_score | ruleset_version )
+//	SHA256( intent_id | settlement_observation_id | candidate_set | match_score | ruleset_version )
 func computeAttachmentDecisionLeafHash(d models.AttachmentDecision) string {
 	intent := ""
 	if d.IntentID != uuid.Nil {
 		intent = d.IntentID.String()
 	}
+	observation := ""
+	if d.SettlementObservationID != nil {
+		observation = d.SettlementObservationID.String()
+	}
 	raw := fmt.Sprintf("%s|%s|%s|%f|%s",
 		intent,
-		d.SettlementObservationID.String(),
+		observation,
 		d.CandidateSetHash,
 		d.WinningScore,
 		d.MatchingRulesetVersion,

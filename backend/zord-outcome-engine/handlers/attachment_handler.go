@@ -7,7 +7,7 @@ package handlers
 //
 // Routes (registered in routes/outcome_route.go):
 //   POST /v1/attachment/run           — trigger an attachment job
-//   GET  /v1/attachment/decision/:id  — fetch decision for one observation
+//   GET  /v1/attachment/decision/intent/:intent_id  — fetch decision for one intent
 //   GET  /v1/attachment/batch/:ref    — fetch batch attachment summary
 //   POST /v1/intent                   — register a canonical intent (test/dev)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,22 +163,21 @@ func (h *Handler) RunAttachmentHandler(c *gin.Context) {
 	})
 }
 
-// GetAttachmentDecisionHandler fetches the attachment decision for one settlement observation.
+// GetAttachmentDecisionByIntentHandler fetches the attachment decision for one canonical intent.
 //
-// Path: /v1/attachment/decision/:observation_id?tenant_id=uuid
-func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
+// Path: /v1/attachment/decision/intent/:intent_id?tenant_id=uuid
+func (h *Handler) GetAttachmentDecisionByIntentHandler(c *gin.Context) {
 	tenantID, err := uuid.Parse(c.Query("tenant_id"))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid tenant_id"})
 		return
 	}
-	obsID, err := uuid.Parse(c.Param("observation_id"))
+	intentID, err := uuid.Parse(c.Param("intent_id"))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid observation_id"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid intent_id"})
 		return
 	}
 
-	// Fetch most recent decision for this observation.
 	row := db.DB.QueryRowContext(c.Request.Context(), `
 		SELECT
 			attachment_decision_id, tenant_id,
@@ -190,10 +189,10 @@ func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
 			supporting_carriers_json, candidate_set_hash,
 			created_at, updated_at
 		FROM attachment_decisions
-		WHERE tenant_id = $1 AND settlement_observation_id = $2
+		WHERE tenant_id = $1 AND intent_id = $2
 		ORDER BY created_at DESC
 		LIMIT 1`,
-		tenantID, obsID,
+		tenantID, intentID,
 	)
 
 	var d models.AttachmentDecision
@@ -208,7 +207,7 @@ func (h *Handler) GetAttachmentDecisionHandler(c *gin.Context) {
 		&d.CreatedAt, &d.UpdatedAt,
 	)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "no attachment decision found for this observation"})
+		c.JSON(http.StatusNotFound, gin.H{"error": "no attachment decision found for this intent"})
 		return
 	}
 
@@ -264,10 +263,19 @@ func (h *Handler) GetBatchAttachmentSummaryHandler(c *gin.Context) {
 		SELECT
 			batch_attachment_summary_id, tenant_id, batch_id, source_reference,
 			attachment_job_id,
-			total_intent_count, exact_match_count, high_confidence_count,
-			ambiguous_count, unresolved_count, conflicted_count,
+			total_intent_count, total_observation_count,
+			matched_intent_count, matched_observation_count,
+			exact_match_count, high_confidence_count,
+			ambiguous_count, unresolved_count, conflicted_count, orphan_observation_count,
+			original_intended_amount, original_settled_amount,
 			total_intended_amount, total_observed_amount, total_variance,
-			batch_attachment_status, avg_matched_attachment_quality, aggregate_match_confidence, avg_matched_attachment_ambiguity, created_at, updated_at
+			matched_intended_amount, matched_observed_amount, orphan_observed_amount,
+			matched_pair_variance, net_batch_delta,
+			unresolved_intended_amount,
+			total_fee_amount, total_deduction_amount, net_unexplained_variance,
+			intent_count_coverage, intent_value_coverage,
+			observed_count_allocation_coverage, observed_value_allocation_coverage,
+			batch_attachment_status, avg_matched_attachment_quality, avg_matched_attachment_confidence, avg_matched_attachment_ambiguity, created_at, updated_at
 		FROM batch_attachment_summaries
 		WHERE tenant_id = $1 AND (batch_id = $2 OR source_reference = $2)
 		ORDER BY created_at DESC
@@ -279,9 +287,18 @@ func (h *Handler) GetBatchAttachmentSummaryHandler(c *gin.Context) {
 	if err = row.Scan(
 		&s.BatchAttachmentSummaryID, &s.TenantID, &s.BatchID, &s.SourceReference,
 		&s.AttachmentJobID,
-		&s.TotalIntentCount, &s.ExactMatchCount, &s.HighConfidenceCount,
-		&s.AmbiguousCount, &s.UnresolvedCount, &s.ConflictedCount,
+		&s.TotalIntentCount, &s.TotalObservationCount,
+		&s.MatchedIntentCount, &s.MatchedObservationCount,
+		&s.ExactMatchCount, &s.HighConfidenceCount,
+		&s.AmbiguousCount, &s.UnresolvedCount, &s.ConflictedCount, &s.OrphanObservationCount,
+		&s.OriginalIntendedAmount, &s.OriginalSettledAmount,
 		&s.TotalIntendedAmount, &s.TotalObservedAmount, &s.TotalVariance,
+		&s.MatchedIntendedAmount, &s.MatchedObservedAmount, &s.OrphanObservedAmount,
+		&s.MatchedPairVariance, &s.NetBatchDelta,
+		&s.UnresolvedIntendedAmount,
+		&s.TotalFeeAmount, &s.TotalDeductionAmount, &s.NetUnexplainedVariance,
+		&s.IntentCountCoverage, &s.IntentValueCoverage,
+		&s.ObservedCountAllocationCoverage, &s.ObservedValueAllocationCoverage,
 		&s.BatchAttachmentStatus, &s.AggregateScore, &s.AggregateMatchConfidence, &s.AmbiguityScore, &s.CreatedAt, &s.UpdatedAt,
 	); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "no batch summary found"})

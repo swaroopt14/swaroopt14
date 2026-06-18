@@ -392,8 +392,8 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ON attachment_jobs(status);`,
 
 		// ── attachment_candidates ────────────────────────────────────────────
-		// Every candidate evaluated for a settlement observation, with per-carrier
-		// match flags and score breakdown. Never deleted — required for RCA replay.
+		// Every candidate evaluated for an intent, with per-carrier match flags
+		// and score breakdown. Never deleted — required for RCA replay.
 		`CREATE TABLE IF NOT EXISTS attachment_candidates (
 			candidate_id                UUID PRIMARY KEY,
 			attachment_job_id           UUID NOT NULL REFERENCES attachment_jobs(attachment_job_id),
@@ -429,8 +429,8 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ON attachment_candidates(attachment_job_id);`,
 
 		// ── attachment_decisions ─────────────────────────────────────────────
-		// The formal attachment truth artifact. One row per settlement observation
-		// per job. Upserted so replays overwrite stale decisions cleanly.
+		// The formal attachment truth artifact. One row per intent per job.
+		// Upserted so replays overwrite stale decisions cleanly.
 		`CREATE TABLE IF NOT EXISTS attachment_decisions (
 			attachment_decision_id      UUID PRIMARY KEY,
 			tenant_id                   UUID NOT NULL,
@@ -548,6 +548,8 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			-- counts
 			total_intent_count          INT NOT NULL DEFAULT 0,
 			total_observation_count     INT NOT NULL DEFAULT 0,
+			matched_intent_count        INT NOT NULL DEFAULT 0,
+			matched_observation_count   INT NOT NULL DEFAULT 0,
 			exact_match_count           INT NOT NULL DEFAULT 0,
 			high_confidence_count       INT NOT NULL DEFAULT 0,
 			ambiguous_count             INT NOT NULL DEFAULT 0,
@@ -562,6 +564,11 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			total_intended_amount      NUMERIC(20,2) NOT NULL DEFAULT 0,
 			total_observed_amount      NUMERIC(20,2) NOT NULL DEFAULT 0,
 			total_variance             NUMERIC(20,2) NOT NULL DEFAULT 0,
+			matched_intended_amount    NUMERIC(20,2) NOT NULL DEFAULT 0,
+			matched_observed_amount    NUMERIC(20,2) NOT NULL DEFAULT 0,
+			orphan_observed_amount     NUMERIC(20,2) NOT NULL DEFAULT 0,
+			matched_pair_variance      NUMERIC(20,2) NOT NULL DEFAULT 0,
+			net_batch_delta            NUMERIC(20,2) NOT NULL DEFAULT 0,
 
 			unresolved_intended_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
 			ambiguous_observed_amount  NUMERIC(20,2) NOT NULL DEFAULT 0,
@@ -571,6 +578,11 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			total_fee_amount           NUMERIC(20,2) NOT NULL DEFAULT 0,
 			total_deduction_amount     NUMERIC(20,2) NOT NULL DEFAULT 0,
 			net_unexplained_variance   NUMERIC(20,2) NOT NULL DEFAULT 0,
+
+			intent_count_coverage                 NUMERIC(10,6) NOT NULL DEFAULT 0,
+			intent_value_coverage                 NUMERIC(10,6) NOT NULL DEFAULT 0,
+			observed_count_allocation_coverage    NUMERIC(10,6) NOT NULL DEFAULT 0,
+			observed_value_allocation_coverage    NUMERIC(10,6) NOT NULL DEFAULT 0,
 
 			-- derived status
 			batch_attachment_status     TEXT NOT NULL,
@@ -745,6 +757,17 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		`ALTER TABLE attachment_decisions ALTER COLUMN settlement_observation_id DROP NOT NULL;`,
 		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS total_observation_count INT NOT NULL DEFAULT 0;`,
 		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS orphan_observation_count INT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS matched_intent_count INT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS matched_observation_count INT NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS matched_intended_amount NUMERIC(20,2) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS matched_observed_amount NUMERIC(20,2) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS orphan_observed_amount NUMERIC(20,2) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS matched_pair_variance NUMERIC(20,2) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS net_batch_delta NUMERIC(20,2) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS intent_count_coverage NUMERIC(10,6) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS intent_value_coverage NUMERIC(10,6) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS observed_count_allocation_coverage NUMERIC(10,6) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS observed_value_allocation_coverage NUMERIC(10,6) NOT NULL DEFAULT 0;`,
 	}
 
 	for _, s := range stmts {

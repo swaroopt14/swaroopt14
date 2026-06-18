@@ -83,23 +83,211 @@ func classifyDeterministic(q string) queryClass {
 	if s == "" {
 		return classOutOfScope
 	}
-	if strings.Contains(s, "hello") || strings.Contains(s, "hi ") || s == "hi" ||
-		strings.Contains(s, "good morning") || strings.Contains(s, "good evening") ||
-		strings.Contains(s, "how are you") {
+
+	if isGreetingOnly(s) {
 		return classProduct
 	}
-	if strings.Contains(s, "what is zord") || strings.Contains(s, "how does zord work") ||
-		strings.Contains(s, "how it works") || strings.Contains(s, "what is payment intent") ||
-		strings.Contains(s, "what are payment intents") {
+
+	if isProductExplanationQuery(s) {
 		return classProduct
 	}
-	operationalHints := []string{"intent", "payment", "payout", "retry", "failure", "status", "sla", "batch", "csv", "callback", "proof", "tenant"}
-	for _, h := range operationalHints {
-		if strings.Contains(s, h) {
-			return classOperational
+
+	if isNavigationQuery(s) {
+		return classNavigation
+	}
+
+	if isEvidenceQuery(s) {
+		return classEvidence
+	}
+
+	if isClearlyOperationalQuery(s) {
+		return classOperational
+	}
+
+	if isClearlyOutOfScopeQuery(s) {
+		return classOutOfScope
+	}
+
+	return classUnknown
+}
+
+func isGreetingOnly(s string) bool {
+	switch strings.TrimSpace(s) {
+	case "hi", "hello", "hey", "good morning", "good afternoon", "good evening":
+		return true
+	default:
+		return false
+	}
+}
+
+func isProductExplanationQuery(s string) bool {
+	productPhrases := []string{
+		"what is zord",
+		"how does zord work",
+		"how zord works",
+		"what does zord do",
+		"explain zord",
+		"what is payment intent",
+		"what are payment intents",
+		"what is proof readiness",
+		"what is match confidence",
+		"what does unmatched mean",
+	}
+	return containsAnyPhrase(s, productPhrases)
+}
+
+func isNavigationQuery(s string) bool {
+	actionSignals := []string{"where", "how do i", "how to", "show me where", "open", "click", "upload", "export", "download", "review"}
+	zordSurfaceSignals := []string{"dashboard", "workspace", "batch", "file", "proof", "evidence", "report", "page", "screen"}
+
+	return containsAnyPhrase(s, actionSignals) && containsAnyPhrase(s, zordSurfaceSignals)
+}
+
+func isEvidenceQuery(s string) bool {
+	evidenceSignals := []string{
+		"evidence",
+		"proof",
+		"proof pack",
+		"audit",
+		"dispute",
+		"defend",
+		"defended",
+		"verification",
+		"verify",
+		"export proof",
+		"missing proof",
+	}
+	return containsAnyPhrase(s, evidenceSignals)
+}
+
+func isClearlyOperationalQuery(s string) bool {
+	questionSignals := []string{
+		"how many",
+		"count",
+		"total",
+		"status",
+		"pending",
+		"failed",
+		"failure",
+		"delayed",
+		"delay",
+		"stuck",
+		"received",
+		"processed",
+		"uploaded",
+		"arrive",
+		"arrival",
+		"when will",
+		"unmatched",
+		"matched",
+		"settled",
+		"settlement",
+		"short settled",
+		"review",
+		"risk",
+		"duplicate",
+		"double",
+		"twice",
+		"gap",
+		"value",
+		"amount",
+		"trend",
+		"graph",
+		"chart",
+		"visual",
+	}
+	businessSignals := []string{
+		"payment",
+		"payments",
+		"payout",
+		"payouts",
+		"instruction",
+		"instructions",
+		"intent",
+		"intents",
+		"batch",
+		"batches",
+		"csv",
+		"file",
+		"settlement",
+		"bank",
+		"psp",
+		"confirmation",
+		"callback",
+		"proof",
+		"evidence",
+		"reconciliation",
+	}
+
+	return containsAnyPhrase(s, questionSignals) && containsAnyPhrase(s, businessSignals)
+}
+
+func isClearlyOutOfScopeQuery(s string) bool {
+	outOfScopeSignals := []string{
+		"movie",
+		"song",
+		"weather",
+		"cricket",
+		"football",
+		"joke",
+		"recipe",
+		"travel",
+	}
+
+	return containsAnyPhrase(s, outOfScopeSignals) &&
+		!containsAnyPhrase(s, []string{"payment", "payout", "zord", "batch", "settlement", "proof", "evidence"})
+}
+
+func containsAnyPhrase(s string, phrases []string) bool {
+	for _, p := range phrases {
+		if strings.Contains(s, p) {
+			return true
 		}
 	}
-	return classUnknown
+	return false
+}
+
+func hasTimeScopeSignal(q string) bool {
+	s := strings.ToLower(strings.TrimSpace(q))
+	timeSignals := []string{
+		"today",
+		"yesterday",
+		"tomorrow",
+		"this week",
+		"last week",
+		"this month",
+		"last month",
+		"this quarter",
+		"last quarter",
+		"this year",
+		"last year",
+		"last 7 days",
+		"last seven days",
+		"last 24 hours",
+		"last hour",
+		"recent",
+		"recently",
+		"current",
+		"currently",
+		"till now",
+		"until now",
+		"so far",
+		"between",
+		"from ",
+		"since ",
+		"financial year",
+		"fy",
+		"month-wise",
+		"day-wise",
+		"week-wise",
+	}
+
+	if containsAnyPhrase(s, timeSignals) {
+		return true
+	}
+
+	dateLike := regexp.MustCompile(`(?i)\b(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*)\b`)
+	return dateLike.MatchString(s)
 }
 
 func mapLLMClass(c string) queryClass {
@@ -183,7 +371,12 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		}, nil
 	}
 	class := classifyDeterministic(req.Query)
+	classSource := "local"
+
 	if class == classUnknown {
+		classSource = "llm"
+		log.Printf("[prompt-layer][llm] call=classifier tenant=%s", req.TenantID)
+
 		dec, err := s.llm.ClassifyQueryIntent(req.Query)
 		if err != nil {
 			log.Printf("[prompt-layer][classify] llm-classifier failed err=%v; defaulting general", err)
@@ -194,9 +387,17 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 			class = classProduct
 		}
 	}
+
+	log.Printf("[prompt-layer][router] route=%s source=%s tenant=%s", class, classSource, req.TenantID)
 	log.Printf("[prompt-layer][classify] class=%s tenant=%s", class, req.TenantID)
 
 	if class == classProduct {
+		if isGreetingOnly(strings.ToLower(strings.TrimSpace(req.Query))) {
+			return buildGeneralResponse(), nil
+		}
+
+		log.Printf("[prompt-layer][llm] call=product_explanation tenant=%s", req.TenantID)
+
 		txt, err := s.llm.GenerateProductExplanation(req.Query)
 		if err != nil {
 			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", err)
@@ -224,14 +425,26 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	if traceID == "" {
 		traceID = utils.ExtractTraceID(req.Query)
 	}
-	rawScope, err := s.llm.ExtractQueryScope(req.Query)
-	if err != nil {
-		rawScope = utils.QueryScope{}
-	}
+	rawScope := utils.QueryScope{}
 
-	// Use heuristic only when LLM did not provide explicit time window AND no phrase.
-	if !rawScope.HasExplicitTime && strings.TrimSpace(rawScope.TimePhrase) == "" {
-		rawScope.TimePhrase = utils.ExtractTimePhraseHeuristic(req.Query)
+	if hasTimeScopeSignal(req.Query) {
+		log.Printf("[prompt-layer][llm] call=scope_extraction tenant=%s", req.TenantID)
+
+		extractedScope, scopeErr := s.llm.ExtractQueryScope(req.Query)
+		if scopeErr != nil {
+			log.Printf("[prompt-layer][scope] llm-scope failed tenant=%s err=%v; using empty tenant-wide scope", req.TenantID, scopeErr)
+			rawScope = utils.QueryScope{}
+		} else {
+			rawScope = extractedScope
+		}
+
+		if !rawScope.HasExplicitTime && strings.TrimSpace(rawScope.TimePhrase) == "" {
+			rawScope.TimePhrase = utils.ExtractTimePhraseHeuristic(req.Query)
+		}
+
+		log.Printf("[prompt-layer][scope] source=llm time_phrase=%s explicit=%t tenant=%s", rawScope.TimePhrase, rawScope.HasExplicitTime, req.TenantID)
+	} else {
+		log.Printf("[prompt-layer][scope] source=local_no_time tenant=%s", req.TenantID)
 	}
 
 	scope := utils.NormalizeScope(rawScope, time.Now(), time.Local)
@@ -350,6 +563,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	}
 	var llmOut AnswerWithConfidence
 	if class == classNavigation {
+		log.Printf("[prompt-layer][llm] call=navigation_answer tenant=%s", req.TenantID)
 		txt, navErr := s.llm.GenerateNavigationHowTo(req.Query, context)
 		if navErr != nil {
 			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", navErr)
@@ -368,6 +582,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		}, nil
 	}
 	if class == classEvidence {
+		log.Printf("[prompt-layer][llm] call=evidence_answer tenant=%s", req.TenantID)
 		ev, evErr := s.llm.GenerateEvidenceJSON(req.Query, context)
 		if evErr != nil {
 			return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", evErr)
@@ -396,6 +611,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	if scope.WantsVisualization {
 		visRule = "needed=true"
 	}
+	log.Printf("[prompt-layer][llm] call=operational_answer tenant=%s", req.TenantID)
 	op, opErr := s.llm.GenerateOperationalJSON(req.Query, context, visRule)
 	if opErr != nil {
 		return dto.QueryResponse{}, fmt.Errorf("generation failed: %w", opErr)

@@ -266,10 +266,19 @@ func (s *LLMService) ClassifyQueryIntent(userQuery string) (QueryClassDecision, 
 		"3. navigation_or_how_to\n" +
 		"4. evidence_or_dispute_query\n" +
 		"5. out_of_scope\n\n" +
+		"Definitions:\n" +
+		"- operational_data_query: user asks about current payment data, payment instructions, batches, payouts, settlements, confirmations, pending items, failures, duplicate processing, unmatched value, review value, proof readiness, evidence coverage, risk, trends, uploaded files, value status, or operational status. The user does not need to use technical words like intent.\n" +
+		"- product_explanation: user asks what Zord is, how Zord works, what a product term means, or what a feature means without asking about current tenant data.\n" +
+		"- navigation_or_how_to: user asks where to click, how to upload, how to export, how to review, how to open a batch, how to use the dashboard, or what to do next inside Zord.\n" +
+		"- evidence_or_dispute_query: user asks about proof packs, evidence, dispute resolution, audit export, verification, proof readiness, missing evidence, or whether a payment can be supported for review.\n" +
+		"- out_of_scope: unrelated personal/general chatter not relevant to Zord, payment operations, proof, settlement, payout, evidence, or product usage.\n\n" +
 		"Rules:\n" +
-		"- needs_visualization=true only if user explicitly asks chart/graph/trend/visualization/comparison over time/visual breakdown.\n" +
+		"- Be conservative. If a query could reasonably be about payment operations, classify it as operational_data_query.\n" +
+		"- Do not require the user to say intent, database, table, schema, or any backend term.\n" +
+		"- Questions like 'how many came in', 'what is pending', 'what failed', 'what is stuck', 'when will settlement arrive', and 'what is unmatched' are operational_data_query when they refer to Zord workspace context.\n" +
+		"- needs_visualization=true only if the user explicitly asks for chart, graph, trend, visualization, comparison over time, or visual breakdown.\n" +
 		"- needs_data=true for operational_data_query and evidence_or_dispute_query.\n" +
-		"- needs_data=false for product_explanation and navigation_or_how_to unless user asks about current data.\n" +
+		"- needs_data=false for product_explanation and navigation_or_how_to unless the user asks about current data.\n" +
 		"- confidence must be between 0 and 1.\n\n" +
 		"Return JSON schema:\n" +
 		"{\"class\":\"operational_data_query | product_explanation | navigation_or_how_to | evidence_or_dispute_query | out_of_scope\",\"confidence\":0.0,\"needs_data\":true,\"needs_visualization\":false,\"reason\":\"short plain reason\"}\n\n" +
@@ -290,13 +299,7 @@ func (s *LLMService) ClassifyQueryIntent(userQuery string) (QueryClassDecision, 
 	if err := json.Unmarshal([]byte(clean), &out); err != nil {
 		return QueryClassDecision{}, err
 	}
-
 	out.Confidence = clamp01(out.Confidence)
-	switch out.Class {
-	case "operational_data_query", "product_explanation", "navigation_or_how_to", "evidence_or_dispute_query", "out_of_scope":
-	default:
-		out.Class = "product_explanation"
-	}
 	return out, nil
 }
 func (s *LLMService) GenerateOperationalJSON(userQuery, context, visRule string) (OperationalPromptResult, error) {
@@ -319,6 +322,8 @@ func (s *LLMService) GenerateOperationalJSON(userQuery, context, visRule string)
 			"- Do not use backend metric names.\n" +
 			"- Copy numeric and money values exactly as shown in CONTEXT. Do not divide, multiply, round, add commas, remove decimals, add decimals, or change the numeric representation.\n" +
 			"- If CONTEXT says INR 13146, answer INR 13146 exactly. Do not write INR 131.46 or INR 13,146.\n" +
+			"- Be explainable enough for business users: give the direct answer, then briefly explain what it means operationally.\n" +
+			"- If the user asks a broad status/count/question, summarize the most important business takeaway instead of only repeating one record.\n" +
 			"- Do not say \"leakage\" unless context clearly says money is actually lost. Prefer \"payment gap\", \"value needing review\", or \"unclear value\".\n" +
 			"- Do not say \"confirmed\" unless bank/settlement/outcome data is available.\n" +
 			"- Do not say \"proof-ready\" unless evidence data is available.\n" +
@@ -329,6 +334,11 @@ func (s *LLMService) GenerateOperationalJSON(userQuery, context, visRule string)
 			"- If both are available, explain matched value, unmatched value, review value, and confidence if present.\n" +
 			"- If data_available=false for any section, explain missing data in plain language.\n" +
 			"- If denominator is zero/unavailable, do not present 0% as real performance; say not available yet.\n\n" +
+			"Business context rules:\n" +
+			"- For payment count questions, explain whether the number refers to received payment instructions, processed instructions, failed instructions, or records needing review.\n" +
+			"- For settlement arrival questions, use the latest relevant timestamp and settlement policy from CONTEXT when available. Present it as an estimate, not a guarantee.\n" +
+			"- For duplicate processing questions, rely on duplicate-control evidence from CONTEXT and explain whether there is no indication, possible conflict, or needs review.\n" +
+			"- For follow-up questions using words like those, them, that, these, or same ones, use RESOLVED_QUERY_CONTEXT if present.\n\n" +
 			"Count and aggregate rules:\n" +
 			"- For count questions, use only aggregate summary values from CONTEXT.\n" +
 			"- Never estimate totals by counting sample records or citations.\n" +

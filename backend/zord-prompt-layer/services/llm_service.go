@@ -255,7 +255,7 @@ func (s *LLMService) GenerateFromContextScopedWithConfidence(userQuery string, c
 
 	return out, nil
 }
-func (s *LLMService) ClassifyQueryIntent(userQuery string) (QueryClassDecision, error) {
+func (s *LLMService) ClassifyQueryIntent(userQuery string, memoryContext string) (QueryClassDecision, error) {
 	prompt := "You are the strict intent classifier for the Zord payment-operations assistant.\n" +
 		"Return strict JSON only.\n" +
 		"Do not include markdown.\n" +
@@ -283,6 +283,11 @@ func (s *LLMService) ClassifyQueryIntent(userQuery string) (QueryClassDecision, 
 		"- confidence must be between 0 and 1.\n\n" +
 		"Return JSON schema:\n" +
 		"{\"class\":\"operational_data_query | product_explanation | navigation_or_how_to | evidence_or_dispute_query | out_of_scope\",\"confidence\":0.0,\"needs_data\":true,\"needs_visualization\":false,\"reason\":\"short plain reason\"}\n\n" +
+		"Conversation memory rules:\n" +
+		"- Use CONVERSATION MEMORY to understand short follow-up questions like 'is this good?', 'why?', 'what should I do?', 'what about this?', 'explain that', or 'is it risky?'.\n" +
+		"- If memory shows the user was discussing payment status, unmatched value, settlement, proof, or review items, classify the follow-up as operational_data_query unless the new query clearly changes topic.\n" +
+		"- Do not classify a follow-up as product_explanation only because it is short or vague.\n\n" +
+		"CONVERSATION MEMORY:\n" + memoryContext + "\n\n" +
 		"USER QUERY:\n" + userQuery
 
 	raw, err := s.gemini.Generate(prompt)
@@ -508,6 +513,27 @@ func (s *LLMService) GenerateNavigationHowTo(userQuery, context string) (string,
 			"Return a short, clear answer."
 
 	return s.gemini.Generate(prompt)
+}
+func (s *LLMService) UpdateConversationSummary(previousSummary, userQuery, assistantAnswer string) (string, error) {
+	prompt :=
+		"You are Zord's conversation memory summarizer.\n" +
+			"Create a compact factual memory summary for the next turn.\n" +
+			"Use only the previous summary, latest user query, and latest assistant answer.\n" +
+			"Do not invent facts.\n" +
+			"Do not include internal identifiers, UUIDs, tenant_id, user_id, session_id, intent_id, trace_id, hashes, tokens, secrets, raw payloads, or encrypted values.\n" +
+			"Preserve numeric and money values exactly as shown. Do not divide, multiply, round, add commas, or change decimal places.\n" +
+			"Keep the summary focused on what the user is discussing, key business facts, current status, important values, missing data, and likely follow-up references.\n" +
+			"Write plain text only. No markdown. Maximum 900 characters.\n\n" +
+			"PREVIOUS SUMMARY:\n" + previousSummary + "\n\n" +
+			"LATEST USER QUERY:\n" + userQuery + "\n\n" +
+			"LATEST ASSISTANT ANSWER:\n" + assistantAnswer + "\n\n" +
+			"UPDATED SUMMARY:"
+
+	raw, err := s.gemini.Generate(prompt)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(raw), nil
 }
 func clamp01(v float64) float64 {
 	if v < 0 {

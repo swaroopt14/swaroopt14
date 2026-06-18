@@ -342,9 +342,45 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 			NextActions:   []string{},
 		}, nil
 	}
+	resolvedQuery := req.Query
+	historyContext := ""
+	memorySummary := ""
+	memoryContext := ""
+	var history []ChatTurn
+
+	if s.memory != nil {
+		var memErr error
+		memorySummary, memErr = s.memory.GetSummary(ctx, req.TenantID, req.UserID, req.SessionID)
+		if memErr != nil {
+			log.Printf("[prompt-layer][memory] summary read failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, memErr)
+		}
+
+		history, memErr = s.memory.GetRecent(ctx, req.TenantID, req.UserID, req.SessionID)
+		if memErr != nil {
+			log.Printf("[prompt-layer][memory] turns read failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, memErr)
+		} else if len(history) > 0 {
+			var hb strings.Builder
+			for i, t := range history {
+				hb.WriteString(fmt.Sprintf("[%d] at=%s user=%s assistant=%s\n",
+					i+1,
+					t.Timestamp.UTC().Format(time.RFC3339),
+					utils.SanitizeAnswerText(t.UserMessage),
+					utils.SanitizeAnswerText(t.AssistantSummary),
+				))
+			}
+			historyContext = hb.String()
+		}
+
+		memoryContext = buildMemoryContext(memorySummary, historyContext)
+		resolvedQuery = resolveFollowupQuery(req.Query, history, memorySummary)
+
+		if !strings.EqualFold(strings.TrimSpace(resolvedQuery), strings.TrimSpace(req.Query)) {
+			log.Printf("[prompt-layer][memory] followup resolved tenant=%s user=%s session=%s", req.TenantID, req.UserID, req.SessionID)
+		}
+	}
 	log.Printf("[prompt-layer][llm] call=classifier tenant=%s", req.TenantID)
 
-	dec, err := s.llm.ClassifyQueryIntent(req.Query)
+	dec, err := s.llm.ClassifyQueryIntent(resolvedQuery, memoryContext)
 	if err != nil {
 		log.Printf("[prompt-layer][classify] llm-classifier failed tenant=%s err=%v; defaulting general", req.TenantID, err)
 		return buildGeneralResponse(), nil
@@ -371,6 +407,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		if strings.TrimSpace(answer) == "" || uuidLeakRe.MatchString(answer) {
 			answer = buildGeneralResponse().Answer
 		}
+		s.persistConversationMemory(ctx, req, memorySummary, answer)
 		return dto.QueryResponse{
 			Answer:        answer,
 			Confidence:    "high",
@@ -380,7 +417,9 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		}, nil
 	}
 	if class == classOutOfScope {
-		return buildOutOfScopeResponse(), nil
+		resp := buildOutOfScopeResponse()
+		s.persistConversationMemory(ctx, req, memorySummary, resp.Answer)
+		return resp, nil
 	}
 	intentID := req.IntentID
 	traceID := req.TraceID
@@ -413,29 +452,6 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	}
 
 	scope := utils.NormalizeScope(rawScope, time.Now(), time.Local)
-	resolvedQuery := req.Query
-	historyContext := ""
-	if s.memory != nil {
-		history, memErr := s.memory.GetRecent(ctx, req.TenantID, req.UserID, req.SessionID)
-		if memErr != nil {
-			log.Printf("[prompt-layer][memory] read failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, memErr)
-		} else if len(history) > 0 {
-			var hb strings.Builder
-			for i, t := range history {
-				hb.WriteString(fmt.Sprintf("[%d] at=%s user=%s assistant=%s\n",
-					i+1,
-					t.Timestamp.UTC().Format(time.RFC3339),
-					utils.SanitizeAnswerText(t.UserMessage),
-					utils.SanitizeAnswerText(t.AssistantSummary),
-				))
-			}
-			historyContext = hb.String()
-			resolvedQuery = resolveFollowupQuery(req.Query, history)
-		}
-	}
-	if !strings.EqualFold(strings.TrimSpace(resolvedQuery), strings.TrimSpace(req.Query)) {
-		log.Printf("[prompt-layer][memory] followup resolved tenant=%s user=%s session=%s", req.TenantID, req.UserID, req.SessionID)
-	}
 
 	retrievalReq := req
 	retrievalReq.Query = resolvedQuery
@@ -477,13 +493,18 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	nextActions = utils.SanitizeActions(nextActions)
 
 	if len(chunks) == 0 {
-		return dto.QueryResponse{
-			Answer:        "**I can't see enough payment progress yet**\n- I don't have clear payment status records for this question right now.\n- If you just uploaded a file, I may only be able to see that it was received, not whether each payment is done yet.",
+		answer := "**I can't see enough payment progress yet**\n- I don't have clear payment status records for this question right now.\n- If you just uploaded a file, I may only be able to see that it was received, not whether each payment is done yet."
+
+		resp := dto.QueryResponse{
+			Answer:        answer,
 			Confidence:    "low",
 			EntitiesFound: entities,
 			Citations:     []dto.Citation{},
 			NextActions:   nextActions,
-		}, nil
+		}
+
+		s.persistConversationMemory(ctx, req, memorySummary, answer)
+		return resp, nil
 	}
 	if edgeOnlyResp, ok := buildLatestUploadEdgeOnlyResponse(req.Query, chunks); ok {
 		edgeOnlyResp.EntitiesFound = entities
@@ -491,6 +512,8 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 			edgeOnlyResp.Citations = citations
 		}
 		edgeOnlyResp.NextActions = nextActions
+
+		s.persistConversationMemory(ctx, req, memorySummary, edgeOnlyResp.Answer)
 		return edgeOnlyResp, nil
 	}
 	rcaContext := ""
@@ -513,7 +536,9 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		}
 	}
 	context := ""
-
+	if strings.TrimSpace(memorySummary) != "" {
+		context += "[CONVERSATION_SUMMARY]\n" + utils.SanitizeAnswerText(memorySummary) + "\n"
+	}
 	if strings.TrimSpace(historyContext) != "" {
 		context += "[CHAT_HISTORY_CONTEXT]\n" + historyContext + "\n"
 	}
@@ -538,13 +563,16 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
 			answer = "I don't see that action available in the current workspace."
 		}
-		return dto.QueryResponse{
+		resp := dto.QueryResponse{
 			Answer:        answer,
 			Confidence:    "high",
 			EntitiesFound: entities,
 			Citations:     []dto.Citation{},
 			NextActions:   nextActions,
-		}, nil
+		}
+
+		s.persistConversationMemory(ctx, req, memorySummary, answer)
+		return resp, nil
 	}
 	if class == classEvidence {
 		log.Printf("[prompt-layer][llm] call=evidence_answer tenant=%s", req.TenantID)
@@ -555,21 +583,29 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		answer := utils.SanitizeAnswerText(ev.Answer)
 		answer = utils.StripActionLikeSections(answer)
 		if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
-			return dto.QueryResponse{
-				Answer:        "**I can share a safe proof-status summary only**\n- Sensitive identifiers or secure values were removed from the response.\n- Ask for available proof items, missing proof items, and export readiness.",
+			safeAnswer := "**I can share a safe proof-status summary only**\n- Sensitive identifiers or secure values were removed from the response.\n- Ask for available proof items, missing proof items, and export readiness."
+
+			resp := dto.QueryResponse{
+				Answer:        safeAnswer,
 				Confidence:    "low",
 				EntitiesFound: dto.EntitiesFound{},
 				Citations:     []dto.Citation{},
 				NextActions:   []string{},
-			}, nil
+			}
+
+			s.persistConversationMemory(ctx, req, memorySummary, safeAnswer)
+			return resp, nil
 		}
-		return dto.QueryResponse{
+		resp := dto.QueryResponse{
 			Answer:        answer,
 			Confidence:    ev.Confidence,
 			EntitiesFound: entities,
 			Citations:     []dto.Citation{},
 			NextActions:   utils.SanitizeActions(ev.NextSteps),
-		}, nil
+		}
+
+		s.persistConversationMemory(ctx, req, memorySummary, answer)
+		return resp, nil
 	}
 
 	visRule := "needed=false"
@@ -594,14 +630,18 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	answer := utils.SanitizeAnswerText(llmOut.Answer)
 	answer = utils.StripActionLikeSections(answer)
 	if uuidLeakRe.MatchString(answer) || strings.TrimSpace(answer) == "" {
+		safeAnswer := "**I can share a safe operational summary only**\n- Sensitive identifiers or secure values were removed from the response.\n- Ask for status, counts, delays, or trends instead of record-level identifiers."
 
-		return dto.QueryResponse{
-			Answer:        "**I can share a safe operational summary only**\n- Sensitive identifiers or secure values were removed from the response.\n- Ask for status, counts, delays, or trends instead of record-level identifiers.",
+		resp := dto.QueryResponse{
+			Answer:        safeAnswer,
 			Confidence:    "low",
 			EntitiesFound: dto.EntitiesFound{},
 			Citations:     []dto.Citation{},
 			NextActions:   []string{},
-		}, nil
+		}
+
+		s.persistConversationMemory(ctx, req, memorySummary, safeAnswer)
+		return resp, nil
 	}
 
 	conf, confScore = calibrateConfidence(llmOut, chunks)
@@ -630,12 +670,7 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	if shouldReturnCitations(class, chunks, conf) {
 		finalCitations = citations
 	}
-	if s.memory != nil {
-		summary := SummarizeAssistantAnswer(answer, 280)
-		if err := s.memory.AppendTurn(ctx, req.TenantID, req.UserID, req.SessionID, req.Query, summary, time.Now().UTC()); err != nil {
-			log.Printf("[prompt-layer][memory] write failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, err)
-		}
-	}
+	s.persistConversationMemory(ctx, req, memorySummary, answer)
 
 	return dto.QueryResponse{
 		Answer:        answer,
@@ -647,32 +682,103 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	}, nil
 
 }
-func resolveFollowupQuery(query string, history []ChatTurn) string {
+func (s *DefaultRAGService) persistConversationMemory(ctx context.Context, req dto.QueryRequest, previousSummary string, answer string) {
+	if s.memory == nil {
+		return
+	}
+
+	cleanAnswer := utils.SanitizeAnswerText(answer)
+	if strings.TrimSpace(cleanAnswer) == "" {
+		return
+	}
+
+	turnSummary := SummarizeAssistantAnswer(cleanAnswer, 500)
+	if err := s.memory.AppendTurn(ctx, req.TenantID, req.UserID, req.SessionID, req.Query, turnSummary, time.Now().UTC()); err != nil {
+		log.Printf("[prompt-layer][memory] turn write failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, err)
+		return
+	}
+
+	log.Printf("[prompt-layer][memory] turn stored tenant=%s user=%s session=%s", req.TenantID, req.UserID, req.SessionID)
+
+	updatedSummary, err := s.llm.UpdateConversationSummary(previousSummary, req.Query, cleanAnswer)
+	if err != nil {
+		log.Printf("[prompt-layer][memory] summary update failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, err)
+		return
+	}
+
+	updatedSummary = utils.SanitizeAnswerText(updatedSummary)
+	if strings.TrimSpace(updatedSummary) == "" || uuidLeakRe.MatchString(updatedSummary) {
+		log.Printf("[prompt-layer][memory] summary skipped tenant=%s user=%s session=%s reason=empty_or_sensitive", req.TenantID, req.UserID, req.SessionID)
+		return
+	}
+
+	if err := s.memory.SetSummary(ctx, req.TenantID, req.UserID, req.SessionID, updatedSummary); err != nil {
+		log.Printf("[prompt-layer][memory] summary write failed tenant=%s user=%s session=%s err=%v", req.TenantID, req.UserID, req.SessionID, err)
+		return
+	}
+
+	log.Printf("[prompt-layer][memory] summary stored tenant=%s user=%s session=%s", req.TenantID, req.UserID, req.SessionID)
+}
+func buildMemoryContext(summary string, recentTurns string) string {
+	var b strings.Builder
+	if strings.TrimSpace(summary) != "" {
+		b.WriteString("Conversation summary: ")
+		b.WriteString(utils.SanitizeAnswerText(summary))
+		b.WriteString("\n")
+	}
+	if strings.TrimSpace(recentTurns) != "" {
+		b.WriteString("Recent turns:\n")
+		b.WriteString(recentTurns)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func resolveFollowupQuery(query string, history []ChatTurn, memorySummary string) string {
 	q := strings.TrimSpace(query)
-	if q == "" || len(history) == 0 {
+	if q == "" {
+		return q
+	}
+
+	if len(history) == 0 && strings.TrimSpace(memorySummary) == "" {
 		return q
 	}
 
 	lower := strings.ToLower(q)
-	isFollowup := strings.Contains(lower, "those") ||
+	isFollowup := strings.Contains(lower, "this") ||
 		strings.Contains(lower, "that") ||
+		strings.Contains(lower, "those") ||
 		strings.Contains(lower, "these") ||
 		strings.Contains(lower, "them") ||
-		strings.Contains(lower, "same ones")
+		strings.Contains(lower, "it") ||
+		strings.Contains(lower, "same ones") ||
+		strings.Contains(lower, "is this good") ||
+		strings.Contains(lower, "is it good") ||
+		strings.Contains(lower, "why") ||
+		strings.Contains(lower, "what should i do") ||
+		strings.Contains(lower, "what next") ||
+		strings.Contains(lower, "explain that")
 
 	if !isFollowup {
 		return q
 	}
 
-	last := history[len(history)-1]
-	prevUser := utils.SanitizeAnswerText(last.UserMessage)
-	prevAssistant := utils.SanitizeAnswerText(last.AssistantSummary)
-
-	if strings.TrimSpace(prevUser) == "" && strings.TrimSpace(prevAssistant) == "" {
-		return q
+	var prevUser string
+	var prevAssistant string
+	if len(history) > 0 {
+		last := history[len(history)-1]
+		prevUser = utils.SanitizeAnswerText(last.UserMessage)
+		prevAssistant = utils.SanitizeAnswerText(last.AssistantSummary)
 	}
 
-	return strings.TrimSpace(q + " Previous business context: " + prevUser + " " + prevAssistant)
+	parts := []string{q}
+	if strings.TrimSpace(memorySummary) != "" {
+		parts = append(parts, "Conversation summary: "+utils.SanitizeAnswerText(memorySummary))
+	}
+	if strings.TrimSpace(prevUser) != "" || strings.TrimSpace(prevAssistant) != "" {
+		parts = append(parts, "Previous turn: "+prevUser+" "+prevAssistant)
+	}
+
+	return strings.Join(parts, " ")
 }
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)

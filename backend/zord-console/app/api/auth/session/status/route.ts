@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BACKEND_SERVICES } from '@/config/api.endpoints'
-import { authorizedEdgeFetch, parseJSONSafe } from '@/services/auth/server'
+import { authorizedEdgeFetch, parseJSONSafe, applyAuthCookies } from '@/services/auth/server'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,5 +19,13 @@ export async function GET(request: NextRequest) {
   }
 
   const payload = await parseJSONSafe(result.edgeResponse)
-  return NextResponse.json(payload)
+  const response = NextResponse.json(payload)
+
+  // If the token was silently refreshed during this poll, forward the new cookies
+  // to the browser so it doesn't send a revoked refresh token on the next request.
+  if (result.refreshedPayload) {
+    applyAuthCookies(response, result.refreshedPayload)
+  }
+
+  return response
 }

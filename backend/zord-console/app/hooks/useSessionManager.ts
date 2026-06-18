@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getCurrentUser, clearAuth, SESSION_EXPIRED_EVENT } from '@/services/auth/authService'
+import { getCurrentUser, clearAuth, SESSION_EXPIRED_EVENT, hasSessionHint } from '@/services/auth/authService'
 
 export function useSessionManager() {
   const [idleSecondsRemaining, setIdleSecondsRemaining] = useState<number>(900) // Default 15 min
@@ -14,7 +14,7 @@ export function useSessionManager() {
     } finally {
       clearAuth()
       if (typeof window !== 'undefined') {
-        window.location.href = `/login?next=${encodeURIComponent(window.location.pathname)}`
+        window.location.href = `/signin?next=${encodeURIComponent(window.location.pathname)}`
       }
     }
   }, [])
@@ -68,8 +68,12 @@ export function useSessionManager() {
   }
 
   useEffect(() => {
-    const user = getCurrentUser()
-    if (!user) return
+    // Use the session hint cookie as an eager signal — it is set server-side at
+    // login and is immediately readable, unlike localStorage which is written
+    // asynchronously by hydrateSession(). This prevents timers from being skipped
+    // when this hook mounts before AuthSessionBootstrap has finished hydrating.
+    const isLoggedIn = hasSessionHint() || getCurrentUser() !== null
+    if (!isLoggedIn) return
 
     // Setup BroadcastChannel
     broadcastChannelRef.current = new BroadcastChannel('zord_session')

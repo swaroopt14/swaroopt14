@@ -59,10 +59,10 @@ func RecordSessionActivity(ctx context.Context, db *sql.DB, sessionID uuid.UUID)
 	_, err = tx.ExecContext(ctx, `
 		UPDATE auth_refresh_tokens
 		SET last_activity_at = $1,
-		    idle_expires_at = $1 + INTERVAL '15 minutes',
+		    idle_expires_at = $1 + ($2 * INTERVAL '1 second'),
 		    updated_at = $1
-		WHERE session_id = $2 AND revoked_at IS NULL
-	`, now, sessionID)
+		WHERE session_id = $3 AND revoked_at IS NULL
+	`, now, int(idleWindow.Seconds()), sessionID)
 	if err != nil {
 		return err
 	}

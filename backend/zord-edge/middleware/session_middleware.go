@@ -86,10 +86,13 @@ func SessionActivityMiddleware() gin.HandlerFunc {
 		}
 
 		// 2. Perform rate-limited update of the session activity (non-blocking goroutine).
-		go func(sID uuid.UUID) {
-			// Use background context to ensure this writes even if client closes request.
-			_ = services.RecordSessionActivity(c.Request.Context(), db.DB, sID)
-		}(sessionID)
+		// Skip for /v1/session/status — that is a passive poll and must NOT reset the idle timer.
+		if c.Request.URL.Path != "/v1/session/status" {
+			go func(sID uuid.UUID) {
+				// Use background context to ensure this writes even if client closes request.
+				_ = services.RecordSessionActivity(c.Request.Context(), db.DB, sID)
+			}(sessionID)
+		}
 
 		c.Next()
 	}

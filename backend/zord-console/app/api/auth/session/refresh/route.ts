@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { BACKEND_SERVICES } from '@/config/api.endpoints'
 import {
+  ACCESS_COOKIE_NAME,
   REFRESH_COOKIE_NAME,
   applyAuthCookies,
   buildForwardHeaders,
@@ -20,11 +21,15 @@ export async function POST(request: NextRequest) {
     return response
   }
 
+  // The backend /v1/session/refresh endpoint is JWT-protected. We must include
+  // the current access token in the Authorization header so JWTAuthenticate passes.
+  const accessToken = request.cookies.get(ACCESS_COOKIE_NAME)?.value
+
   let refreshResponse: Response
   try {
     refreshResponse = await fetch(edgeAuthUrl(BACKEND_SERVICES.EDGE.ENDPOINTS.SESSION_REFRESH), {
       method: 'POST',
-      headers: buildForwardHeaders(request),
+      headers: buildForwardHeaders(request, accessToken),
       cache: 'no-store',
       body: JSON.stringify({ refresh_token: refreshToken }),
     })

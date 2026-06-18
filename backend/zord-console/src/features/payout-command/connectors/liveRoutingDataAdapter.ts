@@ -7,6 +7,7 @@ import {
   getRecommendationsKpis,
   type IntelligenceDateQuery,
 } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { getLeakageExposureTimeseries } from '@/services/payout-command/prod-api/getLeakageExposureTimeseries'
 import {
   getPatternDetail,
   getPatternHistory,
@@ -26,6 +27,7 @@ import { isDataAvailable } from '@/services/payout-command/prod-api/intelligence
 import type {
   AmbiguityHeatmapResponse,
   AmbiguityKpiResponse,
+  LeakageExposureTimeseriesResponse,
   LeakageKpiResponse,
   MinorAmountField,
   PatternsKpiResponse,
@@ -33,6 +35,7 @@ import type {
   RcaKpiResponse,
   RecommendationsKpiResponse,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { mapLeakageComparisonSeries } from '../leakage-portfolio/utils/mapLeakageComparisonSeries'
 import type {
   ActionRecommendation,
   ConnectorHealthRow,
@@ -153,17 +156,30 @@ function connectorGridAction(status: ConnectorStatus, degradedAction: string): s
   return degradedAction
 }
 
+function latestPredictedLeakageMinor(
+  timeseries: LeakageExposureTimeseriesResponse | null,
+): number | null {
+  if (!timeseries || !isDataAvailable(timeseries)) return null
+  const series = timeseries.series ?? []
+  if (series.length === 0) return null
+  const last = series[series.length - 1]
+  return readMinorOrNull(last.predicted_leakage_minor)
+}
+
 function resolveExposureTotals(
   leakage: LeakageKpiResponse | null,
+  timeseries: LeakageExposureTimeseriesResponse | null,
   recommendations: RecommendationsKpiResponse | null,
   recommendation: RecommendationSnapshotData | null,
 ): RoutingKpiSnapshot['apiTotals'] {
+  const preventableFallback =
+    readMinorOrNull(recommendation?.recommendation_impact_estimate_minor) ??
+    (isDataAvailable(recommendations)
+      ? readMinorOrNull(recommendations.recommendation_impact_estimate_minor)
+      : null)
+  const preventableLeakageMinor = latestPredictedLeakageMinor(timeseries) ?? preventableFallback
+
   if (!isDataAvailable(leakage)) {
-    const preventableLeakageMinor =
-      readMinorOrNull(recommendation?.recommendation_impact_estimate_minor) ??
-      (isDataAvailable(recommendations)
-        ? readMinorOrNull(recommendations.recommendation_impact_estimate_minor)
-        : null)
     return {
       totalIntendedMinor: null,
       moneyAtRiskMinor: null,
@@ -171,22 +187,9 @@ function resolveExposureTotals(
     }
   }
 
-  const totalIntendedMinor = readMinorOrNull(leakage.total_intended_amount_minor)
-  const moneyAtRiskMinor =
-    readMinor(leakage.unmatched_amount_minor) +
-    readMinor(leakage.under_settlement_amount_minor) +
-    readMinor(leakage.orphan_amount_minor) +
-    readMinor(leakage.reversal_exposure_minor)
-
-  const preventableLeakageMinor =
-    readMinorOrNull(recommendation?.recommendation_impact_estimate_minor) ??
-    (isDataAvailable(recommendations)
-      ? readMinorOrNull(recommendations.recommendation_impact_estimate_minor)
-      : null)
-
   return {
-    totalIntendedMinor,
-    moneyAtRiskMinor,
+    totalIntendedMinor: readMinorOrNull(leakage.total_intended_amount_minor),
+    moneyAtRiskMinor: readMinorOrNull(leakage.total_amount_minor),
     preventableLeakageMinor,
   }
 }
@@ -316,9 +319,24 @@ function sourceRows(
     })
 }
 
-/** When leakage KPI buckets are empty, composition chart stays empty. */
+/** Leakage KPI exposure_bands or component minors — API fields only. */
 function buildLeakageComposition(leakage: LeakageKpiResponse | null): LeakageCompositionSlice[] {
   if (!isDataAvailable(leakage)) return []
+
+  if (leakage.exposure_bands?.length) {
+    return leakage.exposure_bands
+      .map((band, index) => {
+        const amountMinor = readMinor(band.amount_minor)
+        if (amountMinor <= 0) return null
+        return {
+          key: band.band.toLowerCase().replace(/[^a-z0-9]+/g, '_') || `band-${index}`,
+          label: band.band,
+          amountMinor,
+        }
+      })
+      .filter((slice): slice is LeakageCompositionSlice => slice != null)
+  }
+
   return [
     { key: 'unmatched', label: 'Unmatched', amountMinor: readMinor(leakage.unmatched_amount_minor) },
     { key: 'short_settled', label: 'Short settled', amountMinor: readMinor(leakage.under_settlement_amount_minor) },
@@ -357,7 +375,7 @@ function buildInsights(
   if (weakestSource && missingRefRate != null) {
     insights.push({
       id: 'pattern-weakest-source',
-      text: `${weakestSource} has ${missingRefRate.toFixed(1)}% missing references.`,
+      text: `Missing bank references are concentrated in ${weakestSource} — ${missingRefRate.toFixed(1)}% of rows lack a usable UTR or settlement reference.`,
     })
   }
 
@@ -365,7 +383,7 @@ function buildInsights(
   if (weakestProvider) {
     insights.push({
       id: 'pattern-weakest-provider',
-      text: `${providerLabel(weakestProvider)} is the weakest provider signal in the latest pattern snapshot.`,
+      text: `${providerLabel(weakestProvider)} shows the weakest match signals in the latest snapshot — review connector health and reference quality.`,
     })
   }
 
@@ -432,41 +450,14 @@ function buildActions(recommendation: RecommendationSnapshotData | null): Action
   return actionsFromCards(cards).slice(0, 8)
 }
 
-/** Pattern history snapshots → Network Health Trend (pattern/history API only). */
-function buildTrend(
-  patternHistory: PatternHistoryResponse | null,
-): RoutingKpiSnapshot['networkHealthTrend'] {
-  const snapshots = (patternHistory?.snapshots ?? [])
-    .filter((snapshot) => (snapshot.snapshot_json?.total_count ?? 0) > 0)
-    .slice(0, 5)
-    .reverse()
-
-  if (snapshots.length === 0) return []
-
-  const days = snapshots.map((snapshot) => {
-    const created = snapshot.created_at ? new Date(snapshot.created_at) : null
-    return created && Number.isFinite(created.getTime())
-      ? created.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })
-      : null
-  })
-  const needsTime = new Set(days.filter((d, i) => d && days.indexOf(d) !== i))
-
-  return snapshots.map((snapshot, index) => {
-    const json = snapshot.snapshot_json as PatternSnapshotData
-    const total = Math.max(1, json.total_count ?? 1)
-    const successPct = clamp(((json.success_count ?? 0) / total) * 100, 0, 100)
-    const risk = json.batch_risk_score ?? json.ambiguity_score ?? 0
-    const latencyIndex = clamp(90 - risk * 50, 40, 90)
-    const created = snapshot.created_at ? new Date(snapshot.created_at) : null
-    let label = json.batch_id?.slice(-6) || `S-${index + 1}`
-    if (created && Number.isFinite(created.getTime())) {
-      const day = days[index] as string
-      label = needsTime.has(day)
-        ? created.toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
-        : day
-    }
-    return { label, successPct, latencyIndex }
-  })
+function buildLeakageExposureTrend(
+  leakageTimeseries: LeakageExposureTimeseriesResponse | null,
+): Pick<RoutingKpiSnapshot, 'leakageExposureTrend' | 'leakageExposureTrendLive'> {
+  const mapped = mapLeakageComparisonSeries(leakageTimeseries)
+  return {
+    leakageExposureTrend: mapped.points,
+    leakageExposureTrendLive: mapped.live,
+  }
 }
 
 export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise<RoutingKpiSnapshot | null> {
@@ -483,6 +474,7 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     patternHistory,
     recommendationDetail,
     recommendationHistory,
+    leakageTimeseries,
   ] = await Promise.all([
     getLeakageKpis(dateQuery),
     getAmbiguityKpis(dateQuery),
@@ -494,6 +486,7 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     getPatternHistory(dateQuery, 5),
     getRecommendationDetail(dateQuery),
     getRecommendationHistory(dateQuery, 5),
+    getLeakageExposureTimeseries({ granularity: 'day' }),
   ])
 
   const pattern = patternDataFrom(patternDetail, patternHistory)
@@ -529,10 +522,11 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
       : providerRows(gridPattern?.provider_quality_patterns, cardLookup)),
     ...sourceRows(gridPattern?.source_quality_patterns, cardLookup),
   ]
-  const apiTotals = resolveExposureTotals(leakage, recommendations, recommendation)
+  const apiTotals = resolveExposureTotals(leakage, leakageTimeseries, recommendations, recommendation)
   const connectors = applyLiveExposure(gridRows, leakage, ambiguity, recommendations, recommendation)
   const patternsDecisionSuccessRate = parseDecisionSuccessRate(patterns)
   const leakageComposition = buildLeakageComposition(leakage)
+  const { leakageExposureTrend, leakageExposureTrendLive } = buildLeakageExposureTrend(leakageTimeseries)
 
   return {
     apiTotals,
@@ -555,7 +549,8 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
     correlationInsights: buildInsights(pattern, leakage, ambiguity, rca),
     actionRecommendations: buildActions(recommendation),
     leakageComposition,
-    networkHealthTrend: buildTrend(patternHistory),
+    leakageExposureTrend,
+    leakageExposureTrendLive,
     drilldowns: [],
   }
 }

@@ -15,6 +15,7 @@ import { ZordLogo } from '@/components/ZordLogo'
 
 type GlyphName =
   | 'arrow-right'
+  | 'arrow-left'
   | 'arrow-up-right'
   | 'chat'
   | 'chevron-down'
@@ -44,6 +45,8 @@ function Glyph({ name, className = '' }: { name: GlyphName; className?: string }
   switch (name) {
     case 'arrow-right':
       return <svg className={base} viewBox="0 0 20 20" fill="none"><path d="M4 10h11" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /><path d="m10.5 5 5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+    case 'arrow-left':
+      return <svg className={base} viewBox="0 0 20 20" fill="none"><path d="M16 10H5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /><path d="m9.5 5-5 5 5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
     case 'arrow-up-right':
       return <svg className={base} viewBox="0 0 20 20" fill="none"><path d="M6 14 14 6M8 6h6v6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
     case 'chat':
@@ -786,17 +789,25 @@ const heroDashboardBars = [
 ] as const
 
 const surfaceCardStyle = {
-  background:
-    'linear-gradient(180deg, color-mix(in srgb, var(--color-brand-surface-hover) 84%, white 16%) 0%, var(--color-brand-surface) 100%)',
-  boxShadow:
-    '0 24px 64px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
+  background: '#0d1826',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.05)',
 } as const
 
 const panelCardStyle = {
-  background:
-    'linear-gradient(180deg, rgba(132, 145, 156, 0.22) 0%, rgba(34, 39, 47, 0.34) 100%)',
-  boxShadow:
-    '0 18px 44px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 -1px 0 rgba(255,255,255,0.03)',
+  background: 'rgba(13, 24, 38, 0.96)',
+  boxShadow: '0 4px 24px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)',
+} as const
+
+const lightSurfaceCardStyle = {
+  background: '#ffffff',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04)',
+  border: '1px solid rgba(0,0,0,0.07)',
+} as const
+
+const lightPanelCardStyle = {
+  background: '#F8FAFC',
+  boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
+  border: '1px solid rgba(0,0,0,0.06)',
 } as const
 
 function switchboardTone(tone: 'healthy' | 'warn' | 'critical' | 'info') {
@@ -867,247 +878,204 @@ function Hero() {
   useEffect(() => {
     const timer = setInterval(() => {
       setActiveSlide((current) => (current + 1) % heroSlides.length)
-    }, 14000)
-
+    }, 12000)
     return () => clearInterval(timer)
   }, [])
 
-  return (
-    <main className="relative z-10 overflow-hidden px-2 pb-12 pt-36 md:px-3">
-      <div className="pointer-events-none absolute inset-0">
-        <div
-          className="absolute inset-0 opacity-[0.2]"
-          style={{
-            backgroundImage:
-              'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.08) 1px, transparent 0)',
-            backgroundSize: '28px 28px',
-          }}
-        />
-        <div
-          className="absolute left-1/2 top-[6%] h-[38rem] w-[52rem] -translate-x-1/2 rounded-full blur-[150px]"
-          style={{
-            background:
-              'radial-gradient(circle, rgba(148, 167, 179, 0.18) 0%, rgba(46, 54, 66, 0.16) 32%, rgba(10, 10, 12, 0) 72%)',
-          }}
-        />
-        <div
-          className="absolute left-1/2 top-[24%] h-[28rem] w-[34rem] -translate-x-1/2 rounded-full blur-[130px]"
-          style={{ background: 'radial-gradient(circle, rgba(255, 255, 255, 0.07) 0%, rgba(10, 10, 12, 0) 72%)' }}
-        />
-      </div>
+  const slide = heroSlides[activeSlide]
 
-      <div className="relative z-10 mx-auto w-full max-w-[1560px]">
+  const goPrev = () => setActiveSlide((c) => (c - 1 + heroSlides.length) % heroSlides.length)
+  const goNext = () => setActiveSlide((c) => (c + 1) % heroSlides.length)
+
+  return (
+    <main className="relative z-10 overflow-hidden bg-white">
+      {/* Hero grid — text left, image right */}
+      <div className="relative z-10">
+        {/* Carousel arrows */}
         <button
           type="button"
-          onClick={() => setActiveSlide((current) => (current - 1 + heroSlides.length) % heroSlides.length)}
-          className="absolute -left-3 top-[46%] z-30 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/18 bg-[linear-gradient(180deg,rgba(214,221,227,0.28)_0%,rgba(126,136,147,0.18)_100%)] text-slate-50 shadow-[0_18px_34px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.28)] backdrop-blur-xl transition hover:bg-[linear-gradient(180deg,rgba(228,234,239,0.32)_0%,rgba(137,148,160,0.22)_100%)] lg:flex xl:-left-6"
-          aria-label="Previous hero slide"
+          onClick={goPrev}
+          aria-label="Previous slide"
+          className="absolute left-2 top-1/2 z-30 hidden -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white/90 p-2.5 text-gray-500 shadow-sm transition-all duration-150 hover:border-gray-300 hover:text-gray-900 lg:flex"
         >
-          <Glyph name="arrow-right" className="h-4 w-4 rotate-180" />
+          <Glyph name="arrow-left" className="h-4 w-4" />
         </button>
         <button
           type="button"
-          onClick={() => setActiveSlide((current) => (current + 1) % heroSlides.length)}
-          className="absolute -right-3 top-[46%] z-30 hidden h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full border border-white/18 bg-[linear-gradient(180deg,rgba(214,221,227,0.28)_0%,rgba(126,136,147,0.18)_100%)] text-slate-50 shadow-[0_18px_34px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.28)] backdrop-blur-xl transition hover:bg-[linear-gradient(180deg,rgba(228,234,239,0.32)_0%,rgba(137,148,160,0.22)_100%)] lg:flex xl:-right-6"
-          aria-label="Next hero slide"
+          onClick={goNext}
+          aria-label="Next slide"
+          className="absolute right-2 top-1/2 z-30 hidden -translate-y-1/2 items-center justify-center rounded-full border border-gray-200 bg-white/90 p-2.5 text-gray-500 shadow-sm transition-all duration-150 hover:border-gray-300 hover:text-gray-900 lg:flex"
         >
           <Glyph name="arrow-right" className="h-4 w-4" />
         </button>
 
         <motion.div
-          className="overflow-hidden rounded-[2.6rem] border border-white/22 bg-[linear-gradient(180deg,rgba(210,218,226,0.18)_0%,rgba(112,123,137,0.14)_18%,rgba(28,33,40,0.46)_56%,rgba(10,10,12,0.58)_100%)] shadow-[0_35px_90px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.2)] backdrop-blur-[36px]"
-          whileHover={{ y: -4 }}
-          transition={{ duration: 0.35 }}
+          key={activeSlide}
+          className="mx-auto grid max-w-[1320px] lg:grid-cols-[1fr_1.05fr]"
+          style={{ minHeight: '600px' }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.18),transparent_24%),radial-gradient(circle_at_bottom_right,rgba(186,196,205,0.18),transparent_28%)]" />
-          <div className="pointer-events-none absolute inset-[1px] rounded-[2.5rem] border border-white/10" />
-          <div className="overflow-hidden">
-            <motion.div
-              className="flex"
-              animate={{ x: `-${activeSlide * 100}%` }}
-              transition={{ duration: 1.9, ease: [0.22, 1, 0.36, 1] }}
+          {/* Left: headline + CTA */}
+          <div className="flex flex-col justify-center px-6 py-14 md:px-10 lg:py-20 lg:pl-14 lg:pr-12">
+            <motion.h1
+              className="font-display font-extrabold leading-[1.05] tracking-[-0.04em]"
+              style={{ fontSize: 'clamp(2.4rem, 4vw, 3.9rem)' }}
+              initial={{ opacity: 0, y: 22 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.05, ease: [0.22, 1, 0.36, 1] }}
             >
-              {heroSlides.map((slide) => (
-                <div
-                  key={slide.id}
-                  className="grid min-w-full items-center gap-10 px-8 py-10 md:px-10 lg:grid-cols-[0.92fr_1.08fr] lg:px-14 lg:py-14"
-                >
-                  <div className="text-center lg:text-left">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[14px] font-semibold text-[#c4d0da] shadow-[0_8px_20px_rgba(0,0,0,0.12)]">
-                      <Glyph name={slide.icon} className="h-4 w-4 text-[#94A7AE]" />
-                      <span>{slide.eyebrow}</span>
-                    </div>
+              <span className="block text-[#2563EB]">{slide.headlineLead}</span>
+              <span className="mt-1 block text-[#0F172A]">{slide.headlineTail}</span>
+            </motion.h1>
 
-                    <h1 className="mt-8 text-5xl font-semibold leading-[1.03] tracking-[-0.06em] md:text-6xl lg:text-[5rem]">
-                      <span className="block text-[#cbd6df]">{slide.headlineLead}</span>
-                      <span className="mt-1 block text-white">{slide.headlineTail}</span>
-                    </h1>
+            <motion.p
+              className="mt-5 text-[15px] font-medium text-gray-500"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.15 }}
+            >
+              {slide.highlights.join('  |  ')}
+            </motion.p>
 
-                    <p className="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-slate-300 md:text-2xl lg:mx-0">
-                      {slide.copy}
-                    </p>
-
-                    <div className="mt-6 flex flex-wrap items-center justify-center gap-2.5 lg:justify-start">
-                      {slide.highlights.map((highlight) => (
-                        <div
-                          key={`${slide.id}-${highlight}`}
-                          className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[12px] font-semibold uppercase tracking-[0.14em] text-slate-300"
-                        >
-                          {highlight}
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:items-start">
-                      <a
-                        href="mailto:hello@arelais.com?subject=Book%20Demo%20for%20Zord"
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#94A7AE]/35 bg-[#94A7AE] px-10 py-4 text-lg font-semibold text-[#0a0a0c] shadow-[0_20px_40px_rgba(148,167,179,0.18)] transition-all hover:bg-[#a7b7bf] sm:w-auto"
-                      >
-                        Book Demo
-                        <Glyph name="arrow-right" className="h-5 w-5" />
-                      </a>
-                      <Link
-                        href="/final-landing/how-it-works"
-                        className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-6 py-4 text-lg font-semibold text-slate-100 transition-all hover:bg-white/10 sm:w-auto"
-                      >
-                        See how it works
-                        <Glyph name="play" className="h-5 w-5" />
-                      </Link>
-                    </div>
-                  </div>
-
-                  <div className="relative">
-                    <div className="relative min-h-[460px] overflow-hidden rounded-[2.2rem] border border-white/14 bg-[linear-gradient(180deg,rgba(112,123,137,0.12)_0%,rgba(25,28,34,0.8)_18%,rgba(15,18,24,0.78)_100%)] p-5 backdrop-blur-[24px] sm:min-h-[540px]">
-                      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(181,191,200,0.18),transparent_24%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.08),transparent_28%)]" />
-                      <div className="absolute right-4 top-5 h-[94%] w-[82%] rounded-[2rem] border border-white/12 bg-[linear-gradient(180deg,rgba(182,191,201,0.16)_0%,rgba(255,255,255,0.04)_100%)] shadow-[0_30px_70px_rgba(0,0,0,0.24)] backdrop-blur-[18px]" />
-                      <div className="absolute right-5 top-8 w-[76%] sm:right-6 sm:w-[74%] lg:right-7 lg:w-[71%]">
-                        <div className="relative aspect-[11/6] w-full overflow-hidden rounded-[2rem] border border-white/10 bg-[#0f1218] shadow-[0_30px_60px_rgba(0,0,0,0.36)]">
-                          <Image
-                            src={slide.image}
-                            alt={slide.imageAlt}
-                            fill
-                            priority={slide.id === heroSlides[0].id}
-                            sizes="(min-width: 1024px) 34vw, 88vw"
-                            className={slide.imageClassName}
-                          />
-                          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(10,10,12,0.08)_0%,rgba(10,10,12,0.28)_55%,rgba(10,10,12,0.72)_100%)]" />
-                        </div>
-                      </div>
-
-                      <div
-                        className={`absolute left-4 top-5 z-10 rounded-[1.5rem] border border-white/16 p-3.5 shadow-[0_24px_40px_rgba(0,0,0,0.28)] backdrop-blur-[26px] sm:p-4 ${slide.panelWidthClassName}`}
-                        style={panelCardStyle}
-                      >
-                        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A7AE]">
-                          {slide.panelLabel}
-                        </div>
-                        <div className="mt-2 text-[1.55rem] font-semibold tracking-[-0.06em] text-white sm:text-[1.75rem]">
-                          {slide.panelTitle}
-                        </div>
-                        <p className="mt-2 text-[13px] leading-5 text-slate-400">
-                          {slide.panelCopy}
-                        </p>
-
-                        <div className="mt-3 rounded-[0.95rem] border border-white/10 bg-white/[0.04] px-3 py-2">
-                          {slide.panelCapabilities.map((capability) => (
-                            <div
-                              key={`${slide.id}-${capability}`}
-                              className="flex items-start gap-2 border-b border-white/8 py-2 last:border-b-0 last:pb-0 first:pt-0"
-                            >
-                              <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#94A7AE]" />
-                              <div className="text-[13px] leading-5 text-slate-200">{capability}</div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <motion.div
+              className="mt-8 flex flex-wrap items-center gap-x-2 gap-y-3"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: 0.24 }}
+            >
+              <a
+                href="mailto:hello@arelais.com?subject=Book%20Demo%20for%20Zord"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-8 py-3.5 text-[15px] font-semibold text-white transition-colors duration-150 hover:bg-[#1D4ED8]"
+              >
+                Book a Demo
+                <Glyph name="arrow-right" className="h-4 w-4" />
+              </a>
+              <Link
+                href="/final-landing/how-it-works"
+                className="inline-flex items-center gap-1 px-4 py-3.5 text-[15px] font-semibold text-[#2563EB] transition-colors duration-150 hover:text-[#1D4ED8]"
+              >
+                Know More
+              </Link>
             </motion.div>
           </div>
 
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 hidden w-24 bg-gradient-to-r from-black/18 via-black/6 to-transparent lg:block" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 hidden w-24 bg-gradient-to-l from-black/18 via-black/6 to-transparent lg:block" />
+          {/* Right: image on light-blue gradient with floating cards */}
+          <div
+            className="relative min-h-[420px] overflow-hidden lg:min-h-0"
+            style={{
+              background: 'linear-gradient(135deg, #EEF4FF 0%, #DCE9FF 42%, #E8F0FF 70%, #F2F7FF 100%)',
+            }}
+          >
+            {/* Soft diagonal light streaks */}
+            <div
+              className="pointer-events-none absolute inset-0 z-0"
+              style={{
+                background:
+                  'linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.55) 48%, transparent 56%), linear-gradient(115deg, transparent 60%, rgba(37,99,235,0.10) 72%, transparent 80%)',
+              }}
+            />
+            {/* Left edge fade into white */}
+            <div
+              className="pointer-events-none absolute inset-0 z-10"
+              style={{ background: 'linear-gradient(to right, #ffffff 0%, transparent 14%)' }}
+            />
+            <Image
+              src={slide.image}
+              alt={slide.imageAlt}
+              fill
+              priority={activeSlide === 0}
+              sizes="(min-width: 1024px) 52vw, 100vw"
+              className={slide.imageClassName ?? 'object-cover object-center'}
+            />
 
-          <div className="border-t border-white/10 px-6 py-5 md:px-8 lg:px-14">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-              <div className="rounded-[1.3rem] border border-white/10 bg-white/5 p-2 backdrop-blur-xl">
-                <div className="flex flex-wrap gap-2">
-                  {heroSlides.map((slide, index) => (
-                    <button
-                      key={slide.id}
-                      type="button"
-                      onClick={() => setActiveSlide(index)}
-                      className={`rounded-[1rem] px-4 py-2.5 text-sm font-semibold transition-all ${
-                        activeSlide === index
-                          ? 'bg-[#94A7AE] text-[#0a0a0c] shadow-[0_10px_24px_rgba(148,167,179,0.16)]'
-                          : 'bg-transparent text-slate-300 hover:bg-white/6'
-                      }`}
-                      aria-pressed={activeSlide === index}
-                    >
-                      <span className="block">{slide.tab}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {/* Top-right "powered by" card */}
+            <motion.div
+              key={`pb-${slide.id}`}
+              initial={{ opacity: 0, y: -16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.3 }}
+              className="absolute right-6 top-8 z-20 w-[210px] rounded-2xl border border-white/70 bg-white/55 px-5 py-4 backdrop-blur-md"
+              style={{ boxShadow: '0 8px 28px rgba(37,99,235,0.12)' }}
+            >
+              <div className="text-[15px] font-semibold tracking-[-0.01em] text-[#0F172A]">{slide.panelTitle}</div>
+              <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-400">Powered by</div>
+              <div className="mt-0.5 text-[12px] font-bold uppercase tracking-[0.12em] text-[#2563EB]">Arealis Zord</div>
+            </motion.div>
 
-              <div className="flex items-center justify-between gap-3 xl:min-w-[280px] xl:justify-end">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Use-case views
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveSlide((current) => (current - 1 + heroSlides.length) % heroSlides.length)}
-                    className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10"
-                    aria-label="Previous hero slide"
-                  >
-                    <Glyph name="arrow-right" className="h-4 w-4 rotate-180" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveSlide((current) => (current + 1) % heroSlides.length)}
-                    className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-slate-200 transition hover:bg-white/10"
-                    aria-label="Next hero slide"
-                  >
-                    <Glyph name="arrow-right" className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        <div className="mt-6 rounded-[1.9rem] border border-white/12 bg-[linear-gradient(180deg,rgba(198,206,214,0.14)_0%,rgba(36,41,48,0.5)_100%)] px-6 py-5 shadow-[0_26px_56px_rgba(0,0,0,0.24),inset_0_1px_0_rgba(255,255,255,0.16)] backdrop-blur-[28px]">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/14 bg-[linear-gradient(180deg,rgba(214,221,227,0.22)_0%,rgba(94,104,115,0.12)_100%)] text-[#94A7AE] shadow-[0_12px_24px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.22)]">
-                <Glyph name="grid" className="h-5 w-5" />
-              </div>
-              <div>
-                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Explore the stack
-                </div>
-                <div className="mt-1 text-xl font-semibold tracking-tight text-white">
-                  Jump to the operating layer you need
-                </div>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2.5">
-              {heroBaseActions.map((action) => (
-                <button
-                  key={action.label}
-                  type="button"
-                  className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-[linear-gradient(180deg,rgba(214,221,227,0.12)_0%,rgba(35,40,47,0.34)_100%)] px-4 py-2.5 text-sm font-semibold text-slate-100 shadow-[0_14px_24px_rgba(0,0,0,0.16)] transition hover:border-white/18 hover:bg-[linear-gradient(180deg,rgba(222,228,234,0.16)_0%,rgba(46,52,60,0.4)_100%)]"
+            {/* Stacked floating feature chips, bottom-right */}
+            <div className="absolute bottom-24 right-6 z-20 space-y-2.5">
+              {slide.highlights.slice(0, 3).map((h, i) => (
+                <motion.div
+                  key={`chip-${slide.id}-${h}`}
+                  initial={{ opacity: 0, x: 28 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: 0.34 + i * 0.12, ease: [0.22, 1, 0.36, 1] }}
+                  className="w-fit rounded-full border border-white/70 bg-white/85 px-4 py-2 text-[12.5px] font-semibold text-gray-700 backdrop-blur-sm"
+                  style={{ boxShadow: '0 4px 16px rgba(15,23,42,0.08)' }}
                 >
-                  <Glyph name={action.icon} className="h-4 w-4 text-[#94A7AE]" />
-                  <span>{action.label}</span>
-                </button>
+                  {h}
+                </motion.div>
               ))}
             </div>
+
+            {/* Attribution pill */}
+            <motion.div
+              key={`attr-${slide.id}`}
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.42 }}
+              className="absolute bottom-7 left-1/2 z-20 -translate-x-1/2"
+            >
+              <div
+                className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/55 px-5 py-2.5 backdrop-blur-md"
+                style={{ boxShadow: '0 8px 28px rgba(37,99,235,0.14)' }}
+              >
+                <span className="text-[14px] font-semibold text-[#0F172A]">{slide.panelLabel}</span>
+                <Glyph name="arrow-up-right" className="h-3.5 w-3.5 text-[#2563EB]" />
+              </div>
+            </motion.div>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Slide dots */}
+      <div className="relative z-10 flex justify-center gap-2 pb-2 pt-4 lg:hidden">
+        {heroSlides.map((s, index) => (
+          <button
+            key={`dot-${s.id}`}
+            type="button"
+            onClick={() => setActiveSlide(index)}
+            aria-label={`Go to ${s.tab}`}
+            className={`h-2 rounded-full transition-all duration-200 ${
+              activeSlide === index ? 'w-6 bg-[#2563EB]' : 'w-2 bg-gray-300 hover:bg-gray-400'
+            }`}
+          />
+        ))}
+      </div>
+
+      {/* "Need help choosing?" bar — light pill chips */}
+      <div
+        className="relative z-10 border-t border-gray-100 px-4 py-3.5 md:px-8"
+        style={{ background: '#F6F8FE' }}
+      >
+        <div className="mx-auto flex max-w-[1320px] flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex shrink-0 items-center gap-2 text-[14px] font-semibold text-[#0F172A]">
+            <Glyph name="grid" className="h-4 w-4 text-[#2563EB]" />
+            <span>Need help choosing?</span>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {heroBaseActions.map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[#2563EB]/15 bg-white px-4 py-2 text-[13px] font-medium text-gray-600 transition-all duration-150 hover:border-[#2563EB]/40 hover:bg-[#EBF2FF] hover:text-[#2563EB]"
+              >
+                <Glyph name={action.icon} className="h-3.5 w-3.5 text-[#2563EB]" />
+                <span>{action.label}</span>
+              </button>
+            ))}
           </div>
         </div>
       </div>
@@ -1117,74 +1085,74 @@ function Hero() {
 
 function ProductHeroVisualSection() {
   return (
-    <section className="relative z-10 px-2 pb-14 md:px-3">
+    <section className="relative z-10 px-4 py-16 md:px-8" style={{ background: '#ffffff' }}>
       <div className="mx-auto max-w-6xl">
-        <div className="overflow-hidden rounded-[2rem] border border-white/10 p-3 sm:p-4 lg:p-5" style={surfaceCardStyle}>
-          <div className="grid gap-6 lg:grid-cols-[1.08fr_0.92fr] lg:items-start">
-            <div className="grid gap-4">
-              <div className="relative min-h-[320px] overflow-hidden rounded-[2rem] border border-white/10 sm:min-h-[360px] lg:min-h-0 lg:aspect-[16/10]">
-                <Image
-                  src="/final-landing/sections/product-control-surface.png"
-                  alt="Payout provider control surface showing live provider status, SLA alerts, and recovery recommendations"
-                  fill
-                  className="object-cover object-[center_38%]"
-                  sizes="(min-width: 1280px) 640px, 100vw"
-                />
-                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,9,13,0.12)_0%,rgba(7,9,13,0.72)_100%)]" />
-                <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/12 bg-black/20 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/72 backdrop-blur-md">
-                    <span className="h-2 w-2 rounded-full bg-[#c6efcf]" />
-                    {landingHomeCopy.productHero.badge}
-                  </div>
-                  <h2 className="mt-5 max-w-xl text-3xl font-semibold tracking-[-0.05em] text-white sm:text-4xl">
-                    {landingHomeCopy.productHero.title}
-                  </h2>
-                </div>
-              </div>
+        <Reveal className="mb-10">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">Platform</div>
+          <h2 className="font-display mt-3 text-4xl font-bold tracking-[-0.03em] text-gray-900 md:text-5xl">
+            {landingHomeCopy.productHero.title}
+          </h2>
+        </Reveal>
 
-              <div className="grid gap-3 sm:grid-cols-3">
-                {landingHomeCopy.productHero.capabilityLabels.map((label) => (
-                  <div key={label} className="rounded-[1.2rem] border border-white/10 bg-white/[0.03] px-4 py-4">
-                    <div className="text-[15px] font-semibold tracking-tight text-white">{label}</div>
-                    <div className="mt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Console capability</div>
-                  </div>
-                ))}
-              </div>
+        {/* Razorpay-style product cards: light-blue tinted top + white text bottom */}
+        <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+          {/* Main large card */}
+          <div className="md:col-span-2 lg:col-span-2 overflow-hidden rounded-2xl border border-gray-100 shadow-[0_2px_16px_rgba(0,0,0,0.06)]">
+            <div
+              className="relative min-h-[260px] overflow-hidden"
+              style={{ background: 'linear-gradient(135deg, #D6E8FF 0%, #C2DCFF 50%, #D6E8FF 100%)' }}
+            >
+              <Image
+                src="/final-landing/sections/product-control-surface.png"
+                alt="Payout provider control surface"
+                fill
+                className="object-cover object-[center_38%]"
+                sizes="(min-width: 1280px) 640px, 100vw"
+              />
             </div>
-
-            <div className="relative px-2 py-2 sm:px-3 lg:px-4 lg:py-4">
-              <div className="pointer-events-none absolute inset-0">
-                <Image
-                  src="/final-landing/concepts/unified-control-system.png"
-                  alt=""
-                  fill
-                  className="object-cover opacity-[0.08]"
-                  aria-hidden="true"
-                  sizes="(min-width: 1280px) 480px, 100vw"
-                />
-                <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(9,11,15,0.3)_0%,rgba(9,11,15,0.55)_100%)]" />
+            <div className="bg-white px-6 py-5">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-[#2563EB]" />
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">{landingHomeCopy.productHero.badge}</div>
               </div>
-
-              <div className="relative text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Working surface
-              </div>
-              <h2 className="relative mt-4 text-3xl font-semibold tracking-tight text-white">
+              <h3 className="mt-2 text-xl font-bold tracking-[-0.02em] text-gray-900">
                 {landingHomeCopy.productHero.workingTitle}
-              </h2>
-              <p className="relative mt-5 text-[16px] leading-8 text-slate-400">
+              </h3>
+              <p className="mt-2 text-[14px] leading-6 text-gray-500">
                 {landingHomeCopy.productHero.workingBody}
               </p>
-
-              <div className="relative mt-8 space-y-4">
-                {landingHomeCopy.productHero.bullets.map((point) => (
-                  <div key={point} className="flex items-start gap-3 text-sm leading-7 text-slate-300">
-                    <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#c6efcf]" />
-                    <span>{point}</span>
-                  </div>
-                ))}
-              </div>
             </div>
           </div>
+
+          {/* Capability cards */}
+          <div className="flex flex-col gap-5">
+            {landingHomeCopy.productHero.capabilityLabels.slice(0, 2).map((label, i) => (
+              <div key={label} className="overflow-hidden rounded-2xl border border-gray-100 shadow-[0_2px_16px_rgba(0,0,0,0.06)]">
+                <div
+                  className="relative min-h-[120px]"
+                  style={{
+                    background: i === 0
+                      ? 'linear-gradient(135deg, #D6F0EB 0%, #BFE8E0 100%)'
+                      : 'linear-gradient(135deg, #E8DDFF 0%, #D8CCFF 100%)',
+                  }}
+                />
+                <div className="bg-white px-5 py-4">
+                  <div className="text-[15px] font-bold tracking-[-0.01em] text-gray-900">{label}</div>
+                  <div className="mt-1 text-[12px] font-medium uppercase tracking-[0.12em] text-gray-400">Console capability</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Bullet points row */}
+        <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {landingHomeCopy.productHero.bullets.map((point) => (
+            <div key={point} className="flex items-start gap-3 rounded-xl border border-gray-100 px-4 py-4 shadow-sm">
+              <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#2563EB]" />
+              <span className="text-[14px] leading-6 text-gray-600">{point}</span>
+            </div>
+          ))}
         </div>
       </div>
     </section>
@@ -1197,7 +1165,7 @@ export function LiveMetricStrip({ formattedVolume: _formattedVolume }: { formatt
       <div className="mx-auto max-w-6xl">
         <Reveal>
           <div
-            className="rounded-[2rem] border border-white/10 px-6 py-6 backdrop-blur-sm md:px-8"
+            className="rounded-xl border border-white/10 px-6 py-6 backdrop-blur-sm md:px-8"
             style={surfaceCardStyle}
           >
             <div className="grid items-end gap-6 lg:grid-cols-[1.2fr_0.8fr]">
@@ -1235,17 +1203,17 @@ export function LiveMetricStrip({ formattedVolume: _formattedVolume }: { formatt
 
 export function ProblemSection() {
   return (
-    <section className="relative z-10 px-2 py-24 md:px-3">
+    <section className="relative z-10 px-2 py-24 md:px-3" style={{ background: '#ffffff' }}>
       <div className="mx-auto max-w-6xl">
         <Reveal className="mb-16 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-            <Glyph name="eye" className="h-4 w-4 text-[#3ba6f7]" />
+          <div className="inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#2563EB]">
+            <Glyph name="eye" className="h-4 w-4" />
             <span>Problem</span>
           </div>
-          <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-6xl">
+          <h2 className="font-display mt-6 text-5xl font-bold tracking-[-0.03em] text-gray-900 md:text-6xl">
             Payouts break across systems, not logic
           </h2>
-          <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-slate-400 md:text-xl">
+          <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-gray-500 md:text-xl">
             Ops sees one dashboard, finance sees another, engineering sees logs. Nobody sees the full truth when payouts begin to drift.
           </p>
         </Reveal>
@@ -1253,28 +1221,28 @@ export function ProblemSection() {
         <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="grid gap-4 md:grid-cols-3">
             {problemStacks.map((item) => (
-              <div key={item.team} className="rounded-[1.6rem] border border-white/10 p-6" style={surfaceCardStyle}>
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[#3ba6f7] shadow-[0_10px_20px_rgba(0,0,0,0.16)]">
+              <div key={item.team} className="rounded-xl p-6" style={lightSurfaceCardStyle}>
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#2563EB]/15 bg-[#2563EB]/8 text-[#2563EB]">
                   <Glyph name={item.icon} className="h-5 w-5" />
                 </div>
-                <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">{item.team}</div>
-                <div className="mt-3 text-xl font-semibold tracking-tight text-white">{item.view}</div>
+                <div className="mt-6 text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">{item.team}</div>
+                <div className="mt-3 text-xl font-semibold tracking-tight text-gray-900">{item.view}</div>
               </div>
             ))}
           </div>
 
-          <div className="rounded-[1.8rem] border border-white/10 p-8" style={surfaceCardStyle}>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">What it causes</div>
-            <h3 className="mt-3 text-3xl font-semibold tracking-tight text-white">The same payout issue creates three kinds of damage.</h3>
+          <div className="rounded-xl p-8" style={lightSurfaceCardStyle}>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-gray-400">What it causes</div>
+            <h3 className="mt-3 text-3xl font-bold tracking-[-0.02em] text-gray-900">The same payout issue creates three kinds of damage.</h3>
             <div className="mt-8 space-y-4">
               {[
                 ['Delayed confirmations', 'Support load rises while teams still debate where the payout is stuck.'],
                 ['SLA breaches', 'Connector drift is noticed too late because the risk signal is fragmented across systems.'],
                 ['Audit chaos', 'Finance and compliance ask for proof after the incident instead of during it.'],
               ].map(([title, detail]) => (
-                <div key={title} className="rounded-2xl border border-white/10 bg-white/5 px-5 py-4 shadow-[0_12px_24px_rgba(0,0,0,0.14)]">
-                  <div className="text-lg font-semibold text-white">{title}</div>
-                  <div className="mt-1 text-sm leading-6 text-slate-400">{detail}</div>
+                <div key={title} className="rounded-xl px-5 py-4" style={lightPanelCardStyle}>
+                  <div className="text-[15px] font-semibold text-gray-900">{title}</div>
+                  <div className="mt-1 text-sm leading-6 text-gray-500">{detail}</div>
                 </div>
               ))}
             </div>
@@ -1287,29 +1255,29 @@ export function ProblemSection() {
 
 export function SolutionSection() {
   return (
-    <section className="relative z-10 px-2 py-24 md:px-3">
+    <section className="relative z-10 px-2 py-24 md:px-3" style={{ background: '#F1F5F9' }}>
       <div className="mx-auto max-w-6xl">
         <Reveal className="mb-16 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-            <Glyph name="layers" className="h-4 w-4 text-[#3ba6f7]" />
+          <div className="inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#2563EB]">
+            <Glyph name="layers" className="h-4 w-4" />
             <span>Solution</span>
           </div>
-          <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-6xl">
+          <h2 className="font-display mt-6 text-5xl font-bold tracking-[-0.03em] text-gray-900 md:text-6xl">
             One payout truth instead of three dashboards
           </h2>
-          <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-slate-400 md:text-xl">
+          <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-gray-500 md:text-xl">
             ZORD becomes the command layer between request, provider, bank, and finance close.
           </p>
         </Reveal>
 
         <div className="grid gap-6 md:grid-cols-3">
           {solutionPoints.map((item) => (
-            <div key={item.title} className="rounded-[1.8rem] border border-white/10 p-8" style={surfaceCardStyle}>
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[#3ba6f7] shadow-[0_10px_20px_rgba(0,0,0,0.16)]">
+            <div key={item.title} className="rounded-xl p-8" style={lightSurfaceCardStyle}>
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[#2563EB]/15 bg-[#2563EB]/8 text-[#2563EB]">
                 <Glyph name={item.icon} className="h-6 w-6" />
               </div>
-              <h3 className="mt-8 text-2xl font-semibold tracking-tight text-white">{item.title}</h3>
-              <p className="mt-4 text-lg leading-relaxed text-slate-400">{item.description}</p>
+              <h3 className="mt-8 text-2xl font-bold tracking-[-0.02em] text-gray-900">{item.title}</h3>
+              <p className="mt-4 text-[15px] leading-relaxed text-gray-500">{item.description}</p>
             </div>
           ))}
         </div>
@@ -1686,7 +1654,7 @@ function ProductExperience() {
             </div>
           </div>
 
-          <div className="mt-5 rounded-[1.35rem] border border-white/8 bg-[#1A1A1A] p-4 sm:p-5">
+          <div className="mt-5 rounded-lg border border-white/8 bg-[#1A1A1A] p-4 sm:p-5">
             <div className="inline-flex items-center gap-2 rounded-full px-0 py-0 text-[11px] font-medium uppercase tracking-[0.16em] text-[#4ADE80]">
               <span className="h-2 w-2 rounded-full bg-[#4ADE80]" />
               Live reasoning prompt
@@ -1755,7 +1723,7 @@ function ProductExperience() {
         </div>
       </div>
 
-      <div className="mt-4 rounded-[1.35rem] bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
+      <div className="mt-4 rounded-lg bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
         <div className="flex items-center gap-3 rounded-[1rem] border border-white/8 bg-[#232323] p-3">
           <div className="flex h-14 w-14 items-center justify-center rounded-[0.85rem] bg-[#4ADE80] text-[#111111]">
             <Glyph name="zap" className="h-5 w-5" />
@@ -1937,7 +1905,7 @@ function ProductExperience() {
         </p>
       </div>
 
-      <div className="relative mt-10 rounded-[2rem] border border-black/10 bg-white px-4 py-6 shadow-[0_14px_32px_rgba(0,0,0,0.04)] sm:px-5 lg:px-6">
+      <div className="relative mt-10 rounded-xl border border-black/10 bg-white px-4 py-6 shadow-[0_14px_32px_rgba(0,0,0,0.04)] sm:px-5 lg:px-6">
         <div
           className="pointer-events-none absolute bottom-[4.9rem] top-6 z-0 bg-white/70"
           style={{ left: `${rangeLeftPercent}%`, width: `${rangeWidthPercent}%`, opacity: 0.08 }}
@@ -2120,7 +2088,7 @@ function ProductExperience() {
       </div>
 
       <div className="relative z-10 mx-auto -mt-10 w-full max-w-[62rem] px-4">
-        <div className="rounded-[1.35rem] bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
+        <div className="rounded-lg bg-[#1F1F1F] p-3 shadow-[0_8px_32px_rgba(0,0,0,0.10)]">
           <div className="mb-3 flex flex-wrap gap-2">
             {[
               'What changed across processed payout quality?',
@@ -2271,11 +2239,11 @@ function ProductExperience() {
 
       <div className="relative z-10 mx-auto max-w-[88rem]">
         <Reveal className="mb-16 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-            <Glyph name="grid" className="h-4 w-4 text-[#3ba6f7]" />
+          <div className="inline-flex items-center gap-2 inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#93B4F8]">
+            <Glyph name="grid" className="h-4 w-4 text-[#60A5FA]" />
             <span>{landingHomeCopy.switchboard.eyebrow}</span>
           </div>
-          <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-6xl">
+          <h2 className="font-display mt-6 text-4xl font-semibold tracking-tight text-white md:text-6xl">
             {landingHomeCopy.switchboard.title}
           </h2>
           <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-slate-400 md:text-xl">
@@ -2295,7 +2263,7 @@ function ProductExperience() {
               '0 34px 80px rgba(0,0,0,0.36), inset 0 1px 0 rgba(255,255,255,0.05)',
           }}
         >
-          <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[#ebebeb] shadow-[0_28px_68px_rgba(0,0,0,0.18)]">
+          <div className="overflow-hidden rounded-xl border border-white/10 bg-[#ebebeb] shadow-[0_28px_68px_rgba(0,0,0,0.18)]">
             <div className="flex min-h-[56px] flex-col gap-4 bg-black px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div className="flex flex-wrap items-center gap-3 sm:gap-4">
                 <div className="flex items-center gap-2">
@@ -2488,32 +2456,32 @@ function ProductExperience() {
 
 function HowItWorksSection() {
   return (
-    <section id="how-it-works" className="relative z-10 scroll-mt-32 px-2 py-24 md:px-3">
+    <section id="how-it-works" className="relative z-10 scroll-mt-32 px-2 py-24 md:px-3" style={{ background: '#ffffff' }}>
       <div className="mx-auto max-w-6xl grid gap-10 lg:grid-cols-[0.9fr_1.1fr]">
         <Reveal>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-            <Glyph name="layers" className="h-4 w-4 text-[#3ba6f7]" />
+          <div className="inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#2563EB]">
+            <Glyph name="layers" className="h-4 w-4" />
             <span>How it works</span>
           </div>
-          <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-6xl">
+          <h2 className="font-display mt-6 text-5xl font-bold tracking-[-0.03em] text-gray-900 md:text-6xl">
             {landingHomeCopy.howItWorks.title}
           </h2>
-          <p className="mt-5 max-w-xl text-lg leading-relaxed text-slate-400 md:text-xl">
+          <p className="mt-5 max-w-xl text-lg leading-relaxed text-gray-500 md:text-xl">
             {landingHomeCopy.howItWorks.body}
           </p>
         </Reveal>
 
         <div className="grid gap-4 sm:grid-cols-2">
           {orchestrationStages.map((stage, index) => (
-            <div key={stage.step} className="rounded-[1.8rem] border border-white/10 p-6" style={surfaceCardStyle}>
+            <div key={stage.step} className="rounded-xl p-6" style={lightSurfaceCardStyle}>
               <div className="flex items-center justify-between">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-lg font-semibold text-white">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-lg font-bold text-gray-900">
                   {stage.step}
                 </div>
-                <div className={`text-sm font-semibold ${index === 3 ? 'text-[#3ba6f7]' : 'text-slate-300'}`}>{stage.footnote}</div>
+                <div className={`text-sm font-semibold ${index === 3 ? 'text-[#2563EB]' : 'text-gray-400'}`}>{stage.footnote}</div>
               </div>
-              <h3 className="mt-6 text-2xl font-semibold tracking-tight text-white">{stage.label}</h3>
-              <p className="mt-3 text-base leading-7 text-slate-400">{stage.detail}</p>
+              <h3 className="mt-6 text-xl font-bold tracking-[-0.02em] text-gray-900">{stage.label}</h3>
+              <p className="mt-3 text-[14px] leading-7 text-gray-500">{stage.detail}</p>
             </div>
           ))}
         </div>
@@ -2527,7 +2495,7 @@ export function MetricsSection() {
     <section className="relative z-10 px-2 py-24 md:px-3">
       <div className="mx-auto max-w-6xl">
         <Reveal className="mb-16 text-center">
-          <h2 className="text-4xl font-semibold tracking-tight text-white md:text-5xl">Scale that earns trust.</h2>
+          <h2 className="font-display text-4xl font-semibold tracking-tight text-white md:text-5xl">Scale that earns trust.</h2>
           <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-slate-400 md:text-xl">
             Once the operating model is clear, the numbers explain why teams trust the layer.
           </p>
@@ -2535,7 +2503,7 @@ export function MetricsSection() {
 
         <div className="grid grid-cols-1 gap-6 text-center sm:grid-cols-2 lg:grid-cols-4">
           {impactStats.map((item) => (
-            <div key={item.label} className="rounded-[1.8rem] border border-white/10 p-8" style={surfaceCardStyle}>
+            <div key={item.label} className="rounded-xl border border-white/10 p-8" style={surfaceCardStyle}>
               <div className="text-5xl font-semibold tracking-tight text-white md:text-6xl">{item.value}</div>
               <div className="mt-4 text-base text-slate-400">{item.label}</div>
             </div>
@@ -2548,29 +2516,30 @@ export function MetricsSection() {
 
 function CapabilitiesSection() {
   return (
-    <section id="use-cases" className="relative z-10 mx-auto max-w-6xl scroll-mt-32 px-2 py-24 md:px-3">
+    <section id="use-cases" className="relative z-10 scroll-mt-32 px-2 py-24 md:px-3" style={{ background: '#F1F5F9' }}>
+      <div className="mx-auto max-w-6xl">
       <Reveal className="mb-16 text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-          <Glyph name="shield" className="h-4 w-4 text-[#3ba6f7]" />
+        <div className="inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#2563EB]">
+          <Glyph name="shield" className="h-4 w-4" />
           <span>Capabilities</span>
         </div>
-        <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-6xl">
+        <h2 className="mt-6 text-5xl font-bold tracking-[-0.03em] text-gray-900 md:text-6xl">
           What it actually does
         </h2>
       </Reveal>
 
       <div className="grid gap-6 md:grid-cols-3">
         {capabilityBuckets.map((item) => (
-          <div key={item.title} className="rounded-[1.8rem] border border-white/10 p-8" style={surfaceCardStyle}>
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[#3ba6f7] shadow-[0_10px_20px_rgba(0,0,0,0.16)]">
+          <div key={item.title} className="rounded-xl p-8" style={lightSurfaceCardStyle}>
+            <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-[#2563EB]/15 bg-[#2563EB]/8 text-[#2563EB]">
               <Glyph name={item.icon} className="h-6 w-6" />
             </div>
-            <h3 className="mt-8 text-2xl font-semibold tracking-tight text-white">{item.title}</h3>
-            <p className="mt-4 text-lg leading-relaxed text-slate-400">{item.description}</p>
+            <h3 className="mt-8 text-xl font-bold tracking-[-0.02em] text-gray-900">{item.title}</h3>
+            <p className="mt-4 text-[14px] leading-relaxed text-gray-500">{item.description}</p>
             <div className="mt-6 space-y-3">
               {item.bullets.map((bullet) => (
-                <div key={bullet} className="flex items-start gap-3 text-sm leading-6 text-slate-300">
-                  <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-[#3ba6f7]" />
+                <div key={bullet} className="flex items-start gap-3 text-sm leading-6 text-gray-600">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#2563EB]" />
                   <span>{bullet}</span>
                 </div>
               ))}
@@ -2578,28 +2547,53 @@ function CapabilitiesSection() {
           </div>
         ))}
       </div>
+      </div>
     </section>
   )
 }
 
+const tickerItems = [
+  'PSP ORCHESTRATION', 'BANK RAILS', 'EVIDENCE PACKS', 'REAL-TIME SIGNALS',
+  'CONNECTOR POSTURE', 'RECONCILIATION', 'SLA TRACKING', 'AUDIT EXPORT',
+  'PSP ORCHESTRATION', 'BANK RAILS', 'EVIDENCE PACKS', 'REAL-TIME SIGNALS',
+  'CONNECTOR POSTURE', 'RECONCILIATION', 'SLA TRACKING', 'AUDIT EXPORT',
+]
+
 function InfrastructureSection() {
   return (
-    <section id="security" className="relative z-10 overflow-hidden scroll-mt-32 px-2 py-24 md:px-3">
+    <section id="security" className="relative z-10 overflow-hidden scroll-mt-32" style={{ background: '#062848' }}>
+      {/* Scrolling ticker strip — Razorpay style */}
+      <div className="overflow-hidden border-b border-white/10 py-3" style={{ background: '#0a3258' }}>
+        <motion.div
+          className="flex gap-8 whitespace-nowrap"
+          animate={{ x: ['0%', '-50%'] }}
+          transition={{ duration: 28, ease: 'linear', repeat: Infinity }}
+        >
+          {tickerItems.map((item, i) => (
+            <span key={`tick-${i}`} className="inline-flex items-center gap-2 text-[12px] font-bold tracking-[0.18em] text-[#7EC8A4]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#7EC8A4]" />
+              {item}
+            </span>
+          ))}
+        </motion.div>
+      </div>
+
+      <div className="px-4 py-20 md:px-8">
       <div className="mx-auto max-w-6xl">
         <Reveal className="mb-16 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-            <Glyph name="bank" className="h-4 w-4 text-[#3ba6f7]" />
+          <div className="inline-flex items-center gap-1.5 rounded border border-[#7EC8A4]/30 bg-[#7EC8A4]/10 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#7EC8A4]">
+            <Glyph name="bank" className="h-4 w-4" />
             <span>Infrastructure depth</span>
           </div>
-          <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-6xl">
+          <h2 className="font-display mt-6 text-5xl font-bold tracking-[-0.03em] text-white md:text-6xl">
             {landingHomeCopy.infrastructure.title}
           </h2>
-          <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-slate-400 md:text-xl">
+          <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-[#8BAFC8] md:text-xl">
             {landingHomeCopy.infrastructure.subtitle}
           </p>
         </Reveal>
 
-        <div className="relative overflow-hidden rounded-[2.2rem] border border-white/10 p-5 sm:p-6 lg:p-8" style={surfaceCardStyle}>
+        <div className="relative overflow-hidden rounded-xl border border-white/10 p-5 sm:p-6 lg:p-8" style={surfaceCardStyle}>
           <div className="pointer-events-none absolute inset-0">
             <Image
               src="/final-landing/concepts/infrastructure-depth-system.png"
@@ -2620,7 +2614,7 @@ function InfrastructureSection() {
                 Enterprise depth
               </div>
 
-              <h3 className="mt-6 max-w-3xl text-4xl font-semibold tracking-[-0.06em] text-white sm:text-5xl lg:text-[3.6rem] lg:leading-[0.96]">
+              <h3 className="font-display mt-6 max-w-3xl text-4xl font-semibold tracking-[-0.06em] text-white sm:text-5xl lg:text-[3.6rem] lg:leading-[0.96]">
                 {landingHomeCopy.infrastructure.headline}
               </h3>
 
@@ -2629,7 +2623,7 @@ function InfrastructureSection() {
               </p>
               </div>
 
-              <div className="relative min-h-[340px] overflow-hidden rounded-[1.9rem] border border-white/10 sm:min-h-[420px] lg:min-h-0 lg:self-start lg:aspect-[16/11]">
+              <div className="relative min-h-[340px] overflow-hidden rounded-xl border border-white/10 sm:min-h-[420px] lg:min-h-0 lg:self-start lg:aspect-[16/11]">
                 <Image
                   src="/final-landing/sections/finance-ops-collaboration.png"
                   alt="Finance and operations leaders reviewing payout evidence and reconciliation signals together"
@@ -2641,8 +2635,8 @@ function InfrastructureSection() {
                 <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,9,13,0.06)_0%,rgba(7,9,13,0.28)_42%,rgba(7,9,13,0.84)_100%)]" />
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,166,247,0.14),transparent_24%),radial-gradient(circle_at_top_right,rgba(198,239,207,0.10),transparent_26%)]" />
                 <div className="absolute inset-x-0 bottom-0 p-6 sm:p-7">
-                  <div className="max-w-md rounded-[1.3rem] border border-white/10 bg-[linear-gradient(180deg,rgba(16,20,27,0.72),rgba(10,12,16,0.52))] px-5 py-4 shadow-[0_18px_36px_rgba(0,0,0,0.24)] backdrop-blur-xl">
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A7AE]">Shared payout truth</div>
+                  <div className="max-w-md rounded-lg border border-white/10 bg-[linear-gradient(180deg,rgba(16,20,27,0.72),rgba(10,12,16,0.52))] px-5 py-4 shadow-[0_18px_36px_rgba(0,0,0,0.24)] backdrop-blur-xl">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#60A5FA]">Shared payout truth</div>
                     <p className="mt-3 text-[15px] leading-7 text-white/86">
                       The same control layer teams use for connector review, confirmation confidence, reconciliation, and Evidence Pack export.
                     </p>
@@ -2655,7 +2649,7 @@ function InfrastructureSection() {
               {resultsShowcaseStats.map((item, index) => (
                 <div
                   key={item.label}
-                  className="rounded-[1.35rem] border border-white/10 p-5"
+                  className="rounded-lg border border-white/10 p-5"
                   style={{
                     background:
                       index === 1
@@ -2666,7 +2660,7 @@ function InfrastructureSection() {
                     boxShadow: '0 18px 36px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.05)',
                   }}
                 >
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#94A7AE]">{item.eyebrow}</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[#60A5FA]">{item.eyebrow}</div>
                   <div className="mt-4 text-[2rem] font-semibold tracking-[-0.06em] text-white sm:text-[2.2rem]">{item.value}</div>
                   <p className="mt-2 text-[15px] font-semibold text-white">{item.label}</p>
                   <p className="mt-3 text-[13px] leading-6 text-slate-400">{item.detail}</p>
@@ -2675,6 +2669,7 @@ function InfrastructureSection() {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </section>
   )
@@ -2690,11 +2685,11 @@ export function PricingTeaserSection() {
     <section id="pricing" className="relative z-10 scroll-mt-32 px-2 py-24 md:px-3">
       <div className="mx-auto max-w-6xl">
         <Reveal className="mb-16 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-            <Glyph name="wallet" className="h-4 w-4 text-[#3ba6f7]" />
+          <div className="inline-flex items-center gap-2 inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#93B4F8]">
+            <Glyph name="wallet" className="h-4 w-4 text-[#60A5FA]" />
             <span>Pricing</span>
           </div>
-          <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-5xl">
+          <h2 className="font-display mt-6 text-4xl font-semibold tracking-tight text-white md:text-5xl">
             {H.productName} commercials — sandbox first, custom with sales
           </h2>
           <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-slate-400 md:text-xl">
@@ -2702,7 +2697,7 @@ export function PricingTeaserSection() {
           </p>
         </Reveal>
 
-        <div className="rounded-[2rem] border border-white/10 p-4 sm:p-5" style={surfaceCardStyle}>
+        <div className="rounded-xl border border-white/10 p-4 sm:p-5" style={surfaceCardStyle}>
           <div className="flex flex-wrap gap-2">
             {pricingFamilies.map((family) => (
               <button
@@ -2732,7 +2727,7 @@ export function PricingTeaserSection() {
 
           <div className="mt-5 grid gap-6 lg:grid-cols-[1.08fr_0.92fr]">
             <div className="rounded-[1.7rem] border border-white/10 p-7" style={surfaceCardStyle}>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#94A7AE]">{activeFamily.eyebrow}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#60A5FA]">{activeFamily.eyebrow}</div>
               <div className="mt-5 text-sm font-medium uppercase tracking-[0.18em] text-slate-400">{activeFamily.kicker}</div>
               <div className="mt-3 text-[3rem] font-semibold tracking-[-0.06em] text-white md:text-[3.8rem]">
                 {activeFamily.metric}
@@ -2744,7 +2739,7 @@ export function PricingTeaserSection() {
                 {activeFamily.highlights.map((highlight) => (
                   <div key={highlight} className="flex items-start gap-3">
                     <div className="mt-1 flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-white/5">
-                      <Glyph name="check-circle" className="h-4 w-4 text-[#3ba6f7]" />
+                      <Glyph name="check-circle" className="h-4 w-4 text-[#60A5FA]" />
                     </div>
                     <p className="text-[15px] leading-7 text-slate-200">{highlight}</p>
                   </div>
@@ -2820,7 +2815,7 @@ export function PricingTeaserSection() {
           {pricingPlans.map((plan, index) => (
             <div
               key={plan.title}
-              className={`relative flex h-full flex-col overflow-hidden rounded-[2rem] border p-8 ${
+              className={`relative flex h-full flex-col overflow-hidden rounded-xl border p-8 ${
                 plan.featured ? 'border-[#3ba6f7]/50 md:-translate-y-3' : 'border-white/10'
               }`}
               style={{
@@ -2894,7 +2889,7 @@ export function PricingTeaserSection() {
           </div>
         </div>
 
-        <div id="pricing-faqs" className="mt-8 rounded-[2rem] border border-white/10 p-6 sm:p-8" style={surfaceCardStyle}>
+        <div id="pricing-faqs" className="mt-8 rounded-xl border border-white/10 p-6 sm:p-8" style={surfaceCardStyle}>
           <div className="max-w-2xl">
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Pricing FAQs</div>
             <h3 className="mt-4 text-3xl font-semibold tracking-tight text-white">Answers before procurement turns into a thread.</h3>
@@ -2931,11 +2926,11 @@ export function TestimonialsSection() {
     <section className="relative z-10 scroll-mt-32 px-2 py-24 md:px-3" id="customers">
       <div className="mx-auto max-w-6xl">
         <Reveal className="mb-16 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-            <Glyph name="check-circle" className="h-4 w-4 text-[#3ba6f7]" />
+          <div className="inline-flex items-center gap-2 inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#93B4F8]">
+            <Glyph name="check-circle" className="h-4 w-4 text-[#60A5FA]" />
             <span>Customers</span>
           </div>
-          <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-5xl">
+          <h2 className="font-display mt-6 text-4xl font-semibold tracking-tight text-white md:text-5xl">
             Who evaluates ZORD in live payout environments
           </h2>
           <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-slate-400 md:text-xl">
@@ -2945,7 +2940,7 @@ export function TestimonialsSection() {
 
         <div className="grid gap-6 md:grid-cols-2">
           {operatingStories.slice(0, 4).map((persona) => (
-            <div key={persona.title} className="rounded-[2rem] border border-white/10 p-8" style={surfaceCardStyle}>
+            <div key={persona.title} className="rounded-xl border border-white/10 p-8" style={surfaceCardStyle}>
               <div className="text-lg font-semibold tracking-tight text-white">{persona.title}</div>
               <p className="mt-1 text-base text-[#c6efcf]">{persona.role}</p>
               <p className="mt-5 text-lg leading-relaxed text-slate-300">{persona.body}</p>
@@ -2968,11 +2963,11 @@ export function ResourcesSection() {
   return (
     <section className="relative z-10 mx-auto max-w-6xl scroll-mt-32 px-2 py-24 md:px-3" id="resources">
       <Reveal className="mb-16 text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-          <Glyph name="book" className="h-4 w-4 text-[#3ba6f7]" />
+        <div className="inline-flex items-center gap-2 inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#93B4F8]">
+          <Glyph name="book" className="h-4 w-4 text-[#60A5FA]" />
           <span>Resources</span>
         </div>
-        <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-5xl">
+        <h2 className="font-display mt-6 text-4xl font-semibold tracking-tight text-white md:text-5xl">
           Product resources for teams evaluating ZORD
         </h2>
         <p className="mx-auto mt-5 max-w-3xl text-lg leading-relaxed text-slate-400 md:text-xl">
@@ -2985,7 +2980,7 @@ export function ResourcesSection() {
           <a
             key={item.title}
             href={item.href}
-            className="rounded-[1.8rem] border border-white/10 p-8 transition hover:border-white/16 hover:bg-white/[0.03]"
+            className="rounded-xl border border-white/10 p-8 transition hover:border-white/16 hover:bg-white/[0.03]"
             style={{
               ...surfaceCardStyle,
               background:
@@ -3012,11 +3007,11 @@ export function CompanySection() {
   return (
     <section className="relative z-10 mx-auto max-w-6xl scroll-mt-32 px-2 py-24 md:px-3" id="company">
       <Reveal className="mb-16 text-center">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-300 shadow-[0_10px_20px_rgba(0,0,0,0.12)]">
-          <Glyph name="globe" className="h-4 w-4 text-[#3ba6f7]" />
+        <div className="inline-flex items-center gap-2 inline-flex items-center gap-1.5 rounded border border-[#2563EB]/20 bg-[#2563EB]/8 px-3 py-1 text-[12px] font-semibold uppercase tracking-[0.1em] text-[#93B4F8]">
+          <Glyph name="globe" className="h-4 w-4 text-[#60A5FA]" />
           <span>About Arealis</span>
         </div>
-        <h2 className="mt-6 text-4xl font-semibold tracking-tight text-white md:text-5xl">
+        <h2 className="font-display mt-6 text-4xl font-semibold tracking-tight text-white md:text-5xl">
           Arealis builds enterprise intelligence that acts
         </h2>
         <p className="mx-auto mt-5 max-w-4xl text-lg leading-relaxed text-slate-400 md:text-xl">
@@ -3025,7 +3020,7 @@ export function CompanySection() {
       </Reveal>
 
       <div className="grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="rounded-[2rem] border border-white/10 p-8" style={surfaceCardStyle}>
+        <div className="rounded-xl border border-white/10 p-8" style={surfaceCardStyle}>
           <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Story and vision</div>
           <h3 className="mt-4 text-3xl font-semibold tracking-tight text-white">From AI research to enterprise operating systems</h3>
           <p className="mt-5 text-[16px] leading-8 text-slate-300">
@@ -3036,14 +3031,14 @@ export function CompanySection() {
           </p>
 
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-[1.3rem] border border-white/10 bg-white/[0.03] p-5">
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-5">
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Products</div>
               <div className="mt-3 text-lg font-semibold text-white">ZORD + Gateway</div>
               <p className="mt-2 text-sm leading-6 text-slate-400">
                 ZORD focuses on payout operations and compliance-ready evidence, while Arealis continues building broader enterprise intelligence infrastructure.
               </p>
             </div>
-            <div className="rounded-[1.3rem] border border-white/10 bg-white/[0.03] p-5">
+            <div className="rounded-lg border border-white/10 bg-white/[0.03] p-5">
               <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Supported by</div>
               <div className="mt-3 text-lg font-semibold text-white">AWS + Microsoft</div>
               <p className="mt-2 text-sm leading-6 text-slate-400">
@@ -3054,13 +3049,13 @@ export function CompanySection() {
         </div>
 
         <div className="grid gap-6">
-          <div className="rounded-[2rem] border border-white/10 p-8" style={surfaceCardStyle}>
+          <div className="rounded-xl border border-white/10 p-8" style={surfaceCardStyle}>
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Recognitions and milestones</div>
             <div className="mt-6 space-y-4">
               {arealisMilestones.map((item, index) => (
                 <div
                   key={item.title}
-                  className="rounded-[1.35rem] border border-white/10 p-5"
+                  className="rounded-lg border border-white/10 p-5"
                   style={
                     index === 0
                       ? {
@@ -3077,7 +3072,7 @@ export function CompanySection() {
             </div>
           </div>
 
-          <div className="rounded-[2rem] border border-white/10 p-8" style={surfaceCardStyle}>
+          <div className="rounded-xl border border-white/10 p-8" style={surfaceCardStyle}>
             <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Founder note</div>
             <p className="mt-4 text-[16px] leading-8 text-slate-300">
               “At Arealis, we’re building intelligence that does not just analyze data, it acts on it. Our goal is to enable systems that learn, adapt, and operate autonomously while staying transparent and secure.”
@@ -3087,7 +3082,7 @@ export function CompanySection() {
         </div>
       </div>
 
-      <div className="mt-8 rounded-[2rem] border border-white/10 p-8" style={surfaceCardStyle}>
+      <div className="mt-8 rounded-xl border border-white/10 p-8" style={surfaceCardStyle}>
         <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">The minds behind Arealis</div>
         <div className="mt-8 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
           {arealisTeam.map((member) => (
@@ -3105,31 +3100,30 @@ export function CompanySection() {
 
 function FinalCTA() {
   return (
-    <section className="relative z-10 overflow-hidden scroll-mt-32 px-2 pt-32 md:px-3" id="book">
-      <div className="mx-auto max-w-6xl">
-        <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 px-8 py-16 text-center backdrop-blur-sm md:px-14" style={surfaceCardStyle}>
-          <div className="pointer-events-none absolute left-1/2 top-0 h-80 w-80 -translate-x-1/2 rounded-full blur-[110px]" style={{ backgroundColor: 'rgba(59, 166, 247, 0.12)' }} />
-          <div className="relative z-10 mx-auto max-w-3xl">
-            <h2 className="text-4xl font-semibold tracking-tight text-white md:text-6xl md:leading-tight">
+    <section className="relative z-10 scroll-mt-32 px-4 py-24 md:px-8" id="book" style={{ background: '#F0F6FF' }}>
+      <div className="mx-auto max-w-5xl">
+        <div className="rounded-2xl border border-[#2563EB]/15 bg-white px-8 py-16 text-center shadow-[0_4px_40px_rgba(37,99,235,0.08)] md:px-14">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="font-display text-4xl font-bold tracking-[-0.03em] text-gray-900 md:text-5xl">
               {landingHomeCopy.finalCta.title}
             </h2>
-            <p className="mt-6 text-lg leading-relaxed text-slate-400 md:text-xl">
+            <p className="mt-5 text-lg leading-relaxed text-gray-500">
               {landingHomeCopy.finalCta.body}
             </p>
-            <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
+            <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
               <a
                 href="mailto:hello@arelais.com?subject=Book%20Demo%20for%20Zord"
-                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#3464ff] px-10 py-4 text-lg font-semibold text-white shadow-[0_20px_40px_rgba(52,100,255,0.24)] transition-all hover:bg-[#2451ff]"
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#2563EB] px-8 py-3.5 text-[15px] font-semibold text-white transition-colors duration-150 hover:bg-[#1D4ED8]"
               >
-                Book Demo
-                <Glyph name="arrow-right" className="h-5 w-5" />
+                Book a Demo
+                <Glyph name="arrow-right" className="h-4 w-4" />
               </a>
               <Link
                 href="/final-landing/how-it-works"
-                className="inline-flex items-center justify-center gap-2 rounded-full border border-white/10 bg-white/5 px-10 py-4 text-lg font-semibold text-slate-100 transition-all hover:bg-white/10"
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-8 py-3.5 text-[15px] font-semibold text-gray-600 transition-colors duration-150 hover:border-gray-300 hover:text-gray-900"
               >
                 See how it works
-                <Glyph name="arrow-up-right" className="h-5 w-5" />
+                <Glyph name="arrow-up-right" className="h-4 w-4" />
               </Link>
             </div>
           </div>
@@ -3141,23 +3135,23 @@ function FinalCTA() {
 
 function SiteFooter() {
   return (
-    <footer id="developers" className="relative z-10 scroll-mt-32 px-2 pb-12 pt-16 md:px-3">
+    <footer id="developers" className="relative z-10 scroll-mt-32 px-4 pb-12 pt-16 md:px-8" style={{ background: '#F8FAFC' }}>
       <div className="mx-auto max-w-6xl">
-        <div className="grid gap-12 border-t border-white/10 pt-10 md:grid-cols-2 lg:grid-cols-[1.5fr_repeat(4,1fr)]">
+        <div className="grid gap-12 border-t border-gray-200 pt-10 md:grid-cols-2 lg:grid-cols-[1.5fr_repeat(4,1fr)]">
           <div>
-            <ZordLogo size="md" variant="dark" className="!w-auto max-w-[9rem]" />
-            <p className="mt-6 max-w-[320px] text-[14px] leading-7 text-slate-400">
+            <ZordLogo size="md" variant="light" className="!w-auto max-w-[9rem]" />
+            <p className="mt-6 max-w-[320px] text-[14px] leading-7 text-gray-500">
               {landingHomeCopy.footer.body}
             </p>
-            <p className="mt-4 text-[14px] text-slate-400">Contact: hello@arelais.com</p>
+            <p className="mt-4 text-[14px] text-gray-400">Contact: hello@arelais.com</p>
           </div>
 
           {footerColumns.map((column) => (
             <div key={column.title}>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{column.title}</div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-gray-400">{column.title}</div>
               <div className="mt-4 space-y-2.5">
                 {column.links.map((link) => (
-                  <div key={link} className="cursor-pointer text-[13px] text-slate-400 transition hover:text-white hover:underline">
+                  <div key={link} className="cursor-pointer text-[13px] text-gray-500 transition hover:text-gray-900 hover:underline">
                     {link}
                   </div>
                 ))}
@@ -3166,12 +3160,12 @@ function SiteFooter() {
           ))}
         </div>
 
-        <div className="mt-16 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 md:flex-row">
-          <div className="text-[12px] text-slate-500">© 2026 Arealis</div>
-          <div className="flex gap-6 text-[12px] text-slate-500">
-            <a href="#" className="transition-colors hover:text-white">Privacy</a>
-            <a href="#" className="transition-colors hover:text-white">Terms</a>
-            <a href="#" className="transition-colors hover:text-white">System Status</a>
+        <div className="mt-16 flex flex-col items-center justify-between gap-4 border-t border-gray-200 pt-8 md:flex-row">
+          <div className="text-[12px] text-gray-400">© 2026 Arealis</div>
+          <div className="flex gap-6 text-[12px] text-gray-400">
+            <a href="#" className="transition-colors hover:text-gray-700">Privacy</a>
+            <a href="#" className="transition-colors hover:text-gray-700">Terms</a>
+            <a href="#" className="transition-colors hover:text-gray-700">System Status</a>
           </div>
         </div>
       </div>
@@ -3182,38 +3176,24 @@ function SiteFooter() {
 export default function LandingPageFinalClient() {
   return (
     <div
-      className="relative min-h-screen overflow-x-hidden text-slate-50 selection:bg-blue-500/30 selection:text-white"
+      className="relative min-h-screen overflow-x-hidden text-gray-900 selection:bg-blue-100 selection:text-blue-900"
       style={{
-        background: 'linear-gradient(180deg, var(--color-brand-base) 0%, var(--color-brand-surface) 100%)',
-        fontFamily: '"Sora", "Plus Jakarta Sans", "DM Sans", "Inter", system-ui, sans-serif',
+        background: '#ffffff',
+        fontFamily: '"Outfit", "DM Sans", system-ui, sans-serif',
       }}
     >
-      <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
-        <div className="absolute inset-0" style={{ background: 'linear-gradient(180deg, var(--color-brand-base) 0%, var(--color-brand-surface) 100%)' }} />
-        <div className="absolute inset-x-0 top-0 h-[72rem]" style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--color-brand-surface-hover) 94%, white 6%) 0%, rgba(18,23,31,0.95) 16%, rgba(12,14,18,0.78) 38%, rgba(10,10,12,0) 100%)' }} />
-        <div className="absolute inset-0 zord-grid-soft opacity-[0.16]" />
-        <div className="absolute inset-0 bg-noise opacity-[0.18]" />
-        <div className="absolute left-1/2 top-[-8%] h-[54rem] w-[72rem] -translate-x-1/2 rounded-full blur-[190px]" style={{ background: 'radial-gradient(circle, color-mix(in srgb, var(--color-brand-blue) 22%, transparent) 0%, rgba(30, 41, 59, 0.14) 32%, rgba(10,10,12,0) 74%)' }} />
-        <div className="absolute left-1/2 top-[22%] h-[32rem] w-[42rem] -translate-x-1/2 rounded-full blur-[150px]" style={{ background: 'radial-gradient(circle, rgba(255, 255, 255, 0.06) 0%, color-mix(in srgb, var(--color-brand-blue) 10%, transparent) 28%, rgba(10,10,12,0) 72%)' }} />
-        <div className="absolute left-1/2 bottom-[-8%] h-[26rem] w-[46rem] -translate-x-1/2 rounded-full blur-[170px]" style={{ background: 'radial-gradient(circle, rgba(71,85,105,0.16) 0%, rgba(10,10,12,0) 70%)' }} />
-        <div className="absolute inset-y-0 left-[10%] hidden w-px bg-gradient-to-b from-transparent via-white/8 to-transparent lg:block" />
-        <div className="absolute inset-y-0 right-[10%] hidden w-px bg-gradient-to-b from-transparent via-white/8 to-transparent lg:block" />
-        <div className="absolute left-0 top-[24%] h-px w-[120%] origin-left -rotate-[8deg] bg-gradient-to-r from-transparent via-white/8 to-transparent" />
-        <div className="absolute left-0 top-[58%] h-px w-[120%] origin-left -rotate-[8deg] bg-gradient-to-r from-transparent via-white/7 to-transparent" />
-      </div>
-
-      <div className="relative z-10">
-        <FinalLandingNavbar syncToHash />
-        <FinalLandingAssistantButton />
-        <Hero />
-        <ProductHeroVisualSection />
-        <ProductExperience />
-        <HowItWorksSection />
-        <CapabilitiesSection />
-        <InfrastructureSection />
-        <FinalCTA />
-        <SiteFooter />
-      </div>
+      <FinalLandingNavbar syncToHash />
+      <FinalLandingAssistantButton />
+      <Hero />
+      <ProductHeroVisualSection />
+      <ProblemSection />
+      <SolutionSection />
+      <ProductExperience />
+      <HowItWorksSection />
+      <CapabilitiesSection />
+      <InfrastructureSection />
+      <FinalCTA />
+      <SiteFooter />
     </div>
   )
 }

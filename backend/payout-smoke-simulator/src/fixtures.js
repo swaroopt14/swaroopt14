@@ -195,13 +195,32 @@ export function buildIntelligenceBatches() {
   return {
     tenant_id: TENANT_ID,
     intelligence_mode: 'GRADE_A',
-    batches: BATCHES.map((b) => ({
-      batch_id: b.id,
-      tenant_id: TENANT_ID,
-      finality_status: b.finality,
-      total_count: b.intentCount,
-      source_reference: b.partner,
-    })),
+    batches: BATCHES.map((b, idx) => {
+      const intended = b.totalIntendedMinor
+      const leakagePct = Number((0.04 + (idx % 8) * 0.012).toFixed(4))
+      const variance = Math.round(intended * (0.015 + (idx % 4) * 0.005)) * (idx % 2 === 0 ? -1 : 1)
+      const reversal = Math.round(intended * 0.006)
+      const sparse = idx === 9
+      return {
+        batch_id: b.id,
+        tenant_id: TENANT_ID,
+        finality_status: b.finality,
+        total_count: b.intentCount,
+        source_reference: b.partner,
+        status_label: b.label,
+        ...(sparse
+          ? {}
+          : {
+              total_intended_amount_minor: intended,
+              total_variance_minor: variance,
+              reversal_exposure_minor: reversal,
+              leakage_percentage: leakagePct,
+              unmatched_amount_minor: Math.round(intended * leakagePct * 0.55),
+              under_settlement_amount_minor: Math.round(intended * leakagePct * 0.25),
+              orphan_amount_minor: Math.round(intended * leakagePct * 0.12),
+            }),
+      }
+    }),
   }
 }
 
@@ -327,6 +346,8 @@ export function leakageKpi(fromDate, toDate) {
   }
 
   const leakagePct = sum.intended > 0 ? Number((sum.unmatched / sum.intended).toFixed(4)) : 0
+  const totalExposure = sum.unmatched + sum.under + sum.orphan + sum.reversal
+  const exposureDenom = totalExposure > 0 ? totalExposure : 1
   return {
     data_available: sum.intended > 0 || sum.settled > 0,
     tenant_id: TENANT_ID,
@@ -334,6 +355,7 @@ export function leakageKpi(fromDate, toDate) {
     window_start: `${from}T00:00:00Z`,
     window_end: `${to}T23:59:59Z`,
     total_intended_amount_minor: sum.intended,
+    total_amount_minor: totalExposure,
     unmatched_amount_minor: sum.unmatched,
     under_settlement_amount_minor: sum.under,
     orphan_amount_minor: sum.orphan,
@@ -341,6 +363,34 @@ export function leakageKpi(fromDate, toDate) {
     total_observed_settled_amount_minor: sum.settled,
     leakage_percentage: leakagePct,
     risk_tier: leakagePct >= 0.05 ? 'MEDIUM' : 'LOW',
+    exposure_bands: [
+      {
+        band: 'Unmatched Payment Value',
+        amount_minor: sum.unmatched,
+        share_pct: Number(((sum.unmatched / exposureDenom) * 100).toFixed(1)),
+      },
+      {
+        band: 'Short-Settled Value',
+        amount_minor: sum.under,
+        share_pct: Number(((sum.under / exposureDenom) * 100).toFixed(1)),
+      },
+      {
+        band: 'Unlinked Settlement Value',
+        amount_minor: sum.orphan,
+        share_pct: Number(((sum.orphan / exposureDenom) * 100).toFixed(1)),
+      },
+      {
+        band: 'Reversal Exposure',
+        amount_minor: sum.reversal,
+        share_pct: Number(((sum.reversal / exposureDenom) * 100).toFixed(1)),
+      },
+    ],
+    segment_roll_rates: [
+      { from_band: 'settled', to_band: 'unmatched', roll_pct: 4.2 },
+      { from_band: 'settled', to_band: 'short_settled', roll_pct: 2.1 },
+      { from_band: 'short_settled', to_band: 'orphan', roll_pct: 0.8 },
+      { from_band: 'orphan', to_band: 'reversal', roll_pct: 0.4 },
+    ],
   }
 }
 
@@ -382,6 +432,64 @@ export function ambiguityKpi() {
     provider_ref_missing_rate: providerRefMissingRate,
     ambiguous_intent_count: 12,
     ambiguity_rate: ambiguityRate,
+    intelligence_headline: '12 intents need provider reference review before dispatch.',
+    intelligence_body: 'Missing UTR cluster on Cashfree rail is the top driver this week.',
+    total_intended_amount_minor: 34_200_000,
+    total_observed_settled_amount_minor: 26_000_000,
+    ambiguous_amount_minor: 4_100_000,
+    total_variance_minor: 2_200_000,
+    reversal_exposure_minor: 1_500_000,
+    unresolved_amount_minor: 400_000,
+    unresolved_count: 12,
+    signal_clarity_subtitle: '₹34.2Cr book across 780 intents · ₹8.4Cr needing review',
+    signal_clarity_roll_rates: [
+      { from_band: 'Current', to_band: 'SMA-0', roll_pct: 9 },
+      { from_band: 'SMA-0', to_band: 'SMA-1', roll_pct: 18 },
+      { from_band: 'SMA-1', to_band: 'SMA-2', roll_pct: 31 },
+      { from_band: 'SMA-2', to_band: 'NPA', roll_pct: 22 },
+    ],
+    signal_clarity_bands: [
+      {
+        band: 'Current',
+        amount_minor: 26_000_000,
+        item_count: 645,
+        share_pct: 76,
+        tone: 'green',
+      },
+      {
+        band: 'SMA-0',
+        amount_minor: 4_100_000,
+        item_count: 67,
+        share_pct: 12,
+        roll_pct: 9,
+        tone: 'lime',
+      },
+      {
+        band: 'SMA-1',
+        amount_minor: 2_200_000,
+        item_count: 38,
+        share_pct: 6.4,
+        roll_pct: 18,
+        tone: 'amber',
+      },
+      {
+        band: 'SMA-2',
+        amount_minor: 1_500_000,
+        item_count: 18,
+        share_pct: 4.4,
+        roll_pct: 31,
+        tone: 'orange',
+      },
+      {
+        band: 'NPA-2',
+        amount_minor: 400_000,
+        item_count: 12,
+        share_pct: 1.2,
+        roll_pct: 22,
+        tone: 'red',
+      },
+    ],
+    clearing_pct: 82,
     ...mix,
   }
 }
@@ -390,16 +498,29 @@ export function ambiguityHeatmap() {
   return {
     data_available: true,
     tenant_id: TENANT_ID,
-    batches: BATCHES.map((b) => ({
-      batch_id: b.id,
-      total_count: b.intentCount,
-      exact_match_count: Math.floor(b.intentCount * 0.55),
-      high_confidence_count: Math.floor(b.intentCount * 0.28),
-      ambiguous_count: 3,
-      unresolved_count: 2,
-      conflicted_count: 1,
-      aggregate_score: 0.86,
-    })),
+    intelligence_mode: 'GRADE_A',
+    batches: BATCHES.map((b, idx) => {
+      const total = b.intentCount
+      const ambiguous = 2 + (idx % 5)
+      const unresolved = 1 + (idx % 4)
+      const conflicted = idx % 5 === 0 ? 2 : idx % 7 === 0 ? 1 : 0
+      const high = Math.min(Math.max(2, Math.floor(total * 0.22)), total)
+      const exact = Math.max(0, total - ambiguous - unresolved - conflicted - high)
+      const finality =
+        idx % 4 === 0 ? 'REQUIRES_REVIEW' : idx % 3 === 1 ? 'PROCESSING' : 'SETTLED'
+      return {
+        batch_id: b.id,
+        total_intended_amount_minor: b.totalIntendedMinor,
+        total_count: total,
+        finality_status: finality,
+        exact_match_count: exact,
+        high_confidence_count: high,
+        ambiguous_count: ambiguous,
+        unresolved_count: unresolved,
+        conflicted_count: conflicted,
+        aggregate_score: 0.68 + (idx % 9) * 0.03,
+      }
+    }),
   }
 }
 
@@ -450,6 +571,52 @@ export function patternsDashboard() {
     success_count: 82,
     failed_count: 4,
     pending_count: 14,
+    ambiguous_count: 18,
+    summary_stats: {
+      match_confidence_pct: 88,
+      total_decision_count: 100,
+    },
+    risk_driver_breakdown: [
+      { label: 'Orphan settlements', count: 12, share_pct: 42 },
+      { label: 'Short settlement', count: 9, share_pct: 31 },
+      { label: 'Ambiguous match', count: 7, share_pct: 27 },
+    ],
+    network_health_trend: [
+      { label: '28 May', success_pct: '82.0%', latency_index: 72 },
+      { label: '29 May', success_pct: '84.5%', latency_index: 74 },
+      { label: '30 May', success_pct: '86.0%', latency_index: 76 },
+      { label: '31 May', success_pct: '88.0%', latency_index: 78 },
+      { label: '01 Jun', success_pct: '88.2%', latency_index: 80 },
+    ],
+  }
+}
+
+export function operationsSummary() {
+  return {
+    data_available: true,
+    tenant_id: TENANT_ID,
+    computed_at: new Date().toISOString(),
+    settlement_confirmation_coverage_pct: 87.4,
+    confirmed_matched_value_minor: 42_000_000,
+    total_intended_amount_minor: 48_000_000,
+    open_exception_queue_count: 12,
+    open_exception_queue_value_minor: 18_500_000,
+    batch_close_readiness: {
+      blocked_batch_count: 3,
+      close_ready_batch_count: 5,
+      blocked_batch_ids: ['smoke-batch-03', 'smoke-batch-07', 'smoke-batch-09'],
+      close_ready_batch_ids: ['smoke-batch-01', 'smoke-batch-02', 'smoke-batch-04', 'smoke-batch-05', 'smoke-batch-06'],
+    },
+  }
+}
+
+export function exceptionsSummary() {
+  return {
+    data_available: true,
+    tenant_id: TENANT_ID,
+    computed_at: new Date().toISOString(),
+    open_financial_exception_count: 12,
+    open_financial_exception_value_minor: 18_500_000,
   }
 }
 
@@ -529,6 +696,8 @@ export function patternHistory() {
           weakest_source_system: 'manual_excel',
           weakest_source_missing_ref_rate: 0.42,
           weakest_provider_id: 'cashfree',
+          network_success_pct: '88.2%',
+          network_latency_index: 80,
         },
       },
     ],
@@ -572,6 +741,11 @@ export function defensibilityKpi() {
     defensibility_tier: 'STRONG',
     bank_confirmed_rate: 0.72,
     evidence_pack_coverage: 0.81,
+    audit_ready_pct: 0.72,
+    weak_evidence_count: 4,
+    governance_coverage_pct: 0.85,
+    replayability_pct: 0.9,
+    dispute_ready_pct: 0.65,
   }
 }
 

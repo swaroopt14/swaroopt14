@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -23,7 +23,9 @@ import { EntityLogo } from '@/features/payout-command/entity-logo'
 import { fmtInrFromMinorExact } from '../command-center/commandCenterFormat'
 import { ClientChart } from '../shared'
 import { KPI_UNAVAILABLE } from '../shared/formatKpiDisplay'
+import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import { connectorsCopy } from './copy/connectorsCopy'
+import { ConnectorLeakageExposureChart } from './components/ConnectorLeakageExposureChart'
 import { getRoutingIntelligenceAdapter } from './routingDataAdapter'
 import { rankRoutes } from './scoring'
 import type {
@@ -131,6 +133,15 @@ export default function ConnectorIntelligenceClient() {
   const [fetchError, setFetchError] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
 
+  const handlePageRefresh = useCallback(() => {
+    setReloadKey((key) => key + 1)
+  }, [])
+
+  useRegisterPayoutPageActions({
+    refresh: handlePageRefresh,
+    refreshing: loading,
+  })
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
@@ -197,12 +208,7 @@ export default function ConnectorIntelligenceClient() {
   const lowConfidenceExists = topRoutes.some((route) => route.confidence === 'Low')
   const kpis = buildKpis(snapshot)
   const windowLabel = TIME_WINDOWS.find((item) => item.value === window)?.label ?? 'Last 24h'
-  const hasNetworkTrend = snapshot.networkHealthTrend.length > 0
   const hasLeakageComposition = snapshot.leakageComposition.length > 0
-  const networkHealthTitle =
-    snapshot.networkHealthTrend.length <= 1
-      ? connectorsCopy.charts.networkHealthSnapshot
-      : connectorsCopy.charts.networkHealthTrend
   const showRecommendedRoutes = snapshot.routeCandidates.length > 0
   const showCorrelationInsights = snapshot.correlationInsights.length > 0
   const impactSeries = buildImpactSeries(snapshot)
@@ -210,11 +216,6 @@ export default function ConnectorIntelligenceClient() {
   const showActionEngine = snapshot.actionRecommendations.length > 0
   const showConnectorGrid = snapshot.connectors.length > 0
   const routingBuckets = [
-    {
-      label: connectorsCopy.kpi.totalVolumeProcessed,
-      value: fmtInrFromMinorExact(kpis.totalVolumeMinor),
-      sub: connectorsCopy.kpi.totalVolumeProcessedSub,
-    },
     {
       label: connectorsCopy.kpi.successRate,
       value: kpis.successRate != null ? `${kpis.successRate.toFixed(1)}%` : KPI_UNAVAILABLE,
@@ -273,7 +274,7 @@ export default function ConnectorIntelligenceClient() {
       <section>
         <JournalIntelligenceKpiHero
           eyebrow={connectorsCopy.overview.eyebrow}
-          value={fmtInrFromMinorExact(kpis.totalVolumeMinor)}
+          value={fmtInrFromMinorExact(kpis.moneyAtRiskMinor)}
           deltaPill={
             kpis.successRate != null ? `Success ${kpis.successRate.toFixed(1)}%` : `Success ${KPI_UNAVAILABLE}`
           }
@@ -287,54 +288,16 @@ export default function ConnectorIntelligenceClient() {
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <section className={COMMAND_CENTER_KPI_CARD} data-testid="network-health-chart">
+        <section className={COMMAND_CENTER_KPI_CARD} data-testid="leakage-exposure-chart">
           <CommandCenterCardGlow />
-          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{networkHealthTitle}</p>
+          <p className={`relative ${COMMAND_CENTER_LABEL_GREEN}`}>{connectorsCopy.charts.leakageExposure}</p>
           <div className="relative mt-3 h-[260px]">
-            {hasNetworkTrend ? (
-              <ClientChart className="h-full w-full">
-                <ResponsiveContainer width="100%" height={260} minWidth={0}>
-                  <LineChart data={snapshot.networkHealthTrend}>
-                    <CartesianGrid strokeDasharray="4 4" stroke="#e2e8f0" />
-                    <XAxis dataKey="label" tick={{ fill: '#64748b', fontSize: 12 }} />
-                    <YAxis yAxisId="left" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
-                    <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fill: '#64748b', fontSize: 12 }} />
-                    <Tooltip
-                      formatter={(value: number, name: string) =>
-                        name === 'successPct'
-                          ? `${Number(value).toFixed(1)}%`
-                          : name === 'latencyIndex'
-                            ? Number(value).toFixed(1)
-                            : String(value)
-                      }
-                    />
-                    <Legend />
-                    <Line
-                      yAxisId="left"
-                      type="monotone"
-                      dataKey="successPct"
-                      stroke="#1d4ed8"
-                      strokeWidth={2.5}
-                      name="Success %"
-                      dot={{ r: 3 }}
-                    />
-                    <Line
-                      yAxisId="right"
-                      type="monotone"
-                      dataKey="latencyIndex"
-                      stroke="#0f172a"
-                      strokeWidth={2.2}
-                      name="Latency index"
-                      dot={{ r: 3 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </ClientChart>
-            ) : (
-              <p className="flex h-full items-center justify-center text-center text-[14px] text-slate-600">
-                {connectorsCopy.charts.networkHealthEmpty}
-              </p>
-            )}
+            <ConnectorLeakageExposureChart
+              points={snapshot.leakageExposureTrend}
+              currentLabel={connectorsCopy.charts.leakageExposureCurrent}
+              predictedLabel={connectorsCopy.charts.leakageExposurePredicted}
+              emptyMessage={connectorsCopy.charts.leakageExposureEmpty}
+            />
           </div>
         </section>
 

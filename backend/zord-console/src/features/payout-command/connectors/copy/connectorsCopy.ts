@@ -26,11 +26,12 @@ export const connectorsCopy = {
     needReview: 'Need review',
   },
   charts: {
-    networkHealthTrend: 'Network Health Trend',
-    networkHealthSnapshot: 'Network Health Snapshot',
+    leakageExposure: 'Leakage exposure trend',
+    leakageExposureCurrent: 'Current leakage',
+    leakageExposurePredicted: 'Predicted leakage',
+    leakageExposureEmpty:
+      'No leakage exposure points in this window yet. Run intelligence snapshots or widen the time range.',
     leakageComposition: 'Leakage Composition',
-    networkHealthEmpty:
-      'No trend points in this window yet. Run intelligence snapshots or widen the time range.',
     leakageEmpty:
       'No leakage breakdown in this window yet. Leakage KPIs or connector exposure will populate this chart.',
   },

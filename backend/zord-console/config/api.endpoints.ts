@@ -101,6 +101,8 @@ export const BACKEND_SERVICES = {
       BATCHES: '/v1/intelligence/batches',
       BATCH_BY_ID: (id: string) => `/v1/intelligence/batches/${id}`,
       BATCH_CONTRACT: (id: string) => `/v1/intelligence/dashboard/batch_contract/${id}`,
+      OPERATIONS_SUMMARY: '/v1/operations/summary',
+      EXCEPTIONS_SUMMARY: '/v1/exceptions/summary',
     },
   },
 

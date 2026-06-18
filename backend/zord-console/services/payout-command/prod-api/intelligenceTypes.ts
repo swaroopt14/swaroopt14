@@ -28,15 +28,57 @@ export type LeakageKpiResolved = Resolved<{
   under_settlement_amount_minor: MinorAmountField
   orphan_amount_minor: MinorAmountField
   reversal_exposure_minor: MinorAmountField
+  /** Open financial exception value — sum of exposure buckets (API only). */
+  total_amount_minor?: MinorAmountField
   total_observed_settled_amount_minor?: MinorAmountField
   ambiguous_value_at_risk_minor?: MinorAmountField
+  unresolved_amount_minor?: MinorAmountField
   risk_adjusted_leakage_minor?: MinorAmountField
   leakage_percentage: number
   risk_tier: RiskTier
   duplicate_risk_count?: number
   duplicate_risk_exposure_minor?: MinorAmountField
+  exposure_bands?: ExposureBand[]
+  segment_roll_rates?: SegmentRollRate[]
 }>
 export type LeakageKpiResponse = LeakageKpiResolved | EmptyKpiResponse
+
+export type ExposureBand = {
+  band: string
+  amount_minor: MinorAmountField
+  share_pct?: number
+  item_count?: number
+}
+
+export type SegmentRollRate = {
+  from_band: string
+  to_band: string
+  roll_pct: number
+}
+
+export type SignalClarityBand = {
+  band: string
+  amount_minor: MinorAmountField
+  item_count?: number
+  roll_pct?: number
+  /** Bar width from API — no client-side share math. */
+  share_pct?: number
+  /** e.g. "0 DPD", "1–30 DPD" */
+  range_label?: string
+  tone?: 'green' | 'lime' | 'amber' | 'orange' | 'red' | string
+}
+
+export type RiskDriverBreakdown = {
+  label: string
+  count: number
+  share_pct: number
+}
+
+export type PatternSummaryStats = {
+  flagged_decision_count?: number
+  match_confidence_pct?: number
+  total_decision_count?: number
+}
 
 /** One point on Intended Payment Value — current vs predicted leakage chart. */
 export type LeakageExposureTimeseriesPoint = {
@@ -86,6 +128,8 @@ export type AmbiguityMixSegment = {
 
 export type MatchingExecutionHeatmap = {
   y_labels: number[]
+  /** Optional batch ids aligned to rows (from heatmap API). */
+  batch_ids?: string[]
   x_labels: string[]
   cells: number[][]
   summary?: string
@@ -137,6 +181,16 @@ export type AmbiguityKpiResolved = Resolved<{
   /** Donut — Ambiguity Mix. When set, overrides derived mix from snapshot rates. */
   ambiguity_mix_segments?: AmbiguityMixSegment[]
   clearing_pct?: number
+  signal_clarity_bands?: SignalClarityBand[]
+  signal_clarity_subtitle?: string
+  signal_clarity_roll_rates?: SegmentRollRate[]
+  ambiguous_amount_minor?: MinorAmountField
+  total_variance_minor?: MinorAmountField
+  reversal_exposure_minor?: MinorAmountField
+  unresolved_amount_minor?: MinorAmountField
+  total_intended_amount_minor?: MinorAmountField
+  total_observed_settled_amount_minor?: MinorAmountField
+  unresolved_count?: number
   /** Heatmap — Matching Execution Log. */
   matching_execution_heatmap?: MatchingExecutionHeatmap
   matching_execution_summary?: string
@@ -153,6 +207,8 @@ export type AmbiguityKpiResponse = AmbiguityKpiResolved | EmptyKpiResponse
 export type DefensibilityTier = 'STRONG' | 'GOOD' | 'WEAK' | 'FRAGILE'
 export type DefensibilityKpiResolved = Resolved<{
   evidence_pack_rate: number
+  /** Evidence coverage for Proof Readiness (0–1 fraction). */
+  evidence_pack_coverage?: number
   governance_coverage_pct: number
   replayability_pct: number
   defensibility_score: number
@@ -188,6 +244,12 @@ export type ProviderDecisionStats = {
   orphan_rate: number | string
 }
 
+export type NetworkHealthTrendPoint = {
+  label?: string
+  success_pct?: number | string
+  latency_index?: number | string
+}
+
 export type PatternsKpiResolved = Resolved<{
   batch_id?: string
   batch_anomaly_score: number
@@ -196,6 +258,8 @@ export type PatternsKpiResolved = Resolved<{
   batch_quality_score?: number
   batch_risk_score: number
   risk_tier: RiskTier | string
+  risk_driver_breakdown?: RiskDriverBreakdown[]
+  summary_stats?: PatternSummaryStats
   finality_status: FinalityStatus
   total_count: number
   success_count: number
@@ -216,6 +280,8 @@ export type PatternsKpiResolved = Resolved<{
   decision_success_rate?: number | string
   /** A9 — per-provider breakdown from pattern.provider projections. */
   by_provider?: Record<string, ProviderDecisionStats>
+  /** Network Health Snapshot / Trend — API-provided points only (no client derivation). */
+  network_health_trend?: NetworkHealthTrendPoint[]
 }>
 export type PatternsKpiResponse =
   | PatternsKpiResolved
@@ -295,6 +361,9 @@ export type IntelligenceBatchRow = {
   total_confirmed_amount_minor?: MinorAmountField
   total_intended_amount_minor?: MinorAmountField
   orphan_amount_minor?: MinorAmountField
+  reversal_exposure_minor?: MinorAmountField
+  leakage_percentage?: number
+  ambiguous_amount_minor?: MinorAmountField
   missing_ref_count?: number
   settlement_ref_count?: number
   bank_ref_present_count?: number

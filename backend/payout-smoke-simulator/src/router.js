@@ -18,6 +18,8 @@ import {
   leakageKpi,
   lineageGraph,
   notFound,
+  operationsSummary,
+  exceptionsSummary,
   patternDetail,
   patternHistory,
   recommendationDetail,
@@ -124,6 +126,12 @@ export async function handleRequest(request) {
   }
 
   // ── zord-intelligence ──────────────────────────────────────────────────────
+  if (method === 'GET' && pathname === '/v1/operations/summary') {
+    return jsonResponse(operationsSummary())
+  }
+  if (method === 'GET' && pathname === '/v1/exceptions/summary') {
+    return jsonResponse(exceptionsSummary())
+  }
   if (method === 'GET' && pathname === '/v1/intelligence/dashboard/leakage') {
     const fromDate = url.searchParams.get('from_date')?.trim() || undefined
     const toDate = url.searchParams.get('to_date')?.trim() || undefined

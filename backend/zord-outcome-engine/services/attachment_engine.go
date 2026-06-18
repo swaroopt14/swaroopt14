@@ -1154,6 +1154,8 @@ func computeBatchSummary(
 	}
 
 	var matchedCount float64
+	var allUnresolvedIntents []uuid.UUID
+	orphanObservationCount := len(allOrphans)
 
 	for _, d := range decisions {
 		if d.DecisionType != models.DecisionMatchUnresolved {
@@ -1171,6 +1173,7 @@ func computeBatchSummary(
 			summary.AmbiguousCount++
 		case models.DecisionMatchUnresolved:
 			summary.UnresolvedCount++
+			allUnresolvedIntents = append(allUnresolvedIntents, d.IntentID)
 		case models.DecisionMatchConflicted:
 			summary.ConflictedCount++
 		}
@@ -1243,26 +1246,32 @@ func computeBatchSummary(
 		summary.AggregateMatchConfidence = 0
 		summary.AmbiguityScore = 0
 	} else {
+
+		var totalIntentCount float64 = float64(len(intents))
 		if matchedCount > 0 {
-			summary.AggregateScore = summary.AggregateScore / matchedCount
-			summary.AggregateMatchConfidence = summary.AggregateMatchConfidence / matchedCount
-			summary.AmbiguityScore = summary.AmbiguityScore / matchedCount
+			summary.AggregateScore = summary.AggregateScore / totalIntentCount
+			summary.AggregateMatchConfidence = summary.AggregateMatchConfidence / totalIntentCount
+			summary.AmbiguityScore = summary.AmbiguityScore / totalIntentCount
 		} else {
 			summary.AggregateScore = 0
 			summary.AggregateMatchConfidence = 0
 			summary.AmbiguityScore = 0
 		}
-		strongCount := summary.ExactMatchCount + summary.HighConfidenceCount
-		ratio := float64(strongCount) / float64(total)
+		ambiguousCount := summary.AmbiguousCount
+		conflictedCount := summary.ConflictedCount
+		unresolvedIntentCount := len(allUnresolvedIntents)
+		netUnexplainedVariance := summary.NetUnexplainedVariance
+		tolerance := decimal.NewFromInt(0) // Default tolerance of 0 for now
+
 		switch {
-		case summary.ConflictedCount > 0:
+		case ambiguousCount > 0 || conflictedCount > 0:
 			summary.BatchAttachmentStatus = models.BatchStatusRequiresReview
-		case ratio >= 0.9:
-			summary.BatchAttachmentStatus = models.BatchStatusFullySettled
-		case strongCount > 0:
+		case unresolvedIntentCount > 0 || orphanObservationCount > 0:
 			summary.BatchAttachmentStatus = models.BatchStatusPartiallySettled
+		case netUnexplainedVariance.GreaterThan(tolerance):
+			summary.BatchAttachmentStatus = models.BatchStatusRequiresReview
 		default:
-			summary.BatchAttachmentStatus = models.BatchStatusFailed
+			summary.BatchAttachmentStatus = models.BatchStatusFullySettled
 		}
 	}
 	return summary
@@ -1377,7 +1386,7 @@ func persistAttachmentOutputs(
 				relative_score_margin      = EXCLUDED.relative_score_margin,
 				confidence_score           = EXCLUDED.confidence_score,
 				match_confidence           = EXCLUDED.match_confidence,
-				ambiguity_score            = EXCLUDED.ambiguity_score,
+				ambiguity_score = EXCLUDED.ambiguity_score,
 				supporting_carriers_json   = EXCLUDED.supporting_carriers_json,
 				candidate_set_hash         = EXCLUDED.candidate_set_hash,
 				candidate_set_size         = EXCLUDED.candidate_set_size,
@@ -1463,7 +1472,7 @@ func persistAttachmentOutputs(
 			total_intended_amount, total_observed_amount, total_variance,
 			unresolved_intended_amount, ambiguous_observed_amount, conflicted_observed_amount, unresolved_observed_amount,
 			total_fee_amount, total_deduction_amount, net_unexplained_variance,
-			batch_attachment_status, aggregate_score, ambiguity_score, aggregate_match_confidence, created_at, updated_at
+			batch_attachment_status, avg_matched_attachment_quality, avg_matched_attachment_ambiguity, avg_matched_attachment_confidence, created_at, updated_at
 		) VALUES (
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 			$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,

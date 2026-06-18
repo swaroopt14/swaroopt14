@@ -46,23 +46,23 @@ const (
 // ─── Variance type constants (PDF review section 9) ──────────────────────────
 
 const (
-	VarianceTypeNoVariance       = "NO_VARIANCE"
-	VarianceTypeUnderSettlement  = "UNDER_SETTLEMENT"
-	VarianceTypeOverSettlement   = "OVER_SETTLEMENT"
-	VarianceTypeFeeDeduction     = "FEE_DEDUCTION"
-	VarianceTypeTaxTDSDeduction  = "TAX_TDS_DEDUCTION"
-	VarianceTypeRounding         = "ROUNDING"
-	VarianceTypeStatusMismatch   = "STATUS_MISMATCH"
+	VarianceTypeNoVariance        = "NO_VARIANCE"
+	VarianceTypeUnderSettlement   = "UNDER_SETTLEMENT"
+	VarianceTypeOverSettlement    = "OVER_SETTLEMENT"
+	VarianceTypeFeeDeduction      = "FEE_DEDUCTION"
+	VarianceTypeTaxTDSDeduction   = "TAX_TDS_DEDUCTION"
+	VarianceTypeRounding          = "ROUNDING"
+	VarianceTypeStatusMismatch    = "STATUS_MISMATCH"
 	VarianceTypeValueDateMismatch = "VALUE_DATE_MISMATCH"
-	VarianceTypeCrossPeriod      = "CROSS_PERIOD"
+	VarianceTypeCrossPeriod       = "CROSS_PERIOD"
 )
 
 // ─── Batch attachment status constants ───────────────────────────────────────
 
 const (
 	BatchStatusProcessing       = "PROCESSING"
-	BatchStatusFullySettled     = "FULLY_SETTLED"
-	BatchStatusPartiallySettled = "PARTIALLY_SETTLED"
+	BatchStatusFullySettled     = "FULLY_RECONCILED"
+	BatchStatusPartiallySettled = "PARTIALLY_RECONCILED"
 	BatchStatusFailed           = "FAILED"
 	BatchStatusRequiresReview   = "REQUIRES_REVIEW"
 	BatchStatusClosed           = "CLOSED"
@@ -71,11 +71,11 @@ const (
 // ─── Job scope constants ──────────────────────────────────────────────────────
 
 const (
-	JobScopeSettlementBatch   = "SETTLEMENT_BATCH"
-	JobScopeSingleIntent = "SINGLE_INTENT"
-	JobScopeIngestRun         = "INGEST_RUN"
-	JobScopeReplay            = "REPLAY"
-	JobScopeBackfill          = "BACKFILL"
+	JobScopeSettlementBatch = "SETTLEMENT_BATCH"
+	JobScopeSingleIntent    = "SINGLE_INTENT"
+	JobScopeIngestRun       = "INGEST_RUN"
+	JobScopeReplay          = "REPLAY"
+	JobScopeBackfill        = "BACKFILL"
 )
 
 // ─── Unresolved intent reason code constants (PDF review section 10) ─────────
@@ -191,7 +191,7 @@ type AttachmentDecision struct {
 	RelativeScoreMargin      *float64        `json:"relative_score_margin,omitempty" db:"relative_score_margin"`
 	ConfidenceScore          float64         `json:"confidence_score" db:"confidence_score"`
 	MatchConfidence          float64         `json:"match_confidence" db:"match_confidence"`
-	AmbiguityScore           float64         `json:"ambiguity_score" db:"ambiguity_score"`
+	AmbiguityScore           float64         `json:"ambiguity_score" db:"avg_matched_attachment_ambiguity"`
 	SupportingCarriersJSON   json.RawMessage `json:"supporting_carriers_json" db:"supporting_carriers_json"`
 	CandidateSetHash         string          `json:"candidate_set_hash" db:"candidate_set_hash"`
 	CandidateSetSnapshotRef  string          `json:"candidate_set_snapshot_ref,omitempty" db:"candidate_set_snapshot_ref"`
@@ -241,11 +241,11 @@ type VarianceRecord struct {
 	// Whitelist fields (PDF review section 8 & 9)
 	// Service 7 must not count expected PSP fees, TDS, commissions, rounding,
 	// or policy-approved deductions as leakage. Variance can exist without being leakage.
-	IsWhitelisted        bool    `json:"is_whitelisted" db:"is_whitelisted"`
-	WhitelistPolicyID    *string `json:"whitelist_policy_id,omitempty" db:"whitelist_policy_id"`
+	IsWhitelisted          bool    `json:"is_whitelisted" db:"is_whitelisted"`
+	WhitelistPolicyID      *string `json:"whitelist_policy_id,omitempty" db:"whitelist_policy_id"`
 	WhitelistPolicyVersion *string `json:"whitelist_policy_version,omitempty" db:"whitelist_policy_version"`
-	WhitelistReasonCode  *string `json:"whitelist_reason_code,omitempty" db:"whitelist_reason_code"`
-	WhitelistExplanation *string `json:"whitelist_explanation,omitempty" db:"whitelist_explanation"`
+	WhitelistReasonCode    *string `json:"whitelist_reason_code,omitempty" db:"whitelist_reason_code"`
+	WhitelistExplanation   *string `json:"whitelist_explanation,omitempty" db:"whitelist_explanation"`
 
 	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
@@ -259,16 +259,16 @@ type VarianceRecord struct {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type UnresolvedIntentRecord struct {
-	UnresolvedID        uuid.UUID  `json:"unresolved_id" db:"unresolved_id"`
-	TenantID            uuid.UUID  `json:"tenant_id" db:"tenant_id"`
-	AttachmentJobID     uuid.UUID  `json:"attachment_job_id" db:"attachment_job_id"`
-	IntentID            uuid.UUID  `json:"intent_id" db:"intent_id"`
-	BatchID             *string    `json:"batch_id,omitempty" db:"batch_id"`
-	ExpectedWindowEnd   *time.Time `json:"expected_window_end,omitempty" db:"expected_window_end"`
-	ReasonCode          string     `json:"reason_code" db:"reason_code"`
-	Amount              decimal.Decimal `json:"amount" db:"amount"`
-	CurrencyCode        string     `json:"currency_code" db:"currency_code"`
-	CreatedAt           time.Time  `json:"created_at" db:"created_at"`
+	UnresolvedID      uuid.UUID       `json:"unresolved_id" db:"unresolved_id"`
+	TenantID          uuid.UUID       `json:"tenant_id" db:"tenant_id"`
+	AttachmentJobID   uuid.UUID       `json:"attachment_job_id" db:"attachment_job_id"`
+	IntentID          uuid.UUID       `json:"intent_id" db:"intent_id"`
+	BatchID           *string         `json:"batch_id,omitempty" db:"batch_id"`
+	ExpectedWindowEnd *time.Time      `json:"expected_window_end,omitempty" db:"expected_window_end"`
+	ReasonCode        string          `json:"reason_code" db:"reason_code"`
+	Amount            decimal.Decimal `json:"amount" db:"amount"`
+	CurrencyCode      string          `json:"currency_code" db:"currency_code"`
+	CreatedAt         time.Time       `json:"created_at" db:"created_at"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -302,14 +302,14 @@ type BatchAttachmentSummary struct {
 	AttachmentJobID          uuid.UUID `json:"attachment_job_id" db:"attachment_job_id"`
 
 	// Counts
-	TotalIntentCount         int `json:"total_intent_count" db:"total_intent_count"`
-	TotalObservationCount    int `json:"total_observation_count" db:"total_observation_count"`
-	ExactMatchCount          int `json:"exact_match_count" db:"exact_match_count"`
-	HighConfidenceCount      int `json:"high_confidence_count" db:"high_confidence_count"`
-	AmbiguousCount           int `json:"ambiguous_count" db:"ambiguous_count"`
-	UnresolvedCount          int `json:"unresolved_count" db:"unresolved_count"`
-	ConflictedCount          int `json:"conflicted_count" db:"conflicted_count"`
-	OrphanObservationCount   int `json:"orphan_observation_count" db:"orphan_observation_count"`
+	TotalIntentCount       int `json:"total_intent_count" db:"total_intent_count"`
+	TotalObservationCount  int `json:"total_observation_count" db:"total_observation_count"`
+	ExactMatchCount        int `json:"exact_match_count" db:"exact_match_count"`
+	HighConfidenceCount    int `json:"high_confidence_count" db:"high_confidence_count"`
+	AmbiguousCount         int `json:"ambiguous_count" db:"ambiguous_count"`
+	UnresolvedCount        int `json:"unresolved_count" db:"unresolved_count"`
+	ConflictedCount        int `json:"conflicted_count" db:"conflicted_count"`
+	OrphanObservationCount int `json:"orphan_observation_count" db:"orphan_observation_count"`
 
 	// Amount aggregates
 	TotalIntendedAmount      decimal.Decimal `json:"total_intended_amount" db:"total_intended_amount"`
@@ -327,11 +327,11 @@ type BatchAttachmentSummary struct {
 
 	// Derived status
 	BatchAttachmentStatus    string    `json:"batch_attachment_status" db:"batch_attachment_status"`
-	AggregateScore           float64   `json:"aggregate_score" db:"aggregate_score"`
-	AggregateMatchConfidence float64   `json:"aggregate_match_confidence" db:"aggregate_match_confidence"`
-	AmbiguityScore           float64   `json:"ambiguity_score" db:"ambiguity_score"`
+	AggregateScore           float64   `json:"aggregate_score" db:"avg_matched_attachment_quality"`
+	AggregateMatchConfidence float64   `json:"aggregate_match_confidence" db:"avg_matched_attachment_confidence"`
+	AmbiguityScore           float64   `json:"ambiguity_score" db:"avg_matched_attachment_ambiguity"`
 	CreatedAt                time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at" db:"updated_at"`
+	UpdatedAt                time.Time `json:"updated_at" db:"updated_at"`
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -382,11 +382,11 @@ type AttachmentOutboxEvent struct {
 
 // AttachmentRequest triggers an attachment job for a settlement batch or single observation.
 type AttachmentRequest struct {
-	TenantID                string  `json:"tenant_id" binding:"required"`
-	SettlementBatchRef      *string `json:"settlement_batch_ref,omitempty"`
-	IntentID                *string `json:"intent_id,omitempty"`
-	IngestRunID             *string `json:"ingest_run_id,omitempty"`
-	JobScopeType            string  `json:"job_scope_type"` // SETTLEMENT_BATCH | SINGLE_INTENT | INGEST_RUN
+	TenantID           string  `json:"tenant_id" binding:"required"`
+	SettlementBatchRef *string `json:"settlement_batch_ref,omitempty"`
+	IntentID           *string `json:"intent_id,omitempty"`
+	IngestRunID        *string `json:"ingest_run_id,omitempty"`
+	JobScopeType       string  `json:"job_scope_type"` // SETTLEMENT_BATCH | SINGLE_INTENT | INGEST_RUN
 }
 
 // AttachmentResponse is returned after a job completes (sync) or is queued (async).

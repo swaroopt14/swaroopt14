@@ -454,7 +454,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		SELECT 
 			batch_id, source_reference, total_intended_amount, 
 			total_observed_amount, total_variance, batch_attachment_status,
-			ambiguity_score, aggregate_match_confidence
+			avg_matched_attachment_ambiguity, avg_matched_attachment_confidence
 		FROM batch_attachment_summaries 
 		WHERE attachment_job_id = $1 
 		LIMIT 1`,

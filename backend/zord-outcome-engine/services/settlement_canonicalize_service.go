@@ -162,6 +162,20 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 		return fmt.Errorf("canonicalize: cursor iteration error: %w", err)
 	}
 
+	var parsedRowCount, parseErrorCount int
+	if err := db.DB.QueryRowContext(ctx, `
+		SELECT
+			(SELECT COUNT(*)
+			 FROM settlement_parsed_rows
+			 WHERE ingest_run_id = $1 AND tenant_id = $2),
+			(SELECT COUNT(*)
+			 FROM settlement_parse_errors
+			 WHERE ingest_run_id = $1 AND tenant_id = $2)`,
+		jobID, tenantID,
+	).Scan(&parsedRowCount, &parseErrorCount); err != nil {
+		return fmt.Errorf("canonicalize: load batch counts: %w", err)
+	}
+
 	// ── STEP 4: BATCH AGGREGATION ──────────────────────────────────────────
 	// We insert a single summary view for the entire client batch run in canonical_settlement_batches.
 	for batchRefKey, group := range batchGroups {
@@ -219,6 +233,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			) ON CONFLICT (ingest_run_id, client_batch_id) DO UPDATE SET
 				row_count = EXCLUDED.row_count,
 				success_count_estimate = EXCLUDED.success_count_estimate,
+				failed_count_estimate = EXCLUDED.failed_count_estimate,
 				reversal_count_estimate = EXCLUDED.reversal_count_estimate,
 				total_amount = EXCLUDED.total_amount,
 				total_settled_amount = EXCLUDED.total_settled_amount,
@@ -228,7 +243,7 @@ func (s *SettlementCanonicalizeService) RunForJob(ctx context.Context, jobID str
 			batchID, tenantID, ingestRunIDForJob, settlementBatchIDForJob,
 			firstObs.SourceFileRef, firstObs.SourceSystem,
 			sourceBatchRef, clientBatchID, profile.ArtifactFamily,
-			len(group), successCount, 0,
+			parsedRowCount, successCount, parseErrorCount,
 			0, reversalCount,
 			totalAmount, totalSettledAmount,
 			firstObs.CurrencyCode,

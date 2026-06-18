@@ -111,19 +111,24 @@ const navItems: NavItem[] = [
 ]
 
 const frostedNavShellStyle = {
-  background: 'rgba(255,255,255,0.97)',
-  boxShadow: '0 1px 0 rgba(0,0,0,0.06), 0 4px 24px rgba(0,0,0,0.06)',
-  borderColor: 'rgba(0,0,0,0.08)',
+  background:
+    'linear-gradient(180deg, rgba(24,30,37,0.72) 0%, rgba(11,14,18,0.82) 100%)',
+  boxShadow:
+    '0 28px 60px rgba(0,0,0,0.24), 0 8px 20px rgba(9,12,16,0.18), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -1px 0 rgba(255,255,255,0.03)',
 } as const
 
 const frostedNavTrackStyle = {
-  background: 'rgba(0,0,0,0.04)',
-  boxShadow: 'none',
+  background:
+    'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.03) 100%)',
+  boxShadow:
+    '0 14px 24px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.14)',
 } as const
 
 const frostedNavActiveStyle = {
-  background: 'rgba(37,99,235,0.08)',
-  boxShadow: 'none',
+  background:
+    'linear-gradient(180deg, rgba(255,255,255,0.12) 0%, rgba(255,255,255,0.05) 100%)',
+  boxShadow:
+    '0 12px 24px rgba(0,0,0,0.16), inset 0 1px 0 rgba(255,255,255,0.18)',
 } as const
 
 function NavIcon({
@@ -302,18 +307,23 @@ export function FinalLandingNavbar({
   return (
     <nav className="relative z-50 px-4 pt-6 sm:px-6">
       <div
-        className="relative mx-auto flex w-full max-w-[1240px] items-center gap-3 rounded-xl border border-white/8 px-3 py-2 backdrop-blur-[20px] sm:gap-4 sm:px-4 lg:gap-6 lg:px-5"
+        className="relative mx-auto flex w-full max-w-[1240px] items-center gap-3 rounded-[42px] border border-white/12 px-3 py-3 backdrop-blur-[30px] sm:gap-4 sm:px-4 sm:py-3.5 lg:gap-6 lg:px-5"
         style={frostedNavShellStyle}
       >
         <Link href="/" className="relative z-10 shrink-0" aria-label="Zord home">
           <ZordLogo
             size="md"
-            variant="light"
+            variant="dark"
             fitToHeight
             embedded
             className="!w-auto max-w-[9.5rem] sm:max-w-[11rem]"
           />
         </Link>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-[42px]">
+          <div className="absolute inset-x-12 top-0 h-px bg-gradient-to-r from-transparent via-white/60 to-transparent" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.12),transparent_22%),radial-gradient(circle_at_bottom_right,rgba(198,239,207,0.08),transparent_24%),radial-gradient(circle_at_50%_-10%,rgba(59,166,247,0.12),transparent_30%)]" />
+          <div className="absolute inset-[1px] rounded-[40px] border border-white/[0.06]" />
+        </div>
 
         <div className="relative z-10 hidden min-w-0 flex-1 items-center justify-center gap-1 lg:flex">
           {navItems.map((item) => {
@@ -342,8 +352,8 @@ export function FinalLandingNavbar({
                       setActiveNav(item.label)
                       setOpenMenu((current) => (current === item.label ? null : item.label))
                     }}
-                    className={`relative inline-flex items-center gap-2 rounded-[22px] px-4 py-3 text-[15px] font-medium tracking-[-0.02em] transition-all duration-200 ${
-                      isActive ? 'text-gray-900' : 'text-gray-500 hover:text-gray-900'
+                    className={`relative inline-flex items-center gap-2 rounded-[22px] px-4 py-3 text-[16px] font-medium tracking-[-0.03em] transition-all duration-200 ${
+                      isActive ? 'text-white' : 'text-slate-300/85 hover:text-white'
                     }`}
                     style={isActive ? frostedNavActiveStyle : undefined}
                     aria-expanded={openMenu === item.label}
@@ -364,8 +374,8 @@ export function FinalLandingNavbar({
                       setActiveNav(item.label)
                       setOpenMenu(null)
                     }}
-                    className={`relative inline-flex items-center rounded-[22px] px-4 py-3 text-[15px] font-medium tracking-[-0.02em] transition-all duration-200 ${
-                      isActive ? 'text-gray-900' : 'text-gray-500 hover:text-gray-900'
+                    className={`relative inline-flex items-center rounded-[22px] px-4 py-3 text-[16px] font-medium tracking-[-0.03em] transition-all duration-200 ${
+                      isActive ? 'text-white' : 'text-slate-300/85 hover:text-white'
                     }`}
                     style={isActive ? frostedNavActiveStyle : undefined}
                   >
@@ -384,11 +394,13 @@ export function FinalLandingNavbar({
                     </div>
                   ) : (
                     <div
-                      className="absolute left-1/2 top-[calc(100%+14px)] z-30 w-[340px] -translate-x-1/2 overflow-hidden rounded-2xl border border-gray-100 bg-white p-2 shadow-[0_8px_40px_rgba(0,0,0,0.12)]"
+                      className="absolute left-1/2 top-[calc(100%+14px)] z-30 w-[340px] -translate-x-1/2 overflow-hidden rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,rgba(18,22,20,0.98)_0%,rgba(10,12,11,0.99)_100%)] p-3 shadow-[0_28px_70px_rgba(0,0,0,0.38)] backdrop-blur-[22px]"
+                      style={frostedNavShellStyle}
                       onMouseEnter={cancelScheduledClose}
                       onMouseLeave={() => scheduleClose(item.label)}
                     >
-                      <div className="space-y-0.5">
+                      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.05),transparent_28%),radial-gradient(circle_at_bottom_right,rgba(148,167,179,0.08),transparent_30%)]" />
+                      <div className="relative z-10 space-y-2">
                         {item.menu?.map((entry) => (
                           <NavMenuLink
                             key={entry.label}
@@ -398,12 +410,12 @@ export function FinalLandingNavbar({
                               setActiveNav(item.label)
                               setOpenMenu(null)
                             }}
-                            className="block rounded-xl px-4 py-3 transition hover:bg-gray-50"
+                            className="block rounded-[20px] border border-transparent bg-white/[0.02] px-4 py-3 transition hover:border-white/8 hover:bg-white/[0.06]"
                           >
-                            <div className="text-[14px] font-semibold tracking-[-0.02em] text-gray-900">
+                            <div className="text-[15px] font-semibold tracking-[-0.03em] text-white">
                               {entry.label}
                             </div>
-                            <div className="mt-0.5 text-[12px] leading-5 text-gray-500">
+                            <div className="mt-1 text-[12px] leading-5 text-slate-400">
                               {entry.note}
                             </div>
                           </NavMenuLink>
@@ -420,27 +432,29 @@ export function FinalLandingNavbar({
         <div className="relative z-10 ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <Link
             href="/signin/tenant"
-            className="hidden h-10 items-center rounded-lg border border-gray-200 px-5 text-[14px] font-semibold text-gray-600 transition-colors duration-150 hover:border-gray-300 hover:text-gray-900 lg:inline-flex"
+            className="hidden h-14 items-center rounded-[20px] border border-white/12 px-6 text-[16px] font-semibold text-slate-100/90 shadow-[0_14px_24px_rgba(0,0,0,0.14)] transition hover:border-white/18 hover:text-white lg:inline-flex"
+            style={frostedNavTrackStyle}
           >
             Sign in
           </Link>
 
           <a
             href="mailto:hello@arelais.com?subject=Book%20Demo%20for%20Zord"
-            className="flex h-10 items-center gap-2 rounded-lg bg-[#2563EB] px-5 text-[14px] font-semibold text-white transition-colors duration-150 hover:bg-[#1D4ED8]"
+            className="flex h-14 items-center gap-2 rounded-[20px] bg-[#c6efcf] px-6 text-[16px] font-semibold text-[#09110c] shadow-[0_16px_30px_rgba(198,239,207,0.16)] transition hover:bg-[#d6f5dc]"
           >
+            <NavIcon name="arrow-up-right" className="h-4 w-4" />
             <span>Book Demo</span>
-            <NavIcon name="arrow-up-right" className="h-3.5 w-3.5" />
           </a>
 
           <button
             type="button"
             onClick={() => setMobileOpen((open) => !open)}
-            className="flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 text-gray-500 transition hover:border-gray-300 hover:text-gray-700 lg:hidden"
+            className="flex h-14 w-14 items-center justify-center rounded-[20px] border border-white/8 text-white shadow-[0_14px_24px_rgba(0,0,0,0.18)] transition hover:border-white/12 lg:hidden"
+            style={frostedNavTrackStyle}
             aria-expanded={mobileOpen}
             aria-label="Toggle navigation menu"
           >
-            <NavIcon name="menu-dots" className="h-5 w-5" />
+            <NavIcon name="menu-dots" className="h-5 w-5 text-[#b7b6ce]" />
           </button>
         </div>
       </div>
@@ -448,14 +462,14 @@ export function FinalLandingNavbar({
       {mobileOpen ? (
         <div className="mx-auto mt-3 max-w-[1240px] px-1 lg:hidden">
           <div
-            className="overflow-hidden rounded-2xl border border-gray-200 p-4 shadow-lg"
-            style={{ background: 'rgba(255,255,255,0.98)' }}
+            className="overflow-hidden rounded-[30px] border border-white/10 p-4 backdrop-blur-[22px]"
+            style={frostedNavShellStyle}
           >
             <div className="space-y-4">
               {navItems.map((item) => (
                 <div
                   key={item.label}
-                  className="rounded-xl border border-gray-100 bg-gray-50 p-3"
+                  className="rounded-[22px] border border-white/6 bg-white/[0.03] p-3"
                 >
                   {item.menu?.length ? (
                     <button
@@ -464,12 +478,12 @@ export function FinalLandingNavbar({
                         setActiveNav(item.label)
                         setOpenMenu((current) => (current === item.label ? null : item.label))
                       }}
-                      className="flex w-full items-center justify-between gap-4 text-left text-[15px] font-semibold tracking-[-0.02em] text-gray-900"
+                      className="flex w-full items-center justify-between gap-4 text-left text-[15px] font-semibold tracking-[-0.02em] text-white"
                     >
                       <span>{item.label}</span>
                       <NavIcon
                         name="chevron-down"
-                        className={`h-4 w-4 text-gray-400 transition-transform ${
+                        className={`h-4 w-4 text-slate-400 transition-transform ${
                           openMenu === item.label ? 'rotate-180' : ''
                         }`}
                       />
@@ -482,16 +496,16 @@ export function FinalLandingNavbar({
                         setMobileOpen(false)
                         setOpenMenu(null)
                       }}
-                      className="flex items-center justify-between gap-4 text-[15px] font-semibold tracking-[-0.02em] text-gray-900"
+                      className="flex items-center justify-between gap-4 text-[15px] font-semibold tracking-[-0.02em] text-white"
                     >
                       <span>{item.label}</span>
-                      <NavIcon name="arrow-right" className="h-4 w-4 text-gray-400" />
+                      <NavIcon name="arrow-right" className="h-4 w-4 text-slate-400" />
                     </Link>
                   )}
 
                   {item.menu?.length ? (
                     <div
-                      className={`mt-3 space-y-2 border-t border-gray-100 pt-3 ${
+                      className={`mt-3 space-y-2 border-t border-white/8 pt-3 ${
                         openMenu !== item.label ? 'hidden' : ''
                       }`}
                     >
@@ -504,12 +518,12 @@ export function FinalLandingNavbar({
                             setMobileOpen(false)
                             setOpenMenu(null)
                           }}
-                          className="block rounded-lg px-3 py-2 transition hover:bg-gray-100"
+                          className="block rounded-[18px] px-3 py-2 transition hover:bg-white/[0.05]"
                         >
-                          <div className="text-[13px] font-semibold text-gray-800">
+                          <div className="text-[13px] font-semibold text-slate-200">
                             {entry.label}
                           </div>
-                          <div className="mt-1 text-[12px] leading-5 text-gray-500">
+                          <div className="mt-1 text-[12px] leading-5 text-slate-400">
                             {entry.note}
                           </div>
                         </NavMenuLink>

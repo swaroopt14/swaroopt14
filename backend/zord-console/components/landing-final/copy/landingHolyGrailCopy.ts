@@ -50,23 +50,6 @@ export const PAYOUT_COMMAND_HOLY_GRAIL = {
     borrowerVerification: 'Borrower Verification',
     postDisbursalMonitoring: 'Post-Disbursal Monitoring',
   },
-  signalClarity: {
-    title: 'Signal clarity — payment exposure breakdown',
-    rollLabels: {
-      intendedToAmbiguous: 'Intended→Ambiguous %',
-      ambiguousToVariance: 'Ambiguous→Variance %',
-      varianceToReversal: 'Variance→Reversal %',
-      reversalToUnresolved: 'Reversal→Unresolved %',
-    },
-    bands: {
-      settlement: 'Settlement amount',
-      ambiguous: 'Ambiguous amount',
-      variance: 'Variance',
-      reversal: 'Reversal',
-      reversalExposure: 'Reversal',
-      unresolved: 'Unresolved',
-    },
-  },
   askZord: {
     title: 'Ask Zord About This Payment Data',
     subtitle:

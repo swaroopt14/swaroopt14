@@ -279,8 +279,6 @@ func (s *ProjectionService) HandleIntentCreated(
 			); err != nil {
 				log.Printf("HandleIntentCreated: AtomicAccumulateIntentFeatures failed intent=%s batch=%s: %v",
 					e.IntentID, e.ClientBatchRef, err)
-			} else if s.leakagePredSvc != nil {
-				s.leakagePredSvc.ScoreBatchAsync(ctx, e.TenantID, e.ClientBatchRef, window.start, window.end)
 			}
 		}
 	}
@@ -1783,11 +1781,14 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		return fmt.Errorf("HandleBatchSummaryUpdated batchRepo.Upsert batch=%s: %w", e.BatchID, err)
 	}
 
-	// Re-score leakage once the authoritative batch summary lands.
-	// This is the most reliable point in the live flow because the batch row
-	// definitely exists and the Batch API reads from this contract table.
+	// Capture one immutable leakage feature row once the batch reaches the
+	// canonicalized summary stage. We only attempt inference for genuinely
+	// pre-settlement summaries, so finalized batches never get a late forecast.
 	if s.leakagePredSvc != nil {
-		s.leakagePredSvc.ScoreBatchAsync(ctx, e.TenantID, e.BatchID, window.start, window.end)
+		allowPrediction := !isTerminalBatchFinalityStatus(e.BatchFinalityStatus) &&
+			e.TotalConfirmedAmountMinor.LessThanOrEqual(decimal.Zero) &&
+			e.OriginalSettledAmountMinor.LessThanOrEqual(decimal.Zero)
+		s.leakagePredSvc.CaptureBatchOnce(ctx, e.TenantID, e.BatchID, window.start, window.end, allowPrediction)
 	}
 
 	// If batch reached a terminal state, the true ambiguity outcome is now known.
@@ -2078,4 +2079,13 @@ func deriveLeakageProviderAndRail(corridorID, providerHint, sourceSystem string)
 		rail = "UNKNOWN"
 	}
 	return providerKey, rail
+}
+
+func isTerminalBatchFinalityStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "FULLY_SETTLED", "PARTIALLY_SETTLED", "FAILED", "REQUIRES_REVIEW", "CLOSED":
+		return true
+	default:
+		return false
+	}
 }

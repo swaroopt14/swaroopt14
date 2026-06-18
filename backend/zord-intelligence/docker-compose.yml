@@ -61,10 +61,9 @@ services:
       - LR_MODEL_PATH=/data/lr_model.json
       - RCA_MODEL_PATH=/data/rca_model.pkl
       - LEAKAGE_MODEL_PATH=/data/leakage_prediction_bundle.joblib
-      - LEAKAGE_BOOTSTRAP_MODEL_PATH=/app/model_artifacts/leakage_prediction_bundle.joblib
-      - LEAKAGE_TRAINING_BUFFER_PATH=/data/leakage_training_rows.jsonl
+      - INTELLIGENCE_DATABASE_URL=postgres://zpi:zpi_secret@zord-intelligence-postgres:5432/zord_intelligence?sslmode=disable
       - RCA_RETRAIN_THRESHOLD=50
-      - LEAKAGE_RETRAIN_THRESHOLD=5
+      - LEAKAGE_RETRAIN_THRESHOLD=50
     volumes:
       - ml_model_data:/data
     networks:

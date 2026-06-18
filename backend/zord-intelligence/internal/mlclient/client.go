@@ -225,6 +225,16 @@ func (c *Client) InvokeLeakagePrediction(
 	rate, _ := result.ModelOutputs["predicted_leakage_rate"].(float64)
 	amount, _ := result.ModelOutputs["predicted_leakage_minor"].(float64)
 	riskTier, _ := result.ModelOutputs["risk_tier"].(string)
+	modelReady, _ := result.ModelOutputs["model_ready"].(bool)
+	status, _ := result.ModelOutputs["status"].(string)
+	trainingRowCount := 0
+	if rawCount, ok := result.ModelOutputs["training_row_count"].(float64); ok {
+		trainingRowCount = int(rawCount)
+	}
+	minTrainingRows := 0
+	if rawCount, ok := result.ModelOutputs["min_training_rows"].(float64); ok {
+		minTrainingRows = int(rawCount)
+	}
 	fallbackFeatureCount := 0
 	if rawCount, ok := result.ModelOutputs["fallback_feature_count"].(float64); ok {
 		fallbackFeatureCount = int(rawCount)
@@ -238,13 +248,17 @@ func (c *Client) InvokeLeakagePrediction(
 			}
 		}
 	}
-	if riskTier == "" {
+	if modelReady && riskTier == "" {
 		riskTier = "LOW"
 	}
 	return LeakagePredictionResult{
 		PredictedLeakageRate:  rate,
 		PredictedLeakageMinor: amount,
 		RiskTier:              riskTier,
+		ModelReady:            modelReady,
+		Status:                status,
+		TrainingRowCount:      trainingRowCount,
+		MinTrainingRows:       minTrainingRows,
 		FallbackFeatureCount:  fallbackFeatureCount,
 		FallbackFeatures:      fallbackFeatures,
 		FallbackSegmentLevel:  fallbackSegmentLevel,
@@ -274,11 +288,7 @@ func (c *Client) SendLRTrain(ctx context.Context, req LRTrainRequest) {
 // SendLeakageTrain publishes one labeled batch row for background retraining.
 func (c *Client) SendLeakageTrain(ctx context.Context, req LeakageTrainRequest) {
 	payload := map[string]interface{}{
-		"batch_id":      req.BatchID,
-		"features":      req.Features,
-		"label_rate":    req.LabelRate,
-		"label_amount":  req.LabelAmount,
-		"sample_weight": req.SampleWeight,
+		"batch_id": req.BatchID,
 	}
 	envelope := MLRequest{
 		EventID:   uuid.NewString(),

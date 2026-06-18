@@ -45,12 +45,14 @@ func FallbackRCAResult() RCAClusterResult {
 	}
 }
 
-// FallbackLeakagePredictionResult returns a conservative zero-leakage forecast
-// when the Python regression service is unavailable.
+// FallbackLeakagePredictionResult represents leakage prediction being unavailable.
+// Callers should not treat this as a real low-risk prediction.
 func FallbackLeakagePredictionResult() LeakagePredictionResult {
 	return LeakagePredictionResult{
 		PredictedLeakageRate:  0.0,
 		PredictedLeakageMinor: 0.0,
-		RiskTier:              "LOW",
+		RiskTier:              "",
+		ModelReady:            false,
+		Status:                "UNAVAILABLE",
 	}
 }

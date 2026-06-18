@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 import logging
-import shutil
 import threading
 from pathlib import Path
 from typing import Any
@@ -13,41 +11,97 @@ import pandas as pd
 from catboost import CatBoostRegressor
 
 from app import config
+from app.leakage_training_repo import LeakageTrainingRepo
 
 logger = logging.getLogger(__name__)
+
+MODEL_BUNDLE_VERSION = "leakage_prediction_v1"
+TARGET_COLUMN = "predicted_leakage_rate"
+STATUS_READY = "READY"
+STATUS_INSUFFICIENT_DATA = "INSUFFICIENT_DATA"
+
+FEATURE_COLUMNS = [
+    "batch_total_intended_amount_minor",
+    "batch_intent_count",
+    "batch_avg_amount_minor",
+    "batch_max_amount_minor",
+    "batch_min_amount_minor",
+    "batch_amount_stddev",
+    "batch_same_beneficiary_amount_density",
+    "batch_max_pair_count",
+    "client_payout_ref_coverage_rate",
+    "currency",
+    "source_system",
+    "rail",
+    "created_hour",
+    "created_day_of_week",
+    "weekend_flag",
+    "intent_type",
+    "parse_success_rate",
+    "mapping_confidence_score",
+    "required_field_completeness_rate",
+    "canonicalization_error_rate",
+    "missing_required_field_rate",
+    "unknown_column_count",
+    "invalid_amount_rate",
+    "invalid_beneficiary_rate",
+    "provider_key",
+    "provider_missing_provider_ref_rate",
+    "provider_missing_client_ref_rate",
+    "provider_settlement_delay_p50_days",
+    "provider_settlement_delay_p95_days",
+    "settlement_delay_p50_days",
+    "settlement_delay_p95_days",
+]
+
+CATEGORICAL_COLUMNS = [
+    "currency",
+    "source_system",
+    "rail",
+    "intent_type",
+    "provider_key",
+]
+
+SEGMENT_LEVELS = [
+    ("source_system",),
+    ("source_system", "rail"),
+    ("source_system", "rail", "provider_key"),
+]
+
+MISSING_CATEGORY_TOKENS = {"", "unknown", "na", "n/a", "null", "none"}
 
 
 class LeakagePredictionModel:
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._bundle: dict[str, Any] | None = None
-        self._real_rows: list[dict[str, Any]] = []
+        self._repo = LeakageTrainingRepo()
+        self._bundle: dict[str, Any] = _base_bundle()
         self._retraining = False
         self._last_trained_row_count = 0
-
         self._model_path = Path(config.LEAKAGE_MODEL_PATH)
-        self._bootstrap_model_path = Path(config.LEAKAGE_BOOTSTRAP_MODEL_PATH)
-        self._buffer_path = Path(config.LEAKAGE_TRAINING_BUFFER_PATH)
 
-        local_artifacts_dir = Path(__file__).resolve().parents[2] / "model_artifacts"
-        if not self._bootstrap_model_path.exists():
-            self._bootstrap_model_path = local_artifacts_dir / "leakage_prediction_bundle.joblib"
-
-        self._ensure_bootstrap_model()
+        self._ensure_model_dir()
         self._load_bundle()
-        self._load_real_rows()
 
     def predict(self, raw_features: dict[str, Any]) -> dict[str, Any]:
         bundle = self._get_bundle()
-        if bundle is None:
+        training_row_count = self._current_training_row_count(bundle)
+        model = bundle.get("model")
+        if model is None:
             return {
                 "predicted_leakage_rate": 0.0,
                 "predicted_leakage_minor": 0.0,
-                "risk_tier": "LOW",
+                "risk_tier": "",
+                "model_ready": False,
+                "status": STATUS_INSUFFICIENT_DATA,
+                "training_row_count": training_row_count,
+                "min_training_rows": config.LEAKAGE_RETRAIN_THRESHOLD,
+                "fallback_feature_count": 0,
+                "fallback_features": [],
+                "fallback_segment_level": "global",
             }
 
         frame, diagnostics = self._frame_from_features(raw_features, bundle)
-        model = bundle["model"]
         rate = float(np.clip(model.predict(frame)[0], 0.0, 1.0))
         intended = float(frame["batch_total_intended_amount_minor"].iloc[0])
         amount = rate * max(intended, 0.0)
@@ -55,127 +109,166 @@ class LeakagePredictionModel:
             "predicted_leakage_rate": rate,
             "predicted_leakage_minor": amount,
             "risk_tier": _risk_tier(rate),
+            "model_ready": True,
+            "status": STATUS_READY,
+            "training_row_count": training_row_count,
+            "min_training_rows": config.LEAKAGE_RETRAIN_THRESHOLD,
             "fallback_feature_count": diagnostics["fallback_feature_count"],
             "fallback_features": diagnostics["fallback_features"],
             "fallback_segment_level": diagnostics["fallback_segment_level"],
         }
 
-    def buffer_labeled_row(
-        self,
-        batch_id: str,
-        raw_features: dict[str, Any],
-        label_rate: float,
-        label_amount: float,
-        sample_weight: float,
-    ) -> None:
-        bundle = self._get_bundle()
-        if bundle is None:
-            logger.warning("leakage_model: no bundle loaded; skipping train buffer for batch=%s", batch_id)
+    def maybe_retrain_async(self, batch_id: str = "", tenant_id: str = "") -> None:
+        if not self._repo.is_configured():
+            logger.warning("leakage_model: INTELLIGENCE_DATABASE_URL not configured; batch=%s tenant=%s", batch_id, tenant_id)
             return
 
-        row, _ = self._normalized_training_row(raw_features, bundle)
-        row["predicted_leakage_rate"] = float(np.clip(label_rate, 0.0, 1.0))
-        row["target_leakage_amount_minor"] = float(max(label_amount, 0.0))
-        row["sample_weight"] = float(sample_weight)
-        row["row_id"] = f"real::{batch_id}"
-        row["parent_batch_id"] = batch_id
-        row["batch_id"] = batch_id
-        row["scenario_family"] = "real_runtime"
+        try:
+            labeled_row_count = self._repo.count_labeled_rows()
+        except Exception:
+            logger.exception("leakage_model: failed counting labeled rows batch=%s tenant=%s", batch_id, tenant_id)
+            return
 
+        threshold = config.LEAKAGE_RETRAIN_THRESHOLD
         with self._lock:
-            if any(existing.get("batch_id") == batch_id for existing in self._real_rows):
+            pending = labeled_row_count - self._last_trained_row_count
+            if labeled_row_count < threshold:
+                logger.info(
+                    "leakage_model: waiting for first training set rows=%d threshold=%d",
+                    labeled_row_count,
+                    threshold,
+                )
                 return
-            self._real_rows.append(row)
-            self._append_row_to_disk(row)
-            pending = len(self._real_rows) - self._last_trained_row_count
-            should_retrain = pending >= config.LEAKAGE_RETRAIN_THRESHOLD and not self._retraining
-            if should_retrain:
-                self._retraining = True
+            if pending < threshold:
+                logger.info(
+                    "leakage_model: retrain deferred rows=%d trained_rows=%d pending=%d threshold=%d",
+                    labeled_row_count,
+                    self._last_trained_row_count,
+                    pending,
+                    threshold,
+                )
+                return
+            if self._retraining:
+                logger.info("leakage_model: retrain already in progress rows=%d", labeled_row_count)
+                return
+            self._retraining = True
 
-        if should_retrain:
-            thread = threading.Thread(target=self._retrain, daemon=True, name="leakage-retrain")
-            thread.start()
+        thread = threading.Thread(target=self._retrain, daemon=True, name="leakage-retrain")
+        thread.start()
 
-    def _ensure_bootstrap_model(self) -> None:
+    def _ensure_model_dir(self) -> None:
         try:
             self._model_path.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
-            logger.warning(
-                "leakage_model: model path %s not writable; falling back to bootstrap path",
-                self._model_path,
-            )
-            self._model_path = self._bootstrap_model_path
-            return
-        if self._model_path.exists():
-            return
-        if self._bootstrap_model_path.exists():
-            try:
-                shutil.copy2(self._bootstrap_model_path, self._model_path)
-                logger.info("leakage_model: bootstrapped model bundle to %s", self._model_path)
-            except Exception:
-                logger.warning(
-                    "leakage_model: failed copying bootstrap bundle to %s; using bootstrap bundle in place",
-                    self._model_path,
-                )
-                self._model_path = self._bootstrap_model_path
+            logger.exception("leakage_model: failed ensuring model directory path=%s", self._model_path)
 
     def _load_bundle(self) -> None:
+        if not self._model_path.exists():
+            logger.info("leakage_model: starting from base bundle path=%s", self._model_path)
+            return
+
         try:
-            if not self._model_path.exists():
-                logger.warning("leakage_model: bundle missing path=%s", self._model_path)
-                return
-            bundle = joblib.load(self._model_path)
+            loaded = joblib.load(self._model_path)
+            bundle = self._sanitize_loaded_bundle(loaded)
             with self._lock:
                 self._bundle = bundle
-            logger.info("leakage_model: loaded bundle path=%s version=%s", self._model_path, bundle.get("bundle_version"))
+                self._last_trained_row_count = self._current_training_row_count(bundle)
+            logger.info(
+                "leakage_model: loaded bundle path=%s version=%s model_ready=%s training_rows=%d",
+                self._model_path,
+                bundle.get("bundle_version"),
+                bundle.get("model") is not None,
+                self._last_trained_row_count,
+            )
         except Exception:
-            logger.exception("leakage_model: failed loading bundle path=%s", self._model_path)
+            logger.exception("leakage_model: failed loading bundle path=%s; using base bundle", self._model_path)
 
-    def _get_bundle(self) -> dict[str, Any] | None:
+    def _sanitize_loaded_bundle(self, loaded: Any) -> dict[str, Any]:
+        bundle = _base_bundle()
+        if not isinstance(loaded, dict):
+            return bundle
+
+        bundle["model"] = loaded.get("model")
+        bundle["bundle_version"] = loaded.get("bundle_version", MODEL_BUNDLE_VERSION)
+        bundle["feature_columns"] = list(loaded.get("feature_columns") or FEATURE_COLUMNS)
+        bundle["categorical_columns"] = list(loaded.get("categorical_columns") or CATEGORICAL_COLUMNS)
+        bundle["missing_category_tokens"] = sorted(
+            set(loaded.get("missing_category_tokens") or MISSING_CATEGORY_TOKENS)
+        )
+        bundle["segment_levels"] = [tuple(level) for level in (loaded.get("segment_levels") or SEGMENT_LEVELS)]
+        bundle["target_column"] = loaded.get("target_column", TARGET_COLUMN)
+        bundle["fallback_priors"] = loaded.get("fallback_priors") or {"global": {"numeric": {}, "categorical": {}}, "segments": {}}
+
+        training_summary = dict(loaded.get("training_summary") or {})
+        synthetic_row_count = int(training_summary.get("synthetic_row_count", 0) or 0)
+        anchor_row_count = int(training_summary.get("anchor_row_count", 0) or 0)
+        real_row_count = int(training_summary.get("real_labeled_rows", 0) or 0)
+        trained_from_feature_store = training_summary.get("training_source") == "ml_feature_store"
+
+        if bundle["model"] is not None and not trained_from_feature_store and real_row_count <= 0 and (synthetic_row_count > 0 or anchor_row_count > 0):
+            logger.info("leakage_model: discarding synthetic pretrained bundle and reverting to base model")
+            bundle["model"] = None
+            bundle["training_summary"] = {
+                "status": "base_model",
+                "training_source": "ml_feature_store",
+                "real_labeled_rows": 0,
+                "training_row_count": 0,
+            }
+            return bundle
+
+        if bundle["model"] is None:
+            bundle["training_summary"] = {
+                "status": "base_model",
+                "training_source": "ml_feature_store",
+                "real_labeled_rows": real_row_count,
+                "training_row_count": real_row_count,
+            }
+            return bundle
+
+        training_row_count = int(training_summary.get("training_row_count", 0) or 0)
+        if training_row_count <= 0:
+            training_row_count = real_row_count
+
+        bundle["training_summary"] = {
+            **training_summary,
+            "status": training_summary.get("status", "trained"),
+            "training_source": "ml_feature_store",
+            "real_labeled_rows": max(real_row_count, training_row_count),
+            "training_row_count": max(training_row_count, real_row_count),
+        }
+        return bundle
+
+    def _get_bundle(self) -> dict[str, Any]:
         with self._lock:
-            return self._bundle
+            return dict(self._bundle)
 
-    def _load_real_rows(self) -> None:
-        try:
-            if not self._buffer_path.exists():
-                return
-            rows: list[dict[str, Any]] = []
-            for line in self._buffer_path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                rows.append(json.loads(line))
-            with self._lock:
-                self._real_rows = rows
-            logger.info("leakage_model: loaded %d real labeled rows", len(rows))
-        except Exception:
-            logger.exception("leakage_model: failed reading real-row buffer path=%s", self._buffer_path)
-
-    def _append_row_to_disk(self, row: dict[str, Any]) -> None:
-        try:
-            self._buffer_path.parent.mkdir(parents=True, exist_ok=True)
-            with self._buffer_path.open("a", encoding="utf-8") as handle:
-                handle.write(json.dumps(row) + "\n")
-        except Exception:
-            logger.warning("leakage_model: could not persist real-row buffer path=%s", self._buffer_path)
+    def _current_training_row_count(self, bundle: dict[str, Any]) -> int:
+        summary = dict(bundle.get("training_summary") or {})
+        training_row_count = int(summary.get("training_row_count", 0) or 0)
+        if training_row_count > 0:
+            return training_row_count
+        return int(summary.get("real_labeled_rows", 0) or 0)
 
     def _retrain(self) -> None:
         try:
-            bundle = self._get_bundle()
-            if bundle is None:
+            rows = self._repo.load_labeled_rows()
+            if len(rows) < config.LEAKAGE_RETRAIN_THRESHOLD:
+                logger.info(
+                    "leakage_model: retrain aborted rows=%d threshold=%d",
+                    len(rows),
+                    config.LEAKAGE_RETRAIN_THRESHOLD,
+                )
                 return
 
-            train_df = self._load_bootstrap_dataset(bundle)
-            with self._lock:
-                real_df = pd.DataFrame(self._real_rows)
+            bundle = self._get_bundle()
+            train_df = self._build_training_dataframe(rows, bundle)
+            if train_df.empty:
+                logger.warning("leakage_model: no usable labeled rows found in ml_feature_store")
+                return
 
-            if not real_df.empty:
-                real_df["sample_weight"] = real_df.get("sample_weight", config.LEAKAGE_REAL_SAMPLE_WEIGHT).astype(float)
-                train_df = pd.concat([train_df, real_df], ignore_index=True, sort=False)
-
-            feature_columns = bundle["feature_columns"]
-            categorical_columns = bundle["categorical_columns"]
-            target_column = bundle["target_column"]
+            feature_columns = list(bundle["feature_columns"])
+            categorical_columns = list(bundle["categorical_columns"])
+            target_column = str(bundle["target_column"])
 
             frame = train_df[feature_columns].copy()
             for col in categorical_columns:
@@ -207,34 +300,66 @@ class LeakagePredictionModel:
             updated_bundle["model"] = model
             updated_bundle["fallback_priors"] = self._build_fallback_priors(train_df, feature_columns, categorical_columns)
             updated_bundle["training_summary"] = {
-                **dict(bundle.get("training_summary", {})),
-                "real_labeled_rows": int(len(self._real_rows)),
-                "retrained_at": pd.Timestamp.utcnow().isoformat(),
+                "status": "trained",
+                "training_source": "ml_feature_store",
+                "real_labeled_rows": int(len(train_df)),
                 "training_row_count": int(len(train_df)),
+                "retrained_at": pd.Timestamp.utcnow().isoformat(),
             }
-            tmp_path = self._model_path.with_suffix(".tmp")
-            joblib.dump(updated_bundle, tmp_path)
-            tmp_path.replace(self._model_path)
 
+            self._persist_bundle(updated_bundle)
             with self._lock:
                 self._bundle = updated_bundle
-                self._last_trained_row_count = len(self._real_rows)
-            logger.info(
-                "leakage_model: retrain complete rows=%d real_rows=%d",
-                len(train_df),
-                len(self._real_rows),
-            )
+                self._last_trained_row_count = len(train_df)
+            logger.info("leakage_model: retrain complete rows=%d", len(train_df))
         except Exception:
             logger.exception("leakage_model: retrain failed; keeping previous bundle")
         finally:
             with self._lock:
                 self._retraining = False
 
-    def _load_bootstrap_dataset(self, bundle: dict[str, Any]) -> pd.DataFrame:
-        feature_columns = bundle["feature_columns"]
-        target_column = bundle["target_column"]
-        columns = feature_columns + [target_column, "sample_weight", "row_id", "parent_batch_id", "batch_id", "scenario_family"]
-        return pd.DataFrame(columns=columns)
+    def _persist_bundle(self, bundle: dict[str, Any]) -> None:
+        tmp_path = self._model_path.with_suffix(".tmp")
+        joblib.dump(bundle, tmp_path)
+        tmp_path.replace(self._model_path)
+
+    def _build_training_dataframe(self, rows: list[dict[str, Any]], bundle: dict[str, Any]) -> pd.DataFrame:
+        normalized_rows: list[dict[str, Any]] = []
+        for item in rows:
+            raw_features = item.get("features") or {}
+            label = item.get("label") or {}
+            batch_id = str(item.get("batch_id", "") or "")
+            tenant_id = str(item.get("tenant_id", "") or "")
+
+            row, _ = self._normalized_training_row(raw_features, bundle)
+            row[TARGET_COLUMN] = clamp_01(
+                _to_float(
+                    label.get("predicted_leakage_rate", label.get("label_rate", 0.0))
+                )
+            )
+            row["target_leakage_amount_minor"] = max(
+                _to_float(
+                    label.get("target_leakage_amount_minor", label.get("label_amount", 0.0))
+                ),
+                0.0,
+            )
+            row["sample_weight"] = max(_to_float(label.get("sample_weight", 1.0)), 1.0)
+            row["row_id"] = f"db::{tenant_id}::{batch_id}"
+            row["parent_batch_id"] = batch_id
+            row["batch_id"] = batch_id
+            row["scenario_family"] = "real_runtime"
+            normalized_rows.append(row)
+
+        columns = FEATURE_COLUMNS + [
+            TARGET_COLUMN,
+            "target_leakage_amount_minor",
+            "sample_weight",
+            "row_id",
+            "parent_batch_id",
+            "batch_id",
+            "scenario_family",
+        ]
+        return pd.DataFrame(normalized_rows, columns=columns)
 
     def _frame_from_features(self, raw_features: dict[str, Any], bundle: dict[str, Any]) -> tuple[pd.DataFrame, dict[str, Any]]:
         row, diagnostics = self._normalized_training_row(raw_features, bundle)
@@ -298,6 +423,7 @@ class LeakagePredictionModel:
             if used:
                 fallback_features.append(col)
                 fallback_level = more_specific_level(fallback_level, level)
+
         for col in feature_columns:
             if col in categorical_set:
                 continue
@@ -355,7 +481,7 @@ class LeakagePredictionModel:
         best_level = "global"
         for level_columns in reversed(segment_levels):
             level_key = "__".join(level_columns)
-            segment_key = _row_segment_key(row, level_columns)
+            segment_key = _row_segment_key(row, list(level_columns))
             if segment_key is None:
                 continue
             level_map = segments.get(level_key, {})
@@ -417,6 +543,28 @@ class LeakagePredictionModel:
             },
             "segments": segments,
         }
+
+
+def _base_bundle() -> dict[str, Any]:
+    return {
+        "bundle_version": MODEL_BUNDLE_VERSION,
+        "model": None,
+        "feature_columns": list(FEATURE_COLUMNS),
+        "categorical_columns": list(CATEGORICAL_COLUMNS),
+        "missing_category_tokens": sorted(MISSING_CATEGORY_TOKENS),
+        "segment_levels": [tuple(level) for level in SEGMENT_LEVELS],
+        "target_column": TARGET_COLUMN,
+        "fallback_priors": {
+            "global": {"numeric": {}, "categorical": {}},
+            "segments": {},
+        },
+        "training_summary": {
+            "status": "base_model",
+            "training_source": "ml_feature_store",
+            "real_labeled_rows": 0,
+            "training_row_count": 0,
+        },
+    }
 
 
 def _to_float(value: Any) -> float:
@@ -486,3 +634,11 @@ def _risk_tier(rate: float) -> str:
     if rate > 0:
         return "LOW"
     return "CLEAN"
+
+
+def clamp_01(value: float) -> float:
+    if value < 0:
+        return 0.0
+    if value > 1:
+        return 1.0
+    return value

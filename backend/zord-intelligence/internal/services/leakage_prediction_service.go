@@ -19,6 +19,7 @@ import (
 
 const leakageFeatureVersion = "leakage_batch_features_v1"
 const leakagePredictionModelID = "leakage_prediction_v1"
+const leakagePredictionStatusReady = "READY"
 
 type LeakagePredictionService struct {
 	batchRepo *persistence.BatchContractRepo
@@ -44,13 +45,23 @@ func NewLeakagePredictionService(
 	}
 }
 
-
-func (s *LeakagePredictionService) ScoreBatchAsync(
+func (s *LeakagePredictionService) CaptureBatchOnce(
 	ctx context.Context,
 	tenantID, batchID string,
 	windowStart, windowEnd time.Time,
+	allowPrediction bool,
 ) {
 	if s == nil || s.mlClient == nil || tenantID == "" || batchID == "" {
+		return
+	}
+
+	featureRowID := leakageFeatureRowID(tenantID, batchID)
+	existing, err := s.mlRepo.GetByID(ctx, featureRowID)
+	if err != nil {
+		log.Printf("leakage_prediction_svc: GetByID failed tenant=%s batch=%s: %v", tenantID, batchID, err)
+		return
+	}
+	if existing != nil {
 		return
 	}
 
@@ -69,7 +80,6 @@ func (s *LeakagePredictionService) ScoreBatchAsync(
 		return
 	}
 
-	featureRowID := leakageFeatureRowID(tenantID, batchID)
 	modelVersion := leakageFeatureVersion
 	if err := s.mlRepo.Upsert(ctx, persistence.MLFeatureRow{
 		FeatureRowID:  featureRowID,
@@ -87,6 +97,10 @@ func (s *LeakagePredictionService) ScoreBatchAsync(
 		return
 	}
 
+	if !allowPrediction {
+		return
+	}
+
 	s.mlClient.InvokeLeakagePredictionAsync(ctx, mlclient.LeakagePredictionRequest{
 		TenantID: tenantID,
 		BatchID:  batchID,
@@ -94,6 +108,19 @@ func (s *LeakagePredictionService) ScoreBatchAsync(
 	}, func(result mlclient.LeakagePredictionResult, predErr error) {
 		if predErr != nil {
 			log.Printf("leakage_prediction_svc: predict failed tenant=%s batch=%s: %v", tenantID, batchID, predErr)
+			return
+		}
+		if !result.ModelReady || !strings.EqualFold(result.Status, leakagePredictionStatusReady) {
+			log.Printf(
+				"leakage_prediction_svc: prediction skipped tenant=%s batch=%s status=%s model_ready=%v training_rows=%d/%d",
+				tenantID,
+				batchID,
+				result.Status,
+				result.ModelReady,
+				result.TrainingRowCount,
+				result.MinTrainingRows,
+			)
+			return
 		}
 		rate := decimal.NewFromFloat(clampLeakage01(result.PredictedLeakageRate))
 		amountMinor := decimal.NewFromFloat(result.PredictedLeakageMinor)
@@ -184,6 +211,7 @@ func (s *LeakagePredictionService) TrainOnLabel(
 		"under_settlement_amount_minor":   batch.UnderSettlementAmountMinor,
 		"confirmed_reversal_amount_minor": batch.ReversalExposureMinor,
 		"batch_id":                        batchID,
+		"sample_weight":                   1.0,
 	})
 	if err := s.mlRepo.SetLabel(ctx, featureRowID, labelPayload); err != nil {
 		log.Printf("leakage_prediction_svc: SetLabel failed tenant=%s batch=%s: %v", tenantID, batchID, err)
@@ -208,22 +236,11 @@ func (s *LeakagePredictionService) TrainOnLabel(
 		log.Printf("leakage_prediction_svc: InsertLabel failed tenant=%s batch=%s: %v", tenantID, batchID, err)
 	}
 
-	var features map[string]interface{}
-	if err := json.Unmarshal(featureRow.FeaturesJSON, &features); err != nil {
-		log.Printf("leakage_prediction_svc: unmarshal features failed tenant=%s batch=%s: %v", tenantID, batchID, err)
-		return
-	}
-
 	s.mlClient.SendLeakageTrain(ctx, mlclient.LeakageTrainRequest{
-		TenantID:     tenantID,
-		BatchID:      batchID,
-		Features:     features,
-		LabelRate:    labelRate,
-		LabelAmount:  labelAmount.InexactFloat64(),
-		SampleWeight: 5.0,
+		TenantID: tenantID,
+		BatchID:  batchID,
 	})
 }
-
 
 func (s *LeakagePredictionService) buildFeatureRow(
 	ctx context.Context,
@@ -441,4 +458,3 @@ func boolInt(v bool) int {
 	}
 	return 0
 }
-

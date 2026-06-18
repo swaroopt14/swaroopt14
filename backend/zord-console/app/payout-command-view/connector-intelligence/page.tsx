@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import ConnectorIntelligenceClient from '@/features/payout-command/connectors/ConnectorIntelligenceClient'
+import { ConnectorIntelligencePageClient } from './_components/ConnectorIntelligencePageClient'
 
 export const metadata: Metadata = {
   title: 'Connector Performance & Leakage | Zord',
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 }
 
 export default function ConnectorIntelligencePage() {
-  return <ConnectorIntelligenceClient />
+  return <ConnectorIntelligencePageClient />
 }

@@ -2,10 +2,8 @@
 
 import type { ReactNode } from 'react'
 import { PageHeader } from '@/features/payout-command/layout/PageHeader'
-import {
-  PayoutPageActionsProvider,
-  useRegisterPayoutPageActions,
-} from '@/features/payout-command/layout/PayoutPageActionsContext'
+import { useRegisterPayoutPageActions } from '@/features/payout-command/layout/PayoutPageActionsContext'
+import { StandalonePayoutProviders } from '@/app/payout-command-view/_components/StandalonePayoutProviders'
 
 function SettingsPageActionsRegistrar({
   refresh,
@@ -37,7 +35,7 @@ export function SettingsPageChrome({
   children,
 }: SettingsPageChromeProps) {
   return (
-    <PayoutPageActionsProvider>
+    <StandalonePayoutProviders>
       <SettingsPageActionsRegistrar refresh={refresh} refreshing={refreshing} />
       <PageHeader
         pageTitle={pageTitle}
@@ -45,6 +43,6 @@ export function SettingsPageChrome({
         onAskZordToggle={() => {}}
       />
       {children}
-    </PayoutPageActionsProvider>
+    </StandalonePayoutProviders>
   )
 }

@@ -392,6 +392,12 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		class = classProduct
 	}
 
+	if class == classOutOfScope && shouldOverrideOutOfScopeForFollowup(req.Query, resolvedQuery, memorySummary, historyContext, history) {
+		log.Printf("[prompt-layer][router] followup override from=out_of_scope to=operational_data_query tenant=%s user=%s session=%s confidence=%.2f", req.TenantID, req.UserID, req.SessionID, dec.Confidence)
+		class = classOperational
+		dec.NeedsData = true
+	}
+
 	log.Printf("[prompt-layer][router] route=%s source=llm confidence=%.2f tenant=%s", class, dec.Confidence, req.TenantID)
 	log.Printf("[prompt-layer][classify] class=%s tenant=%s", class, req.TenantID)
 
@@ -779,6 +785,136 @@ func resolveFollowupQuery(query string, history []ChatTurn, memorySummary string
 	}
 
 	return strings.Join(parts, " ")
+}
+func shouldOverrideOutOfScopeForFollowup(query string, resolvedQuery string, memorySummary string, historyContext string, history []ChatTurn) bool {
+	if strings.TrimSpace(memorySummary) == "" && strings.TrimSpace(historyContext) == "" && len(history) == 0 {
+		return false
+	}
+
+	if !isConversationFollowupQuery(query) && strings.EqualFold(strings.TrimSpace(query), strings.TrimSpace(resolvedQuery)) {
+		return false
+	}
+
+	return hasBusinessRelevantMemory(memorySummary, historyContext, history)
+}
+
+func isConversationFollowupQuery(query string) bool {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return false
+	}
+
+	followupPhrases := []string{
+		"this",
+		"that",
+		"those",
+		"these",
+		"them",
+		"it",
+		"same",
+		"same ones",
+		"is this good",
+		"is it good",
+		"is that good",
+		"good or bad",
+		"should i worry",
+		"is it risky",
+		"is this risky",
+		"why",
+		"why so",
+		"why is that",
+		"what next",
+		"next step",
+		"what should i do",
+		"what does this mean",
+		"explain this",
+		"explain that",
+		"tell me more",
+		"how to fix",
+		"how can i resolve",
+	}
+
+	for _, phrase := range followupPhrases {
+		if q == phrase || strings.Contains(q, phrase) {
+			return true
+		}
+	}
+
+	return len(strings.Fields(q)) <= 5 && strings.Contains(q, "?")
+}
+
+func hasBusinessRelevantMemory(memorySummary string, historyContext string, history []ChatTurn) bool {
+	var b strings.Builder
+	b.WriteString(" ")
+	b.WriteString(memorySummary)
+	b.WriteString(" ")
+	b.WriteString(historyContext)
+
+	for _, turn := range history {
+		b.WriteString(" ")
+		b.WriteString(turn.UserMessage)
+		b.WriteString(" ")
+		b.WriteString(turn.AssistantSummary)
+	}
+
+	text := strings.ToLower(b.String())
+	if strings.TrimSpace(text) == "" {
+		return false
+	}
+
+	businessTerms := []string{
+		"payment",
+		"payments",
+		"payout",
+		"payouts",
+		"intent",
+		"intents",
+		"payment instruction",
+		"payment instructions",
+		"batch",
+		"batches",
+		"settlement",
+		"settlements",
+		"bank",
+		"psp",
+		"confirmation",
+		"confirmed",
+		"status",
+		"processing",
+		"created",
+		"pending",
+		"failed",
+		"failure",
+		"retry",
+		"delayed",
+		"delay",
+		"unmatched",
+		"unresolved",
+		"review",
+		"manual review",
+		"value needing review",
+		"proof",
+		"evidence",
+		"dispute",
+		"upload",
+		"uploaded",
+		"file",
+		"received",
+		"processed",
+		"duplicate",
+		"risk",
+		"gap",
+		"short-settled",
+		"unlinked",
+	}
+
+	for _, term := range businessTerms {
+		if strings.Contains(text, term) {
+			return true
+		}
+	}
+
+	return false
 }
 func mustJSON(v any) []byte {
 	b, err := json.Marshal(v)

@@ -1,6 +1,6 @@
 'use client'
 import { useAuth } from '@/app/hooks'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
   mapPromptLayerAnswer,
@@ -43,7 +43,7 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
   const [response, setResponse] = useState<AskZordResponse | null>(null)
   const [lastUserPrompt, setLastUserPrompt] = useState<string | null>(null)
   const [archivedTurns, setArchivedTurns] = useState<AskZordArchivedTurn[]>([])
-
+  const sessionIdRef = useRef(crypto.randomUUID())
   useEffect(() => {
     if (!pendingResponse) return
 
@@ -131,7 +131,7 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
           },
           {
             tenantId: tenantGate.tenantId,
-            sessionId: crypto.randomUUID(), // or persisted ref if this hook has multi-turn continuity
+            sessionId: sessionIdRef.current,
             userId,
           },
         )

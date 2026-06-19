@@ -284,10 +284,10 @@ func (s *LLMService) ClassifyQueryIntent(userQuery string, memoryContext string)
 		"Return JSON schema:\n" +
 		"{\"class\":\"operational_data_query | product_explanation | navigation_or_how_to | evidence_or_dispute_query | out_of_scope\",\"confidence\":0.0,\"needs_data\":true,\"needs_visualization\":false,\"reason\":\"short plain reason\"}\n\n" +
 		"Conversation memory rules:\n" +
-		"- Use CONVERSATION MEMORY to understand short follow-up questions like 'is this good?', 'why?', 'what should I do?', 'what about this?', 'explain that', or 'is it risky?'.\n" +
-		"- If memory shows the user was discussing payment status, unmatched value, settlement, proof, or review items, classify the follow-up as operational_data_query unless the new query clearly changes topic.\n" +
+		"- Use CONVERSATION MEMORY to understand short follow-up questions like 'is this good?', 'why?', 'what should I do?', 'what about this?', 'explain that', 'is it risky?', 'what next?', or 'should I worry?'.\n" +
+		"- If the current query is a short follow-up and CONVERSATION MEMORY contains payment status, batch status, unmatched value, settlement, proof, evidence, pending, failed, processing, review, uploaded file, or operational facts, classify it as operational_data_query unless the user clearly changes to an unrelated topic.\n" +
+		"- Never classify a short follow-up as out_of_scope only because it does not repeat payment words.\n" +
 		"- Do not classify a follow-up as product_explanation only because it is short or vague.\n\n" +
-		"CONVERSATION MEMORY:\n" + memoryContext + "\n\n" +
 		"USER QUERY:\n" + userQuery
 
 	raw, err := s.gemini.Generate(prompt)

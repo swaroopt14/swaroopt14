@@ -713,7 +713,7 @@ function emptyProdBody(path: string): unknown {
       computed_at: '2026-06-02T07:00:00Z',
       defensibility_score: 58,
       defensibility_tier: 'STRONG',
-      evidence_pack_coverage: 0.81,
+      evidence_pack_rate: 0.75,
       audit_ready_pct: 0.72,
       weak_evidence_count: 4,
       governance_coverage_pct: 0.85,
@@ -1168,7 +1168,7 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
     await expect(page.getByText('Unmatched Intent Value')).toBeVisible()
     await expect(page.getByText('Match Confidence')).toBeVisible()
     await expect(page.getByText('Proof Readiness')).toBeVisible()
-    await expect(page.getByText('81%')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByText('75%')).toBeVisible({ timeout: 20_000 })
   })
 
   test('leakage keeps 2x2 KPI structure with dark hero styling', async ({ page }) => {

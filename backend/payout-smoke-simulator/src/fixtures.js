@@ -740,7 +740,7 @@ export function defensibilityKpi() {
     defensibility_score: 58,
     defensibility_tier: 'STRONG',
     bank_confirmed_rate: 0.72,
-    evidence_pack_coverage: 0.81,
+    evidence_pack_rate: 0.75,
     audit_ready_pct: 0.72,
     weak_evidence_count: 4,
     governance_coverage_pct: 0.85,

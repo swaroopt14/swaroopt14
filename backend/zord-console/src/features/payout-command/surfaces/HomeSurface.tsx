@@ -279,7 +279,7 @@ export function HomeSurface({
 
   const dataSources = usePaymentCommandDataSources({
     tenantReady,
-    evidencePackRate: defData?.evidence_pack_coverage ?? defData?.evidence_pack_rate ?? null,
+    evidencePackRate: defData?.evidence_pack_rate ?? null,
     auditReadyPct: defData?.audit_ready_pct ?? null,
   })
 
@@ -409,7 +409,7 @@ export function HomeSurface({
 
   const multiMatchRate = displayApiField(ambData?.candidate_collision_rate, loading)
 
-  const proofCoveragePct = formatApiPct(defData?.evidence_pack_coverage ?? null, loading, true)
+  const proofCoveragePct = formatApiPct(defData?.evidence_pack_rate ?? null, loading, true)
   const proofReadyRow = displayApiField(defData?.audit_ready_pct, loading)
   const incompleteProofRow = displayApiField(defData?.weak_evidence_count, loading)
 

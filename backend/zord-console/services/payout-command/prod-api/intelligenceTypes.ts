@@ -207,7 +207,7 @@ export type AmbiguityKpiResponse = AmbiguityKpiResolved | EmptyKpiResponse
 export type DefensibilityTier = 'STRONG' | 'GOOD' | 'WEAK' | 'FRAGILE'
 export type DefensibilityKpiResolved = Resolved<{
   evidence_pack_rate: number
-  /** Evidence coverage for Proof Readiness (0–1 fraction). */
+  /** Optional extended field — not used for Home Proof Readiness (uses evidence_pack_rate). */
   evidence_pack_coverage?: number
   governance_coverage_pct: number
   replayability_pct: number

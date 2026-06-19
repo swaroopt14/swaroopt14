@@ -515,8 +515,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 		firstObsID := decisions[0].SettlementObservationID
 		if firstObsID != nil {
 			if obs, ok := obsMap[*firstObsID]; ok {
-			ingestRunID = obs.IngestRunID
-		}
+				ingestRunID = obs.IngestRunID
+			}
 		}
 	}
 	if ingestRunID != "" {
@@ -530,58 +530,55 @@ func (s *AttachmentOutboxService) EmitForJob(
 			WHERE b.ingest_run_id = $1 AND b.tenant_id = $2
 			ORDER BY b.created_at DESC
 			LIMIT 1`,
-		ingestRunID, job.TenantID,
+			ingestRunID, job.TenantID,
 		)
 		if err := row.Scan(&totalCount, &successCount, &failedCount, &pendingCount, &reversedCount, &fileSHA); err != nil {
 			log.Printf("attachment.outbox.batch_metadata_lookup_by_ingest_run_failed ingest_run_id=%s scope_ref=%s err=%v", ingestRunID, job.ScopeRef, err)
 		}
 		log.Printf("attachment.outbox.batch_metadata ingest_run_id=%s scope_ref=%s total=%d success=%d failed=%d pending=%d reversed=%d file_sha256=%q",
 			ingestRunID, job.ScopeRef, totalCount, successCount, failedCount, pendingCount, reversedCount, fileSHA)
-			
+
 	}
 
 	batchPayload := map[string]interface{}{
-		"event_id":                     uuid.New().String(),
-		"tenant_id":                    job.TenantID.String(),
-		"trace_id":                     uuid.Nil.String(),
-		"occurred_at":                  time.Now().UTC().Format(time.RFC3339),
-		"batch_id":                     batchID,
-		"source_reference":             summarySourceRef,
-		"corridor_id":                  corridorID,
-		"file_sha256":                  fileSHA,
-		"total_count":                  totalCount,
-		"success_count":                successCount,
-		"failed_count":                 failedCount,
-		"pending_count":                pendingCount,
-		"reversed_count":               reversedCount,
-		"partial_recon_count":          0,
-		"total_intent_count":           totalIntentCount,
-		"matched_intent_count":         matchedIntentCount,
-		"unresolved_intent_count":      unresolvedIntentCount,
-		"orphan_observation_count":     orphanObservationCount,
-		"total_intended_amount_minor":  totalIntendedAmount.String(),
-		"total_confirmed_amount_minor": totalConfirmedAmount.String(),
-		"original_intended_amount":     originalIntendedAmount.String(),
-		"original_settled_amount":      originalSettledAmount.String(),
-		"matched_intended_amount":      matchedIntendedAmount.String(),
-		"matched_observed_amount":      matchedObservedAmount.String(),
-		"unresolved_intended_amount":   unresolvedIntendedAmount.String(),
-		"orphan_observed_amount":       orphanObservedAmount.String(),
-		"matched_pair_variance":        matchedPairVariance.String(),
-		"net_batch_delta":              netBatchDelta.String(),
-		"total_variance_minor":         totalVariance.String(),
-		"intent_count_coverage":        intentCountCoverage,
-		"intent_value_coverage":        intentValueCoverage,
+		"event_id":                           uuid.New().String(),
+		"tenant_id":                          job.TenantID.String(),
+		"trace_id":                           uuid.Nil.String(),
+		"occurred_at":                        time.Now().UTC().Format(time.RFC3339),
+		"batch_id":                           batchID,
+		"source_reference":                   summarySourceRef,
+		"corridor_id":                        corridorID,
+		"file_sha256":                        fileSHA,
+		"total_count":                        totalCount,
+		"success_count":                      successCount,
+		"failed_count":                       failedCount,
+		"pending_count":                      pendingCount,
+		"reversed_count":                     reversedCount,
+		"partial_recon_count":                0,
+		"total_intent_count":                 totalIntentCount,
+		"matched_intent_count":               matchedIntentCount,
+		"unresolved_intent_count":            unresolvedIntentCount,
+		"orphan_observation_count":           orphanObservationCount,
+		"total_intended_amount_minor":        totalIntendedAmount.String(),
+		"total_confirmed_amount_minor":       totalConfirmedAmount.String(),
+		"original_intended_amount":           originalIntendedAmount.String(),
+		"original_settled_amount":            originalSettledAmount.String(),
+		"matched_intended_amount":            matchedIntendedAmount.String(),
+		"matched_observed_amount":            matchedObservedAmount.String(),
+		"unresolved_intended_amount":         unresolvedIntendedAmount.String(),
+		"orphan_observed_amount":             orphanObservedAmount.String(),
+		"matched_pair_variance":              matchedPairVariance.String(),
+		"net_batch_delta":                    netBatchDelta.String(),
+		"total_variance_minor":               totalVariance.String(),
+		"intent_count_coverage":              intentCountCoverage,
+		"intent_value_coverage":              intentValueCoverage,
 		"observed_count_allocation_coverage": observedCountCoverage,
 		"observed_value_allocation_coverage": observedValueCoverage,
-		"avg_matched_attachment_ambiguity": aggregateAmbiguity,
 		"ambiguity_score":                    aggregateAmbiguity,
-		"avg_matched_attachment_confidence": summaryMatchConfidence,
-		"avg_matched_attachment_quality":   summaryQualityScore,
-		"aggregate_score":                  summaryQualityScore,
+		"aggregate_score":                    summaryQualityScore,
 		"aggregate_match_confidence":         summaryMatchConfidence,
-		"batch_finality_status":        finalityStatus,
-		"job_status":                   job.Status,
+		"batch_finality_status":              finalityStatus,
+		"job_status":                         job.Status,
 	}
 	if err := s.insertEvent(ctx, job.TenantID, job.AttachmentJobID,
 		"", "", batchID,

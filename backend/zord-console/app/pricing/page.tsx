@@ -139,7 +139,7 @@ const engagementPlans: readonly EngagementPlan[] = [
       'Explore the payout workspace, connector views, and Evidence Pack flows with illustrative data before production rollout.',
     features: ['Workspace preview', 'Product walkthrough', 'Technical fit review', 'Standard onboarding docs'],
     cta: 'Start in sandbox',
-    href: '/signin/tenant',
+    href: '/signin',
   },
   {
     title: 'Growth',

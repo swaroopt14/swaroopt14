@@ -577,7 +577,7 @@ const pricingPlans: readonly PricingPlan[] = [
     detail: landingPricingCopy.plans[0].detail,
     points: landingPricingCopy.plans[0].points,
     ctaLabel: 'Start in sandbox',
-    href: '/signin/tenant',
+    href: '/signin',
   },
   {
     title: landingPricingCopy.plans[1].title,

@@ -181,6 +181,7 @@ func CreateTables() error {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     sent_at TIMESTAMPTZ,
 	batchid TEXT,
+	source_row_num INT,
     aggregate_confidence_score NUMERIC(5,2),      -- existing
 
     -- 🆕 Added for tracking status

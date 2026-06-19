@@ -508,7 +508,18 @@ func (s *AttachmentOutboxService) EmitForJob(
 
 	// 3. Fetch batch estimate counts and file_sha256 from canonical_settlement_batches and settlement_ingest_runs
 	var fileSHA string
-	if job.JobScopeType == models.JobScopeSettlementBatch {
+	ingestRunID := ""
+	if job.JobScopeType == models.JobScopeIngestRun {
+		ingestRunID = job.ScopeRef
+	} else if job.JobScopeType == models.JobScopeSettlementBatch && len(decisions) > 0 {
+		firstObsID := decisions[0].SettlementObservationID
+		if firstObsID != nil {
+			if obs, ok := obsMap[*firstObsID]; ok {
+				ingestRunID = obs.IngestRunID
+			}
+		}
+	}
+	if ingestRunID != "" {
 		row = db.DB.QueryRowContext(ctx, `
 			SELECT 
 				b.row_count, b.success_count_estimate, b.failed_count_estimate, 
@@ -516,29 +527,17 @@ func (s *AttachmentOutboxService) EmitForJob(
 				r.file_sha256
 			FROM canonical_settlement_batches b
 			JOIN settlement_ingest_runs r ON r.ingest_run_id = b.ingest_run_id
-			WHERE r.ingest_run_id = $1 AND b.tenant_id = $2
+			WHERE b.ingest_run_id = $1 AND b.tenant_id = $2
 			ORDER BY b.created_at DESC
 			LIMIT 1`,
-			job.ScopeRef, job.TenantID,
+			ingestRunID, job.TenantID,
 		)
 		if err := row.Scan(&totalCount, &successCount, &failedCount, &pendingCount, &reversedCount, &fileSHA); err != nil {
-			// ScopeRef may be ingest_run_id or client_batch_id depending on caller; try client_batch_id fallback
-			log.Printf("attachment.outbox.batch_metadata_lookup_by_run_id_failed scope_ref=%s err=%v — trying client_batch_id", job.ScopeRef, err)
-			row = db.DB.QueryRowContext(ctx, `
-				SELECT 
-					b.row_count, b.success_count_estimate, b.failed_count_estimate, 
-					b.pending_count_estimate, b.reversal_count_estimate,
-					r.file_sha256
-				FROM canonical_settlement_batches b
-				JOIN settlement_ingest_runs r ON r.ingest_run_id = b.ingest_run_id
-				WHERE b.client_batch_id = $1 AND b.tenant_id = $2
-				ORDER BY b.created_at DESC
-				LIMIT 1`,
-				job.ScopeRef, job.TenantID,
-			)
-			_ = row.Scan(&totalCount, &successCount, &failedCount, &pendingCount, &reversedCount, &fileSHA)
+			log.Printf("attachment.outbox.batch_metadata_lookup_by_ingest_run_failed ingest_run_id=%s scope_ref=%s err=%v", ingestRunID, job.ScopeRef, err)
 		}
-		log.Printf("attachment.outbox.file_sha256 scope_ref=%s file_sha256=%q", job.ScopeRef, fileSHA)
+		log.Printf("attachment.outbox.batch_metadata ingest_run_id=%s scope_ref=%s total=%d success=%d failed=%d pending=%d reversed=%d file_sha256=%q",
+			ingestRunID, job.ScopeRef, totalCount, successCount, failedCount, pendingCount, reversedCount, fileSHA)
+
 	}
 
 	batchPayload := map[string]interface{}{

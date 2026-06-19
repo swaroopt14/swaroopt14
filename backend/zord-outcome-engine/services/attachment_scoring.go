@@ -19,6 +19,7 @@ import (
 
 	"zord-outcome-engine/models"
 
+	"github.com/google/uuid"
 	"github.com/shopspring/decimal"
 )
 
@@ -160,7 +161,8 @@ type ScoreBreakdown struct {
 
 // CandidateScore is the intermediate result returned by ScoreCandidate.
 type CandidateScore struct {
-	IntentID         interface{} // uuid.UUID
+	SettlementObservationID uuid.UUID
+	IntentID                uuid.UUID
 	Breakdown        ScoreBreakdown
 	BreakdownJSON    []byte
 	Total            float64

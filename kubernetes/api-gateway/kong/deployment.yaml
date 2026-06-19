@@ -43,7 +43,8 @@ spec:
               app.kubernetes.io/name: kong-gateway
       containers:
         - name: kong
-          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kong:3.9
+          # Build ecr kong images and update to the ECR
+          image: kong:3.9
           imagePullPolicy: IfNotPresent
           ports:
             - name: proxy

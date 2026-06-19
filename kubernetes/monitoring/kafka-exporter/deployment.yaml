@@ -21,7 +21,7 @@ spec:
     spec:
       containers:
         - name: kafka-exporter
-          image: danielqsj/kafka-exporter:v1.7.0
+          image: public.ecr.aws/bitnami/kafka-exporter:1.7.0
           args:
             - --kafka.server=zord-kafka.zord.svc.cluster.local:9092
             - --topic.filter=.*

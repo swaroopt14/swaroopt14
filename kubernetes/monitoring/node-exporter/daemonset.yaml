@@ -25,7 +25,7 @@ spec:
           operator: Exists
       containers:
         - name: node-exporter
-          image: prom/node-exporter:v1.7.0
+          image: public.ecr.aws/bitnami/node-exporter:1.7.0
           args:
             - --path.procfs=/host/proc
             - --path.sysfs=/host/sys

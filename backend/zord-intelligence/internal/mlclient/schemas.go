@@ -220,20 +220,21 @@ type LeakagePredictionResult struct {
 	PredictedLeakageRate  float64
 	PredictedLeakageMinor float64
 	RiskTier              string
+	ModelReady            bool
+	Status                string
+	TrainingRowCount      int
+	MinTrainingRows       int
 	FallbackFeatureCount  int
 	FallbackFeatures      []string
 	FallbackSegmentLevel  string
 }
 
-// LeakageTrainRequest sends one newly labeled batch back to the Python service.
-// The Python side buffers real rows and retrains when enough accumulate.
+// LeakageTrainRequest signals that a newly labeled leakage batch is now available
+// in ml_feature_store. The Python side reads the actual training rows from the
+// intelligence database and retrains when enough have accumulated.
 type LeakageTrainRequest struct {
-	TenantID     string
-	BatchID      string
-	Features     map[string]interface{}
-	LabelRate    float64
-	LabelAmount  float64
-	SampleWeight float64
+	TenantID string
+	BatchID  string
 }
 
 func clamp(v float64) float64 {

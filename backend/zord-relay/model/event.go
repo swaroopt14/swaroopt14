@@ -74,6 +74,7 @@ type OutboxEvent struct {
 	CanonicalIntentCreated    *time.Time `json:"canonical_intent_created,omitempty"`
 
 	ClientPayoutRef *string `json:"client_payout_ref,omitempty"`
+	SourceRowNum *int `json:"source_row_num,omitempty"`
 	Amount	decimal.Decimal `json:"amount,omitempty"`
 	Currency string `json:"currency,omitempty"`
 
@@ -186,3 +187,41 @@ type DLQLeaseResponse struct {
 	LeaseUntil *time.Time     `json:"lease_until,omitempty"`
 	Events     []DLQItemEvent `json:"events"`
 }
+
+type BatchCanonicalizationCompletedEvent struct {
+	TenantID                      string          `json:"tenant_id"`
+	BatchID                       string          `json:"batch_id"`
+	SourceSystem                  string          `json:"source_system,omitempty"`
+	ReceivedCount                 int             `json:"received_count"`
+	CanonicalizedCount            int             `json:"canonicalized_count"`
+	DLQCount                      int             `json:"dlq_count"`
+	ReviewCount                   int             `json:"review_count"`
+	LowMatchabilityCount          int             `json:"low_matchability_count"`
+	LowProofReadinessCount        int             `json:"low_proof_readiness_count"`
+	DuplicateRiskCount            int             `json:"duplicate_risk_count"`
+	CanonicalizationSuccessRate   float64         `json:"canonicalization_success_rate"`
+	AvgSchemaCompletenessScore   float64         `json:"avg_schema_completeness_score"`
+	AvgMappingConfidenceScore    float64         `json:"avg_mapping_confidence_score"`
+	AvgMatchabilityScore          float64         `json:"avg_matchability_score"`
+	AvgProofReadinessScore       float64         `json:"avg_proof_readiness_score"`
+	AvgIntentQualityScore        float64         `json:"avg_intent_quality_score"`
+	DuplicateRiskAmountMinor     int64           `json:"duplicate_risk_amount_minor"`
+	BatchQualityScore            float64         `json:"batch_quality_score"`
+	ScoreBreakdownJSON           json.RawMessage `json:"score_breakdown_json,omitempty"`
+	TotalAmount                  float64         `json:"total_amount"`
+	CreatedAt                     time.Time       `json:"created_at"`
+	UpdatedAt                     time.Time       `json:"updated_at"`
+	LeaseID                      string          `json:"lease_id,omitempty"`
+	LeasedBy                     string          `json:"leased_by,omitempty"`
+	LeaseUntil                   *time.Time      `json:"lease_until,omitempty"`
+	RetryCount                   int             `json:"retry_count"`
+	NextAttemptAt                *time.Time      `json:"next_attempt_at,omitempty"`
+	DispatchedAt                 *time.Time      `json:"dispatched_at,omitempty"`
+}
+
+type BatchLeaseResponse struct {
+	LeaseID    string                                `json:"lease_id"`
+	LeaseUntil *time.Time                            `json:"lease_until,omitempty"`
+	Events     []BatchCanonicalizationCompletedEvent `json:"events"`
+}
+

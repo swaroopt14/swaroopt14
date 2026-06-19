@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 
 /**
- * Live sign-in smoke — real zord-edge login via /signin/tenant (Live workspace).
+ * Live sign-in smoke — canonical /signin (live payout command by default).
  *
  * Creates the account first if it does not exist (same email/password env vars as signup smoke).
  *
@@ -54,19 +54,20 @@ test.describe('signin smoke (live zord-edge)', () => {
     }
   })
 
-  test('signs in on Live workspace and opens payout command', async ({ page }) => {
+  test('signs in on live workspace and opens payout command', async ({ page }) => {
     test.skip(!edgeHealthy, `zord-edge not reachable at ${EDGE_URL}`)
     test.skip(!EMAIL, 'Set SMOKE_SIGNUP_EMAIL (e.g. jainamoswal1811@gmail.com)')
 
     await ensureAccountExists(page, EMAIL, PASSWORD)
     await clearAuthCookies(page)
 
-    await page.goto('/signin/tenant')
-    await expect(page.getByRole('heading', { name: 'Live workspace' })).toBeVisible()
+    await page.goto('/signin')
+    await expect(page).toHaveURL('/signin')
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
 
     await page.getByPlaceholder('you@company.com').fill(EMAIL)
     await page.getByPlaceholder('••••••••').fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign in to live' }).click()
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
 
     await expect(page).toHaveURL(/\/payout-command-view/, { timeout: 25_000 })
     await expect(page.getByText('Invalid email or password')).toHaveCount(0)
@@ -75,6 +76,19 @@ test.describe('signin smoke (live zord-edge)', () => {
     expect(me.status()).toBe(200)
     const body = (await me.json()) as { user?: { email?: string } }
     expect(body.user?.email?.toLowerCase()).toBe(EMAIL)
+
+    await page.reload()
+    await expect(page).toHaveURL(/\/payout-command-view\/today/, { timeout: 15_000 })
+    await expect(page.getByRole('heading', { name: 'Welcome back' })).toHaveCount(0)
+    const meAfterRefresh = await page.request.get('/api/auth/me')
+    expect(meAfterRefresh.status()).toBe(200)
+  })
+
+  test('legacy /signin/tenant redirects to /signin', async ({ page }) => {
+    test.skip(!edgeHealthy, `zord-edge not reachable at ${EDGE_URL}`)
+
+    await page.goto('/signin/tenant')
+    await expect(page).toHaveURL('/signin')
   })
 
   test('signup then sign-in round trip', async ({ page }) => {
@@ -94,11 +108,11 @@ test.describe('signin smoke (live zord-edge)', () => {
     })
 
     await clearAuthCookies(page)
-    await page.goto(`/signin/tenant?next=${encodeURIComponent('/payout-command-view/today')}`)
+    await page.goto('/signin')
 
     await page.getByPlaceholder('you@company.com').fill(email)
     await page.getByPlaceholder('••••••••').fill(password)
-    await page.getByRole('button', { name: 'Sign in to live' }).click()
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
 
     await expect(page).toHaveURL(/\/payout-command-view/, { timeout: 25_000 })
     const me = await page.request.get('/api/auth/me')

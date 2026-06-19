@@ -15,11 +15,10 @@ spec:
     spec:
       securityContext:
         fsGroup: 10001
-        runAsUser: 10001
-        runAsNonRoot: true
       containers:
+        # ── Jaeger All-in-One ──
         - name: jaeger
-          image: jaegertracing/all-in-one:1.55
+          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/jaeger:1.55
           ports:
             - containerPort: 16686
               name: ui
@@ -46,6 +45,10 @@ spec:
               value: http://prometheus.monitoring.svc.cluster.local:9090
             - name: PROMETHEUS_QUERY_SUPPORT_SPANMETRICS_CONNECTOR
               value: "true"
+            - name: PROMETHEUS_QUERY_NORMALIZE_CALLS
+              value: "true"
+            - name: PROMETHEUS_QUERY_NORMALIZE_DURATION
+              value: "true"
             - name: QUERY_BASE_PATH
               value: /
             - name: DEPENDENCY_STORAGE_TYPE
@@ -60,10 +63,46 @@ spec:
             limits:
               cpu: 500m
               memory: 1Gi
+          securityContext:
+            runAsUser: 10001
+            runAsNonRoot: true
+
+        # ── Nginx Auth Sidecar — password protects Jaeger UI ──
+        - name: auth-proxy
+          image: public.ecr.aws/nginx/nginx:1.27-alpine
+          ports:
+            - containerPort: 8080
+              name: auth-proxy
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: htpasswd
+              mountPath: /etc/nginx/htpasswd
+              subPath: htpasswd
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: jaeger-data
+        - name: nginx-config
+          secret:
+            secretName: jaeger-credentials
+            items:
+              - key: nginx.conf
+                path: nginx.conf
+        - name: htpasswd
+          secret:
+            secretName: jaeger-credentials
+            items:
+              - key: htpasswd
+                path: htpasswd
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim

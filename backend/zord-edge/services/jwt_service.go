@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	accessTokenTTL  = 1 * time.Hour
-	refreshTokenTTL = 30 * 24 * time.Hour
+	accessTokenTTL  = 15 * time.Minute
+	refreshTokenTTL = 8 * time.Hour
 )
 
 // jwtSigningSecret holds the HMAC shared secret used to sign/verify JWTs.
@@ -31,28 +31,33 @@ func InitJWTSigningSecret() error {
 }
 
 type AccessClaims struct {
-	TenantID uuid.UUID `json:"tenant_id"`
-	UserID   uuid.UUID `json:"user_id"`
-	Email    string    `json:"email"`
-	Role     string    `json:"role"`
+	TenantID  uuid.UUID `json:"tenant_id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Email     string    `json:"email"`
+	Role      string    `json:"role"`
+	SessionID uuid.UUID `json:"session_id"`
 	jwt.RegisteredClaims
 }
 
 type RefreshClaims struct {
-	TenantID  uuid.UUID `json:"tenant_id"`
-	UserID    uuid.UUID `json:"user_id"`
-	SessionID uuid.UUID `json:"session_id"`
-	TokenID   uuid.UUID `json:"token_id"`
+	TenantID         uuid.UUID `json:"tenant_id"`
+	UserID           uuid.UUID `json:"user_id"`
+	SessionID        uuid.UUID `json:"session_id"`
+	TokenID          uuid.UUID `json:"token_id"`
+	// SessionCreatedAt carries the original login time so absolute expiry
+	// (login + 8 h) can be enforced on every rotation without a DB look-up.
+	SessionCreatedAt int64     `json:"session_created_at"` // Unix seconds
 	jwt.RegisteredClaims
 }
 
 type IssuedTokens struct {
-	AccessToken      string
-	AccessExpiresAt  time.Time
-	RefreshToken     string
-	RefreshExpiresAt time.Time
-	SessionID        uuid.UUID
-	RefreshTokenID   uuid.UUID
+	AccessToken        string
+	AccessExpiresAt    time.Time
+	RefreshToken       string
+	RefreshExpiresAt   time.Time
+	SessionID          uuid.UUID
+	RefreshTokenID     uuid.UUID
+	SessionCreatedAt   time.Time // original login time; carried across rotations
 }
 
 func issuer() string {
@@ -69,11 +74,17 @@ func audience() string {
 	return "zord-console"
 }
 
-func IssueTokens(tenantID, userID uuid.UUID, email, role string) (*IssuedTokens, error) {
+// IssueTokens mints a fresh access + refresh token pair for the given user.
+// sessionCreatedAt pins the absolute session boundary (login time + 8 h).
+// Pass time.Time{} on a fresh login — the function defaults to now.
+func IssueTokens(tenantID, userID uuid.UUID, email, role string, sessionCreatedAt time.Time) (*IssuedTokens, error) {
 	if len(jwtSigningSecret) == 0 {
 		return nil, errors.New("JWT signing secret not initialized")
 	}
 	now := time.Now().UTC()
+	if sessionCreatedAt.IsZero() {
+		sessionCreatedAt = now
+	}
 	sessionID := uuid.New()
 	refreshTokenID := uuid.New()
 
@@ -81,10 +92,11 @@ func IssueTokens(tenantID, userID uuid.UUID, email, role string) (*IssuedTokens,
 	// Kong checks: algorithm (HS256), iss claim ("zord-edge"), exp claim.
 	accessExp := now.Add(accessTokenTTL)
 	access := jwt.NewWithClaims(jwt.SigningMethodHS256, AccessClaims{
-		TenantID: tenantID,
-		UserID:   userID,
-		Email:    email,
-		Role:     role,
+		TenantID:  tenantID,
+		UserID:    userID,
+		Email:     email,
+		Role:      role,
+		SessionID: sessionID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer(),
 			Audience:  jwt.ClaimStrings{audience()},
@@ -101,12 +113,18 @@ func IssueTokens(tenantID, userID uuid.UUID, email, role string) (*IssuedTokens,
 	}
 
 	// Refresh token — HS256, only validated by zord-edge (not Kong).
-	refreshExp := now.Add(refreshTokenTTL)
+	// Expires at the absolute session wall (sessionCreatedAt + 8 h).
+	refreshExp := sessionCreatedAt.Add(refreshTokenTTL)
+	if refreshExp.Before(now) {
+		// Absolute wall already passed — do not issue a new token.
+		return nil, errors.New("absolute session limit reached")
+	}
 	refresh := jwt.NewWithClaims(jwt.SigningMethodHS256, RefreshClaims{
-		TenantID:  tenantID,
-		UserID:    userID,
-		SessionID: sessionID,
-		TokenID:   refreshTokenID,
+		TenantID:         tenantID,
+		UserID:           userID,
+		SessionID:        sessionID,
+		TokenID:          refreshTokenID,
+		SessionCreatedAt: sessionCreatedAt.Unix(),
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    issuer(),
 			Audience:  jwt.ClaimStrings{audience()},
@@ -129,6 +147,7 @@ func IssueTokens(tenantID, userID uuid.UUID, email, role string) (*IssuedTokens,
 		RefreshExpiresAt: refreshExp,
 		SessionID:        sessionID,
 		RefreshTokenID:   refreshTokenID,
+		SessionCreatedAt: sessionCreatedAt,
 	}, nil
 }
 

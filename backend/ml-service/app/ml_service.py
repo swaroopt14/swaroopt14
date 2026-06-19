@@ -249,9 +249,11 @@ class MLService:
         result = self._leakage_model.predict(features)
         batch_id = payload.get("batch_id", "")
         logger.info(
-            "leakage_predict: ok tenant=%s batch=%s rate=%.6f amount=%.2f fallback_count=%s level=%s",
+            "leakage_predict: ok tenant=%s batch=%s status=%s model_ready=%s rate=%.6f amount=%.2f fallback_count=%s level=%s",
             req.tenant_id,
             batch_id,
+            result.get("status", ""),
+            result.get("model_ready", False),
             result["predicted_leakage_rate"],
             result["predicted_leakage_minor"],
             result.get("fallback_feature_count", 0),
@@ -267,10 +269,7 @@ class MLService:
 
     def _handle_leakage_train(self, req: MLRequest) -> None:
         payload = req.payload
-        self._leakage_model.buffer_labeled_row(
+        self._leakage_model.maybe_retrain_async(
             batch_id=str(payload.get("batch_id", "")),
-            raw_features=payload.get("features") or {},
-            label_rate=float(payload.get("label_rate", 0.0)),
-            label_amount=float(payload.get("label_amount", 0.0)),
-            sample_weight=float(payload.get("sample_weight", config.LEAKAGE_REAL_SAMPLE_WEIGHT)),
+            tenant_id=req.tenant_id,
         )

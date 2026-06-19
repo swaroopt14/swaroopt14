@@ -14,7 +14,7 @@ export function useSessionManager() {
     } finally {
       clearAuth()
       if (typeof window !== 'undefined') {
-        window.location.href = `/signin?next=${encodeURIComponent(window.location.pathname)}`
+        window.location.href = '/signin'
       }
     }
   }, [])

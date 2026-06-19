@@ -188,7 +188,7 @@ func main() {
 	modeHandler := handlers.NewIntelligenceModeHandler(projectionService, projRepo)
 
 	intelBase := handlers.NewIntelligenceBase(projectionService, snapshotRepo)
-	leakageHandler := handlers.NewLeakageHandler(intelBase)
+	leakageHandler := handlers.NewLeakageHandler(intelBase, projRepo)
 	ambiguityHandler := handlers.NewAmbiguityHandler(intelBase)
 	defensibilityHandler := handlers.NewDefensibilityHandler(intelBase)
 	rcaHandler := handlers.NewRCAHandler(intelBase)

@@ -61,6 +61,7 @@ func main() {
 	intentQueryRepo := persistence.NewIntentQueryRepo(db.DB)
 	outboxPullRepo := persistence.NewOutboxPullRepo(db.DB)
 	dlqPullRepo := persistence.NewDLQPullRepo(db.DB)
+	batchPullRepo := persistence.NewBatchPullRepo(db.DB)
 
 	// -------- Validator --------
 	intentValidator := validator.NewValidator(dlqRepo)
@@ -97,6 +98,7 @@ func main() {
 	intentHandler := handlers.NewIntentHandler(intentQueryRepo)
 	outboxHandler := handlers.NewOutboxHandler(outboxPullRepo)
 	dlqOutboxHandler := handlers.NewDLQOutboxHandler(dlqPullRepo)
+	batchOutboxHandler := handlers.NewBatchOutboxHandler(batchPullRepo)
 
 	runRepo := etl.NewRunRepository(db.DB)
 	airflowWorker := worker.NewAirflowWorker(outboxPullRepo, runRepo)
@@ -144,6 +146,9 @@ func main() {
 	mux.HandleFunc("/internal/dlq/lease", dlqOutboxHandler.Lease)
 	mux.HandleFunc("/internal/dlq/ack", dlqOutboxHandler.Ack)
 	mux.HandleFunc("/internal/dlq/nack", dlqOutboxHandler.Nack)
+	mux.HandleFunc("/internal/relay/canonical_batches/lease", batchOutboxHandler.Lease)
+	mux.HandleFunc("/internal/relay/canonical_batches/ack", batchOutboxHandler.Ack)
+	mux.HandleFunc("/internal/relay/canonical_batches/nack", batchOutboxHandler.Nack)
 	mux.HandleFunc("/api/prod/intents/batch-ids", intentHandler.ListBatchIDs)
 	mux.HandleFunc("/api/prod/intents/payment-intents", intentHandler.ListPaymentIntentLiteByBatch)
 	mux.HandleFunc("/api/prod/intents/dlq-items", intentHandler.ListDLQItemsByBatchSimple)

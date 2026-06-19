@@ -21,7 +21,7 @@ const footerColumns = [
       { label: 'Home', href: '/' },
       { label: 'How it works', href: '/final-landing/how-it-works' },
       { label: 'Pricing', href: '/final-landing/pricing' },
-      { label: 'Console', href: '/signin/tenant' },
+      { label: 'Console', href: '/signin' },
     ],
   },
   {

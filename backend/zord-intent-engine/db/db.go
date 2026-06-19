@@ -181,6 +181,7 @@ func CreateTables() error {
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     sent_at TIMESTAMPTZ,
 	batchid TEXT,
+	source_row_num INT,
     aggregate_confidence_score NUMERIC(5,2),      -- existing
 
     -- 🆕 Added for tracking status
@@ -482,10 +483,31 @@ CREATE TABLE IF NOT EXISTS etl_quality_results (
 		total_amount                    NUMERIC DEFAULT 0,
 		created_at                      TIMESTAMPTZ DEFAULT now(),
 		updated_at                      TIMESTAMPTZ DEFAULT now(),
+		lease_id                        UUID,
+		leased_by                       TEXT,
+		lease_until                     TIMESTAMPTZ,
+		retry_count                     INT NOT NULL DEFAULT 0,
+		next_attempt_at                 TIMESTAMPTZ,
+		dispatched_at                   TIMESTAMPTZ,
 		    PRIMARY KEY (tenant_id, batch_id)
 	);`
 	if _, err := DB.Exec(canonicalBatches); err != nil {
 		log.Fatal("canonical_batches:", err)
+	}
+
+	// Lease indexes for relay batch-completion polling
+	if _, err := DB.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_canonical_batches_lease_id
+		ON canonical_batches (lease_id);
+	`); err != nil {
+		log.Fatal("idx_canonical_batches_lease_id:", err)
+	}
+
+	if _, err := DB.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_canonical_batches_pending_lease
+		ON canonical_batches (dispatched_at, lease_until);
+	`); err != nil {
+		log.Fatal("idx_canonical_batches_pending_lease:", err)
 	}
 
 	mappingProfiles := `

@@ -10,7 +10,7 @@ import {
   type HomeOverviewSnapshot,
   type HomeTimeframe,
 } from '@/services/payout-command/model'
-import { buildZordInsightCards } from '../insights/buildZordInsightCards'
+import { buildZordInsightCards, HOME_ZORD_INSIGHT_SLOT_COUNT } from '../insights/buildZordInsightCards'
 import { ZordInsightCarousel } from '../insights/ZordInsightCarousel'
 import { PaymentCommandCenterBand } from '../command-center/PaymentCommandCenterBand'
 import {
@@ -40,13 +40,11 @@ import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCar
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 import {
   confirmedMatchedValueMinorFromBatchContract,
-  parseMatchConfidence,
-  parsePercentValue,
 } from '@/features/payout-command/settlement-journal/selectors/resolveSettlementIntelligenceKpis'
 import {
-  parseMissingReferenceRatePercent,
   useBatchContractKpis,
 } from '@/features/payout-command/hooks/useBatchContractKpis'
+import { displayApiField, formatApiPct, formatKpiMoneyMinor } from '../shared/formatApiKpiFields'
 
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
   'No payment data in this period yet. Upload payment instructions or connect bank/settlement files to populate this view.'
@@ -123,7 +121,12 @@ export function HomeSurface({
   const recsData = isDataAvailable(recommendations) ? recommendations : null
 
   const handlePageRefresh = useCallback(async () => {
-    await Promise.all([refresh(), refreshTrend(), refreshCarouselTrend(), refreshBatchContract()])
+    await Promise.all([
+      refresh(),
+      refreshTrend(),
+      refreshCarouselTrend(),
+      refreshBatchContract(),
+    ])
   }, [refresh, refreshTrend, refreshCarouselTrend, refreshBatchContract])
 
   useRegisterPayoutPageActions({
@@ -315,30 +318,6 @@ export function HomeSurface({
         ? trendTotalsMinor.intentCount
         : null
 
-  const trendInsight = useMemo(() => {
-    if (intendedMinor != null && intendedMinor > 0 && observedMinor != null) {
-      const initiated = fmtInrFromMinorExact(intendedMinor)
-      const settled = fmtInrFromMinorExact(observedMinor)
-      const pct = Math.round((observedMinor / intendedMinor) * 100)
-      return `${initiated} was initiated, of which ${settled} has been successfully settled, reflecting ${pct}% settlement completion for the ${carouselPeriod} period.`
-    }
-    if (carouselTrendSeries?.data_available && carouselTrendSeries.buckets.length >= 2) {
-      const totalMinor = carouselTrendSeries.buckets.reduce((s, b) => s + b.total_amount, 0)
-      const confirmedMinor = carouselTrendSeries.buckets.reduce((s, b) => s + b.confirmed_amount, 0)
-      if (totalMinor > 0) {
-        const pct = Math.round((confirmedMinor / totalMinor) * 100)
-        return `${fmtInrFromMinorExact(totalMinor)} was initiated, of which ${fmtInrFromMinorExact(confirmedMinor)} has been successfully settled, reflecting ${pct}% settlement completion for the ${carouselPeriod} period.`
-      }
-    }
-    if (leakageData && patternsData) {
-      return `${patternsData.pending_count} payments still pending confirmation in the latest batch view.`
-    }
-    if (patternsData) {
-      return `${patternsData.success_count} of ${patternsData.total_count} payments completed in the latest batch signal.`
-    }
-    return TENANT_KPI_EMPTY_CAROUSEL_INSIGHT
-  }, [intendedMinor, observedMinor, carouselTrendSeries, carouselPeriod, leakageData, patternsData])
-
   const reviewDisplay =
     reviewMinor !== null
       ? fmtInrFromMinorExact(reviewMinor)
@@ -351,33 +330,28 @@ export function HomeSurface({
       buildZordInsightCards({
         tenantReady,
         kpiLoading: loading || carouselTrendLoading,
+        carouselPeriod,
         emptyInsightParagraph: TENANT_KPI_EMPTY_CAROUSEL_INSIGHT,
-        mismatchHeadline: reviewDisplay,
-        mismatchSubtext:
-          leakageData != null
-            ? 'Unmatched payment value from the leakage dashboard.'
-            : 'No leakage data available for this period.',
-        reviewValueMinor: reviewMinor,
         mismatchPendingCount: patternsData?.pending_count ?? ambData?.ambiguous_intent_count ?? 0,
-        trendInsight,
         trendSeries: carouselTrendSeries,
         trendChartReady: Boolean(
           carouselTrendSeries?.data_available && (carouselTrendSeries.buckets?.length ?? 0) > 0,
         ),
         leakageData,
+        ambData,
+        defData,
         patternsData,
       }),
     [
       tenantReady,
       loading,
       carouselTrendLoading,
-      trendInsight,
+      carouselPeriod,
       carouselTrendSeries,
       leakageData,
+      ambData,
+      defData,
       patternsData,
-      reviewDisplay,
-      reviewMinor,
-      ambData?.ambiguous_intent_count,
     ],
   )
 
@@ -385,41 +359,70 @@ export function HomeSurface({
     tenantReady && insightCarouselCards.length === 0 && (loading || carouselTrendLoading),
   )
 
+  const insightCarouselSlots = useMemo(() => {
+    const cards = insightCarouselCards.slice(0, HOME_ZORD_INSIGHT_SLOT_COUNT)
+    while (cards.length < HOME_ZORD_INSIGHT_SLOT_COUNT) {
+      cards.push({
+        id: `empty-insight-${cards.length}`,
+        type: 'insight' as const,
+        label: 'Insights',
+        paragraph: TENANT_KPI_EMPTY_CAROUSEL_INSIGHT,
+      })
+    }
+    return cards.map((card, index) => (
+      <ZordInsightCarousel
+        key={`home-insight-slot-${index}`}
+        tenantReady={tenantReady}
+        autoplay={false}
+        loading={insightCarouselLoading}
+        cards={[card]}
+      />
+    ))
+  }, [insightCarouselCards, tenantReady, insightCarouselLoading])
+
   const matchConfidencePct = useMemo(() => {
     if (batchId?.trim()) {
       if (batchContractLoading) return '…'
-      const conf = parseMatchConfidence(batchContract?.match_confidence)
-      return conf != null ? `${Math.round(conf * 100)}%` : '—'
+      return displayApiField(batchContract?.match_confidence)
     }
-    if (ambData) return `${Math.round((ambData.avg_attachment_confidence ?? 0) * 100)}%`
-    return loading ? '…' : '—'
-  }, [batchId, batchContract, batchContractLoading, ambData, loading])
+    if (patternsData?.summary_stats?.match_confidence_pct != null) {
+      return displayApiField(patternsData.summary_stats.match_confidence_pct)
+    }
+    return displayApiField(ambData?.avg_attachment_confidence, loading)
+  }, [batchId, batchContract, batchContractLoading, ambData, patternsData, loading])
 
   const missingRefRate = useMemo(() => {
     if (batchId?.trim()) {
       if (batchContractLoading) return '…'
-      return parsePercentValue(batchContract?.missing_reference_rate) ?? '—'
+      return displayApiField(batchContract?.missing_reference_rate)
     }
-    return ambData ? `${((ambData.provider_ref_missing_rate ?? 0) * 100).toFixed(1)}%` : '—'
-  }, [batchId, batchContract, batchContractLoading, ambData])
+    return displayApiField(ambData?.provider_ref_missing_rate, loading)
+  }, [batchId, batchContract, batchContractLoading, ambData, loading])
 
   const refCompleteness = useMemo(() => {
     if (batchId?.trim()) {
-      const missingPct = parseMissingReferenceRatePercent(batchContract?.missing_reference_rate)
-      if (missingPct != null) return `${Math.max(0, 100 - missingPct).toFixed(0)}%`
-      return batchContractLoading ? '…' : '—'
+      if (batchContractLoading) return '…'
+      return displayApiField(batchContract?.client_reference_coverage)
     }
-    if (ambData?.carrier_completeness_rate != null) {
-      return `${(ambData.carrier_completeness_rate * 100).toFixed(0)}%`
-    }
-    return '—'
-  }, [batchId, batchContract, batchContractLoading, ambData])
+    return displayApiField(ambData?.carrier_completeness_rate, loading)
+  }, [batchId, batchContract, batchContractLoading, ambData, loading])
 
-  const proofCoveragePct = defData
-    ? `${Math.round((defData.evidence_pack_rate ?? 0) * 100)}%`
-    : loading
+  const multiMatchRate = displayApiField(ambData?.candidate_collision_rate, loading)
+
+  const proofCoveragePct = formatApiPct(defData?.evidence_pack_rate ?? null, loading, true)
+  const proofReadyRow = displayApiField(defData?.audit_ready_pct, loading)
+  const incompleteProofRow = displayApiField(defData?.weak_evidence_count, loading)
+
+  const settlementHeroDisplay =
+    loading || batchContractLoading
       ? '…'
-      : '—'
+      : formatKpiMoneyMinor(batchId?.trim() ? settlementHeroMinor : observedMinor)
+  const awaitingConfirmation =
+    !loading &&
+    !batchContractLoading &&
+    settlementHeroMinor == null &&
+    observedMinor == null &&
+    dataSources.settlementStatus === 'missing'
 
   const nextActions = useMemo(() => {
     const actions: Array<{ title: string; description: string; href?: string; emphasis?: boolean }> = []
@@ -828,71 +831,33 @@ export function HomeSurface({
           <PaymentCommandCenterBand
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
-            fullyMatchedValue={
-              settlementHeroMinor !== null
-                ? fmtInrFromMinorExact(settlementHeroMinor)
-                : batchId?.trim() && batchContractLoading
-                  ? '…'
-                  : loading
-                    ? '…'
-                    : '—'
-            }
-            fullyMatchedSub={
-              batchId?.trim()
-                ? 'Confirmed matched value from batch contract (total_confirmed_amount interim mapping).'
-                : 'Settlement value observed from bank or PSP confirmation signals.'
-            }
-            fullyMatchedFooter={
-              batchId?.trim()
-                ? 'Batch-scoped confirmed matched value from batch_contract until confirmed_matched_value_minor KPI ships.'
-                : 'Observed settlement is the value Zord can link to a bank or settlement outcome — not the same as fully matched intent.'
-            }
-            awaitingConfirmation={bankConfirmedMinor == null}
+            fullyMatchedValue={settlementHeroDisplay}
+            fullyMatchedSub="Observed settlement linked to bank or PSP outcomes"
+            fullyMatchedFooter="Observed settlement is the value Zord can link to a bank or settlement outcome — not the same as fully matched intent."
+            awaitingConfirmation={awaitingConfirmation}
             reviewValue={reviewDisplay}
-            reviewSub={
-              leakageData != null
-                ? 'Unmatched intent value from payment-to-settlement matching.'
-                : 'No leakage data available for this period.'
-            }
+            reviewSub="Unmatched intent value from leakage API"
             reviewFooter="This is unmatched intent value only — not total review exposure across all exception types."
-            unmatchedDisplay={leakageData ? fmtInrFromMinorExact(unmatchedMinor) : '—'}
-            shortSettledDisplay={leakageData ? fmtInrFromMinorExact(underSettlementMinor) : '—'}
-            unlinkedDisplay={leakageData ? fmtInrFromMinorExact(unlinkedSettlementMinor) : '—'}
-            reversalDisplay={leakageData ? fmtInrFromMinorExact(reversalMinor) : '—'}
+            unmatchedDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.unmatched_amount_minor)}
+            shortSettledDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.under_settlement_amount_minor)}
+            unlinkedDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.orphan_amount_minor)}
+            reversalDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.reversal_exposure_minor)}
             reviewHref="/payout-command-view/today?dock=leakage"
             matchConfidencePct={matchConfidencePct}
             matchConfidenceSub="Average match confidence"
-            paymentsNeedingReview={
-              ambData?.ambiguous_intent_count != null ? String(ambData.ambiguous_intent_count) : '—'
-            }
+            matchConfidenceFooter={undefined}
+            paymentsNeedingReview={displayApiField(ambData?.ambiguous_intent_count, loading)}
             missingRefRate={missingRefRate}
             refCompleteness={refCompleteness}
-            multiMatchRate={
-              ambData?.candidate_collision_rate != null
-                ? `${(ambData.candidate_collision_rate * 100).toFixed(1)}%`
-                : '—'
-            }
+            multiMatchRate={multiMatchRate}
             proofCoverageDisplay={proofCoveragePct}
             proofSub="Evidence coverage for audit or export"
             proofFooter="Proof-ready payments have enough linked evidence to support audit or dispute export."
-            proofReadyRow={defData ? `${Math.round((defData.audit_ready_pct ?? 0) * 100)}% audit-ready` : '—'}
-            incompleteProofRow={
-              defData
-                ? `${Math.max(0, 100 - Math.round((defData.evidence_pack_rate ?? 0) * 100))}% incomplete`
-                : '—'
-            }
+            proofReadyRow={proofReadyRow}
+            incompleteProofRow={incompleteProofRow}
             proofHref="/payout-command-view/today?dock=proof"
             nextActions={{ actions: nextActions, completionHint }}
-            insightCarousel={
-              <ZordInsightCarousel
-                key={`${tenantId || 'no-tenant'}-${carouselPeriod}`}
-                tenantReady={tenantReady}
-                autoplay
-                interval={4000}
-                loading={insightCarouselLoading}
-                cards={insightCarouselCards}
-              />
-            }
+            insightCarousels={insightCarouselSlots}
           />
         </section>
 

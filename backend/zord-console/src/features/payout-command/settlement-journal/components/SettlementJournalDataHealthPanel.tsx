@@ -71,11 +71,6 @@ export function SettlementJournalDataHealthPanel() {
           sub={copy.unmatchedSettlementValueSub}
         />
         <MetricCard
-          label={copy.orphanAmount}
-          value={formatMoneyKpi(kpis.orphanAmount, intelligenceLoading)}
-          sub={copy.orphanAmountSub}
-        />
-        <MetricCard
           label={copy.matchConfidence}
           value={
             kpis.matchConfidence != null ? `${(kpis.matchConfidence * 100).toFixed(0)}%` : '—'

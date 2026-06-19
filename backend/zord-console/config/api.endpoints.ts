@@ -20,6 +20,9 @@ export const BACKEND_SERVICES = {
       AUTH_PRINCIPAL: '/v1/auth/principal',
       AUTH_ADMIN_USERS: '/v1/auth/admin/users',
       AUTH_ADMIN_USER_STATUS: (id: string) => `/v1/auth/admin/users/${encodeURIComponent(id)}/status`,
+      SESSION_STATUS: '/v1/session/status',
+      SESSION_REFRESH: '/v1/session/refresh',
+      SESSION_LOGOUT_ALL: '/v1/session/logout-all',
     },
   },
 
@@ -98,6 +101,8 @@ export const BACKEND_SERVICES = {
       BATCHES: '/v1/intelligence/batches',
       BATCH_BY_ID: (id: string) => `/v1/intelligence/batches/${id}`,
       BATCH_CONTRACT: (id: string) => `/v1/intelligence/dashboard/batch_contract/${id}`,
+      OPERATIONS_SUMMARY: '/v1/operations/summary',
+      EXCEPTIONS_SUMMARY: '/v1/exceptions/summary',
     },
   },
 

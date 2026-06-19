@@ -16,6 +16,9 @@ import { getAmbiguityVelocityScatter } from '@/services/payout-command/prod-api/
 import type { AmbiguityKpiResolved } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { formatAmbiguityInr } from '../utils/formatAmbiguityInr'
 import { getValueAtRiskDelta } from '../utils/ambiguityApiMappers'
+import { displayApiField, formatKpiMoneyMinor } from '../../shared/formatApiKpiFields'
+import { HOME_TITLE_BLACK } from '../../command-center/homeCommandCenterTokens'
+import { ZORD_SURFACE_MUTED } from '../../command-center/homeSurfaceFonts'
 import {
   AMBIGUITY_BUBBLE_LEGEND,
   BUBBLE_MAP_MAX_Z,
@@ -87,9 +90,11 @@ function ScatterTooltip({
 type Props = {
   amb: AmbiguityKpiResolved | null
   batchId?: string
+  selectedBatchId?: string
+  onSelectBatch?: (batchId: string) => void
 }
 
-export function AmbiguityVelocityChart({ amb, batchId }: Props) {
+export function AmbiguityVelocityChart({ amb, batchId, selectedBatchId, onSelectBatch }: Props) {
   const [livePoints, setLivePoints] = useState<AmbiguityBubblePoint[] | null>(null)
   const [liveMaxAmountMinor, setLiveMaxAmountMinor] = useState(0)
   const [seriesLive, setSeriesLive] = useState(false)
@@ -140,53 +145,53 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
     [points, yDomain],
   )
 
-  const totalAtRisk = formatAmbiguityInr(amb?.value_at_risk_minor)
-  const confidencePct =
-    amb?.avg_attachment_confidence != null
-      ? `${(amb.avg_attachment_confidence * 100).toFixed(1)}%`
-      : '—'
+  const totalAtRisk = formatKpiMoneyMinor(amb?.value_at_risk_minor)
+  const confidencePct = displayApiField(amb?.avg_attachment_confidence)
   const varDelta = getValueAtRiskDelta(amb)
 
   return (
-    <article className="flex flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <section
+      className="relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+      data-testid="ambiguity-velocity-chart"
+    >
+      <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[#000000] via-[#f59e0b] to-[#ef4444]" />
+
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className={`text-[1.2rem] font-semibold tracking-[-0.01em] ${HOME_TITLE_BLACK}`}>
+            Ambiguity velocity
+          </h3>
+          <p className={`mt-0.5 text-[14px] ${ZORD_SURFACE_MUTED}`}>
+            X = batch size · Y = risk % · bubble size from velocity scatter API
+          </p>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="h-2 w-2 animate-pulse rounded-full" style={{ background: '#000000' }} />
-          <span className="text-[12px] font-semibold uppercase tracking-wider text-[#000000]">
-            Ambiguity Velocity
-          </span>
-          <span className="rounded-full bg-[#e8eef5] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#103a9e]">
+          <span className="rounded-full bg-[#e8eef5] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-[#103a9e]">
             Bubble map
           </span>
           {isPreview ? (
-            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-amber-800">
+            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-amber-800">
               Awaiting live data
             </span>
           ) : null}
         </div>
-        <p className="text-[11px] font-medium text-[#00239C]">
-          X = batch size · Y = risk % · size = √batch value · color = risk tier
-        </p>
       </div>
 
       <div className="mt-5 grid gap-6 sm:grid-cols-2">
         <div>
-          <p className="text-[12px] font-medium text-[#00239C]">Total Value at Risk</p>
-          <p className="mt-1 text-[2rem] font-bold tabular-nums leading-none text-[#000000]">
+          <p className="text-[13px] font-medium text-[#00239C]">Total value at risk</p>
+          <p className={`mt-1 text-[2rem] font-bold tabular-nums leading-none ${HOME_TITLE_BLACK}`}>
             {totalAtRisk}
             {varDelta ? (
-              <span
-                className="ml-2 inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold text-[#000000]"
-                style={{ background: '#000000' }}
-              >
+              <span className="ml-2 inline-flex rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-semibold text-white">
                 {varDelta.startsWith('-') ? '▼' : '▲'} {varDelta.replace(/^[+-]/, '')}
               </span>
             ) : null}
           </p>
         </div>
         <div>
-          <p className="text-[12px] font-medium text-[#00239C]">Avg Match Confidence</p>
-          <p className="mt-1 text-[2rem] font-bold tabular-nums leading-none text-[#000000]">
+          <p className="text-[13px] font-medium text-[#00239C]">Avg match confidence</p>
+          <p className={`mt-1 text-[2rem] font-bold tabular-nums leading-none ${HOME_TITLE_BLACK}`}>
             {confidencePct}
           </p>
         </div>
@@ -243,13 +248,18 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
                   stroke="transparent"
                   strokeWidth={0}
                   isAnimationActive={false}
+                  onClick={(point) => {
+                    const batch = (point as { payload?: AmbiguityBubblePoint })?.payload?.batchId
+                    if (batch && onSelectBatch) onSelectBatch(batch)
+                  }}
                 >
                   {chartData.map((p) => (
                     <Cell
                       key={`${p.batchId}-${p.amountValueMinor}`}
                       fill={p.bubbleColor}
-                      stroke={p.bubbleColor}
-                      fillOpacity={0.55}
+                      stroke={p.batchId === selectedBatchId ? '#0f172a' : p.bubbleColor}
+                      strokeWidth={p.batchId === selectedBatchId ? 3 : 0}
+                      fillOpacity={p.batchId === selectedBatchId ? 0.85 : 0.55}
                     />
                   ))}
                 </Scatter>
@@ -301,6 +311,6 @@ export function AmbiguityVelocityChart({ amb, batchId }: Props) {
             ))}
         </div>
       </div>
-    </article>
+    </section>
   )
 }

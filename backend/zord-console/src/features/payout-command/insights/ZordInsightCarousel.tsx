@@ -97,6 +97,13 @@ function ArrowSvg() {
 const ICON: Record<string, () => React.ReactElement> = {
   'account-insights': BoltSvg,
   'mismatch-value': RupeeSvg,
+  'intended-value': RupeeSvg,
+  'value-needing-review': RupeeSvg,
+  'unmatched-value': RupeeSvg,
+  'settlement-observed': RupeeSvg,
+  'short-settled': RupeeSvg,
+  'ambiguous-value': RupeeSvg,
+  'proof-coverage': TrendSvg,
   'disbursement-trend': TrendSvg,
   leakage: AlertSvg,
 }

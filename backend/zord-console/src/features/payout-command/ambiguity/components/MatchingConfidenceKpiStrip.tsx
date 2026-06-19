@@ -7,11 +7,11 @@ import { JournalIntelligenceKpiHero } from '../../command-center/JournalIntellig
 import { ambiguityCopy } from '../copy/ambiguityCopy'
 import { formatDeltaPct, getKpiDeltas } from '../utils/ambiguityApiMappers'
 import {
-  formatKpiCount,
+  displayApiField,
+  formatApiCount,
   formatKpiMoneyMinor,
-  formatKpiRatePercent,
-  KPI_UNAVAILABLE,
-} from '../../shared/formatKpiDisplay'
+} from '../../shared/formatApiKpiFields'
+import { KPI_UNAVAILABLE } from '../../shared/formatKpiDisplay'
 
 type Props = { amb: AmbiguityKpiResolved | null; loading?: boolean; scopeHint?: string }
 
@@ -27,13 +27,13 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
   }
 
   const deltas = getKpiDeltas(amb)
-  const ambiguityRateLabel = formatKpiRatePercent(amb?.ambiguity_rate)
+  const ambiguityRateLabel = displayApiField(amb?.ambiguity_rate)
   const ambiguityRateDelta = formatDeltaPct(amb?.ambiguity_rate_delta_pct) ?? KPI_UNAVAILABLE
 
   const buckets = [
     {
-      label: 'Ambiguous intents',
-      value: formatKpiCount(amb?.ambiguous_intent_count),
+      label: 'Unclear signal',
+      value: formatApiCount(amb?.ambiguous_intent_count),
       sub: deltas.ambiguousIntents ?? 'Payments needing match review',
     },
     {
@@ -43,7 +43,7 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
     },
     {
       label: 'Missing ref rate',
-      value: formatKpiRatePercent(amb?.provider_ref_missing_rate),
+      value: displayApiField(amb?.provider_ref_missing_rate),
       sub: deltas.missingRefRate ?? 'Missing bank or PSP references',
     },
     {

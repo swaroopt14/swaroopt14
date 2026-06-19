@@ -136,7 +136,7 @@ docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/otel-collector:
 
 After pushing images to ECR, update these files to use your ECR mirror:
 
-### Kong Gateway
+### 1. Kong Gateway
 
 **File:** [kubernetes/api-gateway/kong/deployment.yaml](./api-gateway/kong/deployment.yaml)
 
@@ -147,7 +147,7 @@ image: kong:3.9
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kong:3.9
 ```
 
-### Kong Admin UI (Konga)
+### 2. Kong Admin UI (Konga)
 
 **File:** [kubernetes/api-gateway/kong-admin-ui/deployment.yaml](./api-gateway/kong-admin-ui/deployment.yaml)
 
@@ -158,7 +158,7 @@ image: pantsel/konga:0.14.9
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/konga:0.14.9
 ```
 
-### Kafka (StatefulSet + Topics Job)
+### 3. Kafka (StatefulSet + Topics Job)
 
 **File:** [kubernetes/eks/infrastructure/kafka/statefulset.yaml](./eks/infrastructure/kafka/statefulset.yaml)
 **File:** [kubernetes/eks/infrastructure/kafka/topic-job.yaml](./eks/infrastructure/kafka/topic-job.yaml)
@@ -170,7 +170,7 @@ image: confluentinc/cp-kafka:7.6.0
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/cp-kafka:7.6.0
 ```
 
-### Fluentd
+### 4. Fluentd
 
 **File:** [kubernetes/logging/fluentd/daemonset.yaml](./logging/fluentd/daemonset.yaml)
 
@@ -181,7 +181,7 @@ image: fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1
 ```
 
-### Curl (Kibana Init Job)
+### 5. Curl (Kibana Init Job)
 
 **File:** [kubernetes/logging/kibana/init-job.yaml](./logging/kibana/init-job.yaml)
 
@@ -192,7 +192,7 @@ image: curlimages/curl:8.7.1
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
 ```
 
-### Grafana
+### 6. Grafana
 
 **File:** [kubernetes/monitoring/grafana/deployment.yaml](./monitoring/grafana/deployment.yaml)
 
@@ -203,7 +203,7 @@ image: grafana/grafana:10.4.0
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/grafana:10.4.0
 ```
 
-### Prometheus
+### 7. Prometheus
 
 **File:** [kubernetes/monitoring/prometheus/deployment.yaml](./monitoring/prometheus/deployment.yaml)
 
@@ -214,7 +214,7 @@ image: prom/prometheus:v2.51.0
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/prometheus:v2.51.0
 ```
 
-### Node Exporter
+### 8. Node Exporter
 
 **File:** [kubernetes/monitoring/node-exporter/daemonset.yaml](./monitoring/node-exporter/daemonset.yaml)
 
@@ -225,7 +225,7 @@ image: prom/node-exporter:v1.7.0
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/node-exporter:v1.7.0
 ```
 
-### Postgres Exporter
+### 9. Postgres Exporter
 
 **File:** [kubernetes/monitoring/postgres-exporter/deployment.yaml](./monitoring/postgres-exporter/deployment.yaml)
 
@@ -236,7 +236,7 @@ image: prometheuscommunity/postgres-exporter:v0.15.0
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/postgres-exporter:v0.15.0
 ```
 
-### Kafka Exporter
+### 10. Kafka Exporter
 
 **File:** [kubernetes/monitoring/kafka-exporter/deployment.yaml](./monitoring/kafka-exporter/deployment.yaml)
 
@@ -247,7 +247,7 @@ image: danielqsj/kafka-exporter:v1.7.0
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
 ```
 
-### Jaeger
+### 11. Jaeger
 
 **File:** [kubernetes/tracing/jaeger/deployment.yaml](./tracing/jaeger/deployment.yaml)
 
@@ -258,7 +258,7 @@ image: jaegertracing/all-in-one:1.55
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/jaeger:1.55
 ```
 
-### OTel Collector
+### 12. OTel Collector
 
 **File:** [kubernetes/tracing/otel-collector/deployment.yaml](./tracing/otel-collector/deployment.yaml)
 

@@ -114,7 +114,7 @@ kubectl get ingress -n tracing
 |------|-----|----------------|-------------|
 | **Grafana** | `https://grafana.zordnet.com` | Yes | admin / zord-grafana-2026 (from `monitoring/grafana/secret.yaml`) |
 | **Kibana** | `https://kibana.zordnet.com` | Yes | elastic / Arealiszord@2026 (from `logging/elasticsearch/credentials-secret.yaml`) |
-| **Jaeger** | `https://jaeger.zordnet.com` | Yes | elastic / Arealiszord@2026 (from `tracing/jaeger/credentials-secret.yaml`) |
+| **Jaeger** | `https://jaeger.zordnet.com` | Yes | jaeger / Arealiszord@2026 (from `tracing/jaeger/credentials-secret.yaml`) |
 
 **To change Grafana password:** Edit `monitoring/grafana/secret.yaml` → redeploy → restart Grafana pod.
 **To change Kibana password:** Edit `logging/elasticsearch/credentials-secret.yaml` → redeploy → restart ES, Kibana, Fluentd pods.
@@ -418,7 +418,7 @@ kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-no
 
 - Grafana requires login (admin credentials from K8s Secret)
 - Kibana requires login (elastic / Arealiszord@2026 — X-Pack security enabled)
-- Jaeger requires login (elastic / Arealiszord@2026 — nginx basic auth sidecar)
+- Jaeger requires login (jaeger / Arealiszord@2026 — nginx basic auth sidecar)
 - Observability ALB is separate from the main app ALB
 - Prometheus admin API is not exposed externally
 - Elasticsearch is only accessible within the cluster (Kibana proxies to it)

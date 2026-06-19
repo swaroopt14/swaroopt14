@@ -42,7 +42,7 @@ kubectl get pods -n tracing -w
 Open: `https://jaeger.zordnet.com`
 
 ```
-Username: elastic
+Username: jaeger
 Password: Arealiszord@2026
 ```
 
@@ -184,7 +184,7 @@ This is already configured. Once traces flow with proper cross-service linking, 
 
 | Username | Password | Access |
 |----------|----------|--------|
-| `elastic` | `Arealiszord@2026` | Jaeger UI (full access) |
+| `jaeger` | `Arealiszord@2026` | Jaeger UI (full access) |
 
 ---
 

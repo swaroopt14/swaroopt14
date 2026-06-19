@@ -10,7 +10,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: kibana-init
-          image: public.ecr.aws/docker/library/curlimages/curl:8.7.1
+          image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
           command:
             - /bin/sh
             - -c

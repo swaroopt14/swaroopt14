@@ -20,6 +20,7 @@ aws ecr create-repository --repository-name mirror/kong --region ap-south-1
 aws ecr create-repository --repository-name mirror/konga --region ap-south-1
 aws ecr create-repository --repository-name mirror/cp-kafka --region ap-south-1
 aws ecr create-repository --repository-name mirror/fluentd --region ap-south-1
+aws ecr create-repository --repository-name mirror/curl --region ap-south-1
 ```
 
 ---
@@ -56,6 +57,14 @@ docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/cp-kafka:7.6.0
 docker pull fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1
 docker tag fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1
 docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1
+```
+
+### Curl (Kibana Init Job)
+
+```bash
+docker pull curlimages/curl:8.7.1
+docker tag curlimages/curl:8.7.1 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
 ```
 
 ---
@@ -107,6 +116,17 @@ image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/cp-kafka:7.6.0
 image: fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1
 # To:
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1
+```
+
+### Curl (Kibana Init Job)
+
+**File:** `kubernetes/logging/kibana/init-job.yaml`
+
+```yaml
+# Change:
+image: curlimages/curl:8.7.1
+# To:
+image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
 ```
 
 ---
@@ -171,6 +191,9 @@ docker pull confluentinc/cp-kafka:7.6.0 && docker tag confluentinc/cp-kafka:7.6.
 
 # Fluentd
 docker pull fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1 && docker tag fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1
+
+# Curl
+docker pull curlimages/curl:8.7.1 && docker tag curlimages/curl:8.7.1 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
 ```
 
 ---

@@ -9,7 +9,7 @@ spec:
       restartPolicy: OnFailure
       containers:
         - name: kafka-topics
-          image: public.ecr.aws/confluent-docker-hub/confluentinc/cp-kafka:7.6.0
+          image: confluentinc/cp-kafka:7.6.0
           resources:
             requests:
               cpu: 100m

@@ -25,7 +25,7 @@ spec:
         workload: stateful
       containers:
         - name: kafka
-          image: public.ecr.aws/confluent-docker-hub/confluentinc/cp-kafka:7.6.0
+          image: confluentinc/cp-kafka:7.6.0
           ports:
             - containerPort: 9092
               name: kafka

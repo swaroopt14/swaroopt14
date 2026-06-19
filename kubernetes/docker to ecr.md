@@ -26,6 +26,8 @@ aws ecr create-repository --repository-name mirror/prometheus --region ap-south-
 aws ecr create-repository --repository-name mirror/node-exporter --region ap-south-1
 aws ecr create-repository --repository-name mirror/postgres-exporter --region ap-south-1
 aws ecr create-repository --repository-name mirror/kafka-exporter --region ap-south-1
+aws ecr create-repository --repository-name mirror/jaeger --region ap-south-1
+aws ecr create-repository --repository-name mirror/otel-collector --region ap-south-1
 ```
 
 ---
@@ -110,6 +112,22 @@ docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/postgres-export
 docker pull danielqsj/kafka-exporter:v1.7.0
 docker tag danielqsj/kafka-exporter:v1.7.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
 docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
+```
+
+### Jaeger
+
+```bash
+docker pull jaegertracing/all-in-one:1.55
+docker tag jaegertracing/all-in-one:1.55 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/jaeger:1.55
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/jaeger:1.55
+```
+
+### OTel Collector
+
+```bash
+docker pull otel/opentelemetry-collector-contrib:0.96.0
+docker tag otel/opentelemetry-collector-contrib:0.96.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/otel-collector:0.96.0
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/otel-collector:0.96.0
 ```
 
 ---
@@ -229,6 +247,28 @@ image: danielqsj/kafka-exporter:v1.7.0
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
 ```
 
+### Jaeger
+
+**File:** `kubernetes/tracing/jaeger/deployment.yaml`
+
+```yaml
+# Change:
+image: jaegertracing/all-in-one:1.55
+# To:
+image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/jaeger:1.55
+```
+
+### OTel Collector
+
+**File:** `kubernetes/tracing/otel-collector/deployment.yaml`
+
+```yaml
+# Change:
+image: otel/opentelemetry-collector-contrib:0.96.0
+# To:
+image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/otel-collector:0.96.0
+```
+
 ---
 
 ## Images NOT from Docker Hub (no mirroring needed)
@@ -243,8 +283,6 @@ These images are from registries that have no rate limits:
 | Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:8.13.0` | Elastic registry (no limit) |
 | Kibana | `docker.elastic.co/kibana/kibana:8.13.0` | Elastic registry (no limit) |
 | kube-state-metrics | `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.12.0` | K8s registry (no limit) |
-| OTel Collector | `otel/opentelemetry-collector-contrib:0.96.0` | Docker Hub (low pull frequency) |
-| Jaeger | `jaegertracing/all-in-one:1.55` | Docker Hub (low pull frequency) |
 
 ---
 
@@ -296,6 +334,12 @@ docker pull prometheuscommunity/postgres-exporter:v0.15.0 && docker tag promethe
 
 # Kafka Exporter
 docker pull danielqsj/kafka-exporter:v1.7.0 && docker tag danielqsj/kafka-exporter:v1.7.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
+
+# Jaeger
+docker pull jaegertracing/all-in-one:1.55 && docker tag jaegertracing/all-in-one:1.55 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/jaeger:1.55 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/jaeger:1.55
+
+# OTel Collector
+docker pull otel/opentelemetry-collector-contrib:0.96.0 && docker tag otel/opentelemetry-collector-contrib:0.96.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/otel-collector:0.96.0 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/otel-collector:0.96.0
 ```
 
 ---

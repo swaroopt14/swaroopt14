@@ -262,6 +262,28 @@ docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-console:v3
 
 Note: Jenkins automates this step in CI/CD.
 
+### 5.3 Mirror Third-Party Images to ECR (One-Time)
+
+These are infrastructure images (Kafka, Kong, Fluentd, etc.) that must be in YOUR ECR to avoid Docker Hub rate limits. Run once before first deploy:
+
+```bash
+# Create mirror repos
+for img in kong konga cp-kafka fluentd; do
+  aws ecr create-repository --repository-name mirror/$img --region ap-south-1 2>/dev/null
+done
+
+# Pull from Docker Hub → Push to your ECR
+docker pull kong:3.9 && docker tag kong:3.9 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kong:3.9 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kong:3.9
+
+docker pull pantsel/konga:0.14.9 && docker tag pantsel/konga:0.14.9 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/konga:0.14.9 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/konga:0.14.9
+
+docker pull confluentinc/cp-kafka:7.6.0 && docker tag confluentinc/cp-kafka:7.6.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/cp-kafka:7.6.0 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/cp-kafka:7.6.0
+
+docker pull fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1 && docker tag fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1
+```
+
+> **NOTE:** Manifest files already point to these ECR mirrors. You only need to run this if the mirror repos are empty (first time or after deleting ECR repos). See `kubernetes/docker to ecr.md` for full details.
+
 ---
 
 ## Step 6: Update Manual Values (One-Time Only)

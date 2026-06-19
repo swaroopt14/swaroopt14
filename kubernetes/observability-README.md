@@ -114,7 +114,7 @@ kubectl get ingress -n tracing
 |------|-----|----------------|-------------|
 | **Grafana** | `https://grafana.zordnet.com` | Yes | admin / zord-grafana-2026 (from `monitoring/grafana/secret.yaml`) |
 | **Kibana** | `https://kibana.zordnet.com` | Yes | elastic / Arealiszord@2026 (from `logging/elasticsearch/credentials-secret.yaml`) |
-| **Jaeger** | `https://jaeger.zordnet.com` | No | Open access (no auth proxy) |
+| **Jaeger** | `https://jaeger.zordnet.com` | Yes | elastic / Arealiszord@2026 (from `tracing/jaeger/credentials-secret.yaml`) |
 
 **To change Grafana password:** Edit `monitoring/grafana/secret.yaml` → redeploy → restart Grafana pod.
 **To change Kibana password:** Edit `logging/elasticsearch/credentials-secret.yaml` → redeploy → restart ES, Kibana, Fluentd pods.
@@ -171,8 +171,9 @@ Copy the ALB DNS name and create these DNS records:
 
 - **OTel Collector** receives traces via OTLP (gRPC:4317, HTTP:4318)
 - Batches and forwards to Jaeger
+- **SpanMetrics connector** generates RED metrics (request rate, error rate, duration) from traces → exported to Prometheus → enables Jaeger Monitor tab
 - **Jaeger** stores traces in Badger (10Gi persistent storage)
-- Open access (no login required) — protected by subdomain only
+- Login required: `elastic` / `Arealiszord@2026` (nginx basic auth sidecar)
 - **Important:** Services must use gRPC endpoint format: `host:4317` (not `http://host:4318`)
 - The `OTEL_EXPORTER_OTLP_ENDPOINT` in `zord-aws-config` ConfigMap is set to: `otel-collector.tracing.svc.cluster.local:4317`
 
@@ -225,7 +226,7 @@ Services send traces via the `OTEL_EXPORTER_OTLP_ENDPOINT` env var (gRPC format,
 |------|-------------|-------------|
 | **Grafana** | Built-in login | Grafana has its own user management. Credentials from K8s Secret (`monitoring/grafana/secret.yaml`). |
 | **Kibana** | Elasticsearch X-Pack (Basic Auth) | Login with `elastic` / `Arealiszord@2026`. Credentials from K8s Secret (`logging/elasticsearch/credentials-secret.yaml`). |
-| **Jaeger** | No auth (open access) | Direct access to Jaeger UI. Protected by subdomain only. |
+| **Jaeger** | Nginx Basic Auth sidecar | Reverse proxy in front of Jaeger UI. Credentials from K8s Secret (`tracing/jaeger/credentials-secret.yaml`). |
 
 ---
 
@@ -417,7 +418,7 @@ kubectl delete ns zord api-gateway monitoring logging tracing argocd --ignore-no
 
 - Grafana requires login (admin credentials from K8s Secret)
 - Kibana requires login (elastic / Arealiszord@2026 — X-Pack security enabled)
-- Jaeger is open access — protected by subdomain only (team members know the URL)
+- Jaeger requires login (elastic / Arealiszord@2026 — nginx basic auth sidecar)
 - Observability ALB is separate from the main app ALB
 - Prometheus admin API is not exposed externally
 - Elasticsearch is only accessible within the cluster (Kibana proxies to it)

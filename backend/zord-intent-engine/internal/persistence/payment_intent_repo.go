@@ -256,6 +256,7 @@ INSERT INTO outbox (
     next_attempt_at,
     created_at,
 	batchid,
+	source_row_num,
     aggregate_confidence_score, -- NEW
     required_fields_status,
     tokenization_status,
@@ -268,7 +269,7 @@ INSERT INTO outbox (
     $20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
     $30,$31,$32,$33,$34,$35,$36,$37,$38,$39,
     $40,$41,$42,$43,$44,$45,$46,$47,$48,$49,
-    $50,$51,$52,$53, $54, $55, $56, $57, $58, $59 -- UPDATED
+    $50,$51,$52,$53,$54,$55,$56,$57,$58,$59,$60
 )`
 
 	outbox.ContractID = intent.ContractID
@@ -329,12 +330,13 @@ INSERT INTO outbox (
 		outbox.NextRetryAt,                // $51
 		outbox.CreatedAt,                  // $52
 		outbox.BatchID,                    // $53  ← matches column: batchid
-		outbox.AggregateConfidenceScore,   // $54 -- NEW
-		outbox.RequiredFieldsStatus,       // $55
-		outbox.TokenizationStatus,         // $56
-		outbox.GovernanceDecision,         // $57
-		outbox.PaymentInstructionReceived, // $58
-		outbox.CanonicalIntentCreated,     // $59
+		outbox.SourceRowNum,               // $54  ← matches column: source_row_num
+		outbox.AggregateConfidenceScore,   // $55 -- NEW
+		outbox.RequiredFieldsStatus,       // $56
+		outbox.TokenizationStatus,         // $57
+		outbox.GovernanceDecision,         // $58
+		outbox.PaymentInstructionReceived, // $59
+		outbox.CanonicalIntentCreated,     // $60
 	)
 	if err != nil {
 		log.Printf("Repo.Save: INSERT outbox failed: %v", err)

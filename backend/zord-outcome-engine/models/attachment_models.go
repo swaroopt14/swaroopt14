@@ -112,6 +112,7 @@ type CanonicalIntent struct {
 	GovernanceState        string          `json:"governance_state" db:"governance_state"`
 	ZordSignatureCarrier   *string         `json:"zord_signature_carrier,omitempty" db:"zord_signature_carrier"`
 	BeneficiaryFingerprint *string         `json:"beneficiary_fingerprint,omitempty" db:"beneficiary_fingerprint"`
+	SourceRowNum           *int            `json:"source_row_num,omitempty" db:"source_row_num"`
 	CreatedAt              time.Time       `json:"created_at" db:"created_at"`
 }
 

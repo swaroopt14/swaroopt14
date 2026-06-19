@@ -50,6 +50,7 @@ func EnsureTables(ctx context.Context) error {
 			governance_state         TEXT NOT NULL,
 			beneficiary_fingerprint  TEXT,
 			zord_signature_carrier   TEXT,
+			source_row_num           INT,
 			created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
 		`CREATE INDEX IF NOT EXISTS canonical_intents_tenant_idx
@@ -752,6 +753,7 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ON orphan_settlement_records(batch_id) WHERE batch_id IS NOT NULL;`,
 
 		// ── Schema migrations (add columns that may be missing on older DBs) ──
+		`ALTER TABLE canonical_intents ADD COLUMN IF NOT EXISTS source_row_num INT;`,
 		`ALTER TABLE canonical_settlement_observations ADD COLUMN IF NOT EXISTS bank_id TEXT;`,
 		`ALTER TABLE outcome_outbox ADD COLUMN IF NOT EXISTS bank_id TEXT;`,
 		`ALTER TABLE attachment_decisions ALTER COLUMN settlement_observation_id DROP NOT NULL;`,

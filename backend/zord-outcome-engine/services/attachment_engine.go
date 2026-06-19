@@ -836,6 +836,7 @@ func loadMasterIntentsByBatchRef(
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state,
 			beneficiary_fingerprint, zord_signature_carrier,
+			source_row_num,
 			created_at
 		FROM canonical_intents
 		WHERE tenant_id = $1 AND LOWER(client_batch_ref) = LOWER($2)
@@ -860,6 +861,7 @@ func loadMasterIntentsByBatchRef(
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
 			&intent.CanonicalHash, &intent.GovernanceState,
 			&intent.BeneficiaryFingerprint, &intent.ZordSignatureCarrier,
+			&intent.SourceRowNum,
 			&intent.CreatedAt,
 		); err != nil {
 			log.Printf("loadMasterIntentsByBatchRef: scan: %v", err)
@@ -889,6 +891,7 @@ func loadIntentsByClientPayoutRefs(
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state,
 			beneficiary_fingerprint, zord_signature_carrier,
+			source_row_num,
 			created_at
 		FROM canonical_intents
 		WHERE tenant_id = $1 AND LOWER(client_payout_ref) = ANY($2)
@@ -910,6 +913,7 @@ func loadIntentsByClientPayoutRefs(
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
 			&intent.CanonicalHash, &intent.GovernanceState,
 			&intent.BeneficiaryFingerprint, &intent.ZordSignatureCarrier,
+			&intent.SourceRowNum,
 			&intent.CreatedAt,
 		); err != nil {
 			log.Printf("loadIntentsByClientPayoutRefs: scan: %v", err)
@@ -949,6 +953,7 @@ func loadIntentByID(ctx context.Context, tenantID uuid.UUID, intentID uuid.UUID)
 			proof_readiness_score, matchability_score,
 			canonical_hash, governance_state,
 			beneficiary_fingerprint, zord_signature_carrier,
+			source_row_num,
 			created_at
 		FROM canonical_intents
 		WHERE tenant_id = $1 AND intent_id = $2`,
@@ -969,6 +974,7 @@ func loadIntentByID(ctx context.Context, tenantID uuid.UUID, intentID uuid.UUID)
 			&intent.ProofReadinessScore, &intent.MatchabilityScore,
 			&intent.CanonicalHash, &intent.GovernanceState,
 			&intent.BeneficiaryFingerprint, &intent.ZordSignatureCarrier,
+			&intent.SourceRowNum,
 			&intent.CreatedAt,
 		); err != nil {
 			return nil, err

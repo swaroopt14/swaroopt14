@@ -288,6 +288,7 @@ func (s *LLMService) ClassifyQueryIntent(userQuery string, memoryContext string)
 		"- If the current query is a short follow-up and CONVERSATION MEMORY contains payment status, batch status, unmatched value, settlement, proof, evidence, pending, failed, processing, review, uploaded file, or operational facts, classify it as operational_data_query unless the user clearly changes to an unrelated topic.\n" +
 		"- Never classify a short follow-up as out_of_scope only because it does not repeat payment words.\n" +
 		"- Do not classify a follow-up as product_explanation only because it is short or vague.\n\n" +
+		"CONVERSATION MEMORY:\n" + strings.TrimSpace(memoryContext) + "\n\n" +
 		"USER QUERY:\n" + userQuery
 
 	raw, err := s.gemini.Generate(prompt)

@@ -143,9 +143,14 @@ These images are already switched to AWS ECR Public — no rate limits, no actio
 
 ## When to Re-run This Guide
 
+- **Before first fresh deploy** — run all pull+push commands once
 - After deleting entire infrastructure and redeploying from scratch
 - When upgrading image versions (e.g., Kong 3.9 → 4.0)
 - When adding new third-party images
+
+> **NOTE:** The manifest files already point to your ECR mirror images.
+> You only need to run the docker pull/push commands if the ECR repos are empty
+> (first time setup or after deleting ECR repos).
 
 ---
 

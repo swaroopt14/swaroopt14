@@ -601,7 +601,7 @@ type BatchSummaryUpdatedEvent struct {
 	AggregateScore      float64 `json:"aggregate_score"`       // overall batch attachment quality score — primary input for P1
 
 	TotalIntentCount int `json:"total_intent_count"` // total intents in the batch
-	MatchedInentCount int `json:"matched_intent_count"`
+	MatchedIntentCount int `json:"matched_intent_count"`
 	UnresolvedIntentCount int `json:"unresolved_intent_count"`
 	OrphanObservationCount	int `json:"orphan_observation_count"`
 

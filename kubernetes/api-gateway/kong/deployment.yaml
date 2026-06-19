@@ -123,7 +123,7 @@ spec:
       # from the Kubernetes Secret. This avoids hardcoding secrets in Git.
       initContainers:
         - name: inject-jwt-secret
-          image: busybox:1.36
+          image: public.ecr.aws/docker/library/busybox:1.36
           command:
             - sh
             - -c

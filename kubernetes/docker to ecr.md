@@ -21,6 +21,11 @@ aws ecr create-repository --repository-name mirror/konga --region ap-south-1
 aws ecr create-repository --repository-name mirror/cp-kafka --region ap-south-1
 aws ecr create-repository --repository-name mirror/fluentd --region ap-south-1
 aws ecr create-repository --repository-name mirror/curl --region ap-south-1
+aws ecr create-repository --repository-name mirror/grafana --region ap-south-1
+aws ecr create-repository --repository-name mirror/prometheus --region ap-south-1
+aws ecr create-repository --repository-name mirror/node-exporter --region ap-south-1
+aws ecr create-repository --repository-name mirror/postgres-exporter --region ap-south-1
+aws ecr create-repository --repository-name mirror/kafka-exporter --region ap-south-1
 ```
 
 ---
@@ -65,6 +70,46 @@ docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-d
 docker pull curlimages/curl:8.7.1
 docker tag curlimages/curl:8.7.1 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
 docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
+```
+
+### Grafana
+
+```bash
+docker pull grafana/grafana:10.4.0
+docker tag grafana/grafana:10.4.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/grafana:10.4.0
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/grafana:10.4.0
+```
+
+### Prometheus
+
+```bash
+docker pull prom/prometheus:v2.51.0
+docker tag prom/prometheus:v2.51.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/prometheus:v2.51.0
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/prometheus:v2.51.0
+```
+
+### Node Exporter
+
+```bash
+docker pull prom/node-exporter:v1.7.0
+docker tag prom/node-exporter:v1.7.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/node-exporter:v1.7.0
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/node-exporter:v1.7.0
+```
+
+### Postgres Exporter
+
+```bash
+docker pull prometheuscommunity/postgres-exporter:v0.15.0
+docker tag prometheuscommunity/postgres-exporter:v0.15.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/postgres-exporter:v0.15.0
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/postgres-exporter:v0.15.0
+```
+
+### Kafka Exporter
+
+```bash
+docker pull danielqsj/kafka-exporter:v1.7.0
+docker tag danielqsj/kafka-exporter:v1.7.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
 ```
 
 ---
@@ -129,30 +174,72 @@ image: curlimages/curl:8.7.1
 image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
 ```
 
+### Grafana
+
+**File:** `kubernetes/monitoring/grafana/deployment.yaml`
+
+```yaml
+# Change:
+image: grafana/grafana:10.4.0
+# To:
+image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/grafana:10.4.0
+```
+
+### Prometheus
+
+**File:** `kubernetes/monitoring/prometheus/deployment.yaml`
+
+```yaml
+# Change:
+image: prom/prometheus:v2.51.0
+# To:
+image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/prometheus:v2.51.0
+```
+
+### Node Exporter
+
+**File:** `kubernetes/monitoring/node-exporter/daemonset.yaml`
+
+```yaml
+# Change:
+image: prom/node-exporter:v1.7.0
+# To:
+image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/node-exporter:v1.7.0
+```
+
+### Postgres Exporter
+
+**File:** `kubernetes/monitoring/postgres-exporter/deployment.yaml`
+
+```yaml
+# Change:
+image: prometheuscommunity/postgres-exporter:v0.15.0
+# To:
+image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/postgres-exporter:v0.15.0
+```
+
+### Kafka Exporter
+
+**File:** `kubernetes/monitoring/kafka-exporter/deployment.yaml`
+
+```yaml
+# Change:
+image: danielqsj/kafka-exporter:v1.7.0
+# To:
+image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
+```
+
 ---
 
-## Images Already on ECR Public (no mirroring needed)
+## Images NOT from Docker Hub (no mirroring needed)
 
-These images are already switched to AWS ECR Public — no rate limits, no action needed:
+These images are from registries that have no rate limits:
 
 | Component | Image | Source |
 |-----------|-------|--------|
 | Busybox (init containers) | `public.ecr.aws/docker/library/busybox:1.36` | ECR Public |
 | Postgres | `public.ecr.aws/docker/library/postgres:16-alpine` | ECR Public |
 | Redis | `public.ecr.aws/docker/library/redis:7-alpine` | ECR Public |
-| Prometheus | `public.ecr.aws/bitnami/prometheus:2.51.0` | ECR Public |
-| Node Exporter | `public.ecr.aws/bitnami/node-exporter:1.7.0` | ECR Public |
-| Postgres Exporter | `public.ecr.aws/bitnami/postgres-exporter:0.15.0` | ECR Public |
-| Kafka Exporter | `public.ecr.aws/bitnami/kafka-exporter:1.7.0` | ECR Public |
-| Grafana | `public.ecr.aws/docker/library/grafana/grafana:10.4.0` | ECR Public |
-| Curl (init jobs) | `public.ecr.aws/docker/library/curlimages/curl:8.7.1` | ECR Public |
-
----
-
-## Images NOT from Docker Hub (no action needed)
-
-| Component | Image | Source |
-|-----------|-------|--------|
 | Elasticsearch | `docker.elastic.co/elasticsearch/elasticsearch:8.13.0` | Elastic registry (no limit) |
 | Kibana | `docker.elastic.co/kibana/kibana:8.13.0` | Elastic registry (no limit) |
 | kube-state-metrics | `registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.12.0` | K8s registry (no limit) |
@@ -194,6 +281,21 @@ docker pull fluent/fluentd-kubernetes-daemonset:v1.16-debian-elasticsearch8-1 &&
 
 # Curl
 docker pull curlimages/curl:8.7.1 && docker tag curlimages/curl:8.7.1 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/curl:8.7.1
+
+# Grafana
+docker pull grafana/grafana:10.4.0 && docker tag grafana/grafana:10.4.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/grafana:10.4.0 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/grafana:10.4.0
+
+# Prometheus
+docker pull prom/prometheus:v2.51.0 && docker tag prom/prometheus:v2.51.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/prometheus:v2.51.0 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/prometheus:v2.51.0
+
+# Node Exporter
+docker pull prom/node-exporter:v1.7.0 && docker tag prom/node-exporter:v1.7.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/node-exporter:v1.7.0 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/node-exporter:v1.7.0
+
+# Postgres Exporter
+docker pull prometheuscommunity/postgres-exporter:v0.15.0 && docker tag prometheuscommunity/postgres-exporter:v0.15.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/postgres-exporter:v0.15.0 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/postgres-exporter:v0.15.0
+
+# Kafka Exporter
+docker pull danielqsj/kafka-exporter:v1.7.0 && docker tag danielqsj/kafka-exporter:v1.7.0 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0 && docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/kafka-exporter:v1.7.0
 ```
 
 ---

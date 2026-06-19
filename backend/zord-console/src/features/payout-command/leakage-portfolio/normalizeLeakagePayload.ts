@@ -10,7 +10,11 @@ export type PortfolioLeakageViewModel = {
   reversalMinor: number
   ambiguousRiskMinor: number
   riskAdjustedMinor: number
-  /** Value needing review — leakage `unmatched_amount_minor` only. */
+  /** Open financial exception value from API `total_amount_minor` only — null when missing. */
+  openFinancialExceptionValueMinor: number | null
+  /** Exposure amount — leakage `unmatched_amount_minor`. */
+  exposureAmountMinor: number
+  /** @deprecated use exposureAmountMinor */
   valueNeedingReviewMinor: number
   paymentGapRate: number
   leakageFraction: number
@@ -29,6 +33,9 @@ export function toPortfolioLeakageViewModel(leak: LeakageKpiResolved): Portfolio
   const reversalMinor = coerceMinor(leak.reversal_exposure_minor)
   const ambiguousRiskMinor = coerceMinor(leak.ambiguous_value_at_risk_minor)
   const paymentGapRate = leak.leakage_percentage ?? 0
+  const totalAmountRaw = leak.total_amount_minor
+  const openFinancialExceptionValueMinor =
+    totalAmountRaw != null && String(totalAmountRaw).trim() !== '' ? coerceMinor(totalAmountRaw) : null
 
   return {
     totalSettledMinor: coerceMinor(leak.total_observed_settled_amount_minor),
@@ -39,6 +46,8 @@ export function toPortfolioLeakageViewModel(leak: LeakageKpiResolved): Portfolio
     reversalMinor,
     ambiguousRiskMinor,
     riskAdjustedMinor: coerceMinor(leak.risk_adjusted_leakage_minor),
+    openFinancialExceptionValueMinor,
+    exposureAmountMinor: unmatchedMinor,
     valueNeedingReviewMinor: unmatchedMinor,
     paymentGapRate,
     leakageFraction: paymentGapRate,

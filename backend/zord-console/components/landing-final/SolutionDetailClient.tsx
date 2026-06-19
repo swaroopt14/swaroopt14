@@ -53,7 +53,7 @@ export function SolutionDetailClient({ solution }: { solution: SolutionItem }) {
                     Contact sales
                   </a>
                   <Link
-                    href="/signin/tenant"
+                    href="/signin"
                     className="inline-flex items-center justify-center rounded-full border border-white/12 bg-white/[0.04] px-7 py-4 text-[15px] font-semibold text-white transition hover:bg-white/[0.08]"
                   >
                     Sign in

@@ -7,11 +7,15 @@ import type { DefensibilityKpiResolved } from '@/services/payout-command/prod-ap
 import { toPortfolioLeakageViewModel, type PortfolioLeakageViewModel } from '../normalizeLeakagePayload'
 
 export function usePortfolioLeakageData(tenantReady: boolean, batchId?: string) {
-  const { leakage, ambiguity, defensibility, loading, lastFetchedAt, refresh } = useIntelligenceKpis({ tenantReady, batchId })
+  const { leakage, ambiguity, defensibility, patterns, loading, lastFetchedAt, refresh } = useIntelligenceKpis({
+    tenantReady,
+    batchId,
+  })
 
   const leak = isDataAvailable(leakage) ? leakage : null
   const amb = isDataAvailable(ambiguity) ? ambiguity : null
   const def = isDataAvailable(defensibility) ? defensibility : null
+  const pat = isDataAvailable(patterns) ? patterns : null
 
   const viewModel: PortfolioLeakageViewModel | null = useMemo(() => {
     if (!leak) return null
@@ -22,6 +26,7 @@ export function usePortfolioLeakageData(tenantReady: boolean, batchId?: string) 
     viewModel,
     leak,
     ambiguity: amb,
+    patterns: pat,
     defensibility: def as DefensibilityKpiResolved | null,
     loading,
     lastFetchedAt,

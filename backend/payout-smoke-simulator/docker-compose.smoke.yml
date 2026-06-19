@@ -12,5 +12,6 @@ services:
       SMOKE_API_KEY: "${SMOKE_API_KEY:-smoke-local-api-key}"
       # Artificial latency (ms) on heavy list routes — set 0 to disable
       SMOKE_LATENCY_MS: "${SMOKE_LATENCY_MS:-120}"
-      SMOKE_BATCH_COUNT: "${SMOKE_BATCH_COUNT:-10}"
+      SMOKE_DEMO_DAY_COUNT: "${SMOKE_DEMO_DAY_COUNT:-30}"
+      SMOKE_BATCH_COUNT: "${SMOKE_BATCH_COUNT:-30}"
     restart: unless-stopped

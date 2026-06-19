@@ -3,6 +3,7 @@
 import { FormEvent, Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import { login, hydrateSession } from '@/services/auth'
 import { persistEnvMode } from '@/services/auth/persistEnvMode'
 import { SignInShell } from './_components/SignInShell'
 
@@ -24,8 +25,8 @@ function SignInFormFallback() {
 function SignInForm() {
   const router = useRouter()
   const params = useSearchParams()
-  const next = params.get('next') || '/payout-command-view'
-  const sandboxDefault = params.get('sandbox') !== '0'
+  const next = params.get('next') || '/payout-command-view/today'
+  const sandboxDefault = params.get('sandbox') === '1'
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -39,22 +40,20 @@ function SignInForm() {
     setError(null)
     setLoading(true)
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          password,
-          workspace_id: '',
-          login_surface: 'customer',
-        }),
+      await login({
+        workspaceId: '',
+        email: email.trim().toLowerCase(),
+        password,
+        loginSurface: 'customer',
       })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setError(data?.message ?? 'Unable to sign in right now.')
+
+      const user = await hydrateSession()
+      if (!user) {
+        setError('Signed in but session could not be restored. Refresh and try again.')
         setLoading(false)
         return
       }
+
       if (openInSandbox) {
         persistEnvMode('sandbox')
         router.push('/sandbox')
@@ -63,8 +62,9 @@ function SignInForm() {
         router.push(next)
       }
       router.refresh()
-    } catch {
-      setError('Network error. Try again.')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to sign in right now.'
+      setError(message)
       setLoading(false)
     }
   }
@@ -78,7 +78,9 @@ function SignInForm() {
         </div>
 
         <h1 className="text-[28px] font-semibold tracking-[-0.02em] text-[#0f172a]">Welcome back</h1>
-        <p className="mt-1.5 text-[14px] leading-relaxed text-[#64748b]">Sign in to access your tenant dashboard.</p>
+        <p className="mt-1.5 text-[14px] leading-relaxed text-[#64748b]">
+          Sign in to your live workspace — payout command opens after login.
+        </p>
 
         <form onSubmit={handleSubmit} className="mt-7 space-y-4">
           <label className="block">
@@ -136,8 +138,8 @@ function SignInForm() {
               className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#0f172a] focus:ring-[#0f172a]"
             />
             <span className="text-[13px] leading-snug text-[#475569]">
-              <span className="font-semibold text-[#0f172a]">Open in sandbox</span> — safe test workspace first. Turn off
-              to go straight to the live payout command view after sign-in.
+              <span className="font-semibold text-[#0f172a]">Open in sandbox</span> — optional safe test workspace instead
+              of live payout command.
             </span>
           </label>
 
@@ -175,13 +177,6 @@ function SignInForm() {
         >
           Create a new workspace
         </Link>
-
-        <p className="mt-5 text-center text-[13px] text-[#64748b]">
-          Production tenant?{' '}
-          <Link href="/signin/tenant" className="font-semibold text-[#0f172a] underline-offset-2 hover:underline">
-            Sign in to live
-          </Link>
-        </p>
 
         <p className="mt-8 text-center text-[12px] text-[#94a3b8]">
           By signing in you agree to our{' '}

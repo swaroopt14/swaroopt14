@@ -12,17 +12,22 @@ import {
   buildPaymentIntents,
   buildSettlementErrors,
   defensibilityKpi,
+  evidencePackDetail,
+  evidencePackVerify,
   evidencePacksList,
   intentsListPage,
   leakageExposureTimeseries,
   leakageKpi,
   lineageGraph,
   notFound,
+  operationsSummary,
+  exceptionsSummary,
   patternDetail,
   patternHistory,
   recommendationDetail,
   recommendationsDashboard,
   patternsDashboard,
+  sessionStatus,
   settlementObservationsRoute,
   syncStatus,
 } from './fixtures.js'
@@ -86,6 +91,12 @@ export async function handleRequest(request) {
   if (method === 'GET' && pathname === '/v1/auth/principal') {
     return jsonResponse({ tenant_id: TENANT_ID, principal_type: 'smoke' })
   }
+  if (method === 'GET' && pathname === '/v1/session/status') {
+    return jsonResponse(sessionStatus())
+  }
+  if (method === 'POST' && pathname === '/v1/session/refresh') {
+    return jsonResponse(authEnvelope())
+  }
 
   // ── zord-intent-engine ───────────────────────────────────────────────────
   if (method === 'GET' && pathname === '/api/prod/intents/batch-ids') {
@@ -124,13 +135,20 @@ export async function handleRequest(request) {
   }
 
   // ── zord-intelligence ──────────────────────────────────────────────────────
+  if (method === 'GET' && pathname === '/v1/operations/summary') {
+    return jsonResponse(operationsSummary())
+  }
+  if (method === 'GET' && pathname === '/v1/exceptions/summary') {
+    return jsonResponse(exceptionsSummary())
+  }
   if (method === 'GET' && pathname === '/v1/intelligence/dashboard/leakage') {
     const fromDate = url.searchParams.get('from_date')?.trim() || undefined
     const toDate = url.searchParams.get('to_date')?.trim() || undefined
     return jsonResponse(leakageKpi(fromDate, toDate))
   }
   if (method === 'GET' && pathname === '/v1/intelligence/timeseries/leakage-exposure') {
-    return jsonResponse(leakageExposureTimeseries())
+    const granularity = url.searchParams.get('granularity')?.trim() || 'day'
+    return jsonResponse(leakageExposureTimeseries(granularity))
   }
   if (method === 'GET' && pathname === '/v1/intelligence/dashboard/ambiguity') {
     return jsonResponse(ambiguityKpi())
@@ -201,25 +219,11 @@ export async function handleRequest(request) {
   }
   if (method === 'POST' && pathname.match(/^\/v1\/evidence\/packs\/[^/]+\/verify$/)) {
     const packId = batchIdFromPath(pathname, 2)
-    return jsonResponse({
-      status: 'VERIFIED',
-      evidence_pack_id: packId,
-      checked_at: new Date().toISOString(),
-      stored_root: 'c'.repeat(64),
-      computed_root: 'c'.repeat(64),
-      explanation: 'Merkle root reproduced from smoke fixture.',
-    })
+    return jsonResponse(evidencePackVerify(packId))
   }
   if (method === 'GET' && pathname.match(/^\/v1\/evidence\/packs\/[^/]+$/) && !pathname.endsWith('/export')) {
     const packId = pathname.split('/').pop()
-    return jsonResponse({
-      evidence_pack_id: packId,
-      tenant_id: TENANT_ID,
-      pack_status: 'READY',
-      merkle_root: 'd'.repeat(64),
-      mode: 'BATCH_PROOF',
-      leaves: [],
-    })
+    return jsonResponse(evidencePackDetail(packId))
   }
 
   // ── connectors / edge misc ─────────────────────────────────────────────────

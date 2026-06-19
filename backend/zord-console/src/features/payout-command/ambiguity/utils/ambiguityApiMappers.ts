@@ -108,17 +108,27 @@ export function getMatchingSummary(
   return null
 }
 
+export function batchMatchPctDisplay(b: IntelligenceBatchRow): string {
+  if (b.match_confidence_pct != null && String(b.match_confidence_pct).trim() !== '') {
+    return String(b.match_confidence_pct).trim()
+  }
+  return '—'
+}
+
+/** @deprecated use batchMatchPctDisplay — no client-side ratio math */
 export function batchMatchPct(b: IntelligenceBatchRow): number | null {
   if (b.match_confidence_pct != null && Number.isFinite(b.match_confidence_pct)) {
-    return Math.round(b.match_confidence_pct)
+    return b.match_confidence_pct
   }
-  if (b.total_count <= 0) return null
-  return Math.round((b.success_count / b.total_count) * 100)
+  return null
 }
 
 export function batchDisplayValue(b: IntelligenceBatchRow): string {
-  if (b.value_at_risk_minor != null && b.value_at_risk_minor !== '') {
+  if (b.value_at_risk_minor != null && String(b.value_at_risk_minor).trim() !== '') {
     return formatAmbiguityInr(b.value_at_risk_minor)
+  }
+  if (b.total_intended_amount_minor != null && String(b.total_intended_amount_minor).trim() !== '') {
+    return formatAmbiguityInr(b.total_intended_amount_minor)
   }
   return '—'
 }

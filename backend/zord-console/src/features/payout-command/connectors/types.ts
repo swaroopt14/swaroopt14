@@ -83,9 +83,9 @@ export type LeakageCompositionSlice = {
 
 /** Raw leakage / recommendation totals from intelligence APIs (no connector allocation). */
 export type RoutingApiTotals = {
-  totalIntendedMinor: number
-  moneyAtRiskMinor: number
-  preventableLeakageMinor: number
+  totalIntendedMinor: number | null
+  moneyAtRiskMinor: number | null
+  preventableLeakageMinor: number | null
 }
 
 export type RoutingKpiSnapshot = {

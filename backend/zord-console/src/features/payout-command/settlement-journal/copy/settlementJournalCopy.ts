@@ -50,6 +50,8 @@ export const settlementJournalCopy = {
     withClientRef: 'Records with client reference',
     unmatchedSettlementValue: 'Unmatched settlement value',
     unmatchedSettlementValueSub: 'Settlement value not linked to a payment instruction',
+    orphanAmount: 'Orphan amount',
+    orphanAmountSub: 'Settlement value with no matching payment instruction',
     matchConfidence: 'Match confidence',
     missingRefRate: 'Missing reference rate',
     bankRefCoverageSub: 'From intelligence reference coverage',

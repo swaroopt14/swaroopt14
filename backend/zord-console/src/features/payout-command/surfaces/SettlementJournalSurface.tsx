@@ -418,7 +418,6 @@ function SettlementJournalSurfaceContent({
     parseErrorTotalLoading: parseErrorTotalLoading || parseErrorsLoading,
     filteredCount,
     tableTotal,
-    observationTotal,
     filtersActive,
     serverPagination,
     paginationStart: serverPagination ? paginationRange.start : filteredCount === 0 ? 0 : (safePage - 1) * rowsPerPage + 1,

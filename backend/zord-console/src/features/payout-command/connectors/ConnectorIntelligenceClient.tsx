@@ -22,6 +22,7 @@ import { JournalIntelligenceKpiHero } from '@/features/payout-command/command-ce
 import { EntityLogo } from '@/features/payout-command/entity-logo'
 import { fmtInrFromMinorExact } from '../command-center/commandCenterFormat'
 import { ClientChart } from '../shared'
+import { KPI_UNAVAILABLE } from '../shared/formatKpiDisplay'
 import { connectorsCopy } from './copy/connectorsCopy'
 import { getRoutingIntelligenceAdapter } from './routingDataAdapter'
 import { rankRoutes } from './scoring'
@@ -63,20 +64,14 @@ function confidenceTone(confidence: RecommendationConfidence): string {
 }
 
 function buildKpis(snapshot: RoutingKpiSnapshot) {
-  const totalVolumeMinor =
-    snapshot.apiTotals?.totalIntendedMinor ??
-    snapshot.connectors.reduce((sum, row) => sum + row.volumeMinor, 0)
-  const weightedSuccessSum = snapshot.connectors.reduce((sum, row) => sum + row.successPct * row.volumeMinor, 0)
-  const weightedSuccessRate = totalVolumeMinor > 0 ? weightedSuccessSum / totalVolumeMinor : 0
-  const successRate = snapshot.patternsDecisionSuccessRate ?? weightedSuccessRate
-  const successRateFromPatterns = snapshot.patternsDecisionSuccessRate != null
-  const moneyAtRiskMinor =
-    snapshot.apiTotals?.moneyAtRiskMinor ??
-    snapshot.connectors.reduce((sum, row) => sum + row.moneyAtRiskMinor, 0)
-  const preventableLeakageMinor =
-    snapshot.apiTotals?.preventableLeakageMinor ??
-    snapshot.connectors.reduce((sum, row) => sum + row.preventableLeakageMinor, 0)
-  const preventablePct = totalVolumeMinor > 0 ? (preventableLeakageMinor / totalVolumeMinor) * 100 : 0
+  const totalVolumeMinor = snapshot.apiTotals?.totalIntendedMinor ?? null
+  const successRate = snapshot.patternsDecisionSuccessRate ?? null
+  const moneyAtRiskMinor = snapshot.apiTotals?.moneyAtRiskMinor ?? null
+  const preventableLeakageMinor = snapshot.apiTotals?.preventableLeakageMinor ?? null
+  const preventablePct =
+    totalVolumeMinor != null && totalVolumeMinor > 0 && preventableLeakageMinor != null
+      ? (preventableLeakageMinor / totalVolumeMinor) * 100
+      : null
   const degradedRoutes = snapshot.connectors.filter((row) =>
     row.status === 'Degraded' || row.status === 'Risk' || row.status === 'Load',
   ).length
@@ -84,7 +79,7 @@ function buildKpis(snapshot: RoutingKpiSnapshot) {
   return {
     totalVolumeMinor,
     successRate,
-    successRateFromPatterns,
+    successRateFromPatterns: snapshot.patternsDecisionSuccessRate != null,
     moneyAtRiskMinor,
     preventableLeakageMinor,
     preventablePct,
@@ -100,7 +95,6 @@ function buildImpactSeries(snapshot: RoutingKpiSnapshot) {
       id: action.id,
       action: action.title.length > 26 ? `${action.title.slice(0, 26)}…` : action.title,
       currentMinor: action.impactMinor,
-      preventableMinor: action.preventableMinor ?? 0,
     }))
 }
 
@@ -223,7 +217,7 @@ export default function ConnectorIntelligenceClient() {
     },
     {
       label: connectorsCopy.kpi.successRate,
-      value: `${kpis.successRate.toFixed(1)}%`,
+      value: kpis.successRate != null ? `${kpis.successRate.toFixed(1)}%` : KPI_UNAVAILABLE,
       sub: kpis.successRateFromPatterns
         ? connectorsCopy.kpi.successRatePatternsSub
         : connectorsCopy.kpi.successRateSub,
@@ -236,7 +230,10 @@ export default function ConnectorIntelligenceClient() {
     {
       label: connectorsCopy.kpi.preventableLeakage,
       value: fmtInrFromMinorExact(kpis.preventableLeakageMinor),
-      sub: connectorsCopy.kpi.preventableLeakageSub(kpis.preventablePct.toFixed(1)),
+      sub:
+        kpis.preventablePct != null
+          ? connectorsCopy.kpi.preventableLeakageSub(kpis.preventablePct.toFixed(1))
+          : connectorsCopy.kpi.preventableLeakageSub(KPI_UNAVAILABLE),
     },
     {
       label: connectorsCopy.kpi.activeConnectors,
@@ -277,7 +274,9 @@ export default function ConnectorIntelligenceClient() {
         <JournalIntelligenceKpiHero
           eyebrow={connectorsCopy.overview.eyebrow}
           value={fmtInrFromMinorExact(kpis.totalVolumeMinor)}
-          deltaPill={`Success ${kpis.successRate.toFixed(1)}%`}
+          deltaPill={
+            kpis.successRate != null ? `Success ${kpis.successRate.toFixed(1)}%` : `Success ${KPI_UNAVAILABLE}`
+          }
           subcopy={connectorsCopy.overview.subcopy(
             windowLabel,
             fmtInrFromMinorExact(kpis.moneyAtRiskMinor),
@@ -521,7 +520,6 @@ export default function ConnectorIntelligenceClient() {
               <Tooltip formatter={(value: number) => fmtInrFromMinorExact(value)} />
               <Legend />
               <Bar dataKey="currentMinor" fill="#94a3b8" name="Current leakage exposure" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="preventableMinor" fill="#0f172a" name="Preventable leakage" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
           </ClientChart>

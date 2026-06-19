@@ -30,6 +30,7 @@ export type ResolvedSettlementIntelligenceKpis = {
   settlementValueMatched: number | null
   varianceAmount: number | null
   unmatchedSettlementValue: number | null
+  orphanAmount: number | null
   matchConfidence: number | null
   missingReferenceRate: string | null
   bankReferenceCoverage: string | null
@@ -61,6 +62,7 @@ export function resolveSettlementIntelligenceKpis(
     parseApiAmount(health?.total_variance_minor)
 
   const unmatchedSettlementValue = parseApiAmount(batchContract?.unmatch_amount)
+  const orphanAmount = parseApiAmount(batchContract?.orphan_amount)
 
   const matchConfidence = parseMatchConfidence(batchContract?.match_confidence)
 
@@ -77,6 +79,7 @@ export function resolveSettlementIntelligenceKpis(
     settlementValueMatched,
     varianceAmount,
     unmatchedSettlementValue,
+    orphanAmount,
     matchConfidence,
     missingReferenceRate,
     bankReferenceCoverage: batchContract?.bank_reference_coverage ?? null,

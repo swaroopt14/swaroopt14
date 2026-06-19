@@ -1,15 +1,12 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { LiveDataHint } from '../shared'
-import { LeakageActionBar } from '../leakage/components/LeakageActionBar'
 import { LeakageKpiStrip } from '../leakage/components/LeakageKpiStrip'
 import { ReviewWatchlist } from '../leakage/components/ReviewWatchlist'
 import { usePortfolioLeakageData } from './hooks/usePortfolioLeakageData'
-import { mergeBatchHealthWithTenantLeakage } from '@/services/payout-command/prod-api/mapBatchHealthKpis'
-import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
 import { PortfolioHeader } from './components/PortfolioHeader'
 import { RiskAdjustedLeakageCard } from './components/RiskAdjustedLeakageCard'
 import { AllocationPerformanceCard } from './components/AllocationPerformanceCard'
@@ -30,13 +27,10 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
   const handleSelectBatch = useBatchSelectWithUrl('leakage', setSelectedBatchId)
 
-  const { batchHealth, loading: batchHealthLoading } = useIntelligenceBatchHealth(
+  const { viewModel, defensibility, loading, refresh } = usePortfolioLeakageData(
     tenantReady,
     selectedBatchId,
   )
-
-  const { viewModel, ambiguity, defensibility, loading, refresh, leak } =
-    usePortfolioLeakageData(tenantReady, selectedBatchId)
 
   const handlePageRefresh = useCallback(async () => {
     await refresh()
@@ -47,7 +41,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
 
   useRegisterPayoutPageActions({
     refresh: tenantReady ? handlePageRefresh : undefined,
-    refreshing: loading || batchHealthLoading,
+    refreshing: loading,
   })
 
   useEffect(() => {
@@ -66,17 +60,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     }
   }, [tenantReady])
 
-  const batchScopedData = useMemo(() => {
-    if (!selectedBatchId || !batchHealth) return null
-    return mergeBatchHealthWithTenantLeakage(
-      batchHealth,
-      selectedBatchId,
-      leak,
-      leak?.tenant_id,
-    )
-  }, [batchHealth, selectedBatchId, leak])
-
-  const displayData = batchScopedData ?? viewModel
+  const displayData = viewModel
   const kpiLoading = loading && !displayData
   const showLiveHint = Boolean(displayData)
 
@@ -106,12 +90,6 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
         </p>
       ) : (
         <>
-          {selectedBatchId && batchScopedData ? (
-            <p className="text-[12px] font-medium text-slate-600">
-              Batch variance projection for <span className="font-mono">{selectedBatchId}</span>
-              {leak ? ' · leakage breakdown from workspace snapshot' : ''}
-            </p>
-          ) : null}
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="lg:col-span-1">
               <LeakageKpiStrip data={displayData} loading={kpiLoading} />

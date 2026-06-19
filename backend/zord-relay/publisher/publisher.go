@@ -16,6 +16,9 @@ type Publisher interface {
 	// PublishDLQItem sends a single DLQItemEvent to its target Kafka topic.
 	PublishDLQItem(ctx context.Context, event *model.DLQItemEvent, topic string) error
 
+	// PublishBatchCompleted sends a single BatchCanonicalizationCompletedEvent to its target Kafka topic.
+	PublishBatchCompleted(ctx context.Context, event *model.BatchCanonicalizationCompletedEvent, topic string) error
+
 	// PublishDLQ sends a DLQMessage to the appropriate DLQ topic.
 	// dlqType must be either DLQTypePublishFailure or DLQTypePoison.
 	PublishDLQ(ctx context.Context, msg *model.DLQMessage, dlqType DLQType) error

@@ -39,6 +39,8 @@ func NewScheduler(
 		var w WorkerRunner
 		if svcCfg.IsDLQ {
 			w = NewDLQWorker(svcCfg, cfg.Relay, pub, log)
+		} else if svcCfg.IsBatch {
+			w = NewBatchWorker(svcCfg, cfg.Relay, pub, log)
 		} else {
 			w = NewWorker(svcCfg, cfg.Relay, pub, log)
 		}
@@ -48,6 +50,7 @@ func NewScheduler(
 			zap.String("base_url", svcCfg.BaseURL),
 			zap.String("default_topic", svcCfg.DefaultTopic),
 			zap.Bool("is_dlq", svcCfg.IsDLQ),
+			zap.Bool("is_batch", svcCfg.IsBatch),
 		)
 	}
 

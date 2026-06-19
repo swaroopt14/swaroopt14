@@ -234,6 +234,61 @@ func (p *KafkaPublisher) PublishDLQItem(ctx context.Context, event *model.DLQIte
 	return nil
 }
 
+func (p *KafkaPublisher) PublishBatchCompleted(ctx context.Context, event *model.BatchCanonicalizationCompletedEvent, topic string) error {
+	ctx, span := p.tracer.Start(ctx, "kafka.publish_batch_completed",
+		trace.WithSpanKind(trace.SpanKindProducer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.destination", topic),
+			attribute.String("batch.id", event.BatchID),
+			attribute.String("tenant.id", event.TenantID),
+		),
+	)
+	defer span.End()
+
+	payload, err := json.Marshal(event)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "batch completed event marshal failed")
+		return poisonError(fmt.Errorf("marshalling batch completed event: %w", err))
+	}
+
+	if len(payload) > 1*1024*1024 {
+		err := poisonError(fmt.Errorf("batch completed event size %d bytes exceeds 1MiB limit", len(payload)))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "message too large")
+		return err
+	}
+
+	headers := []sarama.RecordHeader{
+		{Key: []byte("tenant_id"), Value: []byte(event.TenantID)},
+		{Key: []byte("batch_id"), Value: []byte(event.BatchID)},
+		{Key: []byte("event_type"), Value: []byte("batch.canonicalization.completed.v1")},
+	}
+
+	otel.GetTextMapPropagator().Inject(ctx, otelHeaderCarrier{headers: &headers})
+
+	msg := &sarama.ProducerMessage{
+		Topic:   topic,
+		Key:     sarama.StringEncoder(event.BatchID),
+		Value:   sarama.ByteEncoder(payload),
+		Headers: headers,
+	}
+
+	partition, offset, err := p.producer.SendMessage(msg)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "produce failed")
+		return fmt.Errorf("kafka delivery failed: %w", err)
+	}
+
+	span.SetAttributes(
+		attribute.Int64("messaging.kafka.partition", int64(partition)),
+		attribute.Int64("messaging.kafka.offset", int64(offset)),
+	)
+	return nil
+}
+
 func (p *KafkaPublisher) PublishDLQ(ctx context.Context, msg *model.DLQMessage, dlqType DLQType) error {
 	topic := p.dlqPublishFailure
 	if dlqType == DLQTypePoison {

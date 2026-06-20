@@ -198,13 +198,15 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
         ])
       }
 
-      if (!activeThreadIdRef.current) {
-        setActiveThreadId(crypto.randomUUID())
-      }
+      const threadId = activeThreadIdRef.current ?? crypto.randomUUID()
+if (!activeThreadIdRef.current) {
+  activeThreadIdRef.current = threadId
+  setActiveThreadId(threadId)
+}
 
-      setIsOpen(true)
-      setInput('')
-      setLastUserPrompt(cleaned)
+setIsOpen(true)
+setInput('')
+setLastUserPrompt(cleaned)
 
       const tenantGate = sessionTenantForPromptLayer(tenantId, tenantReady)
       if (!tenantGate.ok) {
@@ -243,7 +245,7 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
           },
           {
             tenantId: tenantGate.tenantId,
-            sessionId: activeThreadIdRef.current ?? crypto.randomUUID(),
+            sessionId: threadId,
             userId,
           },
         )

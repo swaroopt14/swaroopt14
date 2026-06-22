@@ -1700,7 +1700,7 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		return nil
 	}
 	log.Printf(
-		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f match_confidence=%f batch_finality_status=%s original_settled_amount_minor=%s total_intent_count = %d matched_intent_count = %d unresolved_intent_count = %d orphan_observation_count = %d original_intended_amount = %s matched_intended_amount = %s matched_observed_amount = %s unresolved_intended_amount = %s orphan_observed_amount = %s matched_pair_variance = %s net_batch_delta = %f intent_count_coverage = %f intent_value_coverage = %f observed_count_allocation_coverage = %f observed_value_allocation_coverage = %f",
+		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f match_confidence=%f batch_finality_status=%s original_settled_amount_minor=%s total_intent_count = %d matched_intent_count = %d unresolved_intent_count = %d orphan_observation_count = %d exact_match_count = %d high_confidence_count = %d ambiguous_count = %d unresolved_count = %d conflicted_count = %d original_intended_amount = %s matched_intended_amount = %s matched_observed_amount = %s unresolved_intended_amount = %s orphan_observed_amount = %s matched_pair_variance = %s net_batch_delta = %s intent_count_coverage = %f intent_value_coverage = %f observed_count_allocation_coverage = %f observed_value_allocation_coverage = %f",
 		e.TenantID,
 		e.EventID,
 		e.BatchID,
@@ -1725,6 +1725,11 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		e.MatchedIntentCount,
 		e.UnresolvedIntentCount,
 		e.OrphanObservationCount,
+		e.ExactMatchCount,
+		e.HighConfidenceCount,
+		e.AmbiguousCount,
+		e.UnresolvedCount,
+		e.ConflictedCount,
 		e.OriginalIntendedAmount.String(),
 		e.MatchedIntendedAmount.String(),
 		e.MatchedObservedAmount.String(),

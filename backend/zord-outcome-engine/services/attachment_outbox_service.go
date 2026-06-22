@@ -458,7 +458,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 			avg_matched_attachment_quality,
 			matched_intent_count, total_intent_count,
 			matched_pair_variance, net_batch_delta, orphan_observed_amount,
-			unresolved_intended_amount, orphan_observation_count, unresolved_count,
+			unresolved_intended_amount, orphan_observation_count,
+			exact_match_count, high_confidence_count, ambiguous_count, unresolved_count, conflicted_count,
 			intent_count_coverage, intent_value_coverage,
 			observed_count_allocation_coverage, observed_value_allocation_coverage,
 			original_intended_amount, original_settled_amount,
@@ -476,6 +477,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 	var matchedIntentCount, totalIntentCount int
 	var matchedPairVariance, netBatchDelta, orphanObservedAmount, unresolvedIntendedAmount decimal.Decimal
 	var orphanObservationCount, unresolvedIntentCount int
+	var summaryExactMatchCount, summaryHighConfidenceCount, summaryAmbiguousCount, summaryConflictedCount int
 	var intentCountCoverage, intentValueCoverage, observedCountCoverage, observedValueCoverage float64
 	var originalIntendedAmount, matchedIntendedAmount, matchedObservedAmount decimal.Decimal
 	if err := row.Scan(
@@ -484,7 +486,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 		&summaryAmbiguity, &summaryMatchConfidence, &summaryQualityScore,
 		&matchedIntentCount, &totalIntentCount,
 		&matchedPairVariance, &netBatchDelta, &orphanObservedAmount,
-		&unresolvedIntendedAmount, &orphanObservationCount, &unresolvedIntentCount,
+		&unresolvedIntendedAmount, &orphanObservationCount,
+		&summaryExactMatchCount, &summaryHighConfidenceCount, &summaryAmbiguousCount, &unresolvedIntentCount, &summaryConflictedCount,
 		&intentCountCoverage, &intentValueCoverage,
 		&observedCountCoverage, &observedValueCoverage,
 		&originalIntendedAmount, &originalSettledAmount,
@@ -557,6 +560,11 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"partial_recon_count":                0,
 		"total_intent_count":                 totalIntentCount,
 		"matched_intent_count":               matchedIntentCount,
+		"exact_match_count":                  summaryExactMatchCount,
+		"high_confidence_count":              summaryHighConfidenceCount,
+		"ambiguous_count":                    summaryAmbiguousCount,
+		"unresolved_count":                   unresolvedIntentCount,
+		"conflicted_count":                   summaryConflictedCount,
 		"unresolved_intent_count":            unresolvedIntentCount,
 		"orphan_observation_count":           orphanObservationCount,
 		"total_intended_amount_minor":        totalIntendedAmount.String(),

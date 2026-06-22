@@ -267,6 +267,64 @@ kubectl rollout history deploy/zord-edge -n zord
 
 ---
 
+## ⚠️ Delete and Recreate Postgres (DATA LOSS — Full Reset)
+
+> **WARNING:** This deletes ALL data in all 7 databases. Only use when you need a clean slate.
+
+```bash
+# 0. Check if databases exist before deleting
+kubectl exec -it zord-postgres-0 -n zord -- psql -U postgres -c "\l"
+
+# 1. Delete Postgres StatefulSet and its data volume
+kubectl delete statefulset zord-postgres -n zord
+kubectl delete pvc data-zord-postgres-0 -n zord
+
+# 2. Recreate Postgres (bootstrap script recreates all databases)
+kubectl apply -f kubernetes/eks/infrastructure/postgres/statefulset.yaml
+
+# 3. Wait for it to come back
+kubectl get pod zord-postgres-0 -n zord -w
+
+# 4. Restart all services (they need fresh DB connections)
+kubectl rollout restart deployment -n zord
+```
+
+---
+
+## 🔧 Apply Fluentd Logging Fix (No Downtime)
+
+> **What it fixes:** Postgres/Kafka logs not appearing in Kibana because Fluentd wasn't running on the stateful node.
+
+```bash
+# 1. Apply Fluentd DaemonSet fix (tolerates all taints)
+kubectl apply -f kubernetes/logging/fluentd/daemonset.yaml
+
+# 2. Verify new Fluentd pod appears on stateful node
+kubectl get pods -n logging -o wide | grep fluentd
+
+# 3. Apply Postgres log security settings (hides passwords from logs)
+kubectl apply -f kubernetes/eks/infrastructure/postgres/statefulset.yaml
+```
+
+---
+
+## 🔧 Apply Postgres Log Security Fix (Brief Restart ~30s)
+
+> **What it fixes:** Prevents database passwords and sensitive SQL from appearing in Kibana logs.
+
+```bash
+# 1. Apply updated Postgres StatefulSet
+kubectl apply -f kubernetes/eks/infrastructure/postgres/statefulset.yaml
+
+# 2. Watch pod restart
+kubectl get pod zord-postgres-0 -n zord -w
+
+# 3. Verify logs in Kibana (filter: pod: "zord-postgres-0")
+# No passwords should be visible
+```
+
+---
+
 ## Troubleshooting
 
 ### Pod stuck in CrashLoopBackOff

@@ -116,6 +116,12 @@ export default function PayoutCommandViewClient({
         setActiveTab('Today')
         workspace.resetForTab('Today')
       }
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search)
+        params.set('dock', id)
+        const newUrl = `${window.location.pathname}?${params.toString()}`
+        window.history.pushState(null, '', newUrl)
+      }
     },
     [workspace],
   )

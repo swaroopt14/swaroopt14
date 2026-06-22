@@ -37,11 +37,6 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
       sub: deltas.ambiguousIntents ?? 'Payments needing match review',
     },
     {
-      label: 'Ambiguity rate',
-      value: ambiguityRateLabel,
-      sub: deltas.ambiguityRate ?? 'Share of intents requiring review',
-    },
-    {
       label: 'Missing ref rate',
       value: displayApiField(amb?.provider_ref_missing_rate),
       sub: deltas.missingRefRate ?? 'Missing bank or PSP references',

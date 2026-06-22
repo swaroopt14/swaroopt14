@@ -35,6 +35,7 @@ function isLoginPath(pathname: string) {
   return (
     pathname === '/signin' ||
     pathname === '/signup' ||
+    pathname === '/register' ||
     pathname === '/console/login' ||
     pathname === '/customer/login' ||
     pathname === '/ops/login' ||

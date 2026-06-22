@@ -18,11 +18,11 @@ import {
   listEvidencePacksForBatch,
 } from '@/services/payout-command/prod-api/listEvidencePacksForBatch'
 import { useIntelligenceBatchHealth } from '@/services/payout-command/prod-api/useIntelligenceBatchHealth'
+import { getIntentJournalPaymentIntentsForSession } from '@/services/payout-command/prod-api/intentJournalApi'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
 import { EvidencePageTabs } from './components/EvidencePageTabs'
 import { EvidenceHeroBanner } from './components/EvidenceHeroBanner'
 import { EvidenceKpiStrip } from './components/EvidenceKpiStrip'
-import { ProofBreakdownSection } from './components/ProofBreakdownSection'
 import { EvidencePackBrowser } from './components/EvidencePackBrowser'
 import { DisputeResolverPanel } from './components/DisputeResolverPanel'
 import { EvidenceQuickActions } from './components/EvidenceQuickActions'
@@ -30,7 +30,6 @@ import { EvidencePackBreakdownChart } from './components/EvidencePackBreakdownCh
 import { EvidencePackTrendChart } from './components/EvidencePackTrendChart'
 import { mapPackTableRow } from './mappers/mapPackTableRow'
 import { deriveEvidenceKpis } from './selectors/deriveEvidenceKpis'
-import { deriveProofBreakdown } from './selectors/deriveProofBreakdown'
 import { deriveEvidenceAnalytics } from './selectors/deriveEvidenceAnalytics'
 import type { EvidencePageTab } from './types/evidenceViewModels'
 
@@ -58,6 +57,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
   const [packsLoading, setPacksLoading] = useState(false)
   const [defensibility, setDefensibility] = useState<DefensibilityKpiResolved | null>(null)
   const [kpisLoading, setKpisLoading] = useState(false)
+  const [intentTotal, setIntentTotal] = useState<number | null>(null)
 
   const { tenantReady } = useSessionTenant()
   const { batchHealth } = useIntelligenceBatchHealth(tenantReady, batchId || undefined)
@@ -117,6 +117,24 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
       if (cancelled) return
       setDefensibility(isDataAvailable(def) ? def : null)
       setKpisLoading(false)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tenantReady, batchId])
+
+  // Total payment intents in the batch — the "Complete" count for Pack Status Mix.
+  useEffect(() => {
+    const bid = apiTrimmedString(batchId)
+    if (!tenantReady || !bid) {
+      setIntentTotal(null)
+      return
+    }
+    let cancelled = false
+    void getIntentJournalPaymentIntentsForSession(bid).then((res) => {
+      if (cancelled) return
+      const total = res.data?.pagination?.total
+      setIntentTotal(typeof total === 'number' ? total : null)
     })
     return () => {
       cancelled = true
@@ -196,17 +214,10 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
     [defensibility, packRows, batchHealth, batchId],
   )
 
-  const breakdownRows = useMemo(
-    () =>
-      deriveProofBreakdown({
-        defensibility,
-        patterns: null,
-        packCount: packRows.length,
-      }),
-    [defensibility, packRows.length],
+  const analytics = useMemo(
+    () => deriveEvidenceAnalytics(tableRows, intentTotal),
+    [tableRows, intentTotal],
   )
-
-  const analytics = useMemo(() => deriveEvidenceAnalytics(tableRows), [tableRows])
   const batchOptions = useMemo(() => batches.map((b) => ({ batch_id: b.batch_id })), [batches])
 
   const dataLoading = packsLoading || kpisLoading
@@ -237,9 +248,7 @@ export function EvidenceSurface({ initialBatchId }: { initialBatchId?: string } 
             defensibilityTier={defensibility?.defensibility_tier}
           />
 
-          <ProofBreakdownSection rows={breakdownRows} />
-
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid items-start gap-4 lg:grid-cols-2">
             <EvidencePackBreakdownChart
               segments={analytics.segments}
               mixArea={analytics.mixArea}

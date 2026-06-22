@@ -13,8 +13,8 @@ export function parsePositiveInt(value, fallback) {
 /** Rows per batch for intents + settlement observations. */
 export const SMOKE_ROWS_PER_DAY = 15
 
-/** How many rolling demo days to materialize (week/month/quarter filters). */
-export const SMOKE_DEMO_DAY_COUNT = parsePositiveInt(process.env.SMOKE_DEMO_DAY_COUNT, 30)
+/** How many demo batches to expose (default: full calendar year). */
+export const SMOKE_DEMO_DAY_COUNT = parsePositiveInt(process.env.SMOKE_DEMO_DAY_COUNT, 366)
 
 /** Varied intent vs settlement profiles — cycled for rolling windows. */
 const SMOKE_DAY_PROFILES = [
@@ -144,11 +144,6 @@ function isoDateUtc(d) {
   return d.toISOString().slice(0, 10)
 }
 
-function dayChartLabel(iso) {
-  const d = new Date(`${iso}T12:00:00Z`)
-  return d.toLocaleString('en-IN', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
-}
-
 /** Pin fixed Jun 12–21 demo batches so journal/evidence URLs stay stable in smoke. */
 const PINNED_DEMO_DAYS = [
   { date: '2026-06-12', labelSuffix: 'payroll', intentRupees: 55_000, settlementRupees: 44_000, dlqCount: 2, settledRows: 11, pendingRows: 3, failedRows: 1, matchConfidence: 0.72, partner: 'razorpay', finality: 'PARTIALLY_SETTLED' },
@@ -163,44 +158,58 @@ const PINNED_DEMO_DAYS = [
   { date: '2026-06-21', labelSuffix: 'close-out', intentRupees: 76_000, settlementRupees: 68_000, dlqCount: 0, settledRows: 15, pendingRows: 0, failedRows: 0, matchConfidence: 0.89, partner: 'cashfree', finality: 'FULLY_SETTLED' },
 ]
 
-/** Rolling demo days ending today UTC — keeps week/month/quarter filters populated. */
-export function buildSmokeDemoDays() {
-  const total = SMOKE_DEMO_DAY_COUNT
-  const today = new Date()
-  today.setUTCHours(12, 0, 0, 0)
-  const days = []
-  for (let i = 0; i < total; i += 1) {
-    const profile = SMOKE_DAY_PROFILES[i % SMOKE_DAY_PROFILES.length]
-    const cycle = Math.floor(i / SMOKE_DAY_PROFILES.length)
-    const swing = cycle * 4_500 + (i % 3) * 1_200
-    const d = new Date(today)
-    d.setUTCDate(today.getUTCDate() - (total - 1 - i))
-    const date = isoDateUtc(d)
-    days.push({
-      date,
-      label: dayChartLabel(date),
-      intentRupees: profile.intentRupees + swing,
-      settlementRupees: Math.max(28_000, profile.settlementRupees + Math.round(swing * 0.78)),
-      dlqCount: profile.dlqCount,
-      settledRows: profile.settledRows,
-      pendingRows: profile.pendingRows,
-      failedRows: profile.failedRows,
-      matchConfidence: profile.matchConfidence,
-      partner: profile.partner,
-      finality: profile.finality,
-    })
-  }
-  return days
-}
-
 function dayChartLabelFromIso(iso) {
   const d = new Date(`${iso}T12:00:00Z`)
   return d.toLocaleString('en-IN', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })
 }
 
+function smokeDayFromProfile(date, index) {
+  const profile = SMOKE_DAY_PROFILES[index % SMOKE_DAY_PROFILES.length]
+  const cycle = Math.floor(index / SMOKE_DAY_PROFILES.length)
+  const swing = cycle * 4_500 + (index % 3) * 1_200
+  return {
+    date,
+    label: dayChartLabelFromIso(date),
+    intentRupees: profile.intentRupees + swing,
+    settlementRupees: Math.max(28_000, profile.settlementRupees + Math.round(swing * 0.78)),
+    dlqCount: profile.dlqCount,
+    settledRows: profile.settledRows,
+    pendingRows: profile.pendingRows,
+    failedRows: profile.failedRows,
+    matchConfidence: profile.matchConfidence,
+    partner: profile.partner,
+    finality: profile.finality,
+    labelSuffix: profile.labelSuffix,
+  }
+}
+
+/** Every UTC day in the current calendar year — aligns with home chart month/quarter/year tabs. */
+export function buildSmokeCalendarYearDays() {
+  const today = new Date()
+  today.setUTCHours(12, 0, 0, 0)
+  const year = today.getUTCFullYear()
+  const start = Date.UTC(year, 0, 1)
+  const end = Date.UTC(year, 11, 31)
+  const days = []
+  let index = 0
+  for (let t = start; t <= end; t += 86_400_000) {
+    const date = isoDateUtc(new Date(t))
+    days.push(smokeDayFromProfile(date, index))
+    index += 1
+  }
+  return days
+}
+
+/** Rolling last-N days ending today — kept for env override when SMOKE_DEMO_DAY_COUNT < year length. */
+export function buildSmokeDemoDays() {
+  const total = Math.min(SMOKE_DEMO_DAY_COUNT, buildSmokeCalendarYearDays().length)
+  const yearDays = buildSmokeCalendarYearDays()
+  if (total >= yearDays.length) return yearDays
+  return yearDays.slice(-total)
+}
+
 export function buildSmokeDemoDaysMerged() {
-  const rolling = buildSmokeDemoDays()
-  const byDate = new Map(rolling.map((d) => [d.date, d]))
+  const byDate = new Map(buildSmokeCalendarYearDays().map((d) => [d.date, d]))
   for (const pinned of PINNED_DEMO_DAYS) {
     byDate.set(pinned.date, {
       date: pinned.date,
@@ -217,7 +226,9 @@ export function buildSmokeDemoDaysMerged() {
       labelSuffix: pinned.labelSuffix,
     })
   }
-  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
+  const merged = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date))
+  const cap = parsePositiveInt(process.env.SMOKE_DEMO_DAY_COUNT, merged.length)
+  return cap >= merged.length ? merged : merged.slice(-cap)
 }
 
 export const SMOKE_DEMO_DAYS = buildSmokeDemoDaysMerged()
@@ -242,11 +253,9 @@ export function buildSmokeBatches() {
   }))
 }
 
-export const BATCH_COUNT = parsePositiveInt(process.env.SMOKE_BATCH_COUNT, SMOKE_DEMO_DAYS.length)
-
 const ALL_BATCHES = buildSmokeBatches()
-export const BATCHES =
-  BATCH_COUNT >= ALL_BATCHES.length ? ALL_BATCHES : ALL_BATCHES.slice(-BATCH_COUNT)
+export const BATCH_COUNT = parsePositiveInt(process.env.SMOKE_BATCH_COUNT, ALL_BATCHES.length)
+export const BATCHES = ALL_BATCHES
 
 export const PRIMARY_BATCH = BATCHES[BATCHES.length - 1]?.id ?? `smoke-batch-${isoDateUtc(new Date())}`
 

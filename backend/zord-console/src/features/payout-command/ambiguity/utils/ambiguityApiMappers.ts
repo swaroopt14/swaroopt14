@@ -127,9 +127,6 @@ export function batchDisplayValue(b: IntelligenceBatchRow): string {
   if (b.value_at_risk_minor != null && String(b.value_at_risk_minor).trim() !== '') {
     return formatAmbiguityInr(b.value_at_risk_minor)
   }
-  if (b.total_intended_amount_minor != null && String(b.total_intended_amount_minor).trim() !== '') {
-    return formatAmbiguityInr(b.total_intended_amount_minor)
-  }
   return '—'
 }
 

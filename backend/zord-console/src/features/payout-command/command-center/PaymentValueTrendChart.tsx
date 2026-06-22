@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fmtInrFromMinorExact } from './commandCenterFormat'
-import { paymentTrendBarWidthPx } from './paymentTrendChartConfig'
+import { computeDataFocusedBrushRange, paymentTrendBarWidthPx, paymentTrendMaxAxisLabels } from './paymentTrendChartConfig'
+import type { DisbursementTrendRange } from '@/services/payout-command/prod-api/disbursementTrendTypes'
 
 export type PaymentTrendChartPoint = {
   label: string
@@ -13,6 +14,7 @@ export type PaymentTrendChartPoint = {
 
 type Props = {
   points: PaymentTrendChartPoint[]
+  period: DisbursementTrendRange
   activeIndex: number | null
   onActiveIndexChange: (index: number | null) => void
   className?: string
@@ -27,27 +29,20 @@ const PLOT = {
   w: W - PAD.left - PAD.right,
   h: H - PAD.top - PAD.bottom,
 }
-const BRUSH_RES = 132
-const MAX_LABELS = 9
+
+function maxAxisLabelsForRange(range: DisbursementTrendRange, pointCount: number): number {
+  return Math.min(pointCount, paymentTrendMaxAxisLabels(range))
+}
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
 
-function resampleSeries(values: number[], targetLen: number): number[] {
-  if (!values.length) return []
-  if (values.length === 1) return Array.from({ length: targetLen }, () => values[0])
-  const out: number[] = []
-  for (let j = 0; j < targetLen; j += 1) {
-    const t = j / Math.max(1, targetLen - 1)
-    const idx = t * (values.length - 1)
-    const lo = Math.floor(idx)
-    const hi = Math.min(values.length - 1, lo + 1)
-    const frac = idx - lo
-    out.push(values[lo] * (1 - frac) + values[hi] * frac)
-  }
-  return out
-}
-
-function brushAreaPath(values: number[], xFn: (i: number) => number, y0: number, y1: number) {
+/** Brush silhouette only — uses the same per-day API values as the bars (no resampling or fill). */
+function brushAreaPath(
+  values: number[],
+  xFn: (i: number) => number,
+  y0: number,
+  y1: number,
+) {
   const vmax = Math.max(...values, 1)
   let d = `M ${PLOT.x} ${y1}`
   values.forEach((v, j) => {
@@ -59,7 +54,7 @@ function brushAreaPath(values: number[], xFn: (i: number) => number, y0: number,
   return d
 }
 
-/** Tighter Y scale so daily smoke values fill the plot height. */
+/** Tighter Y scale so sparse daily values still read clearly on the plot. */
 function chartPeakMaxThousands(peakThousands: number): number {
   const padded = peakThousands * 1.06
   return Math.max(10, Math.ceil(padded / 5) * 5)
@@ -67,6 +62,7 @@ function chartPeakMaxThousands(peakThousands: number): number {
 
 export function PaymentValueTrendChart({
   points,
+  period,
   activeIndex,
   onActiveIndexChange,
   className,
@@ -85,12 +81,9 @@ export function PaymentValueTrendChart({
     [vMax],
   )
 
-  const brushProfile = useMemo(() => resampleSeries(barsK, BRUSH_RES), [barsK])
+  const brushProfile = barsK
 
-  const defaultBrush = useMemo(() => {
-    if (n <= 1) return { a: 0, b: 1 }
-    return { a: 0.18, b: 0.4 }
-  }, [n])
+  const defaultBrush = useMemo(() => computeDataFocusedBrushRange(points, period), [points, period])
 
   const [range, setRange] = useState(defaultBrush)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -98,18 +91,7 @@ export function PaymentValueTrendChart({
 
   useEffect(() => {
     setRange(defaultBrush)
-  }, [defaultBrush, points])
-
-  const anchorIndex = useMemo(() => clamp(Math.floor(n / 2), 0, Math.max(0, n - 1)), [n])
-  const displayIndex = activeIndex ?? anchorIndex
-  const activePoint = points[displayIndex]
-
-  const yAt = useCallback((v: number) => PLOT.y + (1 - v / vMax) * PLOT.h, [vMax])
-  const xBar = useCallback((i: number) => PLOT.x + (n <= 1 ? PLOT.w / 2 : (i / (n - 1)) * PLOT.w), [n])
-  const xBrush = useCallback((j: number) => PLOT.x + (j / Math.max(1, BRUSH_RES - 1)) * PLOT.w, [])
-
-  const spacing = n > 1 ? PLOT.w / (n - 1) : PLOT.w
-  const barW = paymentTrendBarWidthPx(spacing)
+  }, [defaultBrush])
 
   const sel = useMemo(() => {
     const a = Math.min(range.a, range.b)
@@ -121,8 +103,46 @@ export function PaymentValueTrendChart({
     return { lo, hi }
   }, [range, n])
 
+  const viewSpan = Math.max(1, sel.hi - sel.lo)
+
+  const firstDataIndex = useMemo(() => {
+    const idx = points.findIndex(
+      (p) => p.intendedMinor > 0 || p.confirmedMinor > 0 || p.reviewMinor > 0,
+    )
+    return idx >= 0 ? idx : clamp(Math.floor(n / 2), 0, Math.max(0, n - 1))
+  }, [points, n])
+
+  const anchorIndex = useMemo(
+    () => clamp(firstDataIndex, sel.lo, sel.hi),
+    [firstDataIndex, sel.lo, sel.hi],
+  )
+  const displayIndex = activeIndex ?? anchorIndex
+  const activePoint = points[displayIndex]
+
+  const yAt = useCallback((v: number) => PLOT.y + (1 - v / vMax) * PLOT.h, [vMax])
+  const xBar = useCallback(
+    (i: number) => {
+      if (i < sel.lo || i > sel.hi) return -9999
+      if (viewSpan === 0) return PLOT.x + PLOT.w / 2
+      return PLOT.x + ((i - sel.lo) / viewSpan) * PLOT.w
+    },
+    [sel.lo, sel.hi, viewSpan],
+  )
+  const xBrushByIndex = useCallback(
+    (i: number) => {
+      if (n <= 1) return PLOT.x + PLOT.w / 2
+      return PLOT.x + (i / (n - 1)) * PLOT.w
+    },
+    [n],
+  )
+
+  const spacing = viewSpan > 0 ? PLOT.w / viewSpan : PLOT.w
+  const barW = paymentTrendBarWidthPx(spacing)
+
   const tooltipLeftPercent =
-    n <= 1 ? 50 : clamp((displayIndex / Math.max(n - 1, 1)) * 100 - 8, 3, 74)
+    viewSpan <= 0
+      ? 50
+      : clamp(((displayIndex - sel.lo) / viewSpan) * 100 - 8, 3, 74)
 
   const fracFromX = useCallback((clientX: number) => {
     const svg = svgRef.current
@@ -136,9 +156,9 @@ export function PaymentValueTrendChart({
     (clientX: number) => {
       if (n <= 0) return 0
       const f = fracFromX(clientX)
-      return clamp(Math.round(f * Math.max(0, n - 1)), 0, Math.max(0, n - 1))
+      return clamp(sel.lo + Math.round(f * viewSpan), sel.lo, sel.hi)
     },
-    [fracFromX, n],
+    [fracFromX, n, sel.lo, sel.hi, viewSpan],
   )
 
   const startDrag = (mode: 'move' | 'start' | 'end') => (e: React.PointerEvent) => {
@@ -188,7 +208,10 @@ export function PaymentValueTrendChart({
   const bx0 = PLOT.x + Math.min(range.a, range.b) * PLOT.w
   const bx1 = PLOT.x + Math.max(range.a, range.b) * PLOT.w
 
-  const labelStep = Math.max(1, Math.ceil(n / MAX_LABELS))
+  const labelStep = useMemo(() => {
+    const maxLabels = maxAxisLabelsForRange(period, viewSpan + 1)
+    return Math.max(1, Math.ceil((viewSpan + 1) / maxLabels))
+  }, [period, viewSpan])
 
   return (
     <div
@@ -253,8 +276,9 @@ export function PaymentValueTrendChart({
         ))}
 
         {confirmedK.map((v, i) => {
-          const inRange = i >= sel.lo && i <= sel.hi
+          if (v <= 0 || i < sel.lo || i > sel.hi) return null
           const x = xBar(i)
+          if (x < PLOT.x) return null
           const top = yAt(v)
           const base = yAt(0)
           return (
@@ -266,15 +290,16 @@ export function PaymentValueTrendChart({
               height={Math.max(1.5, Math.abs(base - top))}
               rx={Math.min(2, barW / 3)}
               fill="#7C7C7C"
-              opacity={inRange ? 0.72 : 0.35}
+              opacity={0.72}
             />
           )
         })}
 
         {barsK.map((v, i) => {
-          const inRange = i >= sel.lo && i <= sel.hi
+          if (v <= 0 || i < sel.lo || i > sel.hi) return null
           const highlighted = i === displayIndex
           const x = xBar(i)
+          if (x < PLOT.x) return null
           const top = yAt(v)
           const base = yAt(0)
           return (
@@ -285,14 +310,18 @@ export function PaymentValueTrendChart({
               width={barW}
               height={Math.max(1.5, Math.abs(base - top))}
               rx={Math.min(2, barW / 3)}
-              fill={inRange ? '#1A1A1A' : '#000000'}
-              opacity={highlighted ? 1 : inRange ? 0.88 : 0.28}
+              fill="#1A1A1A"
+              opacity={highlighted ? 1 : 0.88}
             />
           )
         })}
 
         {points.map((p, i) => {
-          if (i % labelStep !== 0 && i !== n - 1) return null
+          if (i < sel.lo || i > sel.hi) return null
+          const rel = i - sel.lo
+          if (rel % labelStep !== 0 && i !== sel.hi) return null
+          const x = xBar(i)
+          if (x < PLOT.x) return null
           return (
             <text
               key={`lbl-${p.label}-${i}`}
@@ -318,7 +347,11 @@ export function PaymentValueTrendChart({
         />
 
         <rect x={PLOT.x} y={brushTop} width={PLOT.w} height={brushBot - brushTop} rx={4} fill="#EBEBEA" />
-        <path d={brushAreaPath(brushProfile, xBrush, brushTop + 4, brushBot - 3)} fill="#C5C5C2" opacity={0.85} />
+        <path
+          d={brushAreaPath(brushProfile, xBrushByIndex, brushTop + 4, brushBot - 3)}
+          fill="#C5C5C2"
+          opacity={0.85}
+        />
         <rect
           x={bx0}
           y={brushTop}

@@ -63,11 +63,11 @@ test.describe('signin smoke (live zord-edge)', () => {
 
     await page.goto('/signin')
     await expect(page).toHaveURL('/signin')
-    await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Sign in to your workspace' })).toBeVisible()
 
-    await page.getByPlaceholder('you@company.com').fill(EMAIL)
-    await page.getByPlaceholder('••••••••').fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await page.getByPlaceholder('Enter your email').fill(EMAIL)
+    await page.getByPlaceholder('Enter your password').fill(PASSWORD)
+    await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
     await expect(page).toHaveURL(/\/payout-command-view/, { timeout: 25_000 })
     await expect(page.getByText('Invalid email or password')).toHaveCount(0)
@@ -79,7 +79,7 @@ test.describe('signin smoke (live zord-edge)', () => {
 
     await page.reload()
     await expect(page).toHaveURL(/\/payout-command-view\/today/, { timeout: 15_000 })
-    await expect(page.getByRole('heading', { name: 'Welcome back' })).toHaveCount(0)
+    await expect(page.getByRole('heading', { name: 'Sign in to your workspace' })).toHaveCount(0)
     const meAfterRefresh = await page.request.get('/api/auth/me')
     expect(meAfterRefresh.status()).toBe(200)
   })
@@ -110,9 +110,9 @@ test.describe('signin smoke (live zord-edge)', () => {
     await clearAuthCookies(page)
     await page.goto('/signin')
 
-    await page.getByPlaceholder('you@company.com').fill(email)
-    await page.getByPlaceholder('••••••••').fill(password)
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await page.getByPlaceholder('Enter your email').fill(email)
+    await page.getByPlaceholder('Enter your password').fill(password)
+    await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
     await expect(page).toHaveURL(/\/payout-command-view/, { timeout: 25_000 })
     const me = await page.request.get('/api/auth/me')

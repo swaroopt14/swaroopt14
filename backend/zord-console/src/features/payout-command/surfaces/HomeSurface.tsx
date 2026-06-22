@@ -38,6 +38,7 @@ import { Glyph } from '../shared'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
+import type { DisbursementTrendRange } from '@/services/payout-command/prod-api/disbursementTrendTypes'
 import { useDisbursementTrend } from '@/services/payout-command/prod-api/useDisbursementTrend'
 import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
@@ -78,6 +79,7 @@ export function HomeSurface({
   onQuarterChange: (quarterIndex: number) => void
 }) {
   const [commandPeriod, setCommandPeriod] = useState<CommandCenterPeriod>('month')
+  const [chartPeriod, setChartPeriod] = useState<DisbursementTrendRange>('month')
   const [carouselPeriod, setCarouselPeriod] = useState<CarouselInsightPeriod>('weekly')
   const [heroMetric, setHeroMetric] = useState<'intended' | 'confirmed'>('intended')
 
@@ -94,11 +96,22 @@ export function HomeSurface({
 
   // Sync the dropdown timeframe to the commandPeriod (which drives the chart/cards API)
   useEffect(() => {
-    if (timeframe === 'Week') setCommandPeriod('week')
-    else if (timeframe === 'Month') setCommandPeriod('month')
-    else if (timeframe === 'Quarter' || timeframe === 'Custom') setCommandPeriod('quarter')
-    else if (timeframe === 'Year') setCommandPeriod('year')
-    else setCommandPeriod('month')
+    if (timeframe === 'Week') {
+      setCommandPeriod('week')
+      setChartPeriod('week')
+    } else if (timeframe === 'Month') {
+      setCommandPeriod('month')
+      setChartPeriod('month')
+    } else if (timeframe === 'Quarter' || timeframe === 'Custom') {
+      setCommandPeriod('quarter')
+      setChartPeriod('quarter')
+    } else if (timeframe === 'Year') {
+      setCommandPeriod('year')
+      setChartPeriod('year')
+    } else {
+      setCommandPeriod('month')
+      setChartPeriod('month')
+    }
   }, [timeframe])
 
   const { data: trendSeries, loading: trendLoading, refresh: refreshTrend } = useDisbursementTrend({ tenantReady, range: trendRange })
@@ -106,7 +119,7 @@ export function HomeSurface({
     data: chartSeriesData,
     loading: chartSeriesLoading,
     refresh: refreshChartSeries,
-  } = useDisbursementTrend({ tenantReady, range: 'month' })
+  } = useDisbursementTrend({ tenantReady, range: chartPeriod })
   const { data: carouselTrendSeries, loading: carouselTrendLoading, refresh: refreshCarouselTrend } = useDisbursementTrend({
     tenantReady,
     range: carouselTrendRange,
@@ -177,9 +190,16 @@ export function HomeSurface({
   }, [trendSeries])
 
   const chartSeriesPoints = useMemo((): PaymentTrendChartPoint[] => {
-    if (!tenantReady || !chartSeriesData?.data_available || !chartSeriesData.buckets?.length) return []
+    if (
+      !tenantReady ||
+      !chartSeriesData?.data_available ||
+      !chartSeriesData.buckets?.length ||
+      chartSeriesData.range !== chartPeriod
+    ) {
+      return []
+    }
     return mapDisbursementBucketsToTrendPoints(chartSeriesData.buckets)
-  }, [tenantReady, chartSeriesData])
+  }, [tenantReady, chartSeriesData, chartPeriod])
 
   const trendChartReady = chartSeriesPoints.some(
     (p) => p.intendedMinor > 0 || p.confirmedMinor > 0 || p.reviewMinor > 0,
@@ -496,6 +516,8 @@ export function HomeSurface({
             className="w-full"
             series={chartSeriesPoints}
             loading={chartSeriesLoading}
+            period={chartPeriod}
+            onPeriodChange={setChartPeriod}
           />
         ) : (
           <div className="flex h-[24rem] flex-col items-center justify-center gap-3 rounded-[20px] border border-dashed border-slate-200 bg-[#f3f4f5] px-4 text-center md:h-[26rem]">

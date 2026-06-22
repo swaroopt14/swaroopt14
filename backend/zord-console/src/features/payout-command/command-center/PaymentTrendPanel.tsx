@@ -1,39 +1,41 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PaymentValueTrendChart } from './PaymentValueTrendChart'
 import { PAYMENT_COMMAND_CENTER } from './paymentCommandCopy'
 import {
   PAYMENT_TREND_GRAN_ORDER,
   PAYMENT_TREND_GRANULARITY,
-  resamplePaymentTrendPoints,
+  trendPointHasData,
   type PaymentTrendGranularity,
 } from './paymentTrendChartConfig'
 import type { PaymentTrendChartPoint } from './PaymentValueTrendChart'
+import type { DisbursementTrendRange } from '@/services/payout-command/prod-api/disbursementTrendTypes'
 
 type Props = {
-  /** Finest-resolution series, ordered oldest → newest (e.g. one point per day). */
+  /** One point per calendar bucket from API — no resampling or value duplication. */
   series: PaymentTrendChartPoint[]
   loading?: boolean
+  period: DisbursementTrendRange
+  onPeriodChange: (period: DisbursementTrendRange) => void
   className?: string
 }
 
-export function PaymentTrendPanel({ series, loading = false, className }: Props) {
-  const [gran, setGran] = useState<PaymentTrendGranularity>('month')
+export function PaymentTrendPanel({
+  series,
+  loading = false,
+  period,
+  onPeriodChange,
+  className,
+}: Props) {
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
 
-  const activeTab = PAYMENT_TREND_GRANULARITY[gran]
-
-  const visible = useMemo(
-    () => resamplePaymentTrendPoints(series, activeTab.bars),
-    [series, activeTab.bars],
-  )
-
-  const chartReady = visible.length > 0
+  const chartReady = series.length > 0
+  const hasAnyValue = series.some(trendPointHasData)
 
   useEffect(() => {
     setActiveIndex(null)
-  }, [gran, visible.length])
+  }, [period, series])
 
   return (
     <div
@@ -54,12 +56,12 @@ export function PaymentTrendPanel({ series, loading = false, className }: Props)
         <nav style={{ display: 'flex', gap: 16 }}>
           {PAYMENT_TREND_GRAN_ORDER.map((key) => {
             const tab = PAYMENT_TREND_GRANULARITY[key]
-            const active = gran === key
+            const active = period === key
             return (
               <button
                 key={key}
                 type="button"
-                onClick={() => setGran(key)}
+                onClick={() => onPeriodChange(key)}
                 style={{
                   border: 'none',
                   background: 'transparent',
@@ -99,14 +101,16 @@ export function PaymentTrendPanel({ series, loading = false, className }: Props)
       </p>
 
       <div onMouseLeave={() => setActiveIndex(null)}>
-        {chartReady ? (
+        {loading ? (
+          <div className="h-[22rem] w-full animate-pulse rounded-lg bg-slate-100/80" aria-busy="true" />
+        ) : chartReady && hasAnyValue ? (
           <PaymentValueTrendChart
-            points={visible}
+            key={period}
+            period={period}
+            points={series}
             activeIndex={activeIndex}
             onActiveIndexChange={setActiveIndex}
           />
-        ) : loading ? (
-          <div className="h-[22rem] w-full animate-pulse rounded-lg bg-slate-100/80" aria-busy="true" />
         ) : (
           <div className="flex h-[22rem] flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white px-4 text-center text-[14px] text-slate-600">
             No trend data in this range yet.

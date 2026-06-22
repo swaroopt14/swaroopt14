@@ -960,7 +960,7 @@ function Hero() {
 
                     <div className="mt-10 flex flex-col items-center gap-4 sm:flex-row lg:items-start">
                       <a
-                        href="mailto:hello@arelais.com?subject=Book%20Demo%20for%20Zord"
+                        href="/signup"
                         className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[#94A7AE]/35 bg-[#94A7AE] px-10 py-4 text-lg font-semibold text-[#0a0a0c] shadow-[0_20px_40px_rgba(148,167,179,0.18)] transition-all hover:bg-[#a7b7bf] sm:w-auto"
                       >
                         Book Demo
@@ -2786,7 +2786,7 @@ export function PricingTeaserSection() {
                     href="/signup"
                     className="inline-flex items-center justify-center rounded-full bg-white px-5 py-3 text-[13px] font-semibold text-black transition hover:bg-zinc-200"
                   >
-                    Sign up
+                    Book a demo
                   </Link>
                   <a
                     href="mailto:hello@arelais.com?subject=Pricing%20discussion%20for%20ZORD"

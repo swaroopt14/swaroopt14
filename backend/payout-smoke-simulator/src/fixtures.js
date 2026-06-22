@@ -367,15 +367,17 @@ function* leakageDaysInWindow(fromStr, toStr) {
 /**
  * Leakage KPIs for a date window. The home trend chart calls this once per
  * bucket with from_date=to_date=<day>, so each bar gets that day's own value.
- * With no window (KPI strip) it returns a rolling 30-day aggregate.
+ * With no window (KPI strip) it returns the current calendar month aggregate.
  */
 export function leakageKpi(fromDate, toDate) {
   let from = fromDate
   let to = toDate
   if (!from || !to) {
     const today = new Date()
+    const y = today.getUTCFullYear()
+    const m = today.getUTCMonth()
     to = today.toISOString().slice(0, 10)
-    from = new Date(today.getTime() - 29 * LEAKAGE_DAY_MS).toISOString().slice(0, 10)
+    from = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10)
   }
 
   const sum = { intended: 0, settled: 0, unmatched: 0, under: 0, orphan: 0, reversal: 0 }

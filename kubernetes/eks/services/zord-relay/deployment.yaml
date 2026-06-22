@@ -70,10 +70,7 @@ spec:
             - name: RELAY_TRACING_ENABLED
               value: "true"
             - name: RELAY_TRACING_OTLP_ENDPOINT
-              valueFrom:
-                configMapKeyRef:
-                  name: zord-aws-config
-                  key: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "otel-collector.tracing.svc.cluster.local:4318"
             - name: RELAY_SERVICES_0_AUTH_TOKEN
               valueFrom:
                 secretKeyRef:

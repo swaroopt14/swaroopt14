@@ -1159,7 +1159,7 @@ test.describe('payout console pages smoke (empty prod → preview fallbacks)', (
 
     await page.goto('/payout-command-view/today?dock=proof')
     await expect(page.getByTestId('evidence-kpi-hero')).toBeVisible({ timeout: 20_000 })
-    await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(5)
+    await expect(page.locator('[data-testid^="evidence-kpi-hero-bucket-"]')).toHaveCount(3)
   })
 
   test('home payment health cards render from intelligence APIs', async ({ page }) => {

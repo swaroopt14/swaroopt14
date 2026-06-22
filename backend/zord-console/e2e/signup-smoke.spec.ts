@@ -39,14 +39,14 @@ test.describe('signup smoke (live zord-edge)', () => {
     const tenantName = process.env.SMOKE_SIGNUP_TENANT || `Smoke Workspace ${stamp}`
 
     await page.goto('/signup')
-    await expect(page.getByRole('heading', { name: 'Create your workspace' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Get started with your workspace' })).toBeVisible()
 
     await page.getByPlaceholder('e.g. Acme Payments').fill(tenantName)
     await page.getByPlaceholder('e.g. Alex Patel').fill('Smoke Test User')
-    await page.getByPlaceholder('you@company.com').fill(email)
+    await page.getByPlaceholder('Enter your email').fill(email)
     await page.getByPlaceholder('At least 8 characters').fill(SIGNUP_PASSWORD)
 
-    await page.getByRole('button', { name: 'Create workspace & admin' }).click()
+    await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
     await expect(page.getByRole('heading', { name: 'Save your tenant API key' })).toBeVisible({
       timeout: 30_000,
@@ -82,9 +82,9 @@ test.describe('signup smoke (live zord-edge)', () => {
     await page.goto('/signup')
     await page.getByPlaceholder('e.g. Acme Payments').fill(`Dup Tenant Again ${stamp}`)
     await page.getByPlaceholder('e.g. Alex Patel').fill('Dup User')
-    await page.getByPlaceholder('you@company.com').fill(email)
+    await page.getByPlaceholder('Enter your email').fill(email)
     await page.getByPlaceholder('At least 8 characters').fill(SIGNUP_PASSWORD)
-    await page.getByRole('button', { name: 'Create workspace & admin' }).click()
+    await page.getByRole('button', { name: 'Continue', exact: true }).click()
 
     await expect(page.getByText(/already exists|email.*taken/i)).toBeVisible({ timeout: 15_000 })
   })

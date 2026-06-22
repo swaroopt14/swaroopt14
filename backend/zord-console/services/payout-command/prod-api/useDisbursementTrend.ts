@@ -39,6 +39,7 @@ export function useDisbursementTrend(options: UseDisbursementTrendOptions) {
       setData(null)
       return
     }
+    setData(null)
     void refresh()
     const id = window.setInterval(() => void refresh(), intervalMs)
     return () => {

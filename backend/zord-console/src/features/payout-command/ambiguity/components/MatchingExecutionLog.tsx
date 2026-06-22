@@ -23,11 +23,26 @@ function cellTitle(v: number): string {
   return 'Healthy'
 }
 
+function formatBatchDateLabel(year: string, month: string, day: string): string {
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)))
+  return date.toLocaleString('en-IN', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+}
+
 function rowLabel(heatmap: MatchingExecutionHeatmap, rowIdx: number): string {
   const batchId = heatmap.batch_ids?.[rowIdx]
   if (batchId) {
+    const smokeMatch = batchId.match(/^smoke-batch-(\d{4})-(\d{2})-(\d{2})$/)
+    if (smokeMatch) {
+      const [, year, month, day] = smokeMatch
+      return formatBatchDateLabel(year, month, day)
+    }
+    const isoInId = batchId.match(/(\d{4})-(\d{2})-(\d{2})/)
+    if (isoInId) {
+      const [, year, month, day] = isoInId
+      return formatBatchDateLabel(year, month, day)
+    }
     const short = batchId.replace(/^smoke-batch-/, '')
-    return short.length <= 4 ? short : batchId.slice(-6)
+    return short.length <= 8 ? short : batchId.slice(-8)
   }
   return String(heatmap.y_labels[rowIdx] ?? rowIdx + 1)
 }

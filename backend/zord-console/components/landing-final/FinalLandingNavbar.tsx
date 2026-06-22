@@ -438,13 +438,13 @@ export function FinalLandingNavbar({
             Sign in
           </Link>
 
-          <a
-            href="mailto:hello@arelais.com?subject=Book%20Demo%20for%20Zord"
+          <Link
+            href="/signup"
             className="flex h-14 items-center gap-2 rounded-[20px] bg-[#c6efcf] px-6 text-[16px] font-semibold text-[#09110c] shadow-[0_16px_30px_rgba(198,239,207,0.16)] transition hover:bg-[#d6f5dc]"
           >
             <NavIcon name="arrow-up-right" className="h-4 w-4" />
             <span>Book Demo</span>
-          </a>
+          </Link>
 
           <button
             type="button"
@@ -541,12 +541,13 @@ export function FinalLandingNavbar({
                 >
                   Sign in
                 </Link>
-                <a
-                  href="mailto:hello@arelais.com?subject=Book%20Demo%20for%20Zord"
+                <Link
+                  href="/signup"
+                  onClick={() => setMobileOpen(false)}
                   className="flex-1 rounded-[20px] bg-[#c6efcf] px-4 py-3 text-center text-[15px] font-semibold text-[#09110c]"
                 >
                   Book Demo
-                </a>
+                </Link>
               </div>
             </div>
           </div>

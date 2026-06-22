@@ -572,6 +572,8 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			net_batch_delta            NUMERIC(20,2) NOT NULL DEFAULT 0,
 
 			unresolved_intended_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
+			ambiguous_amount           NUMERIC(20,2) NOT NULL DEFAULT 0,
+			conflicted_amount          NUMERIC(20,2) NOT NULL DEFAULT 0,
 			ambiguous_observed_amount  NUMERIC(20,2) NOT NULL DEFAULT 0,
 			conflicted_observed_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
 			unresolved_observed_amount NUMERIC(20,2) NOT NULL DEFAULT 0,
@@ -705,8 +707,6 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		//
 		// reason_code values:
 		//   NO_SETTLEMENT_OBSERVATION_FOUND   — intent never appeared as a candidate
-		//   ONLY_AMBIGUOUS_CANDIDATES_FOUND   — intent appeared but only in ambiguous decisions
-		//   ONLY_CONFLICTED_CANDIDATES_FOUND  — intent appeared but only in conflicted decisions
 		//   SOURCE_FILE_NOT_RECEIVED          — reserved for future use by scheduler
 		`CREATE TABLE IF NOT EXISTS unresolved_intent_records (
 			unresolved_id        UUID PRIMARY KEY,
@@ -728,6 +728,52 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 			ON unresolved_intent_records(intent_id);`,
 		`CREATE INDEX IF NOT EXISTS unresolved_intent_records_batch_idx
 			ON unresolved_intent_records(batch_id) WHERE batch_id IS NOT NULL;`,
+
+		// ── ambiguous_intent_records ──────────────────────────────────────────
+		// Intents resolved as MATCH_AMBIGUOUS during an attachment job.
+		`CREATE TABLE IF NOT EXISTS ambiguous_intent_records (
+			ambiguous_id         UUID PRIMARY KEY,
+			tenant_id            UUID NOT NULL,
+			attachment_job_id    UUID NOT NULL REFERENCES attachment_jobs(attachment_job_id),
+			intent_id            UUID NOT NULL,
+			batch_id             TEXT,
+			expected_window_end  TIMESTAMPTZ,
+			reason_code          TEXT NOT NULL,
+			amount               NUMERIC(20,2) NOT NULL,
+			currency_code        TEXT NOT NULL,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS ambiguous_intent_records_tenant_idx
+			ON ambiguous_intent_records(tenant_id);`,
+		`CREATE INDEX IF NOT EXISTS ambiguous_intent_records_job_idx
+			ON ambiguous_intent_records(attachment_job_id);`,
+		`CREATE INDEX IF NOT EXISTS ambiguous_intent_records_intent_idx
+			ON ambiguous_intent_records(intent_id);`,
+		`CREATE INDEX IF NOT EXISTS ambiguous_intent_records_batch_idx
+			ON ambiguous_intent_records(batch_id) WHERE batch_id IS NOT NULL;`,
+
+		// ── conflicted_intent_records ─────────────────────────────────────────
+		// Intents resolved as MATCH_CONFLICTED during an attachment job.
+		`CREATE TABLE IF NOT EXISTS conflicted_intent_records (
+			conflicted_id        UUID PRIMARY KEY,
+			tenant_id            UUID NOT NULL,
+			attachment_job_id    UUID NOT NULL REFERENCES attachment_jobs(attachment_job_id),
+			intent_id            UUID NOT NULL,
+			batch_id             TEXT,
+			expected_window_end  TIMESTAMPTZ,
+			reason_code          TEXT NOT NULL,
+			amount               NUMERIC(20,2) NOT NULL,
+			currency_code        TEXT NOT NULL,
+			created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+		`CREATE INDEX IF NOT EXISTS conflicted_intent_records_tenant_idx
+			ON conflicted_intent_records(tenant_id);`,
+		`CREATE INDEX IF NOT EXISTS conflicted_intent_records_job_idx
+			ON conflicted_intent_records(attachment_job_id);`,
+		`CREATE INDEX IF NOT EXISTS conflicted_intent_records_intent_idx
+			ON conflicted_intent_records(intent_id);`,
+		`CREATE INDEX IF NOT EXISTS conflicted_intent_records_batch_idx
+			ON conflicted_intent_records(batch_id) WHERE batch_id IS NOT NULL;`,
 
 		// ── orphan_settlement_records ─────────────────────────────────────────
 		// Records every canonical settlement observation that was not matched
@@ -770,6 +816,8 @@ CREATE TABLE IF NOT EXISTS settlement_outbox_events(
 		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS intent_value_coverage NUMERIC(10,6) NOT NULL DEFAULT 0;`,
 		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS observed_count_allocation_coverage NUMERIC(10,6) NOT NULL DEFAULT 0;`,
 		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS observed_value_allocation_coverage NUMERIC(10,6) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS ambiguous_amount NUMERIC(20,2) NOT NULL DEFAULT 0;`,
+		`ALTER TABLE batch_attachment_summaries ADD COLUMN IF NOT EXISTS conflicted_amount NUMERIC(20,2) NOT NULL DEFAULT 0;`,
 	}
 
 	for _, s := range stmts {

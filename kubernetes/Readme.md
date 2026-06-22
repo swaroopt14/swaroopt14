@@ -721,6 +721,17 @@ zord-console-xxx         1/1  Running
 kubectl get pods -n zord
 kubectl get pods -n api-gateway
 
+# Check image versions running on each service
+kubectl get deployment zord-edge -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-intent-engine -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-token-enclave -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-relay -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-outcome-engine -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-intelligence -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-evidence -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-prompt-layer -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-console -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+
 # Services created
 kubectl get svc -n zord
 kubectl get svc -n api-gateway

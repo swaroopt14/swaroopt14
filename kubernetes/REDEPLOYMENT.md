@@ -71,6 +71,28 @@ kubectl logs deploy/<service-name> -n zord --tail=20
 
 ---
 
+## Step 4.1: Force Restart All Services (if images have same tag)
+
+If Jenkins rebuilt with the same image tag (e.g. `:latest`) or you need to force pods to pull new images:
+
+```bash
+# Restart all deployments in zord namespace
+kubectl rollout restart deployment -n zord
+
+# Watch rollout progress
+kubectl rollout status deployment zord-relay -n zord
+kubectl rollout status deployment zord-edge -n zord
+kubectl rollout status deployment zord-intent-engine -n zord
+kubectl rollout status deployment zord-outcome-engine -n zord
+kubectl rollout status deployment zord-intelligence -n zord
+kubectl rollout status deployment zord-evidence -n zord
+kubectl rollout status deployment zord-token-enclave -n zord
+kubectl rollout status deployment zord-prompt-layer -n zord
+kubectl rollout status deployment zord-console -n zord
+```
+
+---
+
 ## Step 5: Health Check (Production URL)
 
 ```bash

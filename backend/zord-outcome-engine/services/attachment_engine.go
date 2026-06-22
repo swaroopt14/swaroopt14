@@ -544,11 +544,13 @@ func (e *AttachmentEngine) runAttachment(
 	// Batch summary is computed here and passed into the transaction so it is
 	// written atomically with candidates, decisions, variances, and the job
 	// status update. No separate call after commit.
+	ambiguousIntents := buildAmbiguousIntentRecords(tenantID, job.AttachmentJobID, clientBatchRef, intents, allDecisions)
+	conflictedIntents := buildConflictedIntentRecords(tenantID, job.AttachmentJobID, clientBatchRef, intents, allDecisions)
 	unresolvedIntents := buildUnresolvedIntentRecords(tenantID, job.AttachmentJobID, clientBatchRef, intents, allDecisions)
-	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, intents, allDecisions, allVariances, allOrphans, obsAmountMap, totalIntendedAmount, originalObservationAmount)
+	batchSummary := computeBatchSummary(tenantID, job.AttachmentJobID, scopeRef, clientBatchRef, intents, allDecisions, allVariances, allOrphans, obsAmountMap, totalIntendedAmount, originalObservationAmount, ambiguousIntents, conflictedIntents)
 	if err := persistAttachmentOutputs(
 		ctx, job,
-		allCandidates, allDecisions, allVariances, allOrphans, unresolvedIntents,
+		allCandidates, allDecisions, allVariances, allOrphans, ambiguousIntents, conflictedIntents, unresolvedIntents,
 		batchSummary,
 		counters.exact, counters.high, counters.ambiguous, counters.unresolved, counters.conflicted,
 	); err != nil {
@@ -595,8 +597,8 @@ func (e *AttachmentEngine) runAttachment(
 		log.Printf("attachment.engine.leaf_bundle_failed job=%s err=%v", job.AttachmentJobID, err)
 	}
 
-	log.Printf("attachment.engine.done job=%s exact=%d high=%d ambiguous=%d unresolved=%d conflicted=%d reverse_scan_orphans=%d unresolved_intents=%d",
-		job.AttachmentJobID, counters.exact, counters.high, counters.ambiguous, counters.unresolved, counters.conflicted, len(allOrphans), len(unresolvedIntents))
+	log.Printf("attachment.engine.done job=%s exact=%d high=%d ambiguous=%d unresolved=%d conflicted=%d reverse_scan_orphans=%d ambiguous_intents=%d conflicted_intents=%d unresolved_intents=%d",
+		job.AttachmentJobID, counters.exact, counters.high, counters.ambiguous, counters.unresolved, counters.conflicted, len(allOrphans), len(ambiguousIntents), len(conflictedIntents), len(unresolvedIntents))
 
 	return job, nil
 }
@@ -1197,6 +1199,96 @@ func computeDelayDays(intent models.CanonicalIntent, obs models.CanonicalSettlem
 	return int(settleDay.Sub(intentDay).Hours() / 24)
 }
 
+func buildAmbiguousIntentRecords(
+	tenantID uuid.UUID,
+	jobID uuid.UUID,
+	clientBatchRef *string,
+	intents []models.CanonicalIntent,
+	decisions []models.AttachmentDecision,
+) []models.AmbiguousIntentRecord {
+	intentByID := make(map[uuid.UUID]models.CanonicalIntent, len(intents))
+	for _, intent := range intents {
+		intentByID[intent.IntentID] = intent
+	}
+
+	var records []models.AmbiguousIntentRecord
+	for _, d := range decisions {
+		if d.DecisionType != models.DecisionMatchAmbiguous {
+			continue
+		}
+
+		intent, ok := intentByID[d.IntentID]
+		if !ok {
+			continue
+		}
+
+		var expectedWindowEnd *time.Time
+		if intent.IntendedExecutionAt != nil {
+			end := intent.IntendedExecutionAt.Add(72 * time.Hour)
+			expectedWindowEnd = &end
+		}
+
+		records = append(records, models.AmbiguousIntentRecord{
+			AmbiguousID:       uuid.New(),
+			TenantID:          tenantID,
+			AttachmentJobID:   jobID,
+			IntentID:          intent.IntentID,
+			BatchID:           clientBatchRef,
+			ExpectedWindowEnd: expectedWindowEnd,
+			ReasonCode:        models.UnresolvedReasonOnlyAmbiguousCandidatesFound,
+			Amount:            intent.Amount,
+			CurrencyCode:      intent.CurrencyCode,
+			CreatedAt:         time.Now().UTC(),
+		})
+	}
+	return records
+}
+
+func buildConflictedIntentRecords(
+	tenantID uuid.UUID,
+	jobID uuid.UUID,
+	clientBatchRef *string,
+	intents []models.CanonicalIntent,
+	decisions []models.AttachmentDecision,
+) []models.ConflictedIntentRecord {
+	intentByID := make(map[uuid.UUID]models.CanonicalIntent, len(intents))
+	for _, intent := range intents {
+		intentByID[intent.IntentID] = intent
+	}
+
+	var records []models.ConflictedIntentRecord
+	for _, d := range decisions {
+		if d.DecisionType != models.DecisionMatchConflicted {
+			continue
+		}
+
+		intent, ok := intentByID[d.IntentID]
+		if !ok {
+			continue
+		}
+
+		var expectedWindowEnd *time.Time
+		if intent.IntendedExecutionAt != nil {
+			end := intent.IntendedExecutionAt.Add(72 * time.Hour)
+			expectedWindowEnd = &end
+		}
+
+		records = append(records, models.ConflictedIntentRecord{
+			ConflictedID:      uuid.New(),
+			TenantID:          tenantID,
+			AttachmentJobID:   jobID,
+			IntentID:          intent.IntentID,
+			BatchID:           clientBatchRef,
+			ExpectedWindowEnd: expectedWindowEnd,
+			ReasonCode:        models.UnresolvedReasonOnlyConflictedCandidatesFound,
+			Amount:            intent.Amount,
+			CurrencyCode:      intent.CurrencyCode,
+			CreatedAt:         time.Now().UTC(),
+		})
+	}
+	return records
+}
+
 func buildUnresolvedIntentRecords(
 	tenantID uuid.UUID,
 	jobID uuid.UUID,
@@ -1211,9 +1303,7 @@ func buildUnresolvedIntentRecords(
 
 	var records []models.UnresolvedIntentRecord
 	for _, d := range decisions {
-		switch d.DecisionType {
-		case models.DecisionMatchUnresolved, models.DecisionMatchAmbiguous, models.DecisionMatchConflicted:
-		default:
+		if d.DecisionType != models.DecisionMatchUnresolved {
 			continue
 		}
 
@@ -1222,7 +1312,7 @@ func buildUnresolvedIntentRecords(
 			continue
 		}
 
-		reasonCode := unresolvedIntentReasonCode(d.DecisionType, d.DecisionReasonCode)
+		reasonCode := unresolvedIntentReasonCode(d.DecisionReasonCode)
 		var expectedWindowEnd *time.Time
 		if intent.IntendedExecutionAt != nil {
 			end := intent.IntendedExecutionAt.Add(72 * time.Hour)
@@ -1245,20 +1335,11 @@ func buildUnresolvedIntentRecords(
 	return records
 }
 
-func unresolvedIntentReasonCode(decisionType string, decisionReasonCode string) string {
-	switch decisionType {
-	case models.DecisionMatchConflicted:
-		return models.UnresolvedReasonOnlyConflictedCandidatesFound
-	case models.DecisionMatchAmbiguous:
-		return models.UnresolvedReasonOnlyAmbiguousCandidatesFound
-	case models.DecisionMatchUnresolved:
-		if decisionReasonCode != "" {
-			return decisionReasonCode
-		}
-		return models.UnresolvedReasonNoSettlementObservationFound
-	default:
+func unresolvedIntentReasonCode(decisionReasonCode string) string {
+	if decisionReasonCode != "" {
 		return decisionReasonCode
 	}
+	return models.UnresolvedReasonNoSettlementObservationFound
 }
 
 func ratioCoverage(numerator, denominator float64) float64 {
@@ -1301,6 +1382,8 @@ func computeBatchSummary(
 	obsAmountMap map[uuid.UUID]decimal.Decimal,
 	totalIntendedAmount decimal.Decimal,
 	originalObservationAmount decimal.Decimal,
+	ambiguousIntents []models.AmbiguousIntentRecord,
+	conflictedIntents []models.ConflictedIntentRecord,
 ) models.BatchAttachmentSummary {
 	intentByID := make(map[uuid.UUID]models.CanonicalIntent, len(intents))
 	originalIntendedAmount := decimal.Zero
@@ -1354,12 +1437,8 @@ func computeBatchSummary(
 			summary.ExactMatchCount++
 		case models.DecisionMatchHighConfidence:
 			summary.HighConfidenceCount++
-		case models.DecisionMatchAmbiguous:
-			summary.AmbiguousCount++
 		case models.DecisionMatchUnresolved:
 			summary.UnresolvedCount++
-		case models.DecisionMatchConflicted:
-			summary.ConflictedCount++
 		}
 
 		if d.DecisionType == models.DecisionMatchUnresolved {
@@ -1404,6 +1483,16 @@ func computeBatchSummary(
 		summary.AggregateScore = summary.AggregateScore / matchedScoreCount
 		summary.AggregateMatchConfidence = summary.AggregateMatchConfidence / matchedScoreCount
 		summary.AmbiguityScore = summary.AmbiguityScore / matchedScoreCount
+	}
+
+	summary.AmbiguousCount = len(ambiguousIntents)
+	for _, a := range ambiguousIntents {
+		summary.AmbiguousAmount = summary.AmbiguousAmount.Add(a.Amount)
+	}
+
+	summary.ConflictedCount = len(conflictedIntents)
+	for _, c := range conflictedIntents {
+		summary.ConflictedAmount = summary.ConflictedAmount.Add(c.Amount)
 	}
 
 	ambiguousCount := summary.AmbiguousCount
@@ -1471,6 +1560,8 @@ func persistAttachmentOutputs(
 	decisions []models.AttachmentDecision,
 	variances []models.VarianceRecord,
 	allOrphans []models.OrphanSettlementRecord,
+	ambiguousIntents []models.AmbiguousIntentRecord,
+	conflictedIntents []models.ConflictedIntentRecord,
 	unresolvedIntents []models.UnresolvedIntentRecord,
 	batchSummary models.BatchAttachmentSummary,
 	exact, high, ambiguous, unresolved, conflicted int,
@@ -1607,7 +1698,43 @@ func persistAttachmentOutputs(
 		}
 	}
 
-	// Persist unresolved / ambiguous / conflicted intents (reverse scan output).
+	// Persist ambiguous intents (reverse scan output).
+	for _, a := range ambiguousIntents {
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO ambiguous_intent_records (
+				ambiguous_id, tenant_id, attachment_job_id,
+				intent_id, batch_id, expected_window_end,
+				reason_code, amount, currency_code, created_at
+			) VALUES (
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+			) ON CONFLICT DO NOTHING`,
+			a.AmbiguousID, a.TenantID, a.AttachmentJobID,
+			a.IntentID, a.BatchID, a.ExpectedWindowEnd,
+			a.ReasonCode, a.Amount, a.CurrencyCode, a.CreatedAt,
+		); err != nil {
+			return fmt.Errorf("persistAttachmentOutputs: insert ambiguous intent: %w", err)
+		}
+	}
+
+	// Persist conflicted intents (reverse scan output).
+	for _, c := range conflictedIntents {
+		if _, err = tx.ExecContext(ctx, `
+			INSERT INTO conflicted_intent_records (
+				conflicted_id, tenant_id, attachment_job_id,
+				intent_id, batch_id, expected_window_end,
+				reason_code, amount, currency_code, created_at
+			) VALUES (
+				$1,$2,$3,$4,$5,$6,$7,$8,$9,$10
+			) ON CONFLICT DO NOTHING`,
+			c.ConflictedID, c.TenantID, c.AttachmentJobID,
+			c.IntentID, c.BatchID, c.ExpectedWindowEnd,
+			c.ReasonCode, c.Amount, c.CurrencyCode, c.CreatedAt,
+		); err != nil {
+			return fmt.Errorf("persistAttachmentOutputs: insert conflicted intent: %w", err)
+		}
+	}
+
+	// Persist unresolved intents (reverse scan output).
 	for _, u := range unresolvedIntents {
 		if _, err = tx.ExecContext(ctx, `
 			INSERT INTO unresolved_intent_records (
@@ -1641,7 +1768,7 @@ func persistAttachmentOutputs(
 			total_intended_amount, total_observed_amount, total_variance,
 			matched_intended_amount, matched_observed_amount, orphan_observed_amount,
 			matched_pair_variance, net_batch_delta,
-			unresolved_intended_amount, ambiguous_observed_amount, conflicted_observed_amount, unresolved_observed_amount,
+			unresolved_intended_amount, ambiguous_amount, conflicted_amount, ambiguous_observed_amount, conflicted_observed_amount, unresolved_observed_amount,
 			total_fee_amount, total_deduction_amount, net_unexplained_variance,
 			intent_count_coverage, intent_value_coverage,
 			observed_count_allocation_coverage, observed_value_allocation_coverage,
@@ -1650,7 +1777,7 @@ func persistAttachmentOutputs(
 			$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
 			$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
 			$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-			$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42
+			$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,$42,$43,$44
 		) ON CONFLICT DO NOTHING`,
 		batchSummary.BatchAttachmentSummaryID, batchSummary.TenantID, batchSummary.BatchID, batchSummary.SourceReference,
 		batchSummary.AttachmentJobID,
@@ -1661,7 +1788,7 @@ func persistAttachmentOutputs(
 		batchSummary.TotalIntendedAmount, batchSummary.TotalObservedAmount, batchSummary.TotalVariance,
 		batchSummary.MatchedIntendedAmount, batchSummary.MatchedObservedAmount, batchSummary.OrphanObservedAmount,
 		batchSummary.MatchedPairVariance, batchSummary.NetBatchDelta,
-		batchSummary.UnresolvedIntendedAmount, batchSummary.AmbiguousObservedAmount, batchSummary.ConflictedObservedAmount, batchSummary.UnresolvedObservedAmount,
+		batchSummary.UnresolvedIntendedAmount, batchSummary.AmbiguousAmount, batchSummary.ConflictedAmount, batchSummary.AmbiguousObservedAmount, batchSummary.ConflictedObservedAmount, batchSummary.UnresolvedObservedAmount,
 		batchSummary.TotalFeeAmount, batchSummary.TotalDeductionAmount, batchSummary.NetUnexplainedVariance,
 		batchSummary.IntentCountCoverage, batchSummary.IntentValueCoverage,
 		batchSummary.ObservedCountAllocationCoverage, batchSummary.ObservedValueAllocationCoverage,

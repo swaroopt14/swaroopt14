@@ -29,6 +29,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"time"
 
@@ -167,7 +168,7 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 	resp.UnderSettlementAmountMinor = kpis.UnderSettlementAmountMinor
 	resp.OrphanAmountMinor = kpis.OrphanAmountMinor
 	resp.ReversalExposureMinor = kpis.ReversalExposureMinor
-	resp.LeakagePercentage = kpis.LeakagePercentage
+	resp.LeakagePercentage = math.Round(kpis.LeakagePercentage*10000) / 100
 	resp.RiskTier = kpis.RiskTier
 	resp.DuplicateRiskCount = kpis.DuplicateRiskCount
 	resp.DuplicateRiskExposureMinor = kpis.DuplicateRiskExposureMinor

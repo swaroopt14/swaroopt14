@@ -6,9 +6,18 @@ import type {
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { isExportReadyStatus, mapProofStatusFromPack } from '../mappers/mapProofStatus'
 import type { EvidencePackSummaryRow } from '@/services/payout-command/prod-api/evidenceTypes'
-import { formatPercentLabel } from '../utils/evidencePercent'
+import { formatPercentLabel, normalizePercentRatio } from '../utils/evidencePercent'
 
 type PackRowInput = { summary: EvidencePackSummaryRow; itemCount?: number }
+
+const EVIDENCE_INDEX_MAX_POINTS = 65
+
+function buildEvidenceIndexTooltip(score: number, defensibility: DefensibilityKpiResolved): string {
+  const evidencePct = formatPercentLabel(defensibility.evidence_pack_rate)
+  const govPct = formatPercentLabel(defensibility.governance_coverage_pct)
+  const replayPct = formatPercentLabel(defensibility.replayability_pct)
+  return `${score.toFixed(1)} of ${EVIDENCE_INDEX_MAX_POINTS} points on the Evidence Completeness Index — composite score from evidence pack coverage (${evidencePct}), governance checks (${govPct}), replay readiness (${replayPct}), and artifact completeness (amount processing excluded).`
+}
 
 export function deriveEvidenceKpis(input: {
   defensibility: DefensibilityKpiResolved | null
@@ -30,8 +39,34 @@ export function deriveEvidenceKpis(input: {
     else incompleteCount += 1
   }
 
+  const defScoreRaw = defensibility ? defensibility.defensibility_score : null
+  const defScore = defScoreRaw != null ? defScoreRaw.toFixed(1) : '—'
+  const evidencePct = defensibility ? formatPercentLabel(defensibility.evidence_pack_rate) : '—'
   const govPct = defensibility ? formatPercentLabel(defensibility.governance_coverage_pct) : '—'
+  const replayPct = defensibility ? formatPercentLabel(defensibility.replayability_pct) : '—'
   const disputePct = defensibility ? formatPercentLabel(defensibility.dispute_ready_pct) : '—'
+
+  let readinessSub = defensibility
+    ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct} · Dispute-ready: ${disputePct}`
+    : '—'
+
+  if (defensibility && defensibility.weak_evidence_count != null && defensibility.weak_evidence_count > 0) {
+    readinessSub += ` · ${defensibility.weak_evidence_count} weak evidence items`
+  }
+
+  let readinessExplanation: string | undefined
+  if (
+    defensibility &&
+    (normalizePercentRatio(defensibility.evidence_pack_rate) ?? 0) >= 0.99 &&
+    defensibility.defensibility_score < 50
+  ) {
+    readinessExplanation = evidenceCopy.scoreLowExplanation
+  }
+
+  const readinessTooltip =
+    defScoreRaw != null && defensibility
+      ? buildEvidenceIndexTooltip(defScoreRaw, defensibility)
+      : undefined
 
   const packsSub =
     packCount > 0
@@ -44,6 +79,15 @@ export function deriveEvidenceKpis(input: {
       : '—'
 
   return [
+    {
+      id: 'readiness',
+      label: evidenceCopy.kpi.proofReadinessScore,
+      value: defScore,
+      sub: readinessSub,
+      accent: true,
+      explanation: readinessExplanation,
+      tooltip: readinessTooltip,
+    },
     {
       id: 'packs',
       label: evidenceCopy.kpi.evidencePacksGenerated,

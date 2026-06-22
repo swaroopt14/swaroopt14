@@ -68,8 +68,8 @@ data:
         default_topic: evidence.pack.created
 
     tracing:
-      enabled: false
-      otlp_endpoint: ""
+      enabled: true
+      otlp_endpoint: "otel-collector.tracing.svc.cluster.local:4318"
       service_name: relay-service
       environment: production
 

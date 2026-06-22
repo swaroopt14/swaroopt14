@@ -14,13 +14,7 @@ spec:
     spec:
       serviceAccountName: fluentd
       tolerations:
-        - key: node-role.kubernetes.io/master
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/control-plane
-          effect: NoSchedule
-        - key: workload
-          value: stateful
-          effect: NoSchedule
+        - operator: Exists
       containers:
         - name: fluentd
           image: 522189039032.dkr.ecr.ap-south-1.amazonaws.com/mirror/fluentd:v1.16-debian-elasticsearch8-1

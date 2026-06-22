@@ -2543,10 +2543,12 @@ func (r *ProjectionRepo) recomputeDefensibilityRates(
 							value_json,
 							'{evidence_pack_rate}',
 							to_jsonb(
-								COALESCE(
-									(value_json->>'with_evidence_pack')::numeric /
-									NULLIF((value_json->>'total_intents')::numeric, 0),
-									0
+								LEAST(1.0,
+									COALESCE(
+										(value_json->>'with_evidence_pack')::numeric /
+										NULLIF((value_json->>'total_intents')::numeric, 0),
+										0
+									)
 								)
 							)
 						),

@@ -23,6 +23,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"time"
 
@@ -164,14 +165,15 @@ func (h *DashboardAmbiguityHandler) GetAmbiguityKPIs(w http.ResponseWriter, r *h
 	resp.WindowStart = &snap.WindowStart
 	resp.WindowEnd = &snap.WindowEnd
 	resp.ComputedAt = &snap.CreatedAt
+	pct := func(v float64) float64 { return math.Round(v*10000) / 100 }
 	resp.AmbiguousIntentCount = kpis.AmbiguousIntentCount
-	resp.AmbiguityRate = kpis.AmbiguityRate
-	resp.AvgAttachmentConfidence = kpis.AvgAttachmentConfidence
-	resp.ProviderRefMissingRate = kpis.ProviderRefMissingRate
-	resp.LowConfidenceRate = kpis.LowConfidenceRate
-	resp.CandidateCollisionRate = kpis.CandidateCollisionRate
-	resp.AvgScoreMargin = kpis.AvgScoreMargin
-	resp.CarrierCompletenessRate = kpis.CarrierCompletenessRate
+	resp.AmbiguityRate = pct(kpis.AmbiguityRate)
+	resp.AvgAttachmentConfidence = pct(kpis.AvgAttachmentConfidence)
+	resp.ProviderRefMissingRate = pct(kpis.ProviderRefMissingRate)
+	resp.LowConfidenceRate = pct(kpis.LowConfidenceRate)
+	resp.CandidateCollisionRate = pct(kpis.CandidateCollisionRate)
+	resp.AvgScoreMargin = math.Round(kpis.AvgScoreMargin*100) / 100
+	resp.CarrierCompletenessRate = pct(kpis.CarrierCompletenessRate)
 	resp.ValueAtRiskMinor = kpis.ValueAtRiskMinor
 	resp.RiskTier = kpis.RiskTier
 

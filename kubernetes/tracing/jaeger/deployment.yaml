@@ -77,6 +77,8 @@ spec:
         # ── Nginx Auth Sidecar — password protects Jaeger UI ──
         - name: auth-proxy
           image: public.ecr.aws/nginx/nginx:1.27-alpine
+          securityContext:
+            runAsUser: 0
           ports:
             - containerPort: 8080
               name: auth-proxy

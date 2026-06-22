@@ -50,7 +50,7 @@ import {
 import {
   useBatchContractKpis,
 } from '@/features/payout-command/hooks/useBatchContractKpis'
-import { displayApiField, formatApiPct, formatKpiMoneyMinor } from '../shared/formatApiKpiFields'
+import { displayApiField, formatKpiMoneyMinor } from '../shared/formatApiKpiFields'
 
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
   'No payment data in this period yet. Upload payment instructions or connect bank/settlement files to populate this view.'
@@ -379,7 +379,7 @@ export function HomeSurface({
 
   const multiMatchRate = displayApiField(ambData?.candidate_collision_rate, loading)
 
-  const proofCoveragePct = formatApiPct(defData?.evidence_pack_rate ?? null, loading, true)
+  const proofCoveragePct = displayApiField(defData?.evidence_pack_rate, loading)
   const proofReadyRow = displayApiField(defData?.audit_ready_pct, loading)
   const incompleteProofRow = displayApiField(defData?.weak_evidence_count, loading)
 

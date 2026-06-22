@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { formatKpiMoneyMinor, formatLeakageApiPct } from '../../shared/formatApiKpiFields'
+import { displayApiField, formatKpiMoneyMinor } from '../../shared/formatApiKpiFields'
 import { leakageCopy } from '../copy/leakageCopy'
 import { Glyph } from '../../shared'
 import { HOME_TITLE_BLACK } from '../../command-center/homeCommandCenterTokens'
@@ -117,9 +117,7 @@ export function LeakageBatchWatchlistTable({
                       <span
                         className={`inline-flex rounded-full px-3 py-1 text-[13px] font-semibold tabular-nums ${leakageBadgeTone(leakagePct)}`}
                       >
-                        {formatLeakageApiPct(
-                          typeof leakagePct === 'number' ? leakagePct : Number(leakagePct),
-                        )}
+                        {displayApiField(leakagePct)}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">

@@ -26,6 +26,16 @@ spec:
       containers:
         - name: postgres
           image: public.ecr.aws/docker/library/postgres:16-alpine
+          args:
+            - postgres
+            - -c
+            - log_statement=none
+            - -c
+            - log_min_messages=warning
+            - -c
+            - log_connections=off
+            - -c
+            - log_disconnections=off
           ports:
             - containerPort: 5432
               name: postgres

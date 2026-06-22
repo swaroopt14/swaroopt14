@@ -996,7 +996,7 @@ func (r *LiveSQLRetriever) fetchFromIntelligence(tenantID string, topK int, fail
 				missing_ref_count,
 				unexplained_variance_minor::text,
 				whitelisted_deduction_minor::text,
-				ambiguity_score::text,
+				avg_matched_attachment_ambiguity::text,
 				defensibility_tier,
 				last_updated_at::text,
 				created_at::text
@@ -1664,9 +1664,9 @@ func (r *LiveSQLRetriever) fetchFromOutcome(tenantID string, topK int, scope uti
 				unresolved_observed_amount::text,
 				net_unexplained_variance::text,
 				batch_attachment_status,
-				aggregate_score::text,
-				aggregate_match_confidence::text,
-				ambiguity_score::text,
+				avg_matched_attachment_quality::text,
+				avg_matched_attachment_confidence::text,
+				avg_matched_attachment_ambiguity::text,
 				created_at::text,
 				updated_at::text,
 				ROW_NUMBER() OVER (
@@ -1708,9 +1708,9 @@ func (r *LiveSQLRetriever) fetchFromOutcome(tenantID string, topK int, scope uti
 			unresolved_observed_amount,
 			net_unexplained_variance,
 			batch_attachment_status,
-			aggregate_score,
-			aggregate_match_confidence,
-			ambiguity_score,
+			avg_matched_attachment_quality,
+			avg_matched_attachment_confidence,
+			avg_matched_attachment_ambiguity,
 			created_at,
 			updated_at
 		FROM latest_summaries
@@ -1774,7 +1774,7 @@ func (r *LiveSQLRetriever) fetchFromOutcome(tenantID string, topK int, scope uti
 			TenantID:   "",
 			Score:      1.0,
 			Text: fmt.Sprintf(
-				"Outcome settlement matching summary: batch_reference=%s source_reference=%s payment_instructions_covered=%s exact_matches=%s high_confidence_matches=%s ambiguous_matches=%s unresolved_payments=%s conflicted_payments=%s original_intended_value=%s original_settled_value=%s total_intended_value=%s total_observed_value=%s payment_value_difference=%s unresolved_payment_value=%s ambiguous_observed_value=%s conflicted_observed_value=%s unresolved_observed_value=%s net_unexplained_value=%s status=%s aggregate_score=%s match_confidence=%s ambiguity_score=%s created_at=%s updated_at=%s",
+				"Outcome settlement matching summary: batch_reference=%s source_reference=%s payment_instructions_covered=%s exact_matches=%s high_confidence_matches=%s ambiguous_matches=%s unresolved_payments=%s conflicted_payments=%s original_intended_value=%s original_settled_value=%s total_intended_value=%s total_observed_value=%s payment_value_difference=%s unresolved_payment_value=%s ambiguous_observed_value=%s conflicted_observed_value=%s unresolved_observed_value=%s net_unexplained_value=%s status=%s average_match_quality=%s match_confidence=%s match_ambiguity=%s created_at=%s updated_at=%s",
 				nullText(batchID),
 				nullText(sourceReference),
 				nullText(totalIntentCount),

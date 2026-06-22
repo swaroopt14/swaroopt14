@@ -17,6 +17,14 @@ spec:
     spec:
       securityContext:
         fsGroup: 10001
+        runAsUser: 10001
+      initContainers:
+        - name: fix-badger-lock
+          image: public.ecr.aws/docker/library/busybox:1.36
+          command: ["sh", "-c", "rm -f /badger/key/LOCK /badger/data/LOCK"]
+          volumeMounts:
+            - name: data
+              mountPath: /badger
       containers:
         # ── Jaeger All-in-One ──
         - name: jaeger
@@ -65,9 +73,6 @@ spec:
             limits:
               cpu: 500m
               memory: 1Gi
-          securityContext:
-            runAsUser: 10001
-            runAsNonRoot: true
 
         # ── Nginx Auth Sidecar — password protects Jaeger UI ──
         - name: auth-proxy

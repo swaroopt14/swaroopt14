@@ -103,7 +103,7 @@ const navItems: NavItem[] = [
       },
       {
         label: 'Contact Arealis',
-        href: 'mailto:hello@arelais.com?subject=Talk%20to%20Arealis',
+        href: 'mailto:Support@zordnet.com?subject=Talk%20to%20Arealis',
         note: 'Speak with the team building ZORD and the wider Arealis product fabric.',
       },
     ],

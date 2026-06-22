@@ -28,7 +28,7 @@ const footerColumns = [
     title: 'Company',
     links: [
       { label: 'Book demo', href: '/signup' },
-      { label: 'Contact', href: 'mailto:hello@arelais.com?subject=Talk%20to%20Zord' },
+      { label: 'Contact', href: 'mailto:Support@zordnet.com?subject=Talk%20to%20Zord' },
       { label: 'Resources', href: '/final-landing/resources' },
       { label: 'About Arealis', href: '/final-landing/company' },
     ],

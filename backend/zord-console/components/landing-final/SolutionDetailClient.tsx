@@ -47,7 +47,7 @@ export function SolutionDetailClient({ solution }: { solution: SolutionItem }) {
 
                 <div className="mt-8 flex flex-col gap-4 sm:flex-row">
                   <a
-                    href="mailto:hello@arelais.com?subject=Discuss%20solution%20fit%20for%20Zord"
+                    href="mailto:Support@zordnet.com?subject=Discuss%20solution%20fit%20for%20Zord"
                     className="inline-flex items-center justify-center rounded-full bg-white px-7 py-4 text-[15px] font-semibold text-black transition hover:bg-zinc-200"
                   >
                     Contact sales

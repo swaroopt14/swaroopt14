@@ -18,6 +18,7 @@ import {
   type AskZordThread,
 } from '../workspace/askZordThreads'
 import {
+  clearAskZordSelectedContext,
   readAskZordSelectedContext,
   toPromptLayerUIContext,
   type AskZordSelectedContext,
@@ -44,6 +45,7 @@ export type AskZordState = {
   activeThreadId: string | null
   startNewThread: () => void
   selectedContext: AskZordSelectedContext | null
+  clearSelectedContext: () => void
   selectThread: (id: string) => void
   run: (prompt: string) => void
   dismissResponse: () => void
@@ -169,9 +171,13 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
   const open = useCallback(() => setIsOpen(true), [])
   const close = useCallback(() => setIsOpen(false), [])
   const toggle = useCallback(() => setIsOpen((current) => !current), [])
-
-  const startNewThread = useCallback(() => {
+  const clearSelectedContext = useCallback(() => {
+    clearAskZordSelectedContext()
+    setSelectedContext(null)
+  }, [])
+    const startNewThread = useCallback(() => {
     snapshotActiveThread(true)
+    clearSelectedContext()
     setArchivedTurns([])
     setLastUserPrompt(null)
     setResponse(null)
@@ -179,7 +185,8 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
     setStatus('idle')
     setPendingResponse(null)
     setActiveThreadId(null)
-  }, [snapshotActiveThread])
+    activeThreadIdRef.current = null
+  }, [clearSelectedContext, snapshotActiveThread])
 
   const selectThread = useCallback(
     (id: string) => {
@@ -307,6 +314,7 @@ setLastUserPrompt(cleaned)
     threads,
     activeThreadId,
     selectedContext,
+    clearSelectedContext,
     startNewThread,
     selectThread,
     run,

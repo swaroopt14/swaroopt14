@@ -22,7 +22,19 @@ export function storeAskZordSelectedContext(context: AskZordSelectedContext) {
   if (typeof window === 'undefined') return
   window.sessionStorage.setItem(ASK_ZORD_SELECTED_CONTEXT_STORAGE_KEY, JSON.stringify(context))
 }
+export function clearAskZordSelectedContext() {
+  if (typeof window === 'undefined') return
 
+  window.sessionStorage.removeItem(ASK_ZORD_SELECTED_CONTEXT_STORAGE_KEY)
+
+  const url = new URL(window.location.href)
+  url.searchParams.delete('ask_scope')
+  url.searchParams.delete('source_page')
+  url.searchParams.delete('batch_id')
+  url.searchParams.set('dock', 'workspace')
+
+  window.history.replaceState(null, '', `${url.pathname}?${url.searchParams.toString()}`)
+}
 export function readAskZordSelectedContext(searchParams?: SearchParamsLike | null): AskZordSelectedContext | null {
   if (typeof window === 'undefined') return null
 

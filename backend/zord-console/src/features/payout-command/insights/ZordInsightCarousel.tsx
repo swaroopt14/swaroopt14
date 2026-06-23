@@ -203,17 +203,19 @@ function MetricBody({ card }: { card: Extract<ZordInsightCard, { type: 'metric' 
       <div className="mt-1.5 text-[12px]" style={{ color: G.mid }}>
         {card.subtext}
       </div>
-      <div className="mt-2 flex items-center gap-1.5">
-        <span
-          className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-          style={{ background: G.pill, color: G.dark }}
-        >
-          {card.count} txns
-        </span>
-        <span className="text-[11px]" style={{ color: G.muted }}>
-          {card.countLabel}
-        </span>
-      </div>
+      {card.countLabel ? (
+        <div className="mt-2 flex items-center gap-1.5">
+          <span
+            className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+            style={{ background: G.pill, color: G.dark }}
+          >
+            {card.count} txns
+          </span>
+          <span className="text-[11px]" style={{ color: G.muted }}>
+            {card.countLabel}
+          </span>
+        </div>
+      ) : null}
     </div>
   )
 }

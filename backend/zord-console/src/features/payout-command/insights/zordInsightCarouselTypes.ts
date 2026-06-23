@@ -19,8 +19,8 @@ export type ZordInsightCard =
       /** When set, shown instead of fmtINR(valueRupee) (e.g. literal “₹” from parent). */
       valueDisplay?: string
       subtext: string
-      count: number
-      countLabel: string
+      count?: number
+      countLabel?: string
       delta?: InsightDelta
     }
   | {

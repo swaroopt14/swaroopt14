@@ -30,8 +30,8 @@ function metricCard(
   label: string,
   amountField: MinorField,
   subtext: string,
-  count: number,
-  countLabel: string,
+  count?: number,
+  countLabel?: string,
 ): ZordInsightCard | null {
   const minor = readMinor(amountField)
   if (minor == null) return null
@@ -190,10 +190,8 @@ export function buildZordInsightCards(params: {
   const unmatchedCard = metricCard(
     'unmatched-value',
     'Unmatched payment value',
-    ambData?.value_at_risk_minor,
+    leakageData?.unmatched_amount_minor,
     'Intended payments without a linked bank or settlement outcome.',
-    ambData?.ambiguous_intent_count ?? pendingCount,
-    'ambiguous intents',
   )
   if (unmatchedCard) cards.push(unmatchedCard)
 
@@ -212,18 +210,14 @@ export function buildZordInsightCards(params: {
     'Short-settled value',
     leakageData?.under_settlement_amount_minor,
     'Settlement value lower than the instructed payment amount.',
-    patternsData?.pending_count ?? 0,
-    'short-settled cases',
   )
   if (shortSettledCard) cards.push(shortSettledCard)
 
   const ambiguousCard = metricCard(
     'ambiguous-value',
     'Ambiguous amount',
-    ambData?.ambiguous_amount_minor ?? ambData?.value_at_risk_minor,
+    leakageData?.ambiguous_value_at_risk_minor,
     'Payment value with unclear match signal.',
-    ambData?.ambiguous_intent_count ?? 0,
-    'intents ambiguous',
   )
   if (ambiguousCard) cards.push(ambiguousCard)
 

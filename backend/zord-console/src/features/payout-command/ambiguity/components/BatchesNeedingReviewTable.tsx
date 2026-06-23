@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { clampZeroBasedPage } from '../../_lib/clampPage'
 import type { FinalityStatus, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { ambiguityCopy } from '../copy/ambiguityCopy'
-import { batchDisplayValue, batchMatchPctDisplay } from '../utils/ambiguityApiMappers'
+import { batchDisplayValue } from '../utils/ambiguityApiMappers'
 import { Glyph } from '../../shared'
 import { HOME_TITLE_BLACK } from '../../command-center/homeCommandCenterTokens'
 import { displayApiField } from '../../shared/formatApiKpiFields'
@@ -19,6 +19,17 @@ const FINALITY_FILTERS: Array<{ value: '' | FinalityStatus; label: string }> = [
   { value: 'PENDING', label: 'Pending' },
   { value: 'SETTLED', label: 'Settled' },
 ]
+
+// Human-readable labels for raw API finality_status enum values.
+const FINALITY_DISPLAY: Record<string, string> = {
+  REQUIRES_REVIEW: 'Needs review',
+  PARTIALLY_SETTLED: 'Partial',
+  FAILED: 'Failed',
+  PENDING: 'Pending',
+  SETTLED: 'Settled',
+  FULLY_SETTLED: 'Settled',
+  PROCESSING: 'Processing',
+}
 
 const PAGE_SIZE = 10
 
@@ -37,7 +48,8 @@ function statusBadge(status: string): string {
 }
 
 function batchStatus(b: IntelligenceBatchRow): string {
-  return b.batch_finality_status ?? b.finality_status ?? '—'
+  // batch_finality_status is the batch-level field; finality_status is the intent-level fallback.
+  return b.batch_finality_status ?? b.finality_status
 }
 
 type Props = {
@@ -184,11 +196,11 @@ export function BatchesNeedingReviewTable({
                       <span
                         className={`inline-flex rounded-full px-3 py-1 text-[12px] font-semibold ${statusBadge(status)}`}
                       >
-                        {displayApiField(status)}
+                        {FINALITY_DISPLAY[status] ?? displayApiField(status)}
                       </span>
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-900">
-                      {batchMatchPctDisplay(b)}
+                      {displayApiField(b.match_confidence_pct)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
                       {batchDisplayValue(b)}

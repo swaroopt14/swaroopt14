@@ -78,7 +78,7 @@ export function formatPatternBatchInsight(batchId: string, riskTier: string | un
 }
 
 export function formatRcaConcentration(pct: number): string {
-  const rounded = Math.round(pct * 100)
+  const rounded = Math.round(pct)
   return `Most issues share one root cause — ${rounded}% trace back to source-data defects (errors in the uploaded payout/settlement files). Fixing the file at source resolves the majority.`
 }
 

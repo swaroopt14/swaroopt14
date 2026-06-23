@@ -219,7 +219,7 @@ export function buildZordInsightCards(params: {
   const ambiguousCard = metricCard(
     'ambiguous-value',
     'Ambiguous amount',
-    ambData?.ambiguous_amount_minor,
+    leakageData?.ambiguous_value_at_risk_minor,
     'Payment value with unclear match signal.',
   )
   if (ambiguousCard) cards.push(ambiguousCard)

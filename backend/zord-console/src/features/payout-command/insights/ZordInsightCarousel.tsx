@@ -6,18 +6,18 @@ import { Line, LineChart, ResponsiveContainer } from 'recharts'
 import type { InsightDelta, ZordInsightCard } from './zordInsightCarouselTypes'
 import { INTELLIGENCE_BLUE_GRADIENT } from '../command-center/homeCommandCenterTokens'
 
-/** Home insight carousel — imperial blue glass; body copy is white for contrast on the gradient. */
+/** Home insight carousel — dark blue card surface. */
 const G = {
-  grad: INTELLIGENCE_BLUE_GRADIENT,
-  glow0: 'radial-gradient(ellipse at 72% 18%,rgba(255,255,255,0.52) 0%,transparent 62%)',
-  glow1: 'radial-gradient(ellipse at 28% 75%,rgba(255,255,255,0.44) 0%,transparent 58%)',
+  grad: '#1e3a8a',
+  glow0: 'radial-gradient(ellipse at 72% 18%,rgba(255,255,255,0.06) 0%,transparent 55%)',
+  glow1: 'radial-gradient(ellipse at 28% 75%,rgba(255,255,255,0.04) 0%,transparent 50%)',
   /** Primary type + chart stroke */
   dark: '#ffffff',
   /** Header label, icons, secondary emphasis */
   mid: 'rgba(255,255,255,0.92)',
   /** Captions, empty states, de-emphasized lines */
-  muted: 'rgba(255,255,255,0.72)',
-  pill: 'rgba(255,255,255,0.18)',
+  muted: 'rgba(255,255,255,0.65)',
+  pill: 'rgba(255,255,255,0.14)',
 } as const
 
 import { fmtInrFromMinorExact } from '../command-center/commandCenterFormat'
@@ -502,7 +502,7 @@ export function ZordInsightCarousel({
   }
 
   return (
-    <div className="flex h-full min-h-[300px] w-full max-w-full flex-col">
+    <div className="flex h-full min-h-[260px] w-full max-w-full flex-col">
       <div
         className="relative min-h-0 w-full min-w-0 flex-1 touch-pan-y"
         onMouseEnter={() => {

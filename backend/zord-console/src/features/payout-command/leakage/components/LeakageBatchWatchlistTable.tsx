@@ -3,20 +3,10 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { displayApiField, formatKpiMoneyMinor } from '../../shared/formatApiKpiFields'
+import { displayApiField } from '../../shared/formatApiKpiFields'
 import { leakageCopy } from '../copy/leakageCopy'
 import { Glyph } from '../../shared'
 import { HOME_TITLE_BLACK } from '../../command-center/homeCommandCenterTokens'
-
-function leakageBadgeTone(pct: number | string | undefined): string {
-  if (pct == null) return 'bg-slate-100 text-slate-600'
-  const n = typeof pct === 'number' ? pct : Number(pct)
-  if (!Number.isFinite(n)) return 'bg-slate-100 text-slate-600'
-  const displayPct = n > 1 ? n : n * 100
-  if (displayPct >= 12) return 'bg-red-50 text-red-700'
-  if (displayPct >= 6) return 'bg-amber-50 text-amber-800'
-  return 'bg-emerald-50 text-emerald-800'
-}
 
 type LeakageBatchWatchlistTableProps = {
   batches: IntelligenceBatchRow[]
@@ -92,7 +82,6 @@ export function LeakageBatchWatchlistTable({
             ) : (
               filtered.map((b) => {
                 const selected = b.batch_id === selectedBatchId
-                const leakagePct = b.leakage_percentage
                 return (
                   <tr
                     key={b.batch_id}
@@ -103,25 +92,21 @@ export function LeakageBatchWatchlistTable({
                   >
                     <td className="px-3 py-3">
                       <p className={`text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>
-                        {b.source_reference?.trim() || b.batch_id}
+                        {displayApiField(b.source_reference)}
                       </p>
-                      <p className="font-mono text-[13px] font-medium text-[#00239C]">{b.batch_id}</p>
+                      <p className="font-mono text-[13px] font-medium text-[#00239C]">{displayApiField(b.batch_id)}</p>
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-900">
-                      {formatKpiMoneyMinor(b.total_intended_amount_minor)}
+                      {displayApiField(b.total_intended_amount_minor)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {formatKpiMoneyMinor(b.total_variance_minor)}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-[13px] font-semibold tabular-nums ${leakageBadgeTone(leakagePct)}`}
-                      >
-                        {displayApiField(leakagePct)}
-                      </span>
+                      {displayApiField(b.total_variance_minor)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {formatKpiMoneyMinor(b.reversal_exposure_minor)}
+                      {displayApiField(b.leakage_percentage)}
+                    </td>
+                    <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
+                      {displayApiField(b.reversal_exposure_minor)}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <Link

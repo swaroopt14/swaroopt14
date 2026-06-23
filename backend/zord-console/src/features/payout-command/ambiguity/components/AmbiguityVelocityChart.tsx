@@ -146,7 +146,7 @@ export function AmbiguityVelocityChart({ amb, batchId, selectedBatchId, onSelect
   )
 
   const totalAtRisk = formatKpiMoneyMinor(amb?.value_at_risk_minor)
-  const confidencePct = displayApiField(amb?.avg_attachment_confidence)
+  const confidencePct = amb?.avg_attachment_confidence != null ? `${amb.avg_attachment_confidence}%` : '—'
   const varDelta = getValueAtRiskDelta(amb)
 
   return (

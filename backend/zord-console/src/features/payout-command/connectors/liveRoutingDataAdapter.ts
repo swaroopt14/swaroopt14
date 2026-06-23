@@ -189,7 +189,7 @@ function resolveExposureTotals(
 
   return {
     totalIntendedMinor: readMinorOrNull(leakage.total_intended_amount_minor),
-    moneyAtRiskMinor: readMinorOrNull(leakage.total_amount_minor),
+    moneyAtRiskMinor: readMinorOrNull(leakage.unmatched_amount_minor),
     preventableLeakageMinor,
   }
 }

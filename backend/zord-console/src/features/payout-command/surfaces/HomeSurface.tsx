@@ -369,14 +369,15 @@ export function HomeSurface({
   }, [insightCarouselCards, tenantReady, insightCarouselLoading])
 
   const matchConfidencePct = useMemo(() => {
+    const withPct = (v: string) => (v === '—' || v === '…' ? v : `${v}%`)
     if (batchId?.trim()) {
       if (batchContractLoading) return '…'
-      return displayApiField(batchContract?.match_confidence)
+      return withPct(displayApiField(batchContract?.match_confidence))
     }
     if (patternsData?.summary_stats?.match_confidence_pct != null) {
-      return displayApiField(patternsData.summary_stats.match_confidence_pct)
+      return withPct(displayApiField(patternsData.summary_stats.match_confidence_pct))
     }
-    return displayApiField(ambData?.avg_attachment_confidence, loading)
+    return withPct(displayApiField(ambData?.avg_attachment_confidence, loading))
   }, [batchId, batchContract, batchContractLoading, ambData, patternsData, loading])
 
   const missingRefRate = useMemo(() => {
@@ -397,8 +398,9 @@ export function HomeSurface({
 
   const multiMatchRate = displayApiField(ambData?.candidate_collision_rate, loading)
 
-  const proofCoveragePct = displayApiField(defData?.evidence_pack_rate, loading)
-  const proofReadyRow = displayApiField(defData?.audit_ready_pct, loading)
+  const withPct = (v: string) => (v === '—' || v === '…' ? v : `${v}%`)
+  const proofCoveragePct = withPct(displayApiField(defData?.evidence_pack_rate, loading))
+  const proofReadyRow = withPct(displayApiField(defData?.audit_ready_pct, loading))
   const incompleteProofRow = displayApiField(defData?.weak_evidence_count, loading)
 
   const settlementHeroDisplay =

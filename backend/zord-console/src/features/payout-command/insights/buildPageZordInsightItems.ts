@@ -58,7 +58,7 @@ export function buildLeakagePageInsightItems(params: {
   }
 
   if (leakage?.leakage_percentage != null) {
-    const gapRate = formatLeakageApiPct(leakage.leakage_percentage)
+    const gapRate = `${leakage.leakage_percentage}%`
     if (gapRate !== '—') {
       items.push({
         title: 'Payment gap rate',
@@ -68,7 +68,7 @@ export function buildLeakagePageInsightItems(params: {
     }
   }
 
-  const unmatched = formatMinor(leakage?.unmatched_amount_minor)
+  const unmatched = formatMinor(ambiguity?.value_at_risk_minor)
   if (unmatched !== '—') {
     items.push({
       title: 'Unmatched payment value',

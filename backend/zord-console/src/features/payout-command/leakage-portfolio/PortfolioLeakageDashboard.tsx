@@ -127,6 +127,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
             loading={loading && batches.length === 0}
             selectedBatchId={selectedBatchId}
             onSelectBatch={handleSelectBatch}
+            scopeLeakagePct={leak?.leakage_percentage}
           />
         </LeakageWidgetChrome>
       ),

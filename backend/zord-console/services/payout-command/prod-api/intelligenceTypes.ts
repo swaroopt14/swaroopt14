@@ -369,6 +369,9 @@ export type IntelligenceBatchRow = {
   total_intended_amount_minor?: MinorAmountField
   orphan_amount_minor?: MinorAmountField
   reversal_exposure_minor?: MinorAmountField
+  /** Per-batch leakage rate from ML model. Source: predicted_leakage_rate in /batches list response. */
+  predicted_leakage_rate?: number
+  /** @deprecated batch list API sends predicted_leakage_rate — this field is never populated from /batches */
   leakage_percentage?: number
   ambiguous_amount_minor?: MinorAmountField
   missing_ref_count?: number

@@ -200,7 +200,7 @@ export function BatchesNeedingReviewTable({
                       </span>
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-900">
-                      {displayApiField(b.match_confidence_pct)}
+                      {displayApiField(b.match_confidence)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
                       {batchDisplayValue(b)}

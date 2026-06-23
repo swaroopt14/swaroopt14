@@ -106,25 +106,24 @@ export function getMatchingSummary(
   return heatmapOverride?.summary ?? null
 }
 
+// API field is match_confidence (0–100, pre-scaled by backend). match_confidence_pct is never sent.
 export function batchMatchPctDisplay(b: IntelligenceBatchRow): string {
-  if (b.match_confidence_pct != null && String(b.match_confidence_pct).trim() !== '') {
-    return String(b.match_confidence_pct).trim()
-  }
+  const v = b.match_confidence
+  if (v != null && String(v).trim() !== '') return String(v).trim()
   return '—'
 }
 
-/** @deprecated use batchMatchPctDisplay — no client-side ratio math */
 export function batchMatchPct(b: IntelligenceBatchRow): number | null {
-  if (b.match_confidence_pct != null && Number.isFinite(b.match_confidence_pct)) {
-    return b.match_confidence_pct
-  }
+  const v = b.match_confidence
+  if (v != null && Number.isFinite(v)) return v
   return null
 }
 
+// API field for per-batch unresolved value is unresolved_intended_amount_minor.
+// value_at_risk_minor is only on the tenant-level KPI endpoint, not the batches list.
 export function batchDisplayValue(b: IntelligenceBatchRow): string {
-  if (b.value_at_risk_minor != null && String(b.value_at_risk_minor).trim() !== '') {
-    return formatAmbiguityInr(b.value_at_risk_minor)
-  }
+  const v = b.unresolved_intended_amount_minor
+  if (v != null && String(v).trim() !== '') return formatAmbiguityInr(v)
   return '—'
 }
 

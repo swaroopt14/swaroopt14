@@ -68,7 +68,7 @@ function buildAccountInsightParagraph(
   const openException = formatMinorDisplay(leakageData?.total_amount_minor)
   const gapRate =
     leakageData?.leakage_percentage != null
-      ? formatLeakageApiPct(leakageData.leakage_percentage)
+      ? `${leakageData.leakage_percentage}%`
       : null
 
   if (intended !== '—' && settled !== '—') {
@@ -190,7 +190,7 @@ export function buildZordInsightCards(params: {
   const unmatchedCard = metricCard(
     'unmatched-value',
     'Unmatched payment value',
-    leakageData?.unmatched_amount_minor,
+    ambData?.value_at_risk_minor,
     'Intended payments without a linked bank or settlement outcome.',
     ambData?.ambiguous_intent_count ?? pendingCount,
     'ambiguous intents',

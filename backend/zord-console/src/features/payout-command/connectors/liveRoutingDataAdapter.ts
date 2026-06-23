@@ -375,7 +375,7 @@ function buildInsights(
   if (weakestSource && missingRefRate != null) {
     insights.push({
       id: 'pattern-weakest-source',
-      text: `Missing bank references are concentrated in ${weakestSource} — ${missingRefRate.toFixed(1)}% of rows lack a usable UTR or settlement reference.`,
+      text: `${missingRefRate.toFixed(1)}% of records in ${weakestSource} are missing a bank reference. Without a UTR or settlement reference, these payments cannot be confirmed or evidenced.`,
     })
   }
 
@@ -383,7 +383,7 @@ function buildInsights(
   if (weakestProvider) {
     insights.push({
       id: 'pattern-weakest-provider',
-      text: `${providerLabel(weakestProvider)} shows the weakest match signals in the latest snapshot — review connector health and reference quality.`,
+      text: `${providerLabel(weakestProvider)} has the weakest match signals in this snapshot. Review connector health and reference quality for this provider.`,
     })
   }
 
@@ -398,14 +398,14 @@ function buildInsights(
   if (isDataAvailable(leakage) && leakage.leakage_percentage > 0) {
     insights.push({
       id: 'leakage-rate',
-      text: `Leakage is ${leakage.leakage_percentage}% for the selected window.`,
+      text: `Payment gap rate is ${leakage.leakage_percentage}% for the selected time window.`,
     })
   }
 
   if (isDataAvailable(ambiguity) && ambiguity.provider_ref_missing_rate > 0) {
     insights.push({
       id: 'provider-ref-missing',
-      text: `Provider reference missing rate is ${(ambiguity.provider_ref_missing_rate * 100).toFixed(1)}%.`,
+      text: `${(ambiguity.provider_ref_missing_rate * 100).toFixed(1)}% of payment records are missing a provider reference. These records require manual follow-up to confirm settlement.`,
     })
   }
 

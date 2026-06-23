@@ -45,12 +45,12 @@ export const connectorsCopy = {
     emptyTitle: 'No connector performance data yet',
     emptyBody:
       'Ingest payment events and run intelligence snapshots to see connector health, leakage composition, and recommended actions here.',
-    staleBanner: 'Metrics are stale. Refresh connector telemetry before acting on these numbers.',
+    staleBanner: 'Connector data may not reflect the latest activity. Refresh before taking action on these numbers.',
   },
   sections: {
-    detectedPatterns: 'Detected Patterns',
+    detectedPatterns: 'Performance Signals',
     recommendedActions: 'Recommended Actions',
-    recommendedRoutes: 'Recommended Routes (Top 3)',
-    preventableLeakageImpact: 'Preventable Leakage Impact',
+    recommendedRoutes: 'Recommended Routes',
+    preventableLeakageImpact: 'Preventable Exposure by Action',
   },
 } as const

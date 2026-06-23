@@ -162,7 +162,7 @@ export function AmbiguityVelocityChart({ amb, batchId, selectedBatchId, onSelect
             Ambiguity velocity
           </h3>
           <p className={`mt-0.5 text-[14px] ${ZORD_SURFACE_MUTED}`}>
-            X = batch size · Y = risk % · bubble size from velocity scatter API
+            Each bubble is one batch. Size shows payment value. Height shows risk percentage.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

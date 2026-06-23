@@ -9,6 +9,8 @@ export type ZordInsightCard =
       prefix?: string
       highlight?: string
       suffix?: string
+      /** Rendered as a standalone red badge below the paragraph (e.g. "7.57%"). */
+      gapRate?: string
       delta?: InsightDelta
     }
   | {

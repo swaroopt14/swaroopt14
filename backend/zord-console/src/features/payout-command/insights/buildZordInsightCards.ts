@@ -72,8 +72,7 @@ function buildAccountInsightParagraph(
       : null
 
   if (intended !== '—' && settled !== '—') {
-    const gapClause = gapRate && gapRate !== '—' ? ` Payment gap rate is ${gapRate}.` : ''
-    return `${intended} was intended and ${settled} was observed in settlement records for the ${carouselPeriod} period.${gapClause}`
+    return `${intended} was intended and ${settled} was observed in settlement records for the ${carouselPeriod} period.`
   }
 
   if (openException !== '—') {
@@ -164,6 +163,10 @@ export function buildZordInsightCards(params: {
       carouselPeriod,
       emptyInsightParagraph,
     ),
+    gapRate:
+      leakageData?.leakage_percentage != null
+        ? `${leakageData.leakage_percentage}%`
+        : undefined,
     delta: trendChartReady ? bucketDelta(trendSeries?.buckets ?? []) : undefined,
   })
 
@@ -189,7 +192,7 @@ export function buildZordInsightCards(params: {
 
   const unmatchedCard = metricCard(
     'unmatched-value',
-    'Unmatched payment value',
+    'Value at risk',
     leakageData?.unmatched_amount_minor,
     'Intended payments without a linked bank or settlement outcome.',
   )
@@ -216,7 +219,7 @@ export function buildZordInsightCards(params: {
   const ambiguousCard = metricCard(
     'ambiguous-value',
     'Ambiguous amount',
-    leakageData?.ambiguous_value_at_risk_minor,
+    ambData?.ambiguous_amount_minor,
     'Payment value with unclear match signal.',
   )
   if (ambiguousCard) cards.push(ambiguousCard)

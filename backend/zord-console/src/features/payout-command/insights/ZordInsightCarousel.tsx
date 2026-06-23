@@ -175,18 +175,32 @@ function boldNumbersAppear(text: string) {
 }
 
 function InsightBody({ card }: { card: Extract<ZordInsightCard, { type: 'insight' }> }) {
-  if (card.paragraph) {
-    return (
-      <div className="text-[20px] font-normal leading-[1.45] tracking-[0] text-white">
-        {boldNumbersAppear(card.paragraph)}
-      </div>
-    )
-  }
-  return (
+  const body = card.paragraph ? (
+    <div className="text-[20px] font-normal leading-[1.45] tracking-[0] text-white">
+      {boldNumbersAppear(card.paragraph)}
+    </div>
+  ) : (
     <div className="text-[20px] font-light leading-[1.38] tracking-[-0.02em]" style={{ color: G.dark }}>
       {card.prefix ?? ''}{' '}
       <strong style={{ fontWeight: 700 }}>{card.highlight}</strong> {card.suffix ?? ''}
     </div>
+  )
+  return (
+    <>
+      {body}
+      {card.gapRate ? (
+        <div
+          className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-lg px-3 py-1.5 text-[13px] font-bold"
+          style={{ background: 'rgba(239,68,68,0.22)', border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}
+        >
+          <span
+            className="h-[7px] w-[7px] rounded-full"
+            style={{ background: '#ef4444', flexShrink: 0 }}
+          />
+          Payment gap rate: {card.gapRate}
+        </div>
+      ) : null}
+    </>
   )
 }
 
@@ -197,7 +211,7 @@ function MetricBody({ card }: { card: Extract<ZordInsightCard, { type: 'metric' 
       <div className="mb-0.5 text-[11px] font-normal uppercase tracking-[0.06em]" style={{ color: G.muted }}>
         Total value
       </div>
-      <div className="text-[42px] font-extrabold leading-none tracking-[-0.03em] tabular-nums" style={{ color: G.dark }}>
+      <div className="text-[42px] font-extrabold leading-none tracking-[-0.03em] tabular-nums" style={{ color: '#fcd34d' }}>
         {headline}
       </div>
       <div className="mt-1.5 text-[12px]" style={{ color: G.mid }}>

@@ -458,7 +458,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 			avg_matched_attachment_quality,
 			matched_intent_count, total_intent_count,
 			matched_pair_variance, net_batch_delta, orphan_observed_amount,
-			unresolved_intended_amount, orphan_observation_count,
+			unresolved_intended_amount, ambiguous_amount, conflicted_amount, orphan_observation_count,
 			exact_match_count, high_confidence_count, ambiguous_count, unresolved_count, conflicted_count,
 			intent_count_coverage, intent_value_coverage,
 			observed_count_allocation_coverage, observed_value_allocation_coverage,
@@ -475,7 +475,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 	var summaryMatchConfidence float64
 	var summaryQualityScore float64
 	var matchedIntentCount, totalIntentCount int
-	var matchedPairVariance, netBatchDelta, orphanObservedAmount, unresolvedIntendedAmount decimal.Decimal
+	var matchedPairVariance, netBatchDelta, orphanObservedAmount, unresolvedIntendedAmount, ambiguousAmount, conflictedAmount decimal.Decimal
 	var orphanObservationCount, unresolvedIntentCount int
 	var summaryExactMatchCount, summaryHighConfidenceCount, summaryAmbiguousCount, summaryConflictedCount int
 	var intentCountCoverage, intentValueCoverage, observedCountCoverage, observedValueCoverage float64
@@ -486,7 +486,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		&summaryAmbiguity, &summaryMatchConfidence, &summaryQualityScore,
 		&matchedIntentCount, &totalIntentCount,
 		&matchedPairVariance, &netBatchDelta, &orphanObservedAmount,
-		&unresolvedIntendedAmount, &orphanObservationCount,
+		&unresolvedIntendedAmount, &ambiguousAmount, &conflictedAmount, &orphanObservationCount,
 		&summaryExactMatchCount, &summaryHighConfidenceCount, &summaryAmbiguousCount, &unresolvedIntentCount, &summaryConflictedCount,
 		&intentCountCoverage, &intentValueCoverage,
 		&observedCountCoverage, &observedValueCoverage,
@@ -574,6 +574,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 		"matched_intended_amount":            matchedIntendedAmount.String(),
 		"matched_observed_amount":            matchedObservedAmount.String(),
 		"unresolved_intended_amount":         unresolvedIntendedAmount.String(),
+		"ambiguous_amount":                   ambiguousAmount.String(),
+		"conflicted_amount":                  conflictedAmount.String(),
 		"orphan_observed_amount":             orphanObservedAmount.String(),
 		"matched_pair_variance":              matchedPairVariance.String(),
 		"net_batch_delta":                    netBatchDelta.String(),

@@ -83,7 +83,10 @@ export const BACKEND_SERVICES = {
 
   // zord-intelligence: KPI dashboards + batch intelligence (Port 8089)
   INTELLIGENCE: {
-    BASE_URL: process.env.ZORD_INTELLIGENCE_URL || 'http://localhost:8089',
+    BASE_URL:
+      process.env.ZORD_INTELLIGENCE_URL ||
+      process.env.SMOKE_SIMULATOR_URL ||
+      'http://localhost:8089',
     ENDPOINTS: {
       LEAKAGE: '/v1/intelligence/dashboard/leakage',
       LEAKAGE_EXPOSURE: '/v1/intelligence/timeseries/leakage-exposure',

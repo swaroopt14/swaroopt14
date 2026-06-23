@@ -18,9 +18,9 @@ import {
 } from './components/LeakageFiltersForm'
 import {
   DEFAULT_LEAKAGE_WIDGET_ORDER,
-  LEAKAGE_WIDGET_LABELS,
+  hiddenLeakageWidgetIds,
   loadLeakageWidgetLayout,
-  resetLeakageWidgetLayout,
+  restoreHiddenLeakageWidgets,
   saveLeakageWidgetLayout,
   type LeakageWidgetId,
 } from './leakageWidgetLayout'
@@ -38,7 +38,6 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
   )
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
   const [filtersOpen, setFiltersOpen] = useState(false)
-  const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [filters, setFilters] = useState<LeakageFilterValues>({
     status: '',
     fromDate: '',
@@ -50,10 +49,8 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
 
   const scopedBatchId = filters.batchId.trim() || selectedBatchId
 
-  const { viewModel, leak, ambiguity, patterns, loading, refresh } = usePortfolioLeakageData(
-    tenantReady,
-    scopedBatchId,
-  )
+  const { viewModel, leak, ambiguity, patterns, patternsLoading, patternsEmptyReason, loading, refresh } =
+    usePortfolioLeakageData(tenantReady, scopedBatchId)
 
   const displayData = viewModel
   const kpiLoading = loading && !displayData
@@ -94,41 +91,20 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     void loadBatches()
   }, [loadBatches])
 
-  const hideWidget = useCallback((id: LeakageWidgetId) => {
-    setWidgetOrder((order) => {
-      const next = order.filter((w) => w !== id)
-      saveLeakageWidgetLayout(next)
-      return next
-    })
-  }, [])
+  const hiddenWidgetCount = hiddenLeakageWidgetIds(widgetOrder).length
 
-  const moveWidget = useCallback((id: LeakageWidgetId, direction: 'up' | 'down') => {
+  const restoreHiddenWidgets = useCallback(() => {
     setWidgetOrder((order) => {
-      const idx = order.indexOf(id)
-      if (idx < 0) return order
-      const swap = direction === 'up' ? idx - 1 : idx + 1
-      if (swap < 0 || swap >= order.length) return order
-      const next = [...order]
-      ;[next[idx], next[swap]] = [next[swap], next[idx]]
+      const next = restoreHiddenLeakageWidgets(order)
       saveLeakageWidgetLayout(next)
       return next
     })
-  }, [])
-
-  const addWidget = useCallback((id: LeakageWidgetId) => {
-    setWidgetOrder((order) => {
-      if (order.includes(id)) return order
-      const next = [...order, id]
-      saveLeakageWidgetLayout(next)
-      return next
-    })
-    setAddWidgetOpen(false)
   }, [])
 
   const widgetNodes = useMemo(
     () => ({
       kpiHero: displayData ? (
-        <LeakageWidgetChrome widgetId="kpiHero" onHide={hideWidget} onMove={moveWidget} batchId={scopedBatchId}>
+        <LeakageWidgetChrome widgetId="kpiHero">
           <div className="grid gap-4 lg:grid-cols-3">
             <div className="lg:col-span-1">
               <LeakageKpiStrip data={displayData} loading={kpiLoading} />
@@ -140,12 +116,12 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
         </LeakageWidgetChrome>
       ) : null,
       trendChart: displayData ? (
-        <LeakageWidgetChrome widgetId="trendChart" onHide={hideWidget} onMove={moveWidget} batchId={scopedBatchId}>
+        <LeakageWidgetChrome widgetId="trendChart">
           <RiskAdjustedLeakageCard data={displayData} loading={kpiLoading} batchId={scopedBatchId} />
         </LeakageWidgetChrome>
       ) : null,
       watchlistTable: (
-        <LeakageWidgetChrome widgetId="watchlistTable" onHide={hideWidget} onMove={moveWidget} batchId={scopedBatchId}>
+        <LeakageWidgetChrome widgetId="watchlistTable">
           <LeakageBatchWatchlistTable
             batches={batches}
             loading={loading && batches.length === 0}
@@ -155,12 +131,17 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
         </LeakageWidgetChrome>
       ),
       batchScoreHealth: (
-        <LeakageWidgetChrome widgetId="batchScoreHealth" onHide={hideWidget} onMove={moveWidget} batchId={scopedBatchId}>
-          <BatchScoreHealthCard patterns={patterns} loading={loading && !patterns} />
+        <LeakageWidgetChrome widgetId="batchScoreHealth">
+          <BatchScoreHealthCard
+            patterns={patterns}
+            loading={patternsLoading}
+            batchId={scopedBatchId}
+            emptyReason={patternsEmptyReason}
+          />
         </LeakageWidgetChrome>
       ),
       zordInsight: displayData ? (
-        <LeakageWidgetChrome widgetId="zordInsight" onHide={hideWidget} onMove={moveWidget} batchId={scopedBatchId}>
+        <LeakageWidgetChrome widgetId="zordInsight">
           <LeakageZordInsightsCard leakage={leak} ambiguity={ambiguity} patterns={patterns} />
         </LeakageWidgetChrome>
       ) : null,
@@ -168,8 +149,6 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     }),
     [
       displayData,
-      hideWidget,
-      moveWidget,
       scopedBatchId,
       kpiLoading,
       batches,
@@ -178,6 +157,8 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
       handleSelectBatch,
       leak,
       patterns,
+      patternsLoading,
+      patternsEmptyReason,
       ambiguity,
     ],
   )
@@ -189,6 +170,8 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
           batches={batches}
           selectedBatchId={selectedBatchId}
           onSelectBatch={handleSelectBatch}
+          hiddenWidgetCount={hiddenWidgetCount}
+          onRestoreHiddenWidgets={restoreHiddenWidgets}
         />
         <LeakageFiltersForm
           open={filtersOpen}
@@ -199,22 +182,6 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
             if (next.batchId.trim()) setSelectedBatchId(next.batchId.trim())
           }}
         />
-        {addWidgetOpen ? (
-          <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
-            {(Object.keys(LEAKAGE_WIDGET_LABELS) as LeakageWidgetId[])
-              .filter((id) => !widgetOrder.includes(id))
-              .map((id) => (
-                <button
-                  key={id}
-                  type="button"
-                  className="block w-full rounded-lg px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
-                  onClick={() => addWidget(id)}
-                >
-                  {LEAKAGE_WIDGET_LABELS[id]}
-                </button>
-              ))}
-          </div>
-        ) : null}
       </div>
       <LiveDataHint isLive={showLiveHint} source="intelligence" />
 

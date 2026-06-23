@@ -15,21 +15,26 @@ export function EvidenceKpiStrip({ cards, loading, defensibilityTier }: Evidence
     return <div className="h-[286px] animate-pulse rounded-[20px] bg-slate-200/60" />
   }
 
-  const packs = cards.find((c) => c.id === 'packs')
-  const primaryValue = packs?.value ?? '—'
-  const primarySubcopy = packs?.sub ?? evidenceCopy.proofReadinessHelper
+  const readiness = cards.find((c) => c.id === 'readiness')
+  const primaryValue = readiness?.value ?? '—'
+  const primarySubcopy =
+    [readiness?.sub, readiness?.explanation].filter(Boolean).join(' · ') ||
+    evidenceCopy.proofReadinessHelper
   const tierPill = defensibilityTier ? `Tier ${defensibilityTier}` : evidenceCopy.proofTierLabel
 
-  const buckets = cards.map((card) => ({
-    label: card.label,
-    value: card.value,
-    sub: card.sub,
-  }))
+  const buckets = cards
+    .filter((card) => card.id !== 'readiness')
+    .map((card) => ({
+      label: card.label,
+      value: card.value,
+      sub: card.sub,
+    }))
 
   return (
     <JournalIntelligenceKpiHero
-      eyebrow={evidenceCopy.kpi.evidencePacksGenerated}
+      eyebrow={evidenceCopy.kpi.proofReadinessScore}
       value={primaryValue}
+      tooltip={readiness?.tooltip}
       deltaPill={tierPill}
       subcopy={primarySubcopy}
       buckets={buckets}

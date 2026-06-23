@@ -50,10 +50,21 @@ import {
 import {
   useBatchContractKpis,
 } from '@/features/payout-command/hooks/useBatchContractKpis'
-import { displayApiField, formatApiPct, formatKpiMoneyMinor } from '../shared/formatApiKpiFields'
+import { displayApiField, formatKpiMoneyMinor } from '../shared/formatApiKpiFields'
 
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
   'No payment data in this period yet. Upload payment instructions or connect bank/settlement files to populate this view.'
+
+function homeTimeframeToCommandPeriod(timeframe: HomeTimeframe): CommandCenterPeriod {
+  if (timeframe === 'Week') return 'week'
+  if (timeframe === 'Year') return 'year'
+  if (timeframe === 'Quarter' || timeframe === 'Custom') return 'quarter'
+  return 'month'
+}
+
+function homeTimeframeToTrendRange(timeframe: HomeTimeframe): DisbursementTrendRange {
+  return commandPeriodToTrendRange(homeTimeframeToCommandPeriod(timeframe))
+}
 
 function parseMinorStrict(value: string | number | undefined | null): number | null {
   if (value == null || value === '') return null
@@ -78,8 +89,12 @@ export function HomeSurface({
   onYearChange: (year: 2026 | 2027 | 2028) => void
   onQuarterChange: (quarterIndex: number) => void
 }) {
-  const [commandPeriod, setCommandPeriod] = useState<CommandCenterPeriod>('month')
-  const [chartPeriod, setChartPeriod] = useState<DisbursementTrendRange>('month')
+  const [commandPeriod, setCommandPeriod] = useState<CommandCenterPeriod>(() =>
+    homeTimeframeToCommandPeriod(timeframe),
+  )
+  const [chartPeriod, setChartPeriod] = useState<DisbursementTrendRange>(() =>
+    homeTimeframeToTrendRange(timeframe),
+  )
   const [carouselPeriod, setCarouselPeriod] = useState<CarouselInsightPeriod>('weekly')
   const [heroMetric, setHeroMetric] = useState<'intended' | 'confirmed'>('intended')
 
@@ -189,17 +204,20 @@ export function HomeSurface({
     return { total, intentCount }
   }, [trendSeries])
 
+  const chartSeriesStale =
+    Boolean(chartSeriesData) && chartSeriesData?.range !== chartPeriod
+
   const chartSeriesPoints = useMemo((): PaymentTrendChartPoint[] => {
     if (
       !tenantReady ||
+      chartSeriesStale ||
       !chartSeriesData?.data_available ||
-      !chartSeriesData.buckets?.length ||
-      chartSeriesData.range !== chartPeriod
+      !chartSeriesData.buckets?.length
     ) {
       return []
     }
     return mapDisbursementBucketsToTrendPoints(chartSeriesData.buckets)
-  }, [tenantReady, chartSeriesData, chartPeriod])
+  }, [tenantReady, chartSeriesData, chartSeriesStale])
 
   const trendChartReady = chartSeriesPoints.some(
     (p) => p.intendedMinor > 0 || p.confirmedMinor > 0 || p.reviewMinor > 0,
@@ -379,7 +397,7 @@ export function HomeSurface({
 
   const multiMatchRate = displayApiField(ambData?.candidate_collision_rate, loading)
 
-  const proofCoveragePct = formatApiPct(defData?.evidence_pack_rate ?? null, loading, true)
+  const proofCoveragePct = displayApiField(defData?.evidence_pack_rate, loading)
   const proofReadyRow = displayApiField(defData?.audit_ready_pct, loading)
   const incompleteProofRow = displayApiField(defData?.weak_evidence_count, loading)
 
@@ -515,7 +533,7 @@ export function HomeSurface({
           <PaymentTrendPanel
             className="w-full"
             series={chartSeriesPoints}
-            loading={chartSeriesLoading}
+            loading={chartSeriesLoading || chartSeriesStale}
             period={chartPeriod}
             onPeriodChange={setChartPeriod}
           />

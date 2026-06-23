@@ -54,7 +54,7 @@ import {
   isDeferredRecommendation,
 } from './copy/formatRoutingIntelligence'
 
-const STALE_AFTER_MINUTES = 15
+const STALE_AFTER_MINUTES = 60
 
 type PatternSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string
 
@@ -398,7 +398,7 @@ function buildInsights(
   if (isDataAvailable(leakage) && leakage.leakage_percentage > 0) {
     insights.push({
       id: 'leakage-rate',
-      text: `Leakage is ${(leakage.leakage_percentage * 100).toFixed(1)}% for the selected window.`,
+      text: `Leakage is ${leakage.leakage_percentage}% for the selected window.`,
     })
   }
 

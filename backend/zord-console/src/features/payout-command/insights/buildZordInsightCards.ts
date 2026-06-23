@@ -170,6 +170,7 @@ export function buildZordInsightCards(params: {
     delta: trendChartReady ? bucketDelta(trendSeries?.buckets ?? []) : undefined,
   })
 
+  // Row 1: slot 2
   const intendedCard = metricCard(
     'intended-value',
     'Intended payment value',
@@ -180,24 +181,7 @@ export function buildZordInsightCards(params: {
   )
   if (intendedCard) cards.push(intendedCard)
 
-  const reviewCard = metricCard(
-    'value-needing-review',
-    'Value needing review',
-    leakageData?.total_amount_minor,
-    'Open financial exception value from leakage total_amount_minor.',
-    pendingCount,
-    'items pending review',
-  )
-  if (reviewCard) cards.push(reviewCard)
-
-  const unmatchedCard = metricCard(
-    'unmatched-value',
-    'Value at risk',
-    leakageData?.unmatched_amount_minor,
-    'Intended payments without a linked bank or settlement outcome.',
-  )
-  if (unmatchedCard) cards.push(unmatchedCard)
-
+  // Row 1: slot 3
   const settledCard = metricCard(
     'settlement-observed',
     'Settlement value observed',
@@ -208,6 +192,16 @@ export function buildZordInsightCards(params: {
   )
   if (settledCard) cards.push(settledCard)
 
+  // Row 2: slot 4
+  const unmatchedCard = metricCard(
+    'unmatched-value',
+    'Value at risk',
+    leakageData?.unmatched_amount_minor,
+    'Intended payments without a linked bank or settlement outcome.',
+  )
+  if (unmatchedCard) cards.push(unmatchedCard)
+
+  // Row 2: slot 5
   const shortSettledCard = metricCard(
     'short-settled',
     'Short-settled value',
@@ -216,6 +210,7 @@ export function buildZordInsightCards(params: {
   )
   if (shortSettledCard) cards.push(shortSettledCard)
 
+  // Row 2: slot 6
   const ambiguousCard = metricCard(
     'ambiguous-value',
     'Ambiguous amount',

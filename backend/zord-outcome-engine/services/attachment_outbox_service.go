@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 	"zord-outcome-engine/db"
 	"zord-outcome-engine/models"
@@ -68,6 +69,7 @@ func (s *AttachmentOutboxService) EmitForJob(
 		Currency            string
 		Amount              decimal.Decimal
 		IntendedExecutionAt *time.Time
+		ClientBatchRef      *string
 	}
 	intentLookup := make(map[uuid.UUID]intentInfo)
 	var intentIDs []uuid.UUID
@@ -84,7 +86,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 				COALESCE(corridor, ''),
 				currency_code,
 				amount,
-				intended_execution_at
+				intended_execution_at,
+				client_batch_ref
 			FROM canonical_intents
 			WHERE intent_id = ANY($1)`, pq.Array(intentIDs))
 		if err != nil {
@@ -96,7 +99,8 @@ func (s *AttachmentOutboxService) EmitForJob(
 			var cID uuid.UUID
 			var amt decimal.Decimal
 			var intendedAt *time.Time
-			if err := rows.Scan(&idStr, &cID, &corrID, &curr, &amt, &intendedAt); err != nil {
+			var clientBatchRef *string
+			if err := rows.Scan(&idStr, &cID, &corrID, &curr, &amt, &intendedAt, &clientBatchRef); err != nil {
 				continue
 			}
 			id, _ := uuid.Parse(idStr)
@@ -107,21 +111,23 @@ func (s *AttachmentOutboxService) EmitForJob(
 				Currency:            curr,
 				Amount:              amt,
 				IntendedExecutionAt: intendedAt,
+				ClientBatchRef:      clientBatchRef,
 			}
 		}
 		rows.Close()
 	}
 
-	// 2. Fetch batch summary data for aggregate amounts
+	// 2. Fetch batch summary data for aggregate amounts and batch_id fallback
+	var summaryBatchID *string
 	var totalIntendedAmount, totalConfirmedAmount, totalVariance, originalSettledAmount decimal.Decimal
 	row := db.DB.QueryRowContext(ctx, `
-		SELECT total_intended_amount,original_settled_amount, total_observed_amount, total_variance
+		SELECT batch_id, total_intended_amount, original_settled_amount, total_observed_amount, total_variance
 		FROM batch_attachment_summaries 
 		WHERE attachment_job_id = $1 
 		LIMIT 1`,
 		job.AttachmentJobID,
 	)
-	_ = row.Scan(&totalIntendedAmount, &originalSettledAmount, &totalConfirmedAmount, &totalVariance)
+	_ = row.Scan(&summaryBatchID, &totalIntendedAmount, &originalSettledAmount, &totalConfirmedAmount, &totalVariance)
 
 	for _, d := range decisions {
 		// ── 1. attachment.decision.created ────────────────────────────────
@@ -146,12 +152,10 @@ func (s *AttachmentOutboxService) EmitForJob(
 		var bankRef, clientRefCandidate string
 		var obsCreatedAt time.Time
 		var parsedCreatedAt time.Time
+		var obsClientBatchID string
 		if d.SettlementObservationID != nil {
 			if obs, ok := obsMap[*d.SettlementObservationID]; ok {
-				bID = obs.ClientBatchID
-				if bID == "" && obs.BatchReference != nil {
-					bID = *obs.BatchReference
-				}
+				obsClientBatchID = strings.TrimSpace(obs.ClientBatchID)
 				settledAmount = obs.Amount
 				if corrID == "" {
 					corrID = obs.CorridorID
@@ -175,6 +179,14 @@ func (s *AttachmentOutboxService) EmitForJob(
 				}
 			}
 		}
+
+		var intentBatchRef string
+		if d.IntentID != uuid.Nil {
+			if info, ok := intentLookup[d.IntentID]; ok && info.ClientBatchRef != nil {
+				intentBatchRef = strings.TrimSpace(*info.ClientBatchRef)
+			}
+		}
+		bID = resolveDecisionBatchID(obsClientBatchID, intentBatchRef, summaryBatchID, job)
 
 		// intentID is always populated now
 		intentID := d.IntentID
@@ -469,7 +481,6 @@ func (s *AttachmentOutboxService) EmitForJob(
 		LIMIT 1`,
 		job.AttachmentJobID,
 	)
-	var summaryBatchID *string
 	var summarySourceRef string
 	var summaryAmbiguity float64
 	var summaryMatchConfidence float64
@@ -601,6 +612,33 @@ func (s *AttachmentOutboxService) EmitForJob(
 		job.AttachmentJobID, decisionCount, ambiguousCount, unresolvedCount, conflictedCount, len(variances))
 
 	return lastErr
+}
+
+// resolveDecisionBatchID picks batch_id for attachment.decision.created payloads.
+// Order: observation ClientBatchID → intent client_batch_ref → batch summary batch_id → job scope_ref (SETTLEMENT_BATCH only).
+func resolveDecisionBatchID(
+	obsClientBatchID string,
+	intentBatchRef string,
+	summaryBatchID *string,
+	job *models.AttachmentJob,
+) string {
+	if obsClientBatchID != "" {
+		return obsClientBatchID
+	}
+	if intentBatchRef != "" {
+		return intentBatchRef
+	}
+	if summaryBatchID != nil {
+		if ref := strings.TrimSpace(*summaryBatchID); ref != "" {
+			return ref
+		}
+	}
+	if job != nil && job.JobScopeType == models.JobScopeSettlementBatch {
+		if ref := strings.TrimSpace(job.ScopeRef); ref != "" {
+			return ref
+		}
+	}
+	return ""
 }
 
 func (s *AttachmentOutboxService) insertEvent(

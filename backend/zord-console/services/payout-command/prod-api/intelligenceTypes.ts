@@ -160,6 +160,8 @@ export type AmbiguityKpiResolved = Resolved<{
   ambiguous_intent_count: number
   ambiguity_rate: number
   avg_attachment_confidence: number
+  /** A7 — avg(WinningScore − RunnerUpScore) from attachment decisions. */
+  avg_score_margin?: number
   provider_ref_missing_rate: number
   value_at_risk_minor: string
   risk_tier: RiskTier

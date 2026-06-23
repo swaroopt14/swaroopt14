@@ -46,6 +46,11 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
       value: formatKpiMoneyMinor(amb?.value_at_risk_minor),
       sub: deltas.valueAtRisk ?? 'Exposure at risk from uncertain matches',
     },
+    {
+      label: 'Settlement certainty',
+      value: displayApiField(amb?.avg_score_margin),
+      sub: 'Winning minus runner-up attachment score',
+    },
   ] as const
 
   return (

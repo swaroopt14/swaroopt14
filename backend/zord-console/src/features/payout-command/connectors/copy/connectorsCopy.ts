@@ -45,7 +45,6 @@ export const connectorsCopy = {
     emptyTitle: 'No connector performance data yet',
     emptyBody:
       'Ingest payment events and run intelligence snapshots to see connector health, leakage composition, and recommended actions here.',
-    staleBanner: 'Connector data may not reflect the latest activity. Refresh before taking action on these numbers.',
   },
   sections: {
     detectedPatterns: 'Performance Signals',

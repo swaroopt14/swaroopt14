@@ -54,8 +54,6 @@ import {
   isDeferredRecommendation,
 } from './copy/formatRoutingIntelligence'
 
-const STALE_AFTER_MINUTES = 60
-
 type PatternSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string
 
 type SourceQualityPattern = NonNullable<PatternSnapshotData['source_quality_patterns']>[number]
@@ -543,7 +541,6 @@ export async function getLiveRoutingSnapshot(window: RoutingTimeWindow): Promise
       recommendationDetail?.computed_at,
       recommendation?.computed_at,
     ]),
-    staleAfterMinutes: STALE_AFTER_MINUTES,
     connectors,
     routeCandidates: [],
     correlationInsights: buildInsights(pattern, leakage, ambiguity, rca),

@@ -659,11 +659,30 @@ export function bubbleMap() {
   }
 }
 
-export function patternsDashboard() {
+export function patternsDashboard(batchId) {
+  const bid = batchId?.trim() || null
+  const batchIndex = bid ? BATCHES.findIndex((b) => b.id === bid) : -1
+  const meta = bid ? batchMeta(bid) : null
+
+  const tenantBatchCount = BATCHES.length
+  const totalCount = bid ? (meta?.intentCount ?? 100) : tenantBatchCount
+  const ambiguousCount = bid ? 8 + ((batchIndex >= 0 ? batchIndex : 0) % 7) : 18
+  const batchRiskScore = bid
+    ? Number((0.31 + ((batchIndex >= 0 ? batchIndex : 0) % 6) * 0.04).toFixed(2))
+    : 0.39
+  const batchQualityScore = bid ? 72 + ((batchIndex >= 0 ? batchIndex : 0) % 5) * 4 : 88
+  const orphanCount = bid ? 6 + ((batchIndex >= 0 ? batchIndex : 0) % 4) : 12
+  const shortCount = bid ? 4 + ((batchIndex >= 0 ? batchIndex : 0) % 3) : 9
+  const ambiguousDriverCount = bid ? 3 + ((batchIndex >= 0 ? batchIndex : 0) % 4) : 7
+
   return {
-    data_available: true,
+    data_available: Boolean(!bid || batchIndex >= 0),
     tenant_id: TENANT_ID,
     computed_at: new Date().toISOString(),
+    ...(bid ? { batch_id: bid } : {}),
+    ...(!bid || batchIndex >= 0
+      ? {}
+      : { reason: 'No batch data available for this period' }),
     decision_success_rate: '64.95%',
     by_provider: {
       razorpay: {
@@ -685,22 +704,19 @@ export function patternsDashboard() {
     },
     batch_anomaly_score: 0.31,
     anomaly_level: 'MEDIUM',
-    batch_risk_score: 0.39,
+    batch_risk_score: batchRiskScore,
+    batch_quality_score: batchQualityScore,
     risk_tier: 'MEDIUM',
     finality_status: 'PARTIALLY_SETTLED',
-    total_count: 100,
+    total_count: totalCount,
     success_count: 82,
     failed_count: 4,
     pending_count: 14,
-    ambiguous_count: 18,
-    summary_stats: {
-      match_confidence_pct: 88,
-      total_decision_count: 100,
-    },
+    ambiguous_count: ambiguousCount,
     risk_driver_breakdown: [
-      { label: 'Orphan settlements', count: 12, share_pct: 42 },
-      { label: 'Short settlement', count: 9, share_pct: 31 },
-      { label: 'Ambiguous match', count: 7, share_pct: 27 },
+      { label: 'Orphan settlements', count: orphanCount, share_pct: 42 },
+      { label: 'Short settlement', count: shortCount, share_pct: 31 },
+      { label: 'Ambiguous match', count: ambiguousDriverCount, share_pct: 27 },
     ],
     network_health_trend: [
       { label: '28 May', success_pct: '82.0%', latency_index: 72 },

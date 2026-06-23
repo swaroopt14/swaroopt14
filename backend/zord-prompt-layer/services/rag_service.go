@@ -460,7 +460,17 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 	scope := utils.NormalizeScope(rawScope, time.Now(), time.Local)
 
 	retrievalReq := req
-	retrievalReq.Query = resolvedQuery
+	retrievalReq.Query = buildSelectedUIContextQuery(req, resolvedQuery)
+
+	if req.UIContext != nil {
+		log.Printf(
+			"[prompt-layer][ui-context] scope=%s level=%s source=%s tenant=%s",
+			req.UIContext.Scope,
+			req.UIContext.ScopeLevel,
+			req.UIContext.SourcePage,
+			req.TenantID,
+		)
+	}
 
 	chunks, err := s.retriever.Retrieve(retrievalReq, intentID, traceID, topK, scope)
 	if err != nil {
@@ -552,6 +562,9 @@ func (s *DefaultRAGService) Query(req dto.QueryRequest) (dto.QueryResponse, erro
 		context += "[RESOLVED_QUERY_CONTEXT]\n"
 		context += "Original user query: " + utils.SanitizeAnswerText(req.Query) + "\n"
 		context += "Resolved business query: " + utils.SanitizeAnswerText(resolvedQuery) + "\n"
+	}
+	if selectedContext := buildSelectedUIContextBlock(req.UIContext); selectedContext != "" {
+		context += "[SELECTED_UI_CONTEXT]\n" + selectedContext + "\n"
 	}
 	context += buildBusinessContext(chunks)
 	if strings.TrimSpace(rcaContext) != "" {
@@ -923,7 +936,79 @@ func mustJSON(v any) []byte {
 	}
 	return b
 }
+func buildSelectedUIContextQuery(req dto.QueryRequest, resolvedQuery string) string {
+	if req.UIContext == nil {
+		return resolvedQuery
+	}
 
+	parts := []string{resolvedQuery}
+
+	if s := strings.TrimSpace(req.UIContext.Scope); s != "" {
+		parts = append(parts, "selected_scope="+s)
+	}
+	if s := strings.TrimSpace(req.UIContext.SourcePage); s != "" {
+		parts = append(parts, "selected_source_page="+s)
+	}
+	if s := strings.TrimSpace(req.UIContext.SectionTitle); s != "" {
+		parts = append(parts, "selected_section="+s)
+	}
+	if s := strings.TrimSpace(req.UIContext.SelectedTitle); s != "" {
+		parts = append(parts, "selected_title="+s)
+	}
+	if s := strings.TrimSpace(req.UIContext.SelectedDescription); s != "" {
+		parts = append(parts, "selected_description="+s)
+	}
+	if s := strings.TrimSpace(req.UIContext.BatchID); s != "" {
+		parts = append(parts, "batch_id: "+s)
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func buildSelectedUIContextBlock(ctx *dto.UIContext) string {
+	if ctx == nil {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("The user opened Ask Zord from a selected UI section. Answer only within this selected business context unless the user clearly asks to broaden the scope.\n")
+
+	writeContextLine := func(label, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		b.WriteString(label)
+		b.WriteString(": ")
+		b.WriteString(utils.SanitizeAnswerText(value))
+		b.WriteString("\n")
+	}
+
+	writeContextLine("Selected scope", ctx.Scope)
+	writeContextLine("Scope level", ctx.ScopeLevel)
+	writeContextLine("Source page", ctx.SourcePage)
+	writeContextLine("Section", ctx.SectionTitle)
+	writeContextLine("Selected item", ctx.SelectedTitle)
+	writeContextLine("Selected explanation", ctx.SelectedDescription)
+
+	if len(ctx.SelectedMetrics) > 0 {
+		b.WriteString("Selected visible metrics:\n")
+		for _, metric := range ctx.SelectedMetrics {
+			label := strings.TrimSpace(metric.Label)
+			value := strings.TrimSpace(metric.Value)
+			if label == "" || value == "" {
+				continue
+			}
+			b.WriteString("- ")
+			b.WriteString(utils.SanitizeAnswerText(label))
+			b.WriteString(": ")
+			b.WriteString(utils.SanitizeAnswerText(value))
+			b.WriteString("\n")
+		}
+	}
+
+	return strings.TrimSpace(b.String())
+}
 func buildContext(chunks []model.RetrievedChunk) string {
 	var b strings.Builder
 	for i, c := range chunks {

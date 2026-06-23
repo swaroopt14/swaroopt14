@@ -354,8 +354,13 @@ export type IntelligenceBatchRow = {
   success_count: number
   failed_count: number
   pending_count: number
-  /** When batches list includes ambiguity projections. */
+  /** API field from /v1/intelligence/batches → batch_contract. Already scaled 0–100 by backend. */
+  match_confidence?: number
+  /** @deprecated backend sends match_confidence — this field is never populated from batches list */
   match_confidence_pct?: number
+  /** Value of payment intents not yet resolved/matched for this batch. Source: unresolved_intended_amount_minor. */
+  unresolved_intended_amount_minor?: MinorAmountField
+  /** Not present in /batches list response — only on tenant-level KPI endpoint. */
   value_at_risk_minor?: MinorAmountField
   unmatched_amount_minor?: MinorAmountField
   unexplained_variance_minor?: MinorAmountField

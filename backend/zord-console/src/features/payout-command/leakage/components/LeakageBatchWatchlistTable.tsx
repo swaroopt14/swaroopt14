@@ -15,6 +15,8 @@ type LeakageBatchWatchlistTableProps = {
   loading?: boolean
   selectedBatchId?: string
   onSelectBatch?: (batchId: string) => void
+  /** leakage_percentage from /intelligence/leakage scoped to selectedBatchId */
+  scopeLeakagePct?: number
 }
 
 export function LeakageBatchWatchlistTable({
@@ -22,6 +24,7 @@ export function LeakageBatchWatchlistTable({
   loading,
   selectedBatchId,
   onSelectBatch,
+  scopeLeakagePct,
 }: LeakageBatchWatchlistTableProps) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
@@ -119,7 +122,11 @@ export function LeakageBatchWatchlistTable({
                       {displayApiField(b.total_variance_minor)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {displayApiField(b.predicted_leakage_rate)}
+                      {displayApiField(
+                        b.batch_id === selectedBatchId && scopeLeakagePct != null
+                          ? scopeLeakagePct
+                          : b.predicted_leakage_rate,
+                      )}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
                       {displayApiField(b.reversal_exposure_minor)}

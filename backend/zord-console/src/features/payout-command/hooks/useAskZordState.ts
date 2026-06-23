@@ -1,6 +1,7 @@
 'use client'
 import { useAuth } from '@/app/hooks'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import {
   mapPromptLayerAnswer,
@@ -16,7 +17,11 @@ import {
   saveAskZordThreads,
   type AskZordThread,
 } from '../workspace/askZordThreads'
-
+import {
+  readAskZordSelectedContext,
+  toPromptLayerUIContext,
+  type AskZordSelectedContext,
+} from '../workspace/askZordSelectedContext'
 export const ASK_ZORD_QUICK_PROMPTS = [
   'Where are delays occurring?',
   'What is the total value awaiting confirmation?',
@@ -38,6 +43,7 @@ export type AskZordState = {
   threads: AskZordThread[]
   activeThreadId: string | null
   startNewThread: () => void
+  selectedContext: AskZordSelectedContext | null
   selectThread: (id: string) => void
   run: (prompt: string) => void
   dismissResponse: () => void
@@ -51,6 +57,7 @@ function upsertThread(threads: AskZordThread[], snapshot: AskZordThread): AskZor
 export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
   const { tenantId, tenantReady } = useSessionTenant()
   const { user, isLoading: authLoading } = useAuth()
+  const searchParams = useSearchParams()
   const [isOpen, setIsOpen] = useState(false)
   const [input, setInput] = useState('')
   const [status, setStatus] = useState<HomeCommandStatus>('idle')
@@ -61,7 +68,11 @@ export function useAskZordState(_activeSurfaceTitle: string): AskZordState {
   const [threads, setThreads] = useState<AskZordThread[]>([])
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
   const activeThreadIdRef = useRef<string | null>(null)
+  const [selectedContext, setSelectedContext] = useState<AskZordSelectedContext | null>(null)
 
+  useEffect(() => {
+    setSelectedContext(readAskZordSelectedContext(searchParams))
+  }, [searchParams])
   useEffect(() => {
     activeThreadIdRef.current = activeThreadId
   }, [activeThreadId])
@@ -242,6 +253,7 @@ setLastUserPrompt(cleaned)
           {
             query: cleaned,
             top_k: 6,
+            ui_context: toPromptLayerUIContext(selectedContext),
           },
           {
             tenantId: tenantGate.tenantId,
@@ -272,7 +284,7 @@ setLastUserPrompt(cleaned)
         })
       })()
     },
-    [authLoading, lastUserPrompt, response, status, tenantId, tenantReady, user?.id],
+    [authLoading, lastUserPrompt, response, selectedContext, status, tenantId, tenantReady, user?.id],
   )
 
   const dismissResponse = useCallback(() => {
@@ -294,6 +306,7 @@ setLastUserPrompt(cleaned)
     archivedTurns,
     threads,
     activeThreadId,
+    selectedContext,
     startNewThread,
     selectThread,
     run,

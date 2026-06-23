@@ -212,7 +212,13 @@ export function AskZordWorkspaceLayout({ askZord, batchId }: AskZordWorkspaceLay
                     type="button"
                     className="inline-flex items-center rounded-lg px-2 py-1 text-[12px] font-medium text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-700"
                   >
-                    Context{batchId ? ` · ${batchId.slice(0, 8)}…` : ''} ▾
+                    Context
+                    {askZord.selectedContext
+                      ? ` · ${askZord.selectedContext.selectedTitle}`
+                      : batchId
+                        ? ` · ${batchId.slice(0, 8)}…`
+                        : ''}
+                    {' '}v
                   </button>
                 </div>
                 <button

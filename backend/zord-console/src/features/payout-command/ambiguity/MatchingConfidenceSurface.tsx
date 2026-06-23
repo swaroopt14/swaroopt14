@@ -137,7 +137,12 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         onRowSelect={handleSelectBatch}
       />
 
-      <ZordInsightsPanel insights={zordInsights} />
+            <ZordInsightsPanel
+        insights={zordInsights}
+        sourcePage="match-review"
+        sectionTitle="Batches needing review"
+        batchId={selectedBatchId}
+      />
     </div>
   )
 }

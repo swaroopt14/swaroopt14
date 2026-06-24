@@ -1,12 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
-import { useIntelligenceKpis } from '@/services/payout-command/prod-api/useIntelligenceKpis'
 import { useAmbiguityHeatmap } from '@/services/payout-command/prod-api/useAmbiguityHeatmap'
-import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { getAmbiguityKpis, getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
-import type { FinalityStatus, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
+import type { AmbiguityKpiResponse, FinalityStatus, IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
+import { apiTrimmedString } from '@/services/payout-command/prod-api/coerceApiField'
 import { MatchingConfidenceKpiStrip } from './components/MatchingConfidenceKpiStrip'
 import { AmbiguityVelocityChart } from './components/AmbiguityVelocityChart'
 import { MatchingExecutionLog } from './components/MatchingExecutionLog'
@@ -19,6 +19,8 @@ import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext
 import { LiveDataHint } from '../shared'
 import { intelligenceKpiScopeLabel } from '../shared/batchKpiScope'
 
+const POLL_MS = 30_000
+
 export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
   const { tenantReady } = useSessionTenant()
 
@@ -26,10 +28,31 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
     initialBatchId?.trim() || undefined,
   )
   const handleSelectBatch = useBatchSelectWithUrl('ambiguity', setSelectedBatchId)
-  const { ambiguity, leakage, patterns, loading: kpiLoading, refresh } = useIntelligenceKpis({
-    tenantReady,
-    batchId: selectedBatchId,
-  })
+
+  // Only fetch ambiguity — leakage, patterns, rca, defensibility, recommendations not needed here.
+  const [ambiguity, setAmbiguity] = useState<AmbiguityKpiResponse | null>(null)
+  const [kpiLoading, setKpiLoading] = useState(false)
+  const cancelledRef = useRef(false)
+
+  const refresh = useCallback(async () => {
+    if (!tenantReady) return
+    setKpiLoading(true)
+    try {
+      const am = await getAmbiguityKpis(undefined, apiTrimmedString(selectedBatchId) || undefined)
+      if (!cancelledRef.current) setAmbiguity(am)
+    } finally {
+      if (!cancelledRef.current) setKpiLoading(false)
+    }
+  }, [tenantReady, selectedBatchId])
+
+  useEffect(() => {
+    cancelledRef.current = false
+    if (!tenantReady) { setAmbiguity(null); return }
+    void refresh()
+    const id = window.setInterval(() => void refresh(), POLL_MS)
+    return () => { cancelledRef.current = true; window.clearInterval(id) }
+  }, [tenantReady, refresh])
+
   const {
     heatmap: matchingHeatmap,
     loading: heatmapLoading,
@@ -135,6 +158,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         onFilterChange={setFinalityFilter}
         highlightedBatchId={selectedBatchId}
         onRowSelect={handleSelectBatch}
+        scopedValueAtRisk={selectedBatchId ? (amb?.value_at_risk_minor ?? null) : null}
       />
 
             <ZordInsightsPanel

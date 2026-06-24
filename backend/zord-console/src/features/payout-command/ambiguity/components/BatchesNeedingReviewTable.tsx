@@ -59,6 +59,8 @@ type Props = {
   onFilterChange: (v: '' | FinalityStatus) => void
   highlightedBatchId?: string
   onRowSelect?: (batchId: string) => void
+  /** value_at_risk_minor from ambiguity KPI API, scoped to the selected batch when one is active. */
+  scopedValueAtRisk?: string | null
 }
 
 export function BatchesNeedingReviewTable({
@@ -68,6 +70,7 @@ export function BatchesNeedingReviewTable({
   onFilterChange,
   highlightedBatchId,
   onRowSelect,
+  scopedValueAtRisk,
 }: Props) {
   const pathname = usePathname()
   const [page, setPage] = useState(0)
@@ -203,7 +206,7 @@ export function BatchesNeedingReviewTable({
                       {displayApiField(b.match_confidence)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {batchDisplayValue(b)}
+                      {highlighted && scopedValueAtRisk != null ? displayApiField(scopedValueAtRisk) : '—'}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <Link

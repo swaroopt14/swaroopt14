@@ -358,9 +358,10 @@ export function HomeSurface({
 
   const multiMatchRate = displayApiField(ambData?.candidate_collision_rate, loading)
 
-  const ambiguousAmountDisplay = loading ? '…' : formatKpiMoneyMinor(ambData?.ambiguous_amount_minor)
-  const ambiguousCountRow = displayApiField(ambData?.ambiguous_intent_count, loading)
-  const collisionRateRow = displayApiField(ambData?.candidate_collision_rate, loading)
+  const withPct = (v: string) => (v === '—' || v === '…' ? v : `${v}%`)
+  const proofCoveragePct = withPct(displayApiField(defData?.evidence_pack_rate, loading))
+  const proofReadyRow = withPct(displayApiField(defData?.audit_ready_pct, loading))
+  const incompleteProofRow = displayApiField(defData?.weak_evidence_count, loading)
 
   const settlementHeroDisplay = loading
     ? '…'
@@ -618,10 +619,12 @@ export function HomeSurface({
             missingRefRate={missingRefRate}
             refCompleteness={refCompleteness}
             multiMatchRate={multiMatchRate}
-            ambiguousAmountDisplay={ambiguousAmountDisplay}
-            ambiguousSub="Payment value with unclear match signal"
-            ambiguousCountRow={ambiguousCountRow}
-            collisionRateRow={collisionRateRow}
+            proofCoverageDisplay={proofCoveragePct}
+            proofSub="Evidence coverage for audit or export"
+            proofFooter="Proof-ready payments have enough linked evidence to support audit or dispute export."
+            proofReadyRow={proofReadyRow}
+            incompleteProofRow={incompleteProofRow}
+            proofHref="/payout-command-view/today?dock=proof"
             nextActions={{ actions: nextActions, completionHint }}
             insightCarousels={insightCarouselSlots}
           />

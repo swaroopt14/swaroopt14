@@ -51,10 +51,12 @@ export type PaymentHealthCardsProps = {
   refCompleteness: string
   multiMatchRate: string
 
-  ambiguousAmountDisplay: string
-  ambiguousSub: string
-  ambiguousCountRow: string
-  collisionRateRow: string
+  proofCoverageDisplay: string
+  proofSub: string
+  proofFooter?: string
+  proofReadyRow: string
+  incompleteProofRow: string
+  proofHref: string
 }
 
 export function PaymentHealthCards({
@@ -77,10 +79,12 @@ export function PaymentHealthCards({
   missingRefRate,
   refCompleteness,
   multiMatchRate,
-  ambiguousAmountDisplay,
-  ambiguousSub,
-  ambiguousCountRow,
-  collisionRateRow,
+  proofCoverageDisplay,
+  proofSub,
+  proofFooter,
+  proofReadyRow,
+  incompleteProofRow,
+  proofHref,
 }: PaymentHealthCardsProps) {
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -152,20 +156,26 @@ export function PaymentHealthCards({
         ) : null}
       </article>
 
-      <article className={COMMAND_CENTER_KPI_CARD + ' min-h-[280px]'}>
+      <Link
+        href={proofHref}
+        className={`${COMMAND_CENTER_KPI_CARD} min-h-[280px] transition hover:border-slate-300 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400`}
+      >
         <CommandCenterCardGlow />
         <div className="relative z-[1]">
-          <h3 className="text-[14px] font-medium text-[#000000]">Ambiguous Amount</h3>
+          <h3 className="text-[14px] font-medium text-[#000000]">Proof Readiness</h3>
           <p className="mt-4 text-center text-[36px] leading-none">
-            <HeroMetricWithSuperPercent text={ambiguousAmountDisplay} />
+            <HeroMetricWithSuperPercent text={proofCoverageDisplay} />
           </p>
-          <p className={`mt-2 text-center text-[14px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>{ambiguousSub}</p>
+          <p className={`mt-2 text-center text-[14px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>{proofSub}</p>
           <div className="mt-4">
-            <BreakdownRow label="Ambiguous intents" value={ambiguousCountRow} />
-            <BreakdownRow label="Multiple match risk" value={collisionRateRow} />
+            <BreakdownRow label="Proof-ready payments" value={proofReadyRow} />
+            <BreakdownRow label="Incomplete proof" value={incompleteProofRow} />
           </div>
         </div>
-      </article>
+        {proofFooter?.trim() ? (
+          <p className={`relative z-[1] mt-auto pt-4 ${HOME_INSIGHT_PROSE}`}>{proofFooter}</p>
+        ) : null}
+      </Link>
     </div>
   )
 }

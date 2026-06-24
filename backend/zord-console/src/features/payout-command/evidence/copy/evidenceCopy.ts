@@ -64,6 +64,7 @@ export const evidenceCopy = {
     valueNeedingReview: 'Value Needing Evidence Review',
     missingProofItems: 'Missing Proof Items',
     governanceChecks: 'Governance Checks',
+    packCompletenessScore: 'Pack Completeness',
     disputePacksReady: 'Dispute Packs Ready',
     exportReadiness: 'Evidence Export Readiness',
   },

@@ -43,6 +43,9 @@ export function deriveEvidenceKpis(input: {
   const defScore = defScoreRaw != null ? defScoreRaw.toFixed(1) : '—'
   const evidencePct = defensibility ? formatPercentLabel(defensibility.evidence_pack_rate) : '—'
   const govPct = defensibility ? formatPercentLabel(defensibility.governance_coverage_pct) : '—'
+  const packCompletenessPct = defensibility
+    ? formatPercentLabel(defensibility.avg_pack_completeness_score, { digits: 2 })
+    : '—'
   const replayPct = defensibility ? formatPercentLabel(defensibility.replayability_pct) : '—'
   const disputePct = defensibility ? formatPercentLabel(defensibility.dispute_ready_pct, { digits: 2 }) : '—'
 
@@ -89,11 +92,11 @@ export function deriveEvidenceKpis(input: {
       sub: packsSub,
     },
     {
-      id: 'governance',
-      label: evidenceCopy.kpi.governanceChecks,
-      value: govPct,
+      id: 'packCompleteness',
+      label: evidenceCopy.kpi.packCompletenessScore,
+      value: packCompletenessPct,
       sub: defensibility
-        ? `Settlement coverage ${formatPercentLabel(defensibility.settlement_evidence_coverage)} · Attachment ${formatPercentLabel(defensibility.attachment_evidence_coverage)}`
+        ? `Average completeness score across all evidence packs in this batch`
         : '—',
     },
     {

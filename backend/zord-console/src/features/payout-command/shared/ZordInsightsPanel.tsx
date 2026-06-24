@@ -32,7 +32,6 @@ export function ZordInsightsPanel({
   sectionTitle = title,
   batchId,
 }: ZordInsightsPanelProps) {
-  const totalCases = insights.reduce((sum, item) => sum + (item.caseCount ?? 0), 0)
   const router = useRouter()
 
   const handleInsightAsk = (insight: ZordInsightItem) => {
@@ -61,47 +60,59 @@ export function ZordInsightsPanel({
       style={{ background: INTELLIGENCE_BLUE_GRADIENT }}
       data-testid="zord-insights-panel"
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-center gap-2">
         <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-white/75">{title}</p>
-        <span className="inline-flex rounded-full bg-white/15 px-2.5 py-0.5 text-[12px] font-semibold text-white">
-          {insights.length} insights · {totalCases > 0 ? `${totalCases} linked cases` : 'awaiting cases'}
-        </span>
       </div>
       {insights.length === 0 ? (
         <p className="mt-4 text-[13px] text-white/75">No insights from API yet.</p>
       ) : (
         <ul className="mt-4 space-y-3">
-          {insights.map((insight) => (
-            <li key={insight.title}>
-              <button
-                type="button"
-                onClick={() => handleInsightAsk(insight)}
-                className="flex w-full items-start gap-2.5 rounded-xl px-2 py-1.5 text-left transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
-                aria-label={`Ask Zord about ${insight.title}`}
+          {insights.map((insight) => {
+            const isHigh = insight.severity === 'high'
+            const isMedium = insight.severity === 'medium'
+            const borderColor = isHigh ? '#f87171' : isMedium ? '#fbbf24' : 'rgba(255,255,255,0.2)'
+            const rowBg = isHigh ? 'rgba(248,113,113,0.08)' : isMedium ? 'rgba(251,191,36,0.07)' : undefined
+            const dotColor = isHigh ? '#f87171' : isMedium ? '#fbbf24' : '#cbd5e1'
+            const dotShadow = isHigh
+              ? '0 0 6px rgba(248,113,113,0.7)'
+              : isMedium
+                ? '0 0 6px rgba(251,191,36,0.7)'
+                : undefined
+            return (
+              <li
+                key={insight.title}
+                style={{ borderLeft: `3px solid ${borderColor}`, borderRadius: '10px', background: rowBg }}
               >
-                <span
-                  className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${
-                    insight.severity === 'high'
-                      ? 'bg-[#fda4af]'
-                      : insight.severity === 'medium'
-                        ? 'bg-[#fcd34d]'
-                        : 'bg-[#cbd5e1]'
-                  }`}
-                />
-                <span className="min-w-0">
-                  <span className="block text-[14px] font-semibold text-white">
-                    {insight.title}
-                    {insight.caseCount ? (
-                      <span className="ml-2 inline-flex rounded-full bg-white/90 px-1.5 text-[11px] font-semibold text-[#00239C]">
-                        {insight.caseCount}
-                      </span>
-                    ) : null}
+                <button
+                  type="button"
+                  onClick={() => handleInsightAsk(insight)}
+                  className="flex w-full items-start gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
+                  aria-label={`Ask Zord about ${insight.title}`}
+                >
+                  <span
+                    className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: dotColor, boxShadow: dotShadow }}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-semibold text-white">
+                      {insight.title}
+                      {insight.caseCount ? (
+                        <span className="ml-2 inline-flex rounded-full bg-white/90 px-1.5 text-[11px] font-semibold text-[#00239C]">
+                          {insight.caseCount}
+                        </span>
+                      ) : null}
+                      {insight.severity === 'high' ? (
+                        <span className="ml-2 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'rgba(248,113,113,0.22)', color: '#fca5a5' }}>High</span>
+                      ) : insight.severity === 'medium' ? (
+                        <span className="ml-2 inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium" style={{ background: 'rgba(251,191,36,0.22)', color: '#fde68a' }}>Medium</span>
+                      ) : null}
+                    </span>
+                    <span className="block text-[12.5px] leading-snug text-white/75">{insight.detail}</span>
                   </span>
-                  <span className="block text-[12.5px] leading-snug text-white/75">{insight.detail}</span>
-                </span>
-              </button>
-            </li>
-          ))}
+                </button>
+              </li>
+            )
+          })}
         </ul>
       )}
     </article>

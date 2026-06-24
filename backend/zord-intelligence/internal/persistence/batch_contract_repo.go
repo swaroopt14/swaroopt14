@@ -578,6 +578,32 @@ func (r *BatchContractRepo) SummarizeLeakageForWindow(
 	return &summary, nil
 }
 
+// GetUnmatchedAndOrphanForTenant returns the tenant-wide SUM of unmatched_amount_minor
+// and orphan_amount_minor across all batch_contracts for a tenant.
+func (r *BatchContractRepo) GetUnmatchedAndOrphanForTenant(
+	ctx context.Context,
+	tenantID string,
+) (unmatched, orphan decimal.Decimal, err error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(unmatched_amount_minor)::text, '0'),
+			COALESCE(SUM(orphan_observed_amount_minor)::text, '0')
+		FROM batch_contracts
+		WHERE tenant_id = $1
+	`, tenantID)
+	var unmatchedText, orphanText string
+	if err = row.Scan(&unmatchedText, &orphanText); err != nil {
+		return decimal.Zero, decimal.Zero, fmt.Errorf("batch_contract_repo.GetUnmatchedAndOrphanForTenant tenant=%s: %w", tenantID, err)
+	}
+	if unmatched, err = decimal.NewFromString(unmatchedText); err != nil {
+		return decimal.Zero, decimal.Zero, fmt.Errorf("batch_contract_repo.GetUnmatchedAndOrphanForTenant unmatched=%q: %w", unmatchedText, err)
+	}
+	if orphan, err = decimal.NewFromString(orphanText); err != nil {
+		return decimal.Zero, decimal.Zero, fmt.Errorf("batch_contract_repo.GetUnmatchedAndOrphanForTenant orphan=%q: %w", orphanText, err)
+	}
+	return unmatched, orphan, nil
+}
+
 // scanBatchContract scans one row from a QueryRow call.
 func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	var bc BatchContract

@@ -201,7 +201,7 @@ func main() {
 
 	// ── Dashboard handlers (frontend-facing /dashboard/ endpoints) ────────
 	intelligenceMode := string(cfg.IntelligenceMode)
-	dashLeakageH := handlers.NewDashboardLeakageHandler(snapshotRepo, intelligenceMode)
+	dashLeakageH := handlers.NewDashboardLeakageHandler(snapshotRepo, batchRepo, intelligenceMode)
 	dashAmbiguityH := handlers.NewDashboardAmbiguityHandler(snapshotRepo, batchRepo, projRepo, intelligenceMode)
 	dashDefensibilityH := handlers.NewDashboardDefensibilityHandler(snapshotRepo, intelligenceMode)
 	dashPatternH := handlers.NewDashboardPatternHandler(snapshotRepo, projRepo, intelligenceMode)

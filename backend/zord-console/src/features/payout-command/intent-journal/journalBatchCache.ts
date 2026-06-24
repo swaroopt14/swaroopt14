@@ -63,7 +63,6 @@ export async function fetchJournalSidebarBatches(tenantId: string): Promise<Jour
             ...existing,
             source: existing.source || row.source,
             intelligenceCounts: row.intelligenceCounts ?? existing.intelligenceCounts,
-            aggregateConfidenceScore: existing.aggregateConfidenceScore ?? row.aggregateConfidenceScore,
             transactions: existing.transactions > 0 ? existing.transactions : (row.transactions || existing.transactions),
           })
         }

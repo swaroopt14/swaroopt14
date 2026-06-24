@@ -51,6 +51,7 @@ kubectl rollout status deploy/zord-evidence -n zord --timeout=120s
 kubectl rollout status deploy/zord-intelligence -n zord --timeout=180s
 kubectl rollout status deploy/zord-prompt-layer -n zord --timeout=120s
 kubectl rollout status deploy/zord-console -n zord --timeout=120s
+kubectl rollout status deploy/zord-ml-service -n zord --timeout=180s
 ```
 
 **Expected output:** `deployment "zord-xxx" successfully rolled out`

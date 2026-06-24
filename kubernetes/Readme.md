@@ -259,6 +259,10 @@ docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-prompt-layer
 # zord-console
 docker build -t 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-console:v3 ./backend/zord-console
 docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/zord-console:v3
+
+# ml-service (Python ML inference)
+docker build -t 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/ml-service:v1 ./backend/ml-service
+docker push 522189039032.dkr.ecr.ap-south-1.amazonaws.com/zord/ml-service:v1
 ```
 
 Note: Jenkins automates this step in CI/CD.
@@ -711,6 +715,7 @@ zord-evidence-xxx        1/1  Running
 zord-intelligence-xxx    1/1  Running
 zord-prompt-layer-xxx    1/1  Running
 zord-console-xxx         1/1  Running
+zord-ml-service-xxx      1/1  Running
 ```
 
 ---
@@ -732,6 +737,7 @@ kubectl get deployment zord-intelligence -n zord -o jsonpath='{.spec.template.sp
 kubectl get deployment zord-evidence -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
 kubectl get deployment zord-prompt-layer -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
 kubectl get deployment zord-console -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
+kubectl get deployment zord-ml-service -n zord -o jsonpath='{.spec.template.spec.containers[0].image}'
 
 # Services created
 kubectl get svc -n zord
@@ -810,6 +816,7 @@ To change any of these (e.g., switch to RDS or MSK), edit this one file and rede
 | zord-intelligence | 500m / 1.5 | 1Gi / 2Gi | — |
 | zord-prompt-layer | 200m / 750m | 384Mi / 1Gi | — |
 | zord-console | 100m / 500m | 256Mi / 512Mi | — |
+| ml-service | 200m / 1 | 512Mi / 1Gi | — |
 
 ### HPA (Auto-Scaling)
 
@@ -969,6 +976,7 @@ kubectl delete pods -n zord -l app.kubernetes.io/name=<service-name>
 - Kong uses DB-less mode — all config is declarative YAML in a ConfigMap
 - The browser hits Kong → Kong routes to zord-console or backend APIs based on path
 - Internal service-to-service calls (relay → edge, relay → intent-engine) bypass Kong and use K8s DNS directly
+- The Python `ml-service` communicates with `zord-intelligence` via Kafka topics (`ml.request.events` / `ml.result.events`). It has no HTTP API — only Kafka consumers/producers.
 
 ---
 

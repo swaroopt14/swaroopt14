@@ -200,7 +200,7 @@ export function mapSidebarItemToBatchRecord(it: IntentEngineBatchSidebarItem): J
 }
 
 export function mapIntelligenceRowToBatchRecord(b: IntelligenceBatchRow): JournalBatchRecord {
-  const matchPct = b.match_confidence_pct
+  const matchPct = b.match_confidence  // match_confidence is 0–100; match_confidence_pct is deprecated/unpopulated
   const aggregateConfidenceScore =
     typeof matchPct === 'number' && Number.isFinite(matchPct)
       ? matchPct <= 1

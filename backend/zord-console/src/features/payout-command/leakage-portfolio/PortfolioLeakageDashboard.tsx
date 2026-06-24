@@ -162,10 +162,9 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
       ),
       zordInsight: displayData ? (
         <LeakageWidgetChrome widgetId="zordInsight">
-          <LeakageZordInsightsCard leakage={leak} ambiguity={ambiguity} patterns={patterns} />
+          <LeakageZordInsightsCard leakage={leak} ambiguity={ambiguity} />
         </LeakageWidgetChrome>
       ) : null,
-      exposureSegmentBar: null,
     }),
     [
       displayData,

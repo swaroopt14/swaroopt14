@@ -109,8 +109,10 @@ export function getMatchingSummary(
 // API field is match_confidence (0–100, pre-scaled by backend). match_confidence_pct is never sent.
 export function batchMatchPctDisplay(b: IntelligenceBatchRow): string {
   const v = b.match_confidence
-  if (v != null && String(v).trim() !== '') return String(v).trim()
-  return '—'
+  if (v == null || String(v).trim() === '') return '—'
+  const n = typeof v === 'number' ? v : Number(String(v).trim())
+  if (Number.isFinite(n) && n === 0) return '0'
+  return String(v).trim()
 }
 
 export function batchMatchPct(b: IntelligenceBatchRow): number | null {
@@ -123,8 +125,10 @@ export function batchMatchPct(b: IntelligenceBatchRow): number | null {
 // value_at_risk_minor is tenant-level only (ambiguity KPI API) — not returned per batch row.
 export function batchDisplayValue(b: IntelligenceBatchRow): string {
   const v = b.unresolved_intended_amount_minor
-  if (v != null && String(v).trim() !== '') return formatAmbiguityInr(v)
-  return '—'
+  if (v == null || String(v).trim() === '') return '—'
+  const n = typeof v === 'number' ? v : Number(String(v).replace(/,/g, ''))
+  if (Number.isFinite(n) && n === 0) return '0'
+  return formatAmbiguityInr(v)
 }
 
 export function criticalAlertCount(amb: AmbiguityKpiResolved | null): number | null {

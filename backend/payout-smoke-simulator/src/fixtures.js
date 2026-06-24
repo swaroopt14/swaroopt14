@@ -40,7 +40,7 @@ function distributeAmounts(totalRupees, count) {
 }
 
 function payoutRef(batchId, rowIndex) {
-  const tail = batchId.replace('smoke-batch-', '').replace(/-/g, '').slice(-6).toUpperCase()
+  const tail = batchId.replace(/^batch-/, '').replace(/-/g, '').slice(-8).toUpperCase()
   return `PAY-${tail}-${String(rowIndex + 1).padStart(3, '0')}`
 }
 
@@ -59,28 +59,28 @@ export function authEnvelope() {
   const absoluteExpires = new Date(now + 8 * 60 * 60 * 1000).toISOString()
   return {
     user: {
-      id: 'smoke-user-001',
-      email: 'reviewer@smoke.local',
+      id: 'usr_ops_reviewer_001',
+      email: 'ops.reviewer@zordnet.com',
       role: 'CUSTOMER_USER',
-      name: 'Smoke Reviewer',
+      name: 'Ops Reviewer',
       tenant_id: TENANT_ID,
-      tenant_name: 'Smoke Tenant',
-      workspace_code: 'SMOKE',
+      tenant_name: 'Zordnet Operations',
+      workspace_code: 'ZORDNET',
       status: 'ACTIVE',
       mfa_enabled: false,
     },
     session: {
-      session_id: 'smoke-session-001',
+      session_id: 'sess_dev_001',
       tenant_id: TENANT_ID,
-      workspace_code: 'SMOKE',
+      workspace_code: 'ZORDNET',
       role: 'CUSTOMER_USER',
       access_expires_at: accessExpires,
       idle_expires_at: idleExpires,
       absolute_expires_at: absoluteExpires,
     },
     requires_mfa: false,
-    access_token: 'smoke-access-token',
-    refresh_token: 'smoke-refresh-token',
+    access_token: 'dev-access-token',
+    refresh_token: 'dev-refresh-token',
     access_expires_at: accessExpires,
     idle_expires_at: idleExpires,
     absolute_expires_at: absoluteExpires,
@@ -262,6 +262,24 @@ function leakageFromBatchMeta(meta) {
   return { intended, settled, unmatched, under, orphan, reversal }
 }
 
+/** Map smoke catalogue finality to intelligence batch list enums. */
+function mapBatchFinalityStatus(finality) {
+  if (finality === 'OPEN') return 'REQUIRES_REVIEW'
+  if (finality === 'FULLY_SETTLED') return 'SETTLED'
+  return finality ?? 'PENDING'
+}
+
+function batchUnresolvedMinor(meta) {
+  const intended = meta.intentTotalRupees ?? meta.totalIntendedMinor ?? 0
+  const settled = meta.settlementTotalRupees ?? 0
+  return Math.max(0, intended - settled)
+}
+
+function batchMatchConfidencePct(meta) {
+  const ratio = meta.matchConfidence ?? 0
+  return Math.round(ratio * 1000) / 10
+}
+
 export function buildIntelligenceBatches() {
   return {
     tenant_id: TENANT_ID,
@@ -270,16 +288,29 @@ export function buildIntelligenceBatches() {
       const leak = leakageFromBatchMeta(b)
       const leakagePct =
         b.intentTotalRupees > 0 ? Number((leak.unmatched / b.intentTotalRupees).toFixed(4)) : 0
+      const finality = mapBatchFinalityStatus(b.finality)
+      const settledRows = b.settledRows ?? 12
+      const pendingRows = b.pendingRows ?? 0
+      const failedRows = b.failedRows ?? 0
+      const unresolved = batchUnresolvedMinor(b)
       return {
         batch_id: b.id,
         tenant_id: TENANT_ID,
-        finality_status: b.finality,
+        finality_status: finality,
+        batch_finality_status: finality,
         total_count: b.intentCount,
+        success_count: settledRows,
+        failed_count: failedRows,
+        pending_count: pendingRows,
         source_reference: b.partner,
         status_label: b.label,
+        match_confidence: batchMatchConfidencePct(b),
+        unresolved_intended_amount_minor: unresolved,
+        ambiguous_amount_minor: Math.round(unresolved * 0.18),
         total_intended_amount_minor: b.intentTotalRupees,
         total_variance_minor: b.settlementTotalRupees - b.intentTotalRupees,
         reversal_exposure_minor: leak.reversal,
+        predicted_leakage_rate: leakagePct,
         leakage_percentage: leakagePct,
         unmatched_amount_minor: leak.unmatched,
         under_settlement_amount_minor: leak.under,
@@ -300,10 +331,14 @@ export function buildBatchDetail(batchId) {
       batch_id: batchId,
       tenant_id: TENANT_ID,
       source_reference: meta.partner,
+      finality_status: mapBatchFinalityStatus(meta.finality),
+      batch_finality_status: mapBatchFinalityStatus(meta.finality),
       total_count: meta.intentCount,
       success_count: meta.settledRows ?? 12,
       failed_count: meta.failedRows ?? 1,
       pending_count: meta.pendingRows ?? 2,
+      match_confidence: batchMatchConfidencePct(meta),
+      unresolved_intended_amount_minor: batchUnresolvedMinor(meta),
       total_confirmed_amount_minor: meta.settlementTotalRupees,
       total_variance_minor: variance,
       missing_ref_count: meta.dlqCount ?? 0,
@@ -645,17 +680,31 @@ export function ambiguityHeatmap() {
   }
 }
 
+/** Risk-ratio presets so bubble map shows red / yellow / green tiers across recent batches. */
+const BUBBLE_MAP_RISK_PCTS = [0, 1.2, 3.5, 7.8, 15.4, 0.6, 4.2, 9.1, 12.5, 2.1]
+
+const BUBBLE_MAP_WINDOW = 24
+
 export function bubbleMap() {
+  const recent = BATCHES.slice(-BUBBLE_MAP_WINDOW)
+  const batches = recent.map((b, idx) => {
+    const amountValue = b.intentTotalRupees ?? b.totalIntendedMinor ?? 0
+    const riskPct = BUBBLE_MAP_RISK_PCTS[idx % BUBBLE_MAP_RISK_PCTS.length]
+    const amountAtRisk = riskPct <= 0 ? 0 : Math.round(amountValue * (riskPct / 100))
+    return {
+      batch_id: b.id,
+      amount_value: amountValue,
+      amount_at_risk: amountAtRisk,
+      batch_date: b.date,
+    }
+  })
+
   return {
     data_available: true,
     tenant_id: TENANT_ID,
     intelligence_mode: 'GRADE_A',
-    count: BATCHES.length,
-    batches: BATCHES.map((b, idx) => ({
-      batch_id: b.id,
-      amount_value: b.totalIntendedMinor,
-      amount_at_risk: 45_000 + idx * 12_000,
-    })),
+    count: batches.length,
+    batches,
   }
 }
 
@@ -769,7 +818,7 @@ export function patternDetail(batchId) {
     window_start: '2026-06-01T00:00:00Z',
     window_end: new Date().toISOString(),
     computed_at: new Date().toISOString(),
-    model_version: 'smoke-v1',
+    model_version: 'zord-v1',
     intelligence_mode: 'GRADE_A',
     data: {
       batch_id: bid,
@@ -983,12 +1032,15 @@ function buildBatchLineageGraph(batchId) {
 }
 
 function batchIdFromPackId(packId) {
-  if (packId?.startsWith('pack-smoke-batch-')) return packId.slice('pack-'.length)
-  return EVIDENCE_BATCH
+  if (!packId?.startsWith('pack-')) return EVIDENCE_BATCH
+  const body = packId.slice('pack-'.length)
+  const piMarker = body.indexOf('-pi-')
+  if (piMarker > 0) return body.slice(0, piMarker)
+  return body
 }
 
 function isIntentEvidencePackId(packId) {
-  return packId === PACK_INTENT_A || packId === PACK_INTENT_B || packId?.startsWith('pack-intent-')
+  return packId === PACK_INTENT_A || packId === PACK_INTENT_B || (packId?.startsWith('pack-') && packId.includes('-pi-'))
 }
 
 function intentPackBatchId(packId) {
@@ -1110,7 +1162,7 @@ export function evidencePackVerify(packId) {
     checked_at: new Date().toISOString(),
     stored_root: computed,
     computed_root: computed,
-    explanation: 'Merkle root reproduced from smoke batch lineage fixture.',
+    explanation: 'Merkle root reproduced from batch lineage fixture.',
   }
 }
 
@@ -1173,9 +1225,6 @@ export function lineageGraph(scope, id) {
   const batchFromPack = BATCHES.find((b) => batchPackId(b.id) === id)
   if (batchFromPack) {
     return buildBatchLineageGraph(batchFromPack.id)
-  }
-  if (id?.startsWith('pack-smoke-batch-')) {
-    return buildBatchLineageGraph(batchIdFromPackId(id))
   }
   const root = `${id.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}root`.padEnd(64, 'a').slice(0, 64)
   return {

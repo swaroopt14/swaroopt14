@@ -1,9 +1,10 @@
-/** Shared smoke tenant + rolling dated batch catalogue for home trend + journals. */
+/** Shared local-dev tenant + rolling dated batch catalogue for home trend + journals. */
 
 export const TENANT_ID =
   process.env.SMOKE_TENANT_ID?.trim() || '00000000-0000-0000-0000-000000000001'
 
-export const SMOKE_API_KEY = process.env.SMOKE_API_KEY?.trim() || 'smoke-local-api-key'
+/** Bearer key accepted by the local payout simulator (set ZORD_*_API_KEY in zord-console). */
+export const SMOKE_API_KEY = process.env.SMOKE_API_KEY?.trim() || 'zord-local-dev-api-key'
 
 export function parsePositiveInt(value, fallback) {
   const n = Number.parseInt(String(value ?? ''), 10)
@@ -233,9 +234,18 @@ export function buildSmokeDemoDaysMerged() {
 
 export const SMOKE_DEMO_DAYS = buildSmokeDemoDaysMerged()
 
+function toBatchSlug(labelSuffix) {
+  return String(labelSuffix ?? 'run').trim().toLowerCase().replace(/\s+/g, '-')
+}
+
+/** Client batch id shape used in production uploads: batch-YYYY-MM-DD-<run-label>. */
+export function batchIdForDay(day) {
+  return `batch-${day.date}-${toBatchSlug(day.labelSuffix)}`
+}
+
 export function buildSmokeBatches() {
   return SMOKE_DEMO_DAYS.map((d) => ({
-    id: `smoke-batch-${d.date}`,
+    id: batchIdForDay(d),
     label: `${d.label} ${d.labelSuffix ?? ''}`.trim(),
     date: d.date,
     intentCount: SMOKE_ROWS_PER_DAY,
@@ -257,19 +267,21 @@ const ALL_BATCHES = buildSmokeBatches()
 export const BATCH_COUNT = parsePositiveInt(process.env.SMOKE_BATCH_COUNT, ALL_BATCHES.length)
 export const BATCHES = ALL_BATCHES
 
-export const PRIMARY_BATCH = BATCHES[BATCHES.length - 1]?.id ?? `smoke-batch-${isoDateUtc(new Date())}`
+export const PRIMARY_BATCH =
+  BATCHES[BATCHES.length - 1]?.id ?? `batch-${isoDateUtc(new Date())}-run`
 
 /** Stable demo batch for journal / evidence deep-links. */
-export const EVIDENCE_BATCH = 'smoke-batch-2026-06-12'
+export const EVIDENCE_BATCH = 'batch-2026-06-12-payroll'
 export function batchPackId(batchId) {
   return `pack-${batchId}`
 }
 
 /** @deprecated Legacy alias — prefer batchPackId(batchId). */
-export const PACK_BATCH = batchPackId('smoke-batch-2026-06-12')
-export const PACK_INTENT_A = 'pack-intent-smoke-a'
-export const PACK_INTENT_B = 'pack-intent-smoke-b'
+export const PACK_BATCH = batchPackId(EVIDENCE_BATCH)
 
 export function intentId(batchId, index) {
-  return `smoke-intent-${batchId.replace(/[^a-z0-9]/gi, '')}-${String(index + 1).padStart(3, '0')}`
+  return `${batchId}-pi-${String(index + 1).padStart(3, '0')}`
 }
+
+export const PACK_INTENT_A = batchPackId(intentId(EVIDENCE_BATCH, 0))
+export const PACK_INTENT_B = batchPackId(intentId(EVIDENCE_BATCH, 1))

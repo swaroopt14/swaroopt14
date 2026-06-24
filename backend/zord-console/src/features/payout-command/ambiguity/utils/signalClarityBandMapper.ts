@@ -9,44 +9,48 @@ import {
   normalizeSignalClarityBandKey,
   signalClarityBandSpec,
   signalClarityHelperLabel,
-  type SignalClarityBandKey,
 } from '../copy/signalClarityCopy'
 import { displayApiField, formatKpiMoneyMinor } from '../../shared/formatApiKpiFields'
 
-function readAmbField(amb: AmbiguityKpiResolved | null, field: string): MinorAmountField | number | undefined {
-  if (!amb) return undefined
-  const value = amb[field as keyof AmbiguityKpiResolved]
-  if (value == null || String(value).trim() === '') return undefined
-  return value as MinorAmountField
+function coerceAmountMinor(value: MinorAmountField | undefined): number {
+  if (value == null || String(value).trim() === '') return 0
+  const n = Number(String(value).replace(/,/g, ''))
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
-function readAmbCount(amb: AmbiguityKpiResolved | null, field: string | undefined): number | undefined {
-  if (!amb || !field) return undefined
-  const value = amb[field as keyof AmbiguityKpiResolved]
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+function coerceSharePct(value: SignalClarityBand['share_pct']): number | null {
+  if (value == null || String(value).trim() === '') return null
+  const n = Number(String(value).trim())
+  return Number.isFinite(n) && n >= 0 ? n : null
 }
 
-export function resolveBandAmountMinor(
-  amb: AmbiguityKpiResolved | null,
-  band: SignalClarityBand,
-): MinorAmountField | undefined {
-  if (band.amount_minor != null && String(band.amount_minor).trim() !== '') {
-    return band.amount_minor
+/** Equal segments when no amounts; otherwise width ∝ band amount (or normalized share_pct). */
+export function computeBandWidthPercents(bands: SignalClarityBand[]): number[] {
+  const equal = 100 / Math.max(bands.length, 1)
+  const amounts = bands.map((band) => coerceAmountMinor(band.amount_minor))
+  const amountTotal = amounts.reduce((sum, amount) => sum + amount, 0)
+
+  if (amountTotal > 0) {
+    return amounts.map((amount) => (amount / amountTotal) * 100)
   }
-  const spec = signalClarityBandSpec(band.band)
-  if (!spec) return undefined
-  return readAmbField(amb, spec.amountField)
+
+  const shares = bands.map((band) => coerceSharePct(band.share_pct))
+  const shareTotal = shares.reduce<number>((sum, share) => sum + (share ?? 0), 0)
+  if (shareTotal > 0 && shares.every((share) => share != null)) {
+    return shares.map((share) => ((share ?? 0) / shareTotal) * 100)
+  }
+
+  return bands.map(() => equal)
 }
 
-export function resolveBandItemCount(
-  amb: AmbiguityKpiResolved | null,
-  band: SignalClarityBand,
-): number | undefined {
-  if (band.item_count != null && Number.isFinite(band.item_count)) {
-    return band.item_count
-  }
-  const spec = signalClarityBandSpec(band.band)
-  return spec && 'countField' in spec ? readAmbCount(amb, spec.countField) : undefined
+export function resolveBandAmountMinor(band: SignalClarityBand): MinorAmountField | undefined {
+  if (band.amount_minor == null || String(band.amount_minor).trim() === '') return undefined
+  return band.amount_minor
+}
+
+export function resolveBandItemCount(band: SignalClarityBand): number | undefined {
+  if (band.item_count == null || !Number.isFinite(band.item_count)) return undefined
+  return band.item_count
 }
 
 export function displayBandLabel(band: SignalClarityBand): string {
@@ -62,49 +66,31 @@ export function displayBandRollLabel(band: SignalClarityBand): string | null {
   return spec?.rollLabel ?? null
 }
 
+/** Always returns five bands — API `signal_clarity_bands` only, no root-field synthesis. */
 export function mergeSignalClarityBands(
   amb: AmbiguityKpiResolved | null,
 ): SignalClarityBand[] {
   const fromApi = amb?.signal_clarity_bands ?? []
-  const byKey = new Map<SignalClarityBandKey, SignalClarityBand>()
+  const byKey = new Map<string, SignalClarityBand>()
 
   for (const band of fromApi) {
     const key = normalizeSignalClarityBandKey(band.band)
     if (key) byKey.set(key, band)
   }
 
-  const merged: SignalClarityBand[] = []
-
-  for (const key of SIGNAL_CLARITY_BAND_ORDER) {
+  return SIGNAL_CLARITY_BAND_ORDER.map((key) => {
     const spec = SIGNAL_CLARITY_COPY.bands[key]
-    const existing = byKey.get(key)
-    const amountFromRoot = readAmbField(amb, spec.amountField)
-
-    if (existing) {
-      merged.push(existing)
-      continue
-    }
-
-    if (amountFromRoot == null) continue
-
-    merged.push({
-      band: spec.band,
-      amount_minor: amountFromRoot,
-      item_count: 'countField' in spec ? readAmbCount(amb, spec.countField) : undefined,
-    })
-  }
-
-  return merged.length > 0 ? merged : fromApi
+    return byKey.get(key) ?? { band: spec.band, amount_minor: '' }
+  })
 }
 
-export function formatBandAmount(amb: AmbiguityKpiResolved | null, band: SignalClarityBand): string {
-  const amount = resolveBandAmountMinor(amb, band)
-  return formatKpiMoneyMinor(amount)
+export function formatBandAmount(band: SignalClarityBand): string {
+  return formatKpiMoneyMinor(resolveBandAmountMinor(band))
 }
 
-export function formatBandLegendLine(amb: AmbiguityKpiResolved | null, band: SignalClarityBand): string {
-  const amount = formatBandAmount(amb, band)
-  const count = resolveBandItemCount(amb, band)
+export function formatBandLegendLine(band: SignalClarityBand): string {
+  const amount = formatBandAmount(band)
+  const count = resolveBandItemCount(band)
 
   const parts = [amount]
   if (count != null) parts.push(`${displayApiField(count)} items`)

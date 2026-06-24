@@ -29,19 +29,19 @@ function riskSeverity(tier: string | undefined): ZordInsightItem['severity'] {
 
 const MAX_INSIGHTS = 6
 
-/** Payment Gaps — insight list from leakage, ambiguity, and patterns APIs only. */
+/** Payment Gaps — insight list from leakage and ambiguity APIs only. */
 export function buildLeakagePageInsightItems(params: {
   leakage: LeakageKpiResolved | null
   ambiguity: AmbiguityKpiResolved | null
-  patterns: PatternsKpiResolved | null
 }): ZordInsightItem[] {
-  const { leakage, ambiguity, patterns } = params
+  const { leakage, ambiguity } = params
   const items: ZordInsightItem[] = []
 
   if (ambiguity?.intelligence_headline?.trim()) {
+    const body = ambiguity.intelligence_body?.trim()
     items.push({
       title: ambiguity.intelligence_headline.trim(),
-      detail: ambiguity.intelligence_body?.trim() || 'From ambiguity intelligence API.',
+      detail: body || '—',
       severity: 'high',
       caseCount: ambiguity.ambiguous_intent_count,
     })
@@ -53,7 +53,9 @@ export function buildLeakagePageInsightItems(params: {
       title: 'Open financial exception value',
       detail: `${openException} in open exposure (total_amount_minor).`,
       severity: riskSeverity(leakage?.risk_tier),
-      caseCount: patterns?.pending_count,
+      ...(ambiguity?.ambiguous_intent_count != null
+        ? { caseCount: ambiguity.ambiguous_intent_count }
+        : {}),
     })
   }
 
@@ -96,37 +98,36 @@ export function buildLeakagePageInsightItems(params: {
     })
   }
 
-  if (patterns && patterns.pending_count > 0) {
+  if (ambiguity?.ambiguous_intent_count != null && ambiguity.ambiguous_intent_count > 0) {
     items.push({
-      title: 'Payments pending confirmation',
-      detail: `${patterns.pending_count} of ${patterns.total_count} payment decisions still pending in batch signals.`,
+      title: 'Payments needing review',
+      detail: `${ambiguity.ambiguous_intent_count} payment intents need review in this scope.`,
       severity: 'medium',
-      caseCount: patterns.pending_count,
+      caseCount: ambiguity.ambiguous_intent_count,
     })
   }
 
   return items.slice(0, MAX_INSIGHTS)
 }
 
-/** Match Review — insight list from ambiguity, leakage, and patterns APIs only. */
+/** Match Review — insight list from ambiguity API only. */
 export function buildMatchReviewInsightItems(params: {
   ambiguity: AmbiguityKpiResolved | null
-  leakage: LeakageKpiResolved | null
-  patterns: PatternsKpiResolved | null
 }): ZordInsightItem[] {
-  const { ambiguity, leakage, patterns } = params
+  const { ambiguity } = params
   const items: ZordInsightItem[] = []
 
   if (ambiguity?.intelligence_headline?.trim()) {
+    const body = ambiguity.intelligence_body?.trim()
     items.push({
       title: ambiguity.intelligence_headline.trim(),
-      detail: ambiguity.intelligence_body?.trim() || 'From ambiguity intelligence API.',
+      detail: body || '—',
       severity: 'high',
       caseCount: ambiguity.ambiguous_intent_count,
     })
   }
 
-  const ambiguousAmount = formatMinor(ambiguity?.ambiguous_amount_minor ?? ambiguity?.value_at_risk_minor)
+  const ambiguousAmount = formatMinor(ambiguity?.ambiguous_amount_minor)
   if (ambiguousAmount !== '—') {
     items.push({
       title: 'Ambiguous payment value',
@@ -173,24 +174,12 @@ export function buildMatchReviewInsightItems(params: {
     })
   }
 
-  if (patterns && patterns.pending_count > 0) {
-    items.push({
-      title: 'Decisions awaiting confirmation',
-      detail: `${patterns.pending_count} of ${patterns.total_count} attachment decisions still pending.`,
-      severity: 'medium',
-      caseCount: patterns.pending_count,
-    })
-  }
-
-  const settled = formatMinor(
-    ambiguity?.total_observed_settled_amount_minor ?? leakage?.total_observed_settled_amount_minor,
-  )
+  const settled = formatMinor(ambiguity?.total_observed_settled_amount_minor)
   if (settled !== '—') {
     items.push({
       title: 'Settlement value observed',
       detail: `${settled} found in bank, PSP, or settlement records.`,
       severity: 'low',
-      caseCount: patterns?.success_count,
     })
   }
 

@@ -47,13 +47,14 @@ type ambiguityKPIsForLeakage struct {
 
 // DashboardLeakageHandler serves GET /v1/intelligence/dashboard/leakage.
 type DashboardLeakageHandler struct {
-	snapshotRepo    *persistence.IntelligenceSnapshotRepo
+	snapshotRepo     *persistence.IntelligenceSnapshotRepo
+	batchRepo        *persistence.BatchContractRepo
 	intelligenceMode string
 }
 
 // NewDashboardLeakageHandler creates a DashboardLeakageHandler.
-func NewDashboardLeakageHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo, mode string) *DashboardLeakageHandler {
-	return &DashboardLeakageHandler{snapshotRepo: snapshotRepo, intelligenceMode: mode}
+func NewDashboardLeakageHandler(snapshotRepo *persistence.IntelligenceSnapshotRepo, batchRepo *persistence.BatchContractRepo, mode string) *DashboardLeakageHandler {
+	return &DashboardLeakageHandler{snapshotRepo: snapshotRepo, batchRepo: batchRepo, intelligenceMode: mode}
 }
 
 // leakageKPIFields contains the KPI fields extracted from LeakageSnapshot JSON.
@@ -168,6 +169,14 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 	resp.UnderSettlementAmountMinor = kpis.UnderSettlementAmountMinor
 	resp.OrphanAmountMinor = kpis.OrphanAmountMinor
 	resp.ReversalExposureMinor = kpis.ReversalExposureMinor
+
+	// Override unmatched and orphan amounts from batch_contracts (authoritative source).
+	if h.batchRepo != nil {
+		if unmatched, orphan, bErr := h.batchRepo.GetUnmatchedAndOrphanForTenant(r.Context(), tenantID); bErr == nil {
+			resp.UnmatchedAmountMinor = unmatched
+			resp.OrphanAmountMinor = orphan
+		}
+	}
 	resp.LeakagePercentage = math.Round(kpis.LeakagePercentage*10000) / 100
 	resp.RiskTier = kpis.RiskTier
 	resp.DuplicateRiskCount = kpis.DuplicateRiskCount

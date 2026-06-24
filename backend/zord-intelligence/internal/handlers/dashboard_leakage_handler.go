@@ -73,6 +73,7 @@ type leakageKPIFields struct {
 	DuplicateRiskExposureMinor      decimal.Decimal `json:"duplicate_risk_exposure_minor"`
 	ConfirmedDuplicateCount         int             `json:"confirmed_duplicate_count"`
 	ConfirmedDuplicateExposureMinor decimal.Decimal `json:"confirmed_duplicate_exposure_minor"`
+	OverSettlementAmountMinor       decimal.Decimal `json:"over_settlement_amount_minor"`
 }
 
 // DashboardLeakageResponse is the frontend-ready payload for the leakage dashboard card.
@@ -121,6 +122,12 @@ type DashboardLeakageResponse struct {
 	// L7b — confirmed_duplicate_exposure: decisions confirmed as MATCH_DUPLICATE by Service 5C
 	ConfirmedDuplicateCount         int             `json:"confirmed_duplicate_count"`
 	ConfirmedDuplicateExposureMinor decimal.Decimal `json:"confirmed_duplicate_exposure_minor"`
+
+	// total_amount_minor: sum of all leakage types (unmatched + under_settlement + orphan + reversal)
+	TotalAmountMinor decimal.Decimal `json:"total_amount_minor"`
+
+	// over_settlement_amount_minor: sum of OVER_SETTLEMENT variance amounts
+	OverSettlementAmountMinor decimal.Decimal `json:"over_settlement_amount_minor"`
 }
 
 // GetLeakageKPIs handles GET /v1/intelligence/dashboard/leakage
@@ -183,6 +190,8 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 	resp.DuplicateRiskExposureMinor = kpis.DuplicateRiskExposureMinor
 	resp.ConfirmedDuplicateCount = kpis.ConfirmedDuplicateCount
 	resp.ConfirmedDuplicateExposureMinor = kpis.ConfirmedDuplicateExposureMinor
+	resp.TotalAmountMinor = kpis.TotalAmountMinor
+	resp.OverSettlementAmountMinor = kpis.OverSettlementAmountMinor
 
 	// ── L4 and L10: fetch AMBIGUITY snapshot for cross-category derivation ──
 	// L4 = ambiguous_amount_minor (already computed in ambiguity snapshot)

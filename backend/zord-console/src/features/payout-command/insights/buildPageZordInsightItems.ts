@@ -68,7 +68,7 @@ export function buildLeakagePageInsightItems(params: {
     }
   }
 
-  const unmatched = formatMinor(ambiguity?.value_at_risk_minor)
+  const unmatched = formatMinor(leakage?.unmatched_amount_minor)
   if (unmatched !== '—') {
     items.push({
       title: 'Unmatched payment value',

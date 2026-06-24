@@ -224,11 +224,6 @@ export default function ConnectorIntelligenceClient() {
         : connectorsCopy.kpi.successRateSub,
     },
     {
-      label: connectorsCopy.kpi.unconfirmedExposure,
-      value: fmtInrFromMinorExact(kpis.moneyAtRiskMinor),
-      sub: connectorsCopy.kpi.unconfirmedExposureSub,
-    },
-    {
       label: connectorsCopy.kpi.preventableLeakage,
       value: fmtInrFromMinorExact(kpis.preventableLeakageMinor),
       sub:
@@ -265,15 +260,9 @@ export default function ConnectorIntelligenceClient() {
     <div className="space-y-5 pb-6 text-[15px] leading-[1.55]">
       <section>
         <JournalIntelligenceKpiHero
-          eyebrow={connectorsCopy.overview.eyebrow}
+          eyebrow={connectorsCopy.kpi.unconfirmedExposure}
           value={fmtInrFromMinorExact(kpis.moneyAtRiskMinor)}
-          deltaPill={
-            kpis.successRate != null ? `Success ${kpis.successRate.toFixed(1)}%` : `Success ${KPI_UNAVAILABLE}`
-          }
-          subcopy={connectorsCopy.overview.subcopy(
-            windowLabel,
-            fmtInrFromMinorExact(kpis.moneyAtRiskMinor),
-          )}
+          subcopy={windowLabel}
           buckets={routingBuckets}
           testId="routing-kpi-bar"
         />

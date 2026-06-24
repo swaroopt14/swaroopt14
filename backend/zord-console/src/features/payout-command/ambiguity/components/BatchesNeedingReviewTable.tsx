@@ -206,9 +206,7 @@ export function BatchesNeedingReviewTable({
                       {displayApiField(b.match_confidence)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {highlighted && scopedValueAtRisk != null
-                        ? displayApiField(scopedValueAtRisk)
-                        : batchDisplayValue(b)}
+                      {highlighted && scopedValueAtRisk != null ? displayApiField(scopedValueAtRisk) : '—'}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <Link

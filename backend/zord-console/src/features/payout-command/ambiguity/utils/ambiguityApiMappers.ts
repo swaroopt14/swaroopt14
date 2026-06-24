@@ -119,10 +119,9 @@ export function batchMatchPct(b: IntelligenceBatchRow): number | null {
   return null
 }
 
-// API field for per-batch unresolved value is unresolved_intended_amount_minor.
-// value_at_risk_minor is only on the tenant-level KPI endpoint, not the batches list.
+// API field for per-batch value at risk is value_at_risk_minor.
 export function batchDisplayValue(b: IntelligenceBatchRow): string {
-  const v = b.unresolved_intended_amount_minor
+  const v = b.value_at_risk_minor
   if (v != null && String(v).trim() !== '') return formatAmbiguityInr(v)
   return '—'
 }

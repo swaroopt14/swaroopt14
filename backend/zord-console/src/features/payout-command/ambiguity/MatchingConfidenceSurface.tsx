@@ -85,10 +85,10 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
     () =>
       buildMatchReviewInsightItems({
         ambiguity: isDataAvailable(ambiguity) ? ambiguity : null,
-        leakage: isDataAvailable(leakage) ? leakage : null,
-        patterns: isDataAvailable(patterns) ? patterns : null,
+        leakage: null,
+        patterns: null,
       }),
-    [ambiguity, leakage, patterns],
+    [ambiguity],
   )
 
   return (

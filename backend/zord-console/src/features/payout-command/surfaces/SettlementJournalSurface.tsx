@@ -43,6 +43,7 @@ import {
   type SettlementParseErrorRow,
 } from '@/services/payout-command/prod-api/settlementObservations'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
+import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
 import { LiveDataHint } from '../shared'
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 
@@ -192,6 +193,25 @@ function SettlementJournalSurfaceContent({
       markSandboxSetupStep('settlement-journal')
     }
   }, [mode, feedLoaded, observationTotal])
+
+  // Pre-populate cache for all batches from intelligence list match_confidence
+  useEffect(() => {
+    if (!feedLoaded || !tenantReady) return
+    void (async () => {
+      try {
+        const res = await getIntelligenceBatches({ limit: 100 })
+        if (!res?.batches?.length) return
+        const entries: Record<string, SettlementSidebarOutcome> = {}
+        for (const b of res.batches) {
+          if (b.match_confidence == null) continue
+          entries[b.batch_id] = outcomeFromMatchConfidence(b.match_confidence)
+        }
+        if (Object.keys(entries).length > 0) {
+          setBatchMatchOutcomeCache((prev) => ({ ...entries, ...prev }))
+        }
+      } catch { /* optional enrichment */ }
+    })()
+  }, [feedLoaded, tenantReady])
 
   useEffect(() => {
     if (!selectedClientBatchId) return

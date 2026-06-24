@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { displayApiField, formatLeakageApiPct } from '../../shared/formatApiKpiFields'
+import { displayApiField } from '../../shared/formatApiKpiFields'
 import { leakageCopy } from '../copy/leakageCopy'
 import { Glyph } from '../../shared'
 import { HOME_TITLE_BLACK } from '../../command-center/homeCommandCenterTokens'
@@ -15,8 +15,8 @@ type LeakageBatchWatchlistTableProps = {
   loading?: boolean
   selectedBatchId?: string
   onSelectBatch?: (batchId: string) => void
-  /** leakage_percentage from /intelligence/leakage scoped to selectedBatchId */
-  scopeLeakagePct?: number
+  /** leakage_percentage keyed by batch_id — pre-fetched for all rows */
+  leakagePctCache?: Record<string, number>
 }
 
 export function LeakageBatchWatchlistTable({
@@ -24,7 +24,7 @@ export function LeakageBatchWatchlistTable({
   loading,
   selectedBatchId,
   onSelectBatch,
-  scopeLeakagePct,
+  leakagePctCache = {},
 }: LeakageBatchWatchlistTableProps) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
@@ -124,8 +124,8 @@ export function LeakageBatchWatchlistTable({
                       {displayApiField(b.total_variance_minor)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {b.batch_id === selectedBatchId && scopeLeakagePct != null
-                        ? `${scopeLeakagePct}%`
+                      {leakagePctCache[b.batch_id] != null
+                        ? `${leakagePctCache[b.batch_id]}%`
                         : '—'}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">

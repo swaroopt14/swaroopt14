@@ -43,7 +43,8 @@ import {
   type SettlementParseErrorRow,
 } from '@/services/payout-command/prod-api/settlementObservations'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
-import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { getBatchContractKpis } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { parseMatchConfidence } from '../settlement-journal/selectors/resolveSettlementIntelligenceKpis'
 import { LiveDataHint } from '../shared'
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
 
@@ -194,24 +195,28 @@ function SettlementJournalSurfaceContent({
     }
   }, [mode, feedLoaded, observationTotal])
 
-  // Pre-populate cache for all batches from intelligence list match_confidence
+  // Pre-populate sidebar status for all batches in parallel via batch contract KPI
   useEffect(() => {
-    if (!feedLoaded || !tenantReady) return
+    if (!feedLoaded || !tenantReady || clientBatches.length === 0) return
     void (async () => {
       try {
-        const res = await getIntelligenceBatches({ limit: 100 })
-        if (!res?.batches?.length) return
+        const results = await Promise.allSettled(
+          clientBatches.map((bid) => getBatchContractKpis(bid)),
+        )
         const entries: Record<string, SettlementSidebarOutcome> = {}
-        for (const b of res.batches) {
-          if (b.match_confidence == null) continue
-          entries[b.batch_id] = outcomeFromMatchConfidence(b.match_confidence)
+        for (let i = 0; i < clientBatches.length; i++) {
+          const result = results[i]
+          if (result?.status !== 'fulfilled' || !result.value) continue
+          const confidence = parseMatchConfidence(result.value.match_confidence)
+          if (confidence == null) continue
+          entries[clientBatches[i]!] = outcomeFromMatchConfidence(confidence)
         }
         if (Object.keys(entries).length > 0) {
           setBatchMatchOutcomeCache((prev) => ({ ...entries, ...prev }))
         }
       } catch { /* optional enrichment */ }
     })()
-  }, [feedLoaded, tenantReady])
+  }, [feedLoaded, tenantReady, clientBatches])
 
   useEffect(() => {
     if (!selectedClientBatchId) return

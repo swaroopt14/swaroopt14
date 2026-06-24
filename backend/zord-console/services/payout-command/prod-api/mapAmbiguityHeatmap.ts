@@ -45,7 +45,7 @@ function buildSummary(batches: AmbiguityHeatmapBatchRow[]): string {
     `${batches.length} batch${batches.length === 1 ? '' : 'es'} in matching log`,
     syncing > 0 ? `${syncing} syncing` : null,
     reviewing > 0 ? `${reviewing} in review` : null,
-    `avg match score ${Math.round(avgScore * 100)}%`,
+    `avg match score ${Math.round(avgScore)}%`,
   ].filter(Boolean)
   return `${parts.join(' · ')} · ${intents.toLocaleString('en-IN')} intents tracked.`
 }

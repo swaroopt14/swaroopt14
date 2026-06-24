@@ -156,15 +156,19 @@ export function batchStatus(score: number): BatchStatus {
   return batchStatusFromAggregateScore(score)
 }
 
-/** Sidebar batch score: intent-engine `aggregate_confidence_score` only (0–1 → percent). */
+/** Sidebar batch score: aggregate_confidence_score if present, else quality score from intelligence counts. */
 export function confidencePctFromBatch(batch: BatchRecord): number | null {
-  if (typeof batch.aggregateConfidenceScore !== 'number' || !Number.isFinite(batch.aggregateConfidenceScore)) {
-    return null
+  if (typeof batch.aggregateConfidenceScore === 'number' && Number.isFinite(batch.aggregateConfidenceScore)) {
+    const pct = batch.aggregateConfidenceScore <= 1
+      ? batch.aggregateConfidenceScore * 100
+      : batch.aggregateConfidenceScore
+    return Math.min(100, Math.max(0, Math.round(pct)))
   }
-  const pct = batch.aggregateConfidenceScore <= 1
-    ? batch.aggregateConfidenceScore * 100
-    : batch.aggregateConfidenceScore
-  return Math.min(100, Math.max(0, Math.round(pct)))
+  // Derive from intelligence counts (success/failed/pending) when match_confidence is absent
+  if (batch.intelligenceCounts && batch.transactions > 0) {
+    return batchQualityScore(batch)
+  }
+  return null
 }
 
 function batchStatusFromConfidencePct(pct: number): BatchStatus {

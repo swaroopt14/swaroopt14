@@ -34,6 +34,7 @@ export type LeakageKpiResolved = Resolved<{
   ambiguous_value_at_risk_minor?: MinorAmountField
   unresolved_amount_minor?: MinorAmountField
   risk_adjusted_leakage_minor?: MinorAmountField
+  over_settlement_amount_minor?: MinorAmountField
   leakage_percentage: number
   risk_tier: RiskTier
   duplicate_risk_count?: number

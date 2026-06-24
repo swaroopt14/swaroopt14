@@ -648,14 +648,14 @@ export function HomeSurface({
             carouselPeriod={carouselPeriod}
             onCarouselPeriodChange={setCarouselPeriod}
             fullyMatchedValue={settlementHeroDisplay}
-            fullyMatchedSub="Observed settlement linked to bank or PSP outcomes"
-            fullyMatchedFooter="Observed settlement is the value Zord can link to a bank or settlement outcome — not the same as fully matched intent."
+            fullyMatchedSub="Settlement value confirmed by bank or PSP"
+            fullyMatchedFooter="Includes partial matches and linked outcomes. This is not the same as total intended payment value for the batch."
             awaitingConfirmation={awaitingConfirmation}
             reviewValue={reviewDisplay}
-            reviewSub="Unmatched intent value from leakage API"
-            reviewFooter="This is unmatched intent value only — not total review exposure across all exception types."
-            unmatchedDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.unmatched_amount_minor)}
+            reviewSub="Payments without a confirmed settlement outcome"
+            reviewFooter="Covers payments with no confirmed settlement link. Short-settled, over-settled, unlinked, and reversal amounts are broken out below."
             shortSettledDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.under_settlement_amount_minor)}
+            overSettledDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.over_settlement_amount_minor)}
             unlinkedDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.orphan_amount_minor)}
             reversalDisplay={loading ? '…' : formatKpiMoneyMinor(leakageData?.reversal_exposure_minor)}
             reviewHref="/payout-command-view/today?dock=leakage"

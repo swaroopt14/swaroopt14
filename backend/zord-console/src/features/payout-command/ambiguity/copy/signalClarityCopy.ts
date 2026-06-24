@@ -39,7 +39,7 @@ export const SIGNAL_CLARITY_BAND_ORDER: SignalClarityBandKey[] = [
 ]
 
 export const SIGNAL_CLARITY_COPY = {
-  title: 'Signal clarity — payment exposure breakdown',
+  title: 'Payment Signal Clarity',
   bands: {
     settlement: {
       band: 'settlement',

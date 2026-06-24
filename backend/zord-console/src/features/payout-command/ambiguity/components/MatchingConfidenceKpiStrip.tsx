@@ -27,7 +27,7 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
   }
 
   const deltas = getKpiDeltas(amb)
-  const ambiguityRateLabel = displayApiField(amb?.ambiguity_rate)
+  const ambiguityRateLabel = amb?.ambiguity_rate != null ? `${amb.ambiguity_rate}%` : '—'
   const ambiguityRateDelta = formatDeltaPct(amb?.ambiguity_rate_delta_pct) ?? KPI_UNAVAILABLE
 
   const buckets = [
@@ -38,7 +38,7 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
     },
     {
       label: 'Missing ref rate',
-      value: displayApiField(amb?.provider_ref_missing_rate),
+      value: amb?.provider_ref_missing_rate != null ? `${amb.provider_ref_missing_rate}%` : '—',
       sub: deltas.missingRefRate ?? 'Missing bank or PSP references',
     },
     {

@@ -162,14 +162,14 @@ export function PaymentHealthCards({
       >
         <CommandCenterCardGlow />
         <div className="relative z-[1]">
-          <h3 className="text-[14px] font-medium text-[#000000]">Proof Readiness</h3>
+          <h3 className="text-[14px] font-medium text-[#000000]">Ambiguous Amount</h3>
           <p className="mt-4 text-center text-[36px] leading-none">
             <HeroMetricWithSuperPercent text={proofCoverageDisplay} />
           </p>
           <p className={`mt-2 text-center text-[14px] font-medium ${HOME_BODY_IMPERIAL_SM}`}>{proofSub}</p>
           <div className="mt-4">
-            <BreakdownRow label="Proof-ready payments" value={proofReadyRow} />
-            <BreakdownRow label="Incomplete proof" value={incompleteProofRow} />
+            <BreakdownRow label="Ambiguous intents" value={proofReadyRow} />
+            <BreakdownRow label="Multiple match risk" value={incompleteProofRow} />
           </div>
         </div>
         {proofFooter?.trim() ? (

@@ -77,6 +77,14 @@ export function mapAmbiguityHeatmapResponse(
     ]
   })
 
+  const column_totals = [
+    batches.reduce((sum, b) => sum + (b.exact_match_count ?? 0), 0),
+    batches.reduce((sum, b) => sum + (b.high_confidence_count ?? 0), 0),
+    batches.reduce((sum, b) => sum + (b.ambiguous_count ?? 0), 0),
+    batches.reduce((sum, b) => sum + (b.unresolved_count ?? 0), 0),
+    batches.reduce((sum, b) => sum + (b.conflicted_count ?? 0), 0),
+  ]
+
   return {
     y_labels,
     batch_ids,
@@ -84,5 +92,6 @@ export function mapAmbiguityHeatmapResponse(
     cells,
     summary: buildSummary(batches),
     intents_under_evaluation_count,
+    column_totals,
   }
 }

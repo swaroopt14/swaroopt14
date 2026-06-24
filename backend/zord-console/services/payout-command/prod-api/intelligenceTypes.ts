@@ -134,6 +134,8 @@ export type MatchingExecutionHeatmap = {
   cells: number[][]
   summary?: string
   intents_under_evaluation_count?: number
+  /** Sum of each count type across all batches, aligned to x_labels (exact, high, amb, unres, conf). */
+  column_totals?: number[]
 }
 
 export type AmbiguityHeatmapBatchRow = {

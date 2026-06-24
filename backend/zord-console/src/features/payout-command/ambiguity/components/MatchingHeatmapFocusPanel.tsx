@@ -102,7 +102,7 @@ export function MatchingHeatmapFocusPanel({ heatmap }: Props) {
               <ColumnIntensityBar stat={stat} />
             </div>
             <span className={`shrink-0 text-[12px] font-semibold tabular-nums text-slate-700 ${dmMono.className}`}>
-              {displayApiField(stat.reviewing)}/{displayApiField(stat.syncing)}
+              {displayApiField(stat.count)}
             </span>
           </div>
         ))}

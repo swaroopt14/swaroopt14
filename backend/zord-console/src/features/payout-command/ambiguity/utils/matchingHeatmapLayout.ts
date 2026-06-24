@@ -6,6 +6,7 @@ export type HeatmapColumnStat = {
   reviewing: number
   syncing: number
   idle: number
+  count: number
 }
 
 const COLUMN_FULL_LABELS: Record<string, string> = {
@@ -23,7 +24,7 @@ export function columnFullLabel(short: string): string {
 
 /** Derive column intensity counts from heatmap cells only — not tenant KPI math. */
 export function buildHeatmapColumnStats(heatmap: MatchingExecutionHeatmap): HeatmapColumnStat[] {
-  const { x_labels, cells } = heatmap
+  const { x_labels, cells, column_totals } = heatmap
   return x_labels.map((label, colIdx) => {
     let reviewing = 0
     let syncing = 0
@@ -40,6 +41,7 @@ export function buildHeatmapColumnStats(heatmap: MatchingExecutionHeatmap): Heat
       reviewing,
       syncing,
       idle,
+      count: column_totals?.[colIdx] ?? 0,
     }
   })
 }

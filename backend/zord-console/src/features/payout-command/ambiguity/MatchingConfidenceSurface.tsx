@@ -135,6 +135,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         onFilterChange={setFinalityFilter}
         highlightedBatchId={selectedBatchId}
         onRowSelect={handleSelectBatch}
+        scopedValueAtRisk={selectedBatchId ? (amb?.value_at_risk_minor ?? null) : null}
       />
 
             <ZordInsightsPanel

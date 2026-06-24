@@ -93,6 +93,10 @@ spec:
                 configMapKeyRef:
                   name: zord-aws-config
                   key: KAFKA_BROKERS
+            - name: KAFKA_TOPIC_PII_TOKENIZE_REQUEST
+              value: pii.tokenize.request
+            - name: KAFKA_TOPIC_PII_TOKENIZE_RESULT
+              value: pii.tokenize.result
             - name: ENCLAVE_INTERNAL_TOKEN
               valueFrom:
                 secretKeyRef:

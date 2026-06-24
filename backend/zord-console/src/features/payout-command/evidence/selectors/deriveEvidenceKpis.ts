@@ -44,15 +44,9 @@ export function deriveEvidenceKpis(input: {
   const evidencePct = defensibility ? formatPercentLabel(defensibility.evidence_pack_rate) : '—'
   const govPct = defensibility ? formatPercentLabel(defensibility.governance_coverage_pct) : '—'
   const replayPct = defensibility ? formatPercentLabel(defensibility.replayability_pct) : '—'
-  const disputePct = defensibility ? formatPercentLabel(defensibility.dispute_ready_pct) : '—'
+  const disputePct = defensibility ? formatPercentLabel(defensibility.dispute_ready_pct, { digits: 2 }) : '—'
 
-  let readinessSub = defensibility
-    ? `Evidence packs: ${evidencePct} · Replay-ready: ${replayPct} · Dispute-ready: ${disputePct}`
-    : '—'
-
-  if (defensibility && defensibility.weak_evidence_count != null && defensibility.weak_evidence_count > 0) {
-    readinessSub += ` · ${defensibility.weak_evidence_count} weak evidence items`
-  }
+  const readinessSub = ''
 
   let readinessExplanation: string | undefined
   if (

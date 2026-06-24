@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { displayApiField } from '../../shared/formatApiKpiFields'
+import { displayApiField, formatLeakageApiPct } from '../../shared/formatApiKpiFields'
 import { leakageCopy } from '../copy/leakageCopy'
 import { Glyph } from '../../shared'
 import { HOME_TITLE_BLACK } from '../../command-center/homeCommandCenterTokens'
@@ -110,9 +110,11 @@ export function LeakageBatchWatchlistTable({
                     onClick={() => onSelectBatch?.(b.batch_id)}
                   >
                     <td className="px-3 py-3">
-                      <p className={`text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>
-                        {displayApiField(b.source_reference)}
-                      </p>
+                      {b.source_reference?.trim() ? (
+                        <p className={`text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>
+                          {b.source_reference.trim()}
+                        </p>
+                      ) : null}
                       <p className="font-mono text-[13px] font-medium text-[#00239C]">{displayApiField(b.batch_id)}</p>
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-900">
@@ -122,11 +124,9 @@ export function LeakageBatchWatchlistTable({
                       {displayApiField(b.total_variance_minor)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {displayApiField(
-                        b.batch_id === selectedBatchId && scopeLeakagePct != null
-                          ? scopeLeakagePct
-                          : b.predicted_leakage_rate,
-                      )}
+                      {b.batch_id === selectedBatchId && scopeLeakagePct != null
+                        ? `${scopeLeakagePct}%`
+                        : displayApiField(b.predicted_leakage_rate)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
                       {displayApiField(b.reversal_exposure_minor)}

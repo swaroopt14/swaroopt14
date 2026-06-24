@@ -49,7 +49,7 @@ export function MatchingConfidenceKpiStrip({ amb, loading, scopeHint }: Props) {
     {
       label: 'Settlement certainty',
       value: displayApiField(amb?.avg_score_margin),
-      sub: 'Winning minus runner-up attachment score',
+      sub: '',
     },
   ] as const
 

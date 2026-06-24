@@ -61,7 +61,6 @@ type ambiguityKPIFields struct {
 	AmbiguityRate           float64         `json:"ambiguity_rate"`
 	AvgAttachmentConfidence float64         `json:"avg_attachment_confidence"`
 	ProviderRefMissingRate  float64         `json:"provider_ref_missing_rate"`
-	ValueAtRiskMinor        decimal.Decimal `json:"value_at_risk_minor"`
 	AmbiguousAmountMinor    decimal.Decimal `json:"ambiguous_amount_minor"`
 	LowConfidenceRate       float64         `json:"low_confidence_rate"`
 	CandidateCollisionRate  float64         `json:"candidate_collision_rate"`
@@ -174,7 +173,7 @@ func (h *DashboardAmbiguityHandler) GetAmbiguityKPIs(w http.ResponseWriter, r *h
 	resp.CandidateCollisionRate = pct(kpis.CandidateCollisionRate)
 	resp.AvgScoreMargin = math.Round(kpis.AvgScoreMargin*100) / 100
 	resp.CarrierCompletenessRate = pct(kpis.CarrierCompletenessRate)
-	resp.ValueAtRiskMinor = kpis.ValueAtRiskMinor
+	resp.ValueAtRiskMinor = kpis.AmbiguousAmountMinor
 	resp.RiskTier = kpis.RiskTier
 
 	// ── A3: ambiguous_amount_rate — needs total_intended from LEAKAGE snapshot ──

@@ -44,12 +44,6 @@ import { useEnvironment } from '@/services/auth/EnvironmentProvider'
 import { markSandboxSetupStep } from '@/services/payout-command/sandbox-setup-guide'
 import { SandboxHomeCredentialsCard } from '../sandbox/SandboxHomeCredentialsCard'
 import { useRegisterPayoutPageActions } from '../layout/PayoutPageActionsContext'
-import {
-  confirmedMatchedValueMinorFromBatchContract,
-} from '@/features/payout-command/settlement-journal/selectors/resolveSettlementIntelligenceKpis'
-import {
-  useBatchContractKpis,
-} from '@/features/payout-command/hooks/useBatchContractKpis'
 import { displayApiField, formatKpiMoneyMinor } from '../shared/formatApiKpiFields'
 
 const TENANT_KPI_EMPTY_CAROUSEL_INSIGHT =
@@ -145,11 +139,6 @@ export function HomeSurface({
     batchId,
     dateQuery: intelligenceDateQuery,
   })
-  const {
-    data: batchContract,
-    loading: batchContractLoading,
-    refresh: refreshBatchContract,
-  } = useBatchContractKpis({ tenantReady, batchId })
   const leakageData = isDataAvailable(leakage) ? leakage : null
   const ambData = isDataAvailable(ambiguity) ? ambiguity : null
   const defData = isDataAvailable(defensibility) ? defensibility : null
@@ -162,9 +151,8 @@ export function HomeSurface({
       refreshTrend(),
       refreshChartSeries(),
       refreshCarouselTrend(),
-      refreshBatchContract(),
     ])
-  }, [refresh, refreshTrend, refreshChartSeries, refreshCarouselTrend, refreshBatchContract])
+  }, [refresh, refreshTrend, refreshChartSeries, refreshCarouselTrend])
 
   useRegisterPayoutPageActions({
     refresh: tenantReady ? handlePageRefresh : undefined,
@@ -283,14 +271,6 @@ export function HomeSurface({
   const reversalMinor = parseMinorStrict(leakageData?.reversal_exposure_minor)
   const observedMinor = parseMinorStrict(leakageData?.total_observed_settled_amount_minor)
 
-  const confirmedMatchedMinor = useMemo(() => {
-    if (!batchId?.trim()) return null
-    if (batchContractLoading) return null
-    return confirmedMatchedValueMinorFromBatchContract(batchContract)
-  }, [batchId, batchContract, batchContractLoading])
-
-  const settlementHeroMinor = batchId?.trim() ? (confirmedMatchedMinor ?? observedMinor) : observedMinor
-
   const bankConfirmedMinor = observedMinor
 
   const reviewMinor = leakageData != null ? parseMinorField(leakageData.unmatched_amount_minor) : null
@@ -383,16 +363,9 @@ export function HomeSurface({
   const proofReadyRow = withPct(displayApiField(defData?.audit_ready_pct, loading))
   const incompleteProofRow = displayApiField(defData?.weak_evidence_count, loading)
 
-  const settlementHeroDisplay =
-    loading || batchContractLoading
-      ? '…'
-      : formatKpiMoneyMinor(batchId?.trim() ? settlementHeroMinor : observedMinor)
-  const awaitingConfirmation =
-    !loading &&
-    !batchContractLoading &&
-    settlementHeroMinor == null &&
-    observedMinor == null &&
-    dataSources.settlementStatus === 'missing'
+  const settlementHeroDisplay = loading
+    ? '…'
+    : formatKpiMoneyMinor(leakageData?.total_observed_settled_amount_minor)
 
   const nextActions = useMemo(() => {
     const actions: Array<{ title: string; description: string; href?: string; emphasis?: boolean }> = []
@@ -630,7 +603,7 @@ export function HomeSurface({
             fullyMatchedValue={settlementHeroDisplay}
             fullyMatchedSub="Settlement value confirmed by bank or PSP"
             fullyMatchedFooter="Includes partial matches and linked outcomes. This is not the same as total intended payment value for the batch."
-            awaitingConfirmation={awaitingConfirmation}
+            awaitingConfirmation={false}
             reviewValue={reviewDisplay}
             reviewSub="Payments without a confirmed settlement outcome"
             reviewFooter="Covers payments with no confirmed settlement link. Short-settled, over-settled, unlinked, and reversal amounts are broken out below."

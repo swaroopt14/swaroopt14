@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { getIntelligenceBatches, getLeakageKpis } from '@/services/payout-command/prod-api/getIntelligenceKpis'
+import { isDataAvailable } from '@/services/payout-command/prod-api/intelligenceTypes'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { LiveDataHint } from '../shared'
 import { LeakageKpiStrip } from '../leakage/components/LeakageKpiStrip'
@@ -37,6 +38,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
     initialBatchId?.trim() || undefined,
   )
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
+  const [leakagePctCache, setLeakagePctCache] = useState<Record<string, number>>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [filters, setFilters] = useState<LeakageFilterValues>({
     status: '',
@@ -69,7 +71,24 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
       limit: 20,
       status: filters.status || undefined,
     })
-    setBatches(res?.batches ?? [])
+    const rows = res?.batches ?? []
+    setBatches(rows)
+
+    // Fetch leakage_percentage for all batches in parallel
+    if (rows.length > 0) {
+      const results = await Promise.allSettled(
+        rows.map((b) => getLeakageKpis(undefined, b.batch_id)),
+      )
+      const cache: Record<string, number> = {}
+      for (let i = 0; i < rows.length; i++) {
+        const result = results[i]
+        if (result?.status !== 'fulfilled' || !result.value) continue
+        if (isDataAvailable(result.value) && result.value.leakage_percentage != null) {
+          cache[rows[i]!.batch_id] = result.value.leakage_percentage
+        }
+      }
+      setLeakagePctCache((prev) => ({ ...prev, ...cache }))
+    }
   }, [tenantReady, filters.status])
 
   const handlePageRefresh = useCallback(async () => {
@@ -127,7 +146,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
             loading={loading && batches.length === 0}
             selectedBatchId={selectedBatchId}
             onSelectBatch={handleSelectBatch}
-            scopeLeakagePct={leak?.leakage_percentage}
+            leakagePctCache={leakagePctCache}
           />
         </LeakageWidgetChrome>
       ),
@@ -156,6 +175,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
       loading,
       selectedBatchId,
       handleSelectBatch,
+      leakagePctCache,
       leak,
       patterns,
       patternsLoading,

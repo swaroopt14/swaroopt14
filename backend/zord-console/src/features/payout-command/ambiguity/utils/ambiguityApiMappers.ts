@@ -119,9 +119,9 @@ export function batchMatchPct(b: IntelligenceBatchRow): number | null {
   return null
 }
 
-// API field for per-batch value at risk is value_at_risk_minor.
+// Per-batch value at risk: ambiguous_amount_minor from batch_contract (payments with unclear match signal).
 export function batchDisplayValue(b: IntelligenceBatchRow): string {
-  const v = b.value_at_risk_minor
+  const v = b.ambiguous_amount_minor
   if (v != null && String(v).trim() !== '') return formatAmbiguityInr(v)
   return '—'
 }

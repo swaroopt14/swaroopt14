@@ -6,7 +6,7 @@ import type {
   PatternsKpiResolved,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { fmtInrFromMinorExact } from '../command-center/commandCenterFormat'
-import { formatApiPct, formatLeakageApiPct } from '../shared/formatApiKpiFields'
+import { formatApiPct } from '../shared/formatApiKpiFields'
 import type { InsightDelta, ZordInsightCard } from './zordInsightCarouselTypes'
 
 /** Home command center — number of insight carousel slots rendered. */
@@ -59,17 +59,12 @@ function bucketDelta(buckets: DisbursementTrendResponse['buckets']): InsightDelt
 function buildAccountInsightParagraph(
   leakageData: LeakageKpiResolved | null,
   ambData: AmbiguityKpiResolved | null,
-  patternsData: PatternsKpiResolved | null,
   carouselPeriod: string,
   fallback: string,
 ): string {
   const intended = formatMinorDisplay(leakageData?.total_intended_amount_minor)
   const settled = formatMinorDisplay(leakageData?.total_observed_settled_amount_minor)
   const openException = formatMinorDisplay(leakageData?.total_amount_minor)
-  const gapRate =
-    leakageData?.leakage_percentage != null
-      ? `${leakageData.leakage_percentage}%`
-      : null
 
   if (intended !== '—' && settled !== '—') {
     return `${intended} was intended and ${settled} was observed in settlement records for the ${carouselPeriod} period.`
@@ -83,8 +78,8 @@ function buildAccountInsightParagraph(
     return ambData.intelligence_headline.trim()
   }
 
-  if (patternsData && patternsData.total_count > 0) {
-    return `${patternsData.pending_count} of ${patternsData.total_count} payments are still pending confirmation in the latest batch signal.`
+  if (ambData?.ambiguous_intent_count != null) {
+    return `${ambData.ambiguous_intent_count} payment intents need review in the ${carouselPeriod} period.`
   }
 
   return fallback
@@ -99,7 +94,6 @@ export function buildZordInsightCards(params: {
   kpiLoading: boolean
   carouselPeriod: string
   emptyInsightParagraph: string
-  mismatchPendingCount: number
   trendSeries: DisbursementTrendResponse | null | undefined
   trendChartReady: boolean
   leakageData: LeakageKpiResolved | null
@@ -112,7 +106,6 @@ export function buildZordInsightCards(params: {
     kpiLoading,
     carouselPeriod,
     emptyInsightParagraph,
-    mismatchPendingCount,
     trendSeries,
     trendChartReady,
     leakageData,
@@ -124,8 +117,7 @@ export function buildZordInsightCards(params: {
   if (!tenantReady) return []
   if (kpiLoading) return []
 
-  const pendingCount =
-    patternsData?.pending_count ?? ambData?.ambiguous_intent_count ?? mismatchPendingCount
+  const ambiguousIntentCount = ambData?.ambiguous_intent_count
 
   const hasSignal = Boolean(trendChartReady || leakageData || patternsData || ambData || defData)
 
@@ -159,7 +151,6 @@ export function buildZordInsightCards(params: {
     paragraph: buildAccountInsightParagraph(
       leakageData,
       ambData,
-      patternsData,
       carouselPeriod,
       emptyInsightParagraph,
     ),
@@ -176,8 +167,8 @@ export function buildZordInsightCards(params: {
     'Intended payment value',
     leakageData?.total_intended_amount_minor,
     'Total value your business intended to pay in this period.',
-    patternsData?.total_count ?? pendingCount,
-    'payment intents',
+    patternsData?.total_count,
+    patternsData?.total_count != null ? 'payment intents' : undefined,
   )
   if (intendedCard) cards.push(intendedCard)
 
@@ -187,8 +178,8 @@ export function buildZordInsightCards(params: {
     'Settlement value observed',
     leakageData?.total_observed_settled_amount_minor,
     'Total value found in bank, PSP, or settlement records.',
-    patternsData?.success_count ?? 0,
-    'confirmed payments',
+    patternsData?.success_count,
+    patternsData?.success_count != null ? 'confirmed payments' : undefined,
   )
   if (settledCard) cards.push(settledCard)
 
@@ -214,7 +205,7 @@ export function buildZordInsightCards(params: {
   const ambiguousCard = metricCard(
     'ambiguous-value',
     'Ambiguous amount',
-    ambData?.ambiguous_amount_minor ?? ambData?.value_at_risk_minor,
+    ambData?.ambiguous_amount_minor,
     'Payment value with unclear match signal.',
   )
   if (ambiguousCard) cards.push(ambiguousCard)
@@ -252,18 +243,18 @@ export function buildZordInsightCards(params: {
     })
   }
 
-  if (patternsData && patternsData.total_count > 0) {
-    const exposureMinor = readMinor(leakageData?.total_amount_minor) ?? 0
-    const riskLabel = [patternsData.anomaly_level, patternsData.risk_tier]
+  if (ambiguousIntentCount != null && ambiguousIntentCount > 0) {
+    const exposureMinor = readMinor(leakageData?.total_amount_minor)
+    const riskLabel = [patternsData?.anomaly_level, patternsData?.risk_tier]
       .filter((v) => v != null && String(v).trim() !== '')
       .join(' · ')
     cards.push({
       type: 'alert',
       id: 'leakage',
       label: 'Payments needing attention',
-      count: patternsData.pending_count,
-      topPattern: riskLabel || 'Batch review signal',
-      exposureRupee: exposureMinor,
+      count: ambiguousIntentCount,
+      topPattern: riskLabel || '—',
+      exposureRupee: exposureMinor ?? 0,
     })
   }
 

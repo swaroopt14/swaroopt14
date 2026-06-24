@@ -48,7 +48,6 @@ data:
           variance.record.created: variance.record.created
           attachment.batch.updated: batch.summary.updated
           attachment.unresolved.flagged: batch.summary.updated
-          outcome.leaf_bundle.created: evidence.pack.ready
       - name: intent-engine-dlq
         base_url: http://zord-intent-engine:8083
         auth_token: "dev-dummy-token-123"

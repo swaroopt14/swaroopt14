@@ -320,7 +320,6 @@ export function HomeSurface({
         kpiLoading: loading || carouselTrendLoading,
         carouselPeriod,
         emptyInsightParagraph: TENANT_KPI_EMPTY_CAROUSEL_INSIGHT,
-        mismatchPendingCount: patternsData?.pending_count ?? ambData?.ambiguous_intent_count ?? 0,
         trendSeries: carouselTrendSeries,
         trendChartReady: Boolean(
           carouselTrendSeries?.data_available && (carouselTrendSeries.buckets?.length ?? 0) > 0,
@@ -370,31 +369,12 @@ export function HomeSurface({
 
   const matchConfidencePct = useMemo(() => {
     const withPct = (v: string) => (v === '—' || v === '…' ? v : `${v}%`)
-    if (batchId?.trim()) {
-      if (batchContractLoading) return '…'
-      return withPct(displayApiField(batchContract?.match_confidence))
-    }
-    if (patternsData?.summary_stats?.match_confidence_pct != null) {
-      return withPct(displayApiField(patternsData.summary_stats.match_confidence_pct))
-    }
     return withPct(displayApiField(ambData?.avg_attachment_confidence, loading))
-  }, [batchId, batchContract, batchContractLoading, ambData, patternsData, loading])
+  }, [ambData, loading])
 
-  const missingRefRate = useMemo(() => {
-    if (batchId?.trim()) {
-      if (batchContractLoading) return '…'
-      return displayApiField(batchContract?.missing_reference_rate)
-    }
-    return displayApiField(ambData?.provider_ref_missing_rate, loading)
-  }, [batchId, batchContract, batchContractLoading, ambData, loading])
+  const missingRefRate = displayApiField(ambData?.provider_ref_missing_rate, loading)
 
-  const refCompleteness = useMemo(() => {
-    if (batchId?.trim()) {
-      if (batchContractLoading) return '…'
-      return displayApiField(batchContract?.client_reference_coverage)
-    }
-    return displayApiField(ambData?.carrier_completeness_rate, loading)
-  }, [batchId, batchContract, batchContractLoading, ambData, loading])
+  const refCompleteness = displayApiField(ambData?.carrier_completeness_rate, loading)
 
   const multiMatchRate = displayApiField(ambData?.candidate_collision_rate, loading)
 

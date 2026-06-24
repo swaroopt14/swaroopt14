@@ -125,7 +125,7 @@ export function LeakageBatchWatchlistTable({
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
                       {b.batch_id === selectedBatchId && scopeLeakagePct != null
-                        ? formatLeakageApiPct(scopeLeakagePct)
+                        ? `${scopeLeakagePct}%`
                         : displayApiField(b.predicted_leakage_rate)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">

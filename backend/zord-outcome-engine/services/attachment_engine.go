@@ -522,8 +522,9 @@ func (e *AttachmentEngine) runAttachment(
 	var originalObservationAmount decimal.Decimal
 	obsAmountMap := make(map[uuid.UUID]decimal.Decimal)
 	for id, obs := range effectiveObservationMap {
-		originalObservationAmount = originalObservationAmount.Add(obs.Amount)
-		obsAmountMap[id] = obs.Amount
+		observedAmount := observedSettlementAmount(obs)
+		originalObservationAmount = originalObservationAmount.Add(observedAmount)
+		obsAmountMap[id] = observedAmount
 	}
 
 	if scopeType == models.JobScopeSettlementBatch || scopeType == models.JobScopeIngestRun {
@@ -1088,19 +1089,19 @@ func buildMatchEvidenceCarriers(
 
 	if topScore != nil {
 		result["match_flags"] = map[string]interface{}{
-			"exact_ref_match":        topScore.ExactRefMatch,
-			"client_ref_match":       topScore.ClientRefMatch,
-			"provider_ref_match":     topScore.ProviderRefMatch,
-			"bank_ref_match":         topScore.BankRefMatch,
-			"batch_match":            topScore.BatchMatch,
-			"amount_match":           topScore.AmountMatch,
-			"currency_match":         topScore.CurrencyMatch,
-			"time_window_match":      topScore.TimeWindowMatch,
-			"source_system_match":    topScore.SourceSystemMatch,
-			"zord_signature_match":   topScore.ZordSignatureMatch,
-			"composite_match":        topScore.CompositeMatch,
-			"has_hard_conflict":      topScore.HasHardConflict,
-			"has_any_conflict":       topScore.HasAnyConflict,
+			"exact_ref_match":      topScore.ExactRefMatch,
+			"client_ref_match":     topScore.ClientRefMatch,
+			"provider_ref_match":   topScore.ProviderRefMatch,
+			"bank_ref_match":       topScore.BankRefMatch,
+			"batch_match":          topScore.BatchMatch,
+			"amount_match":         topScore.AmountMatch,
+			"currency_match":       topScore.CurrencyMatch,
+			"time_window_match":    topScore.TimeWindowMatch,
+			"source_system_match":  topScore.SourceSystemMatch,
+			"zord_signature_match": topScore.ZordSignatureMatch,
+			"composite_match":      topScore.CompositeMatch,
+			"has_hard_conflict":    topScore.HasHardConflict,
+			"has_any_conflict":     topScore.HasAnyConflict,
 		}
 	}
 
@@ -1460,11 +1461,10 @@ func computeBatchSummary(
 	summary.MatchedIntendedAmount = summary.TotalIntendedAmount
 	summary.MatchedObservedAmount = summary.TotalObservedAmount
 
-	summary.MatchedPairVariance = summary.MatchedIntendedAmount.Sub(summary.MatchedObservedAmount).Abs()
-	summary.TotalVariance = summary.MatchedPairVariance
-	summary.NetBatchDelta = summary.OriginalSettledAmount.Sub(summary.OriginalIntendedAmount)
+	summary.NetBatchDelta = summary.OriginalSettledAmount.Sub(summary.OriginalIntendedAmount).Abs()
 
 	for _, v := range variances {
+		summary.MatchedPairVariance = summary.MatchedPairVariance.Add(v.AmountVariance.Abs())
 		if v.FeeVariance != nil {
 			summary.TotalFeeAmount = summary.TotalFeeAmount.Add(*v.FeeVariance)
 		}
@@ -1472,6 +1472,7 @@ func computeBatchSummary(
 			summary.TotalDeductionAmount = summary.TotalDeductionAmount.Add(*v.DeductionVariance)
 		}
 	}
+	summary.TotalVariance = summary.MatchedPairVariance
 	summary.NetUnexplainedVariance = summary.MatchedPairVariance.Sub(summary.TotalFeeAmount).Sub(summary.TotalDeductionAmount).Abs()
 
 	summary.IntentCountCoverage = ratioCoverage(float64(summary.MatchedIntentCount), float64(summary.TotalIntentCount))
@@ -1513,6 +1514,13 @@ func computeBatchSummary(
 	}
 
 	return summary
+}
+
+func observedSettlementAmount(obs models.CanonicalSettlementObservation) decimal.Decimal {
+	if obs.SettledAmount != nil {
+		return *obs.SettledAmount
+	}
+	return obs.Amount
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

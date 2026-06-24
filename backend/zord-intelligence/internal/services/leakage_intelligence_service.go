@@ -128,6 +128,9 @@ type LeakageSnapshot struct {
 	AnomalyLevel  string  `json:"anomaly_level"`
 	AnomalyZScore float64 `json:"anomaly_z_score"`
 
+	// ── Over-settlement exposure ──────────────────────────────────────────
+	OverSettlementAmountMinor decimal.Decimal `json:"over_settlement_amount_minor"`
+
 	// ── Recommended action ────────────────────────────────────────────────
 	// Human-readable suggestion fed to the Recommendation intelligence layer.
 	RecommendedAction string `json:"recommended_action,omitempty"`
@@ -316,6 +319,7 @@ func (s *LeakageIntelligenceService) buildSnapshot(lv *models.LeakageValue) Leak
 		OrphanSettlementCount:           lv.OrphanSettlementCount,
 		ReversalCount:                   lv.ReversalCount,
 		BreakdownByType:                 lv.BreakdownByType,
+		OverSettlementAmountMinor:       lv.OverSettlementAmountMinor,
 		ComputedAt:                      time.Now().UTC(),
 	}
 

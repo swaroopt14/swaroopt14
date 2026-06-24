@@ -163,7 +163,8 @@ export async function handleRequest(request) {
     return jsonResponse(defensibilityKpi())
   }
   if (method === 'GET' && pathname === '/v1/intelligence/dashboard/patterns') {
-    return jsonResponse(patternsDashboard())
+    const batchId = url.searchParams.get('batch_id')
+    return jsonResponse(patternsDashboard(batchId))
   }
   if (method === 'GET' && pathname === '/v1/intelligence/pattern') {
     const batchId = url.searchParams.get('batch_id') ?? url.searchParams.get('scope_ref')

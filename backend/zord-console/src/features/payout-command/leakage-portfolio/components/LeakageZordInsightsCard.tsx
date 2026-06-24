@@ -16,5 +16,12 @@ type LeakageZordInsightsCardProps = {
 
 export function LeakageZordInsightsCard({ leakage, ambiguity, patterns }: LeakageZordInsightsCardProps) {
   const insights = buildLeakagePageInsightItems({ leakage, ambiguity, patterns })
-  return <ZordInsightsPanel insights={insights} className="h-full" />
+    return (
+    <ZordInsightsPanel
+      insights={insights}
+      className="h-full"
+      sourcePage="payment-gaps"
+      sectionTitle="Payment gap insights"
+    />
+  )
 }

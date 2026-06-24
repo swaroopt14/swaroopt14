@@ -224,11 +224,6 @@ export default function ConnectorIntelligenceClient() {
         : connectorsCopy.kpi.successRateSub,
     },
     {
-      label: connectorsCopy.kpi.unconfirmedExposure,
-      value: fmtInrFromMinorExact(kpis.moneyAtRiskMinor),
-      sub: connectorsCopy.kpi.unconfirmedExposureSub,
-    },
-    {
       label: connectorsCopy.kpi.preventableLeakage,
       value: fmtInrFromMinorExact(kpis.preventableLeakageMinor),
       sub:
@@ -250,8 +245,6 @@ export default function ConnectorIntelligenceClient() {
           : connectorsCopy.kpi.allConnectorsHealthy,
     },
   ] as const
-  const isStale = Date.now() - new Date(snapshot.generatedAtIso).getTime() > snapshot.staleAfterMinutes * 60 * 1000
-
   const connectors = filter === 'All'
     ? snapshot.connectors
     : snapshot.connectors.filter((row) => row.type === filter)
@@ -265,23 +258,11 @@ export default function ConnectorIntelligenceClient() {
 
   return (
     <div className="space-y-5 pb-6 text-[15px] leading-[1.55]">
-      {isStale ? (
-        <section className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900" data-testid="routing-stale-banner">
-          {connectorsCopy.states.staleBanner}
-        </section>
-      ) : null}
-
       <section>
         <JournalIntelligenceKpiHero
-          eyebrow={connectorsCopy.overview.eyebrow}
+          eyebrow={connectorsCopy.kpi.unconfirmedExposure}
           value={fmtInrFromMinorExact(kpis.moneyAtRiskMinor)}
-          deltaPill={
-            kpis.successRate != null ? `Success ${kpis.successRate.toFixed(1)}%` : `Success ${KPI_UNAVAILABLE}`
-          }
-          subcopy={connectorsCopy.overview.subcopy(
-            windowLabel,
-            fmtInrFromMinorExact(kpis.moneyAtRiskMinor),
-          )}
+          subcopy={windowLabel}
           buckets={routingBuckets}
           testId="routing-kpi-bar"
         />

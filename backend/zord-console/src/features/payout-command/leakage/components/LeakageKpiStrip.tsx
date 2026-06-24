@@ -1,7 +1,7 @@
 'use client'
 
 import type { PortfolioLeakageViewModel } from '../../leakage-portfolio/normalizeLeakagePayload'
-import { formatKpiMoneyMinor, formatLeakageApiPct } from '../../shared/formatApiKpiFields'
+import { displayApiField, formatKpiMoneyMinor } from '../../shared/formatApiKpiFields'
 import { leakageCopy, mapReviewPriorityLabel, mapReviewPriorityShort } from '../copy/leakageCopy'
 
 const SECONDARY = [
@@ -34,7 +34,7 @@ export function LeakageKpiStrip({ data, loading }: LeakageKpiStripProps) {
     )
   }
 
-  const gapRate = formatLeakageApiPct(data.paymentGapRate)
+  const gapRate = displayApiField(data.paymentGapRate)
   const heroValue = formatKpiMoneyMinor(data.openFinancialExceptionValueMinor)
 
   return (

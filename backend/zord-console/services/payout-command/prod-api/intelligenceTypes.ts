@@ -34,6 +34,7 @@ export type LeakageKpiResolved = Resolved<{
   ambiguous_value_at_risk_minor?: MinorAmountField
   unresolved_amount_minor?: MinorAmountField
   risk_adjusted_leakage_minor?: MinorAmountField
+  over_settlement_amount_minor?: MinorAmountField
   leakage_percentage: number
   risk_tier: RiskTier
   duplicate_risk_count?: number
@@ -134,6 +135,8 @@ export type MatchingExecutionHeatmap = {
   cells: number[][]
   summary?: string
   intents_under_evaluation_count?: number
+  /** Sum of each count type across all batches, aligned to x_labels (exact, high, amb, unres, conf). */
+  column_totals?: number[]
 }
 
 export type AmbiguityHeatmapBatchRow = {
@@ -160,6 +163,8 @@ export type AmbiguityKpiResolved = Resolved<{
   ambiguous_intent_count: number
   ambiguity_rate: number
   avg_attachment_confidence: number
+  /** A7 — avg(WinningScore − RunnerUpScore) from attachment decisions. */
+  avg_score_margin?: number
   provider_ref_missing_rate: number
   value_at_risk_minor: string
   risk_tier: RiskTier
@@ -352,8 +357,13 @@ export type IntelligenceBatchRow = {
   success_count: number
   failed_count: number
   pending_count: number
-  /** When batches list includes ambiguity projections. */
+  /** API field from /v1/intelligence/batches → batch_contract. Already scaled 0–100 by backend. */
+  match_confidence?: number
+  /** @deprecated backend sends match_confidence — this field is never populated from batches list */
   match_confidence_pct?: number
+  /** Value of payment intents not yet resolved/matched for this batch. Source: unresolved_intended_amount_minor. */
+  unresolved_intended_amount_minor?: MinorAmountField
+  /** Not present in /batches list response — only on tenant-level KPI endpoint. */
   value_at_risk_minor?: MinorAmountField
   unmatched_amount_minor?: MinorAmountField
   unexplained_variance_minor?: MinorAmountField
@@ -362,6 +372,9 @@ export type IntelligenceBatchRow = {
   total_intended_amount_minor?: MinorAmountField
   orphan_amount_minor?: MinorAmountField
   reversal_exposure_minor?: MinorAmountField
+  /** Per-batch leakage rate from ML model. Source: predicted_leakage_rate in /batches list response. */
+  predicted_leakage_rate?: number
+  /** @deprecated batch list API sends predicted_leakage_rate — this field is never populated from /batches */
   leakage_percentage?: number
   ambiguous_amount_minor?: MinorAmountField
   missing_ref_count?: number

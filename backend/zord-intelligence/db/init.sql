@@ -814,10 +814,14 @@ CREATE TABLE IF NOT EXISTS batch_contracts (
     -- ── Attachment completeness snapshot (Service 5C intent-centric batch summary) ──
     total_intent_count                 INT          NOT NULL DEFAULT 0,
     matched_intent_count               INT          NOT NULL DEFAULT 0,
+    ambiguous_count                    INT          NOT NULL DEFAULT 0,
     unresolved_intent_count            INT          NOT NULL DEFAULT 0,
+    conflicted_count                   INT          NOT NULL DEFAULT 0,
     orphan_observation_count           INT          NOT NULL DEFAULT 0,
     original_intended_amount_minor     NUMERIC(20,2) NOT NULL DEFAULT 0,
+    ambiguous_amount_minor             NUMERIC(20,2) NOT NULL DEFAULT 0,
     unresolved_intended_amount_minor   NUMERIC(20,2) NOT NULL DEFAULT 0,
+    conflicted_amount_minor            NUMERIC(20,2) NOT NULL DEFAULT 0,
     orphan_observed_amount_minor       NUMERIC(20,2) NOT NULL DEFAULT 0,
     net_batch_delta_minor              NUMERIC(20,2) NOT NULL DEFAULT 0,
     intent_count_coverage              NUMERIC(10,6) NOT NULL DEFAULT 0,
@@ -1071,13 +1075,21 @@ ALTER TABLE batch_contracts
 ALTER TABLE batch_contracts
     ADD COLUMN IF NOT EXISTS matched_intent_count INT NOT NULL DEFAULT 0;
 ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS ambiguous_count INT NOT NULL DEFAULT 0;
+ALTER TABLE batch_contracts
     ADD COLUMN IF NOT EXISTS unresolved_intent_count INT NOT NULL DEFAULT 0;
+ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS conflicted_count INT NOT NULL DEFAULT 0;
 ALTER TABLE batch_contracts
     ADD COLUMN IF NOT EXISTS orphan_observation_count INT NOT NULL DEFAULT 0;
 ALTER TABLE batch_contracts
     ADD COLUMN IF NOT EXISTS original_intended_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0;
 ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS ambiguous_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0;
+ALTER TABLE batch_contracts
     ADD COLUMN IF NOT EXISTS unresolved_intended_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0;
+ALTER TABLE batch_contracts
+    ADD COLUMN IF NOT EXISTS conflicted_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0;
 ALTER TABLE batch_contracts
     ADD COLUMN IF NOT EXISTS orphan_observed_amount_minor NUMERIC(20,2) NOT NULL DEFAULT 0;
 ALTER TABLE batch_contracts

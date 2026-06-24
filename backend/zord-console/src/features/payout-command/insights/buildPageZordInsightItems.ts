@@ -58,7 +58,7 @@ export function buildLeakagePageInsightItems(params: {
   }
 
   if (leakage?.leakage_percentage != null) {
-    const gapRate = formatLeakageApiPct(leakage.leakage_percentage)
+    const gapRate = `${leakage.leakage_percentage}%`
     if (gapRate !== '—') {
       items.push({
         title: 'Payment gap rate',

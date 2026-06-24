@@ -13,7 +13,7 @@ import (
 
 // batchContractSelectColumns is the authoritative column list for all
 // batch_contracts read queries. Its order MUST match the Scan() order in
-// scanBatchContract and scanBatchContractFromRows exactly (59 columns).
+// scanBatchContract and scanBatchContractFromRows exactly (63 columns).
 const batchContractSelectColumns = `
 		batch_id, tenant_id, source_reference,
 		total_count, success_count, failed_count, pending_count,
@@ -21,8 +21,8 @@ const batchContractSelectColumns = `
 		total_intended_amount_minor::text, total_confirmed_amount_minor::text, original_settled_amount_minor::text, total_variance_minor::text,
 		batch_finality_status, ambiguity_score, match_confidence, defensibility_tier,
 		last_updated_at, created_at,
-		total_intent_count, matched_intent_count, unresolved_intent_count, orphan_observation_count,
-		original_intended_amount_minor::text, unresolved_intended_amount_minor::text, orphan_observed_amount_minor::text, net_batch_delta_minor::text,
+		total_intent_count, matched_intent_count, ambiguous_count, unresolved_intent_count, conflicted_count, orphan_observation_count,
+		original_intended_amount_minor::text, ambiguous_amount_minor::text, unresolved_intended_amount_minor::text, conflicted_amount_minor::text, orphan_observed_amount_minor::text, net_batch_delta_minor::text,
 		intent_count_coverage, intent_value_coverage, observed_count_allocation_coverage, observed_value_allocation_coverage,
 		intent_row_count,
 		intent_total_amount_minor::text,
@@ -102,10 +102,14 @@ type BatchContract struct {
 	// ── Attachment completeness snapshot (Service 5C batch summary — intent-centric) ──
 	TotalIntentCount                 int             `json:"total_intent_count"`
 	MatchedIntentCount               int             `json:"matched_intent_count"`
+	AmbiguousCount                   int             `json:"ambiguous_count"`
 	UnresolvedIntentCount            int             `json:"unresolved_intent_count"`
+	ConflictedCount                  int             `json:"conflicted_count"`
 	OrphanObservationCount           int             `json:"orphan_observation_count"`
 	OriginalIntendedAmountMinor      decimal.Decimal `json:"original_intended_amount_minor"`
+	AmbiguousAmountMinor             decimal.Decimal `json:"ambiguous_amount_minor"`
 	UnresolvedIntendedAmountMinor    decimal.Decimal `json:"unresolved_intended_amount_minor"`
+	ConflictedAmountMinor            decimal.Decimal `json:"conflicted_amount_minor"`
 	OrphanObservedAmountMinor        decimal.Decimal `json:"orphan_observed_amount_minor"`
 	NetBatchDeltaMinor               decimal.Decimal `json:"net_batch_delta_minor"`
 	IntentCountCoverage              float64         `json:"intent_count_coverage"`
@@ -188,13 +192,13 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 			 reversed_count, partial_recon_count,
 			 total_intended_amount_minor, total_confirmed_amount_minor, original_settled_amount_minor, total_variance_minor,
 			 batch_finality_status, ambiguity_score, match_confidence,
-			 total_intent_count, matched_intent_count, unresolved_intent_count, orphan_observation_count,
-			 original_intended_amount_minor, unresolved_intended_amount_minor, orphan_observed_amount_minor, net_batch_delta_minor,
+			 total_intent_count, matched_intent_count, ambiguous_count, unresolved_intent_count, conflicted_count, orphan_observation_count,
+			 original_intended_amount_minor, ambiguous_amount_minor, unresolved_intended_amount_minor, conflicted_amount_minor, orphan_observed_amount_minor, net_batch_delta_minor,
 			 intent_count_coverage, intent_value_coverage, observed_count_allocation_coverage, observed_value_allocation_coverage,
 			 last_updated_at, created_at)
 		VALUES
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-			 $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, now(), now())
+			 $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, now(), now())
 		ON CONFLICT (batch_id) DO UPDATE SET
 			source_reference              = EXCLUDED.source_reference,
 			total_count                   = EXCLUDED.total_count,
@@ -212,10 +216,14 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 			match_confidence              = EXCLUDED.match_confidence,
 			total_intent_count            = EXCLUDED.total_intent_count,
 			matched_intent_count          = EXCLUDED.matched_intent_count,
+			ambiguous_count               = EXCLUDED.ambiguous_count,
 			unresolved_intent_count       = EXCLUDED.unresolved_intent_count,
+			conflicted_count              = EXCLUDED.conflicted_count,
 			orphan_observation_count      = EXCLUDED.orphan_observation_count,
 			original_intended_amount_minor = EXCLUDED.original_intended_amount_minor,
+			ambiguous_amount_minor        = EXCLUDED.ambiguous_amount_minor,
 			unresolved_intended_amount_minor = EXCLUDED.unresolved_intended_amount_minor,
+			conflicted_amount_minor       = EXCLUDED.conflicted_amount_minor,
 			orphan_observed_amount_minor  = EXCLUDED.orphan_observed_amount_minor,
 			net_batch_delta_minor         = EXCLUDED.net_batch_delta_minor,
 			intent_count_coverage         = EXCLUDED.intent_count_coverage,
@@ -236,9 +244,11 @@ func (r *BatchContractRepo) Upsert(ctx context.Context, bc BatchContract) error 
 		bc.OriginalSettledAmountMinor.String(),
 		bc.TotalVarianceMinor.String(),
 		bc.BatchFinalityStatus, bc.AmbiguityScore, bc.MatchConfidence,
-		bc.TotalIntentCount, bc.MatchedIntentCount, bc.UnresolvedIntentCount, bc.OrphanObservationCount,
+		bc.TotalIntentCount, bc.MatchedIntentCount, bc.AmbiguousCount, bc.UnresolvedIntentCount, bc.ConflictedCount, bc.OrphanObservationCount,
 		bc.OriginalIntendedAmountMinor.String(),
+		bc.AmbiguousAmountMinor.String(),
 		bc.UnresolvedIntendedAmountMinor.String(),
+		bc.ConflictedAmountMinor.String(),
 		bc.OrphanObservedAmountMinor.String(),
 		bc.NetBatchDeltaMinor.String(),
 		bc.IntentCountCoverage, bc.IntentValueCoverage,
@@ -568,11 +578,37 @@ func (r *BatchContractRepo) SummarizeLeakageForWindow(
 	return &summary, nil
 }
 
+// GetUnmatchedAndOrphanForTenant returns the tenant-wide SUM of unmatched_amount_minor
+// and orphan_amount_minor across all batch_contracts for a tenant.
+func (r *BatchContractRepo) GetUnmatchedAndOrphanForTenant(
+	ctx context.Context,
+	tenantID string,
+) (unmatched, orphan decimal.Decimal, err error) {
+	row := r.pool.QueryRow(ctx, `
+		SELECT
+			COALESCE(SUM(unmatched_amount_minor)::text, '0'),
+			COALESCE(SUM(orphan_observed_amount_minor)::text, '0')
+		FROM batch_contracts
+		WHERE tenant_id = $1
+	`, tenantID)
+	var unmatchedText, orphanText string
+	if err = row.Scan(&unmatchedText, &orphanText); err != nil {
+		return decimal.Zero, decimal.Zero, fmt.Errorf("batch_contract_repo.GetUnmatchedAndOrphanForTenant tenant=%s: %w", tenantID, err)
+	}
+	if unmatched, err = decimal.NewFromString(unmatchedText); err != nil {
+		return decimal.Zero, decimal.Zero, fmt.Errorf("batch_contract_repo.GetUnmatchedAndOrphanForTenant unmatched=%q: %w", unmatchedText, err)
+	}
+	if orphan, err = decimal.NewFromString(orphanText); err != nil {
+		return decimal.Zero, decimal.Zero, fmt.Errorf("batch_contract_repo.GetUnmatchedAndOrphanForTenant orphan=%q: %w", orphanText, err)
+	}
+	return unmatched, orphan, nil
+}
+
 // scanBatchContract scans one row from a QueryRow call.
 func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	var bc BatchContract
 	var intended, confirmed, originalSettled, variance string
-	var originalIntended, unresolvedIntended, orphanObserved, netBatchDelta string
+	var originalIntended, ambiguousIntended, unresolvedIntended, conflictedIntended, orphanObserved, netBatchDelta string
 	var intentTotal, intentSquareSum, intentMin, intentMax string
 	var underSettlement, predictedRate, predictedMinor string
 	var unmatched, reversal, orphan, dupRisk, unexplained, whitelisted string
@@ -598,10 +634,14 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 		&bc.CreatedAt,
 		&bc.TotalIntentCount,
 		&bc.MatchedIntentCount,
+		&bc.AmbiguousCount,
 		&bc.UnresolvedIntentCount,
+		&bc.ConflictedCount,
 		&bc.OrphanObservationCount,
 		&originalIntended,
+		&ambiguousIntended,
 		&unresolvedIntended,
+		&conflictedIntended,
 		&orphanObserved,
 		&netBatchDelta,
 		&bc.IntentCountCoverage,
@@ -656,8 +696,14 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 	if bc.OriginalIntendedAmountMinor, parseErr = decimal.NewFromString(originalIntended); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContract: invalid original_intended_amount_minor %q: %w", originalIntended, parseErr)
 	}
+	if bc.AmbiguousAmountMinor, parseErr = decimal.NewFromString(ambiguousIntended); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid ambiguous_amount_minor %q: %w", ambiguousIntended, parseErr)
+	}
 	if bc.UnresolvedIntendedAmountMinor, parseErr = decimal.NewFromString(unresolvedIntended); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContract: invalid unresolved_intended_amount_minor %q: %w", unresolvedIntended, parseErr)
+	}
+	if bc.ConflictedAmountMinor, parseErr = decimal.NewFromString(conflictedIntended); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContract: invalid conflicted_amount_minor %q: %w", conflictedIntended, parseErr)
 	}
 	if bc.OrphanObservedAmountMinor, parseErr = decimal.NewFromString(orphanObserved); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContract: invalid orphan_observed_amount_minor %q: %w", orphanObserved, parseErr)
@@ -723,7 +769,7 @@ func scanBatchContract(row pgx.Row) (*BatchContract, error) {
 func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	var bc BatchContract
 	var intended, confirmed, originalSettled, variance string
-	var originalIntended, unresolvedIntended, orphanObserved, netBatchDelta string
+	var originalIntended, ambiguousIntended, unresolvedIntended, conflictedIntended, orphanObserved, netBatchDelta string
 	var intentTotal, intentSquareSum, intentMin, intentMax string
 	var underSettlement, predictedRate, predictedMinor string
 	var unmatched, reversal, orphan, dupRisk, unexplained, whitelisted string
@@ -749,10 +795,14 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 		&bc.CreatedAt,
 		&bc.TotalIntentCount,
 		&bc.MatchedIntentCount,
+		&bc.AmbiguousCount,
 		&bc.UnresolvedIntentCount,
+		&bc.ConflictedCount,
 		&bc.OrphanObservationCount,
 		&originalIntended,
+		&ambiguousIntended,
 		&unresolvedIntended,
+		&conflictedIntended,
 		&orphanObserved,
 		&netBatchDelta,
 		&bc.IntentCountCoverage,
@@ -807,8 +857,14 @@ func scanBatchContractFromRows(rows pgx.Rows) (*BatchContract, error) {
 	if bc.OriginalIntendedAmountMinor, parseErr = decimal.NewFromString(originalIntended); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContractFromRows: invalid original_intended_amount_minor %q: %w", originalIntended, parseErr)
 	}
+	if bc.AmbiguousAmountMinor, parseErr = decimal.NewFromString(ambiguousIntended); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid ambiguous_amount_minor %q: %w", ambiguousIntended, parseErr)
+	}
 	if bc.UnresolvedIntendedAmountMinor, parseErr = decimal.NewFromString(unresolvedIntended); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContractFromRows: invalid unresolved_intended_amount_minor %q: %w", unresolvedIntended, parseErr)
+	}
+	if bc.ConflictedAmountMinor, parseErr = decimal.NewFromString(conflictedIntended); parseErr != nil {
+		return nil, fmt.Errorf("scanBatchContractFromRows: invalid conflicted_amount_minor %q: %w", conflictedIntended, parseErr)
 	}
 	if bc.OrphanObservedAmountMinor, parseErr = decimal.NewFromString(orphanObserved); parseErr != nil {
 		return nil, fmt.Errorf("scanBatchContractFromRows: invalid orphan_observed_amount_minor %q: %w", orphanObserved, parseErr)

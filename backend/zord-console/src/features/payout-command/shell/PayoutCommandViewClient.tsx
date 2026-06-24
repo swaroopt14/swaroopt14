@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   DASHBOARD_FONT_STACK,
   dockItems,
@@ -63,6 +64,12 @@ function resolveSharedBatchId(initial?: string) {
   return id || undefined
 }
 
+function resolveDockFromSearchParam(raw: string | null): DockId | null {
+  if (!raw) return null
+  const id = raw as DockId
+  return dockItems.some((item) => item.id === id) ? id : null
+}
+
 export default function PayoutCommandViewClient({
   forceMode,
   initialDock = 'home',
@@ -72,6 +79,8 @@ export default function PayoutCommandViewClient({
   const [activeDock, setActiveDock] = useState<DockId>(initialDock)
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('Today')
   const [activateWizardOpen, setActivateWizardOpen] = useState(false)
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const activeSurface = dockItems.find((item) => item.id === activeDock) ?? dockItems[0]
   const sharedBatchId = resolveSharedBatchId(scope.batchId)
   const onWorkspaceSuggestionSelect = useCallback((_label: string | null) => {}, [])
@@ -105,8 +114,9 @@ export default function PayoutCommandViewClient({
   }, [askZord])
 
   useEffect(() => {
-    setActiveDock((currentDock) => (currentDock === initialDock ? currentDock : initialDock))
-  }, [initialDock])
+    const dockFromUrl = resolveDockFromSearchParam(searchParams.get('dock')) ?? initialDock
+    setActiveDock((currentDock) => (currentDock === dockFromUrl ? currentDock : dockFromUrl))
+  }, [initialDock, searchParams])
 
   // ── Navigation handlers ────────────────────────────────────────────────────
   const handleDockChange = useCallback(
@@ -120,10 +130,10 @@ export default function PayoutCommandViewClient({
         const params = new URLSearchParams(window.location.search)
         params.set('dock', id)
         const newUrl = `${window.location.pathname}?${params.toString()}`
-        window.history.pushState(null, '', newUrl)
+        router.push(newUrl)
       }
     },
-    [workspace],
+    [router, workspace],
   )
 
   const handleTabChange = useCallback(
@@ -193,6 +203,7 @@ export default function PayoutCommandViewClient({
   }, [
     activeDock,
     activeTab,
+    askZord,
     forceMode,
     scope.batchId,
     scope.clientBatchId,

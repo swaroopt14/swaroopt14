@@ -1889,8 +1889,8 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	// Determine which ambiguity counters to increment.
 	isAmbiguous := decisionType == "MATCH_AMBIGUOUS"
 	isUnresolved := decisionType == "MATCH_UNRESOLVED"
-	// Value-at-risk applies to both ambiguous and unresolved decisions.
-	isAtRisk := isAmbiguous || isUnresolved
+	// value_at_risk_minor is retained for API compatibility, but by product
+	// definition it means ambiguous intent exposure only.
 	// Provider ref missing = no supporting carriers at all.
 	hasNoCarriers := len(supportingCarriers) == 0
 
@@ -1901,10 +1901,6 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 	unresolvedIncr := 0
 	if isUnresolved {
 		unresolvedIncr = 1
-	}
-	atRiskAmount := decimal.Zero
-	if isAtRisk {
-		atRiskAmount = intendedMinor
 	}
 	ambiguousAmount := decimal.Zero
 	if isAmbiguous {
@@ -2018,7 +2014,7 @@ func (r *ProjectionRepo) AtomicRecordAttachmentDecision(
 		ambiguousIncr,            // $5
 		ambiguousAmount.String(), // $6
 		unresolvedIncr,           // $7
-		atRiskAmount.String(),    // $8
+		ambiguousAmount.String(), // $8
 		confidenceScore,          // $9
 		missingCarrierIncr,       // $10
 		lowConfidenceIncr,        // $11
@@ -2543,10 +2539,12 @@ func (r *ProjectionRepo) recomputeDefensibilityRates(
 							value_json,
 							'{evidence_pack_rate}',
 							to_jsonb(
-								COALESCE(
-									(value_json->>'with_evidence_pack')::numeric /
-									NULLIF((value_json->>'total_intents')::numeric, 0),
-									0
+								LEAST(1.0,
+									COALESCE(
+										(value_json->>'with_evidence_pack')::numeric /
+										NULLIF((value_json->>'total_intents')::numeric, 0),
+										0
+									)
 								)
 							)
 						),

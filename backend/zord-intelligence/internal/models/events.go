@@ -609,6 +609,8 @@ type BatchSummaryUpdatedEvent struct {
 	MatchedIntendedAmount decimal.Decimal `json:"matched_intended_amount"`
 	MatchedObservedAmount decimal.Decimal `json:"matched_observed_amount"`
 	UnresolvedIntendedAmount decimal.Decimal `json:"unresolved_intended_amount"`
+	AmbiguousAmount          decimal.Decimal `json:"ambiguous_amount"`
+	ConflictedAmount         decimal.Decimal `json:"conflicted_amount"`
 	OrphanObservedAmount decimal.Decimal `json:"orphan_observed_amount"`
 	MatchedPairVariance decimal.Decimal `json:"matched_pair_variance"`
 	NetBatchDelta decimal.Decimal `json:"net_batch_delta"`

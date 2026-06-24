@@ -1687,8 +1687,9 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		return nil
 	}
 
-	log.Printf("[batch.summary.updated] RECEIVED event_id=%s tenant=%s batch=%s status=%s total=%d intended=%s ambiguity=%.2f original_settled=%s",
-		e.EventID, e.TenantID, e.BatchID, e.BatchFinalityStatus, e.TotalCount, e.TotalIntendedAmountMinor, e.AmbiguityScore, e.OriginalSettledAmountMinor)
+	log.Printf("[batch.summary.updated] RECEIVED event_id=%s tenant=%s batch=%s status=%s total=%d intended=%s ambiguity=%.2f original_settled=%s ambiguous_count=%d ambiguous_amount=%s conflicted_count=%d conflicted_amount=%s unresolved_count=%d unresolved_intended_amount=%s",
+		e.EventID, e.TenantID, e.BatchID, e.BatchFinalityStatus, e.TotalCount, e.TotalIntendedAmountMinor, e.AmbiguityScore, e.OriginalSettledAmountMinor,
+		e.AmbiguousCount, e.AmbiguousAmount, e.ConflictedCount, e.ConflictedAmount, e.UnresolvedCount, e.UnresolvedIntendedAmount)
 
 	processed, err := s.projRepo.IsProcessed(ctx, e.TenantID, e.EventID)
 	if err != nil {
@@ -1700,7 +1701,7 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		return nil
 	}
 	log.Printf(
-		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f match_confidence=%f batch_finality_status=%s original_settled_amount_minor=%s total_intent_count = %d matched_intent_count = %d unresolved_intent_count = %d orphan_observation_count = %d exact_match_count = %d high_confidence_count = %d ambiguous_count = %d unresolved_count = %d conflicted_count = %d original_intended_amount = %s matched_intended_amount = %s matched_observed_amount = %s unresolved_intended_amount = %s orphan_observed_amount = %s matched_pair_variance = %s net_batch_delta = %s intent_count_coverage = %f intent_value_coverage = %f observed_count_allocation_coverage = %f observed_value_allocation_coverage = %f",
+		"HandleBatchSummaryUpdated tenant_id=%s event_id=%s batch_id=%s occurred_at=%s trace_id=%s source_reference=%s corridor_id=%s total_count=%d success_count=%d failed_count=%d pending_count=%d reversed_count=%d partial_recon_count=%d total_intended_amount_minor=%s total_confirmed_amount_minor=%s total_variance_minor=%s ambiguity_score=%f match_confidence=%f batch_finality_status=%s original_settled_amount_minor=%s total_intent_count = %d matched_intent_count = %d unresolved_intent_count = %d orphan_observation_count = %d exact_match_count = %d high_confidence_count = %d ambiguous_count = %d ambiguous_amount = %s conflicted_count = %d conflicted_amount = %s unresolved_count = %d unresolved_intended_amount = %s original_intended_amount = %s matched_intended_amount = %s matched_observed_amount = %s orphan_observed_amount = %s matched_pair_variance = %s net_batch_delta = %s intent_count_coverage = %f intent_value_coverage = %f observed_count_allocation_coverage = %f observed_value_allocation_coverage = %f",
 		e.TenantID,
 		e.EventID,
 		e.BatchID,
@@ -1728,12 +1729,14 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		e.ExactMatchCount,
 		e.HighConfidenceCount,
 		e.AmbiguousCount,
-		e.UnresolvedCount,
+		e.AmbiguousAmount.String(),
 		e.ConflictedCount,
+		e.ConflictedAmount.String(),
+		e.UnresolvedCount,
+		e.UnresolvedIntendedAmount.String(),
 		e.OriginalIntendedAmount.String(),
 		e.MatchedIntendedAmount.String(),
 		e.MatchedObservedAmount.String(),
-		e.UnresolvedIntendedAmount.String(),
 		e.OrphanObservedAmount.String(),
 		e.MatchedPairVariance.String(),
 		e.NetBatchDelta.String(),
@@ -1796,10 +1799,14 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 		MatchConfidence:            &e.MatchConfidence,
 		TotalIntentCount:           e.TotalIntentCount,
 		MatchedIntentCount:         e.MatchedIntentCount,
-		UnresolvedIntentCount:      e.UnresolvedIntentCount,
+		AmbiguousCount:             e.AmbiguousCount,
+		UnresolvedIntentCount:      e.UnresolvedCount,
+		ConflictedCount:            e.ConflictedCount,
 		OrphanObservationCount:     e.OrphanObservationCount,
 		OriginalIntendedAmountMinor: e.OriginalIntendedAmount,
+		AmbiguousAmountMinor:       e.AmbiguousAmount,
 		UnresolvedIntendedAmountMinor: e.UnresolvedIntendedAmount,
+		ConflictedAmountMinor:      e.ConflictedAmount,
 		OrphanObservedAmountMinor:  e.OrphanObservedAmount,
 		NetBatchDeltaMinor:         e.NetBatchDelta,
 		IntentCountCoverage:        e.IntentCountCoverage,
@@ -1879,9 +1886,10 @@ func (s *ProjectionService) HandleBatchSummaryUpdated(
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleBatchSummaryUpdated MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
-	log.Printf("[batch.summary.updated] STORED OK event_id=%s tenant=%s batch=%s status=%s total=%d success=%d failed=%d pending=%d ambiguity=%.2f",
+	log.Printf("[batch.summary.updated] STORED OK event_id=%s tenant=%s batch=%s status=%s total=%d success=%d failed=%d pending=%d ambiguity=%.2f ambiguous_count=%d ambiguous_amount=%s conflicted_count=%d conflicted_amount=%s unresolved_count=%d unresolved_intended_amount=%s",
 		e.EventID, e.TenantID, e.BatchID, e.BatchFinalityStatus,
-		e.TotalCount, e.SuccessCount, e.FailedCount, e.PendingCount, e.AmbiguityScore)
+		e.TotalCount, e.SuccessCount, e.FailedCount, e.PendingCount, e.AmbiguityScore,
+		e.AmbiguousCount, e.AmbiguousAmount, e.ConflictedCount, e.ConflictedAmount, e.UnresolvedCount, e.UnresolvedIntendedAmount)
 	return nil
 }
 

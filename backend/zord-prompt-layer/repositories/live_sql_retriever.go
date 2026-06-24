@@ -996,7 +996,7 @@ func (r *LiveSQLRetriever) fetchFromIntelligence(tenantID string, topK int, fail
 				missing_ref_count,
 				unexplained_variance_minor::text,
 				whitelisted_deduction_minor::text,
-				avg_matched_attachment_ambiguity::text,
+				ambiguity_score::text,
 				defensibility_tier,
 				last_updated_at::text,
 				created_at::text

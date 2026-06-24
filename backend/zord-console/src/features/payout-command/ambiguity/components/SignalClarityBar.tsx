@@ -57,7 +57,7 @@ function barWidthStyle(band: SignalClarityBand): { width?: string; minWidth: str
 export function SignalClarityBar({ amb, loading }: SignalClarityBarProps) {
   const bands = mergeSignalClarityBands(amb)
   const rollRates = amb?.signal_clarity_roll_rates ?? []
-  const ambiguityRate = loading ? '…' : displayApiField(amb?.ambiguity_rate)
+  const ambiguityRate = loading ? '…' : (amb?.ambiguity_rate != null ? `${amb.ambiguity_rate}%` : '—')
   const subtitle = loading ? '…' : amb?.signal_clarity_subtitle?.trim() || undefined
 
   return (

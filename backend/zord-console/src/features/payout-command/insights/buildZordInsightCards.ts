@@ -30,8 +30,8 @@ function metricCard(
   label: string,
   amountField: MinorField,
   subtext: string,
-  count: number,
-  countLabel: string,
+  count?: number,
+  countLabel?: string,
 ): ZordInsightCard | null {
   const minor = readMinor(amountField)
   if (minor == null) return null
@@ -68,12 +68,11 @@ function buildAccountInsightParagraph(
   const openException = formatMinorDisplay(leakageData?.total_amount_minor)
   const gapRate =
     leakageData?.leakage_percentage != null
-      ? formatLeakageApiPct(leakageData.leakage_percentage)
+      ? `${leakageData.leakage_percentage}%`
       : null
 
   if (intended !== '—' && settled !== '—') {
-    const gapClause = gapRate && gapRate !== '—' ? ` Payment gap rate is ${gapRate}.` : ''
-    return `${intended} was intended and ${settled} was observed in settlement records for the ${carouselPeriod} period.${gapClause}`
+    return `${intended} was intended and ${settled} was observed in settlement records for the ${carouselPeriod} period.`
   }
 
   if (openException !== '—') {
@@ -164,9 +163,14 @@ export function buildZordInsightCards(params: {
       carouselPeriod,
       emptyInsightParagraph,
     ),
+    gapRate:
+      leakageData?.leakage_percentage != null
+        ? `${leakageData.leakage_percentage}%`
+        : undefined,
     delta: trendChartReady ? bucketDelta(trendSeries?.buckets ?? []) : undefined,
   })
 
+  // Row 1: slot 2
   const intendedCard = metricCard(
     'intended-value',
     'Intended payment value',
@@ -177,26 +181,7 @@ export function buildZordInsightCards(params: {
   )
   if (intendedCard) cards.push(intendedCard)
 
-  const reviewCard = metricCard(
-    'value-needing-review',
-    'Value needing review',
-    leakageData?.total_amount_minor,
-    'Open financial exception value from leakage total_amount_minor.',
-    pendingCount,
-    'items pending review',
-  )
-  if (reviewCard) cards.push(reviewCard)
-
-  const unmatchedCard = metricCard(
-    'unmatched-value',
-    'Unmatched payment value',
-    leakageData?.unmatched_amount_minor,
-    'Intended payments without a linked bank or settlement outcome.',
-    ambData?.ambiguous_intent_count ?? pendingCount,
-    'ambiguous intents',
-  )
-  if (unmatchedCard) cards.push(unmatchedCard)
-
+  // Row 1: slot 3
   const settledCard = metricCard(
     'settlement-observed',
     'Settlement value observed',
@@ -207,23 +192,30 @@ export function buildZordInsightCards(params: {
   )
   if (settledCard) cards.push(settledCard)
 
+  // Row 2: slot 4
+  const unmatchedCard = metricCard(
+    'unmatched-value',
+    'Value at risk',
+    leakageData?.unmatched_amount_minor,
+    'Intended payments without a linked bank or settlement outcome.',
+  )
+  if (unmatchedCard) cards.push(unmatchedCard)
+
+  // Row 2: slot 5
   const shortSettledCard = metricCard(
     'short-settled',
     'Short-settled value',
     leakageData?.under_settlement_amount_minor,
     'Settlement value lower than the instructed payment amount.',
-    patternsData?.pending_count ?? 0,
-    'short-settled cases',
   )
   if (shortSettledCard) cards.push(shortSettledCard)
 
+  // Row 2: slot 6
   const ambiguousCard = metricCard(
     'ambiguous-value',
     'Ambiguous amount',
     ambData?.ambiguous_amount_minor ?? ambData?.value_at_risk_minor,
     'Payment value with unclear match signal.',
-    ambData?.ambiguous_intent_count ?? 0,
-    'intents ambiguous',
   )
   if (ambiguousCard) cards.push(ambiguousCard)
 

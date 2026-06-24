@@ -45,7 +45,7 @@ function buildSummary(batches: AmbiguityHeatmapBatchRow[]): string {
     `${batches.length} batch${batches.length === 1 ? '' : 'es'} in matching log`,
     syncing > 0 ? `${syncing} syncing` : null,
     reviewing > 0 ? `${reviewing} in review` : null,
-    `avg match score ${Math.round(avgScore * 100)}%`,
+    `avg match score ${Math.round(avgScore)}%`,
   ].filter(Boolean)
   return `${parts.join(' · ')} · ${intents.toLocaleString('en-IN')} intents tracked.`
 }
@@ -55,7 +55,15 @@ export function mapAmbiguityHeatmapResponse(
 ): MatchingExecutionHeatmap | null {
   if (!res || !isDataAvailable(res) || !res.batches?.length) return null
 
-  const batches = res.batches.slice(0, MAX_ROWS)
+  const allBatches = res.batches
+
+  // Sum ambiguous + unresolved across ALL batches — not just the display-capped slice.
+  const intents_under_evaluation_count = allBatches.reduce(
+    (sum, b) => sum + (b.ambiguous_count ?? 0) + (b.unresolved_count ?? 0),
+    0,
+  )
+
+  const batches = allBatches.slice(0, MAX_ROWS)
   const y_labels = batches.map((b, i) => batchRowLabel(b.batch_id, i))
   const batch_ids = batches.map((b) => b.batch_id)
   const cells = batches.map((b) => {
@@ -69,10 +77,13 @@ export function mapAmbiguityHeatmapResponse(
     ]
   })
 
-  const intents_under_evaluation_count = batches.reduce(
-    (sum, b) => sum + (b.ambiguous_count ?? 0) + (b.unresolved_count ?? 0),
-    0,
-  )
+  const column_totals = [
+    batches.reduce((sum, b) => sum + (b.exact_match_count ?? 0), 0),
+    batches.reduce((sum, b) => sum + (b.high_confidence_count ?? 0), 0),
+    batches.reduce((sum, b) => sum + (b.ambiguous_count ?? 0), 0),
+    batches.reduce((sum, b) => sum + (b.unresolved_count ?? 0), 0),
+    batches.reduce((sum, b) => sum + (b.conflicted_count ?? 0), 0),
+  ]
 
   return {
     y_labels,
@@ -81,5 +92,6 @@ export function mapAmbiguityHeatmapResponse(
     cells,
     summary: buildSummary(batches),
     intents_under_evaluation_count,
+    column_totals,
   }
 }

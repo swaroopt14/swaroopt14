@@ -95,30 +95,7 @@ export function AskZordWorkspaceLayout({ askZord, batchId }: AskZordWorkspaceLay
             </button>
           </div>
           <p className="hidden text-[13px] font-medium text-neutral-500 lg:block">Ask Zord</p>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              className="inline-flex h-9 items-center gap-2 rounded-full border border-neutral-200 bg-white px-4 text-[13px] font-medium text-neutral-600 shadow-sm transition hover:bg-neutral-50"
-            >
-              <span className="text-neutral-400" aria-hidden>
-                ⌕
-              </span>
-              Search thread
-            </button>
-            <button
-              type="button"
-              className="hidden h-9 items-center rounded-full border border-neutral-200 bg-white px-4 text-[13px] font-medium text-neutral-600 shadow-sm transition hover:bg-neutral-50 sm:inline-flex"
-            >
-              Invite
-            </button>
-            <button
-              type="button"
-              className="inline-flex h-9 items-center rounded-full bg-neutral-900 px-4 text-[13px] font-semibold text-white shadow-sm transition hover:bg-neutral-800"
-              onClick={askZord.startNewThread}
-            >
-              + New Thread
-            </button>
-          </div>
+
         </header>
 
         <div className="flex flex-1 flex-col items-center overflow-y-auto px-4 py-10 sm:px-8">
@@ -208,12 +185,27 @@ export function AskZordWorkspaceLayout({ askZord, batchId }: AskZordWorkspaceLay
                   >
                     <span aria-hidden>📎</span> Attach
                   </button>
-                  <button
-                    type="button"
-                    className="inline-flex items-center rounded-lg px-2 py-1 text-[12px] font-medium text-neutral-500 transition hover:bg-neutral-50 hover:text-neutral-700"
-                  >
-                    Context{batchId ? ` · ${batchId.slice(0, 8)}…` : ''} ▾
-                  </button>
+                  <div className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[12px] font-medium text-neutral-500">
+                    <span>
+                      Context
+                      {askZord.selectedContext
+                        ? ` - ${askZord.selectedContext.selectedTitle}`
+                        : batchId
+                          ? ` - ${batchId.slice(0, 8)}...`
+                          : ''}
+                    </span>
+                    {askZord.selectedContext ? (
+                      <button
+                        type="button"
+                        onClick={askZord.clearSelectedContext}
+                        className="rounded-full px-1.5 text-[12px] text-neutral-400 transition hover:bg-neutral-100 hover:text-neutral-700"
+                        aria-label="Clear selected context"
+                        title="Clear selected context"
+                      >
+                        x
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <button
                   type="submit"

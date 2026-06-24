@@ -94,7 +94,6 @@ export type RoutingApiTotals = {
 
 export type RoutingKpiSnapshot = {
   generatedAtIso: string
-  staleAfterMinutes: number
   /** Direct API totals for hero KPIs — avoids summed/rounded connector shares. */
   apiTotals?: RoutingApiTotals
   /** A9 decision success rate from patterns dashboard (0–100). */

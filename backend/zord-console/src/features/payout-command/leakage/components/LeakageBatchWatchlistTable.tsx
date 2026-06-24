@@ -1,28 +1,22 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import type { IntelligenceBatchRow } from '@/services/payout-command/prod-api/intelligenceTypes'
-import { formatKpiMoneyMinor, formatLeakageApiPct } from '../../shared/formatApiKpiFields'
+import { displayApiField, formatLeakageApiPct } from '../../shared/formatApiKpiFields'
 import { leakageCopy } from '../copy/leakageCopy'
 import { Glyph } from '../../shared'
 import { HOME_TITLE_BLACK } from '../../command-center/homeCommandCenterTokens'
 
-function leakageBadgeTone(pct: number | string | undefined): string {
-  if (pct == null) return 'bg-slate-100 text-slate-600'
-  const n = typeof pct === 'number' ? pct : Number(pct)
-  if (!Number.isFinite(n)) return 'bg-slate-100 text-slate-600'
-  const displayPct = n > 1 ? n : n * 100
-  if (displayPct >= 12) return 'bg-red-50 text-red-700'
-  if (displayPct >= 6) return 'bg-amber-50 text-amber-800'
-  return 'bg-emerald-50 text-emerald-800'
-}
+const WATCHLIST_PAGE_SIZE = 10
 
 type LeakageBatchWatchlistTableProps = {
   batches: IntelligenceBatchRow[]
   loading?: boolean
   selectedBatchId?: string
   onSelectBatch?: (batchId: string) => void
+  /** leakage_percentage from /intelligence/leakage scoped to selectedBatchId */
+  scopeLeakagePct?: number
 }
 
 export function LeakageBatchWatchlistTable({
@@ -30,8 +24,10 @@ export function LeakageBatchWatchlistTable({
   loading,
   selectedBatchId,
   onSelectBatch,
+  scopeLeakagePct,
 }: LeakageBatchWatchlistTableProps) {
   const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -42,6 +38,19 @@ export function LeakageBatchWatchlistTable({
         (b.source_reference?.toLowerCase().includes(q) ?? false),
     )
   }, [batches, query])
+
+  useEffect(() => {
+    setPage(0)
+  }, [query, batches])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / WATCHLIST_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount - 1)
+  const pageRows = filtered.slice(
+    safePage * WATCHLIST_PAGE_SIZE,
+    safePage * WATCHLIST_PAGE_SIZE + WATCHLIST_PAGE_SIZE,
+  )
+  const rangeStart = filtered.length === 0 ? 0 : safePage * WATCHLIST_PAGE_SIZE + 1
+  const rangeEnd = Math.min(filtered.length, safePage * WATCHLIST_PAGE_SIZE + WATCHLIST_PAGE_SIZE)
 
   return (
     <section className="rounded-[14px] border border-slate-200 bg-white p-5 shadow-sm" data-testid="leakage-batch-watchlist">
@@ -90,9 +99,8 @@ export function LeakageBatchWatchlistTable({
                 </td>
               </tr>
             ) : (
-              filtered.map((b) => {
+              pageRows.map((b) => {
                 const selected = b.batch_id === selectedBatchId
-                const leakagePct = b.leakage_percentage
                 return (
                   <tr
                     key={b.batch_id}
@@ -102,28 +110,26 @@ export function LeakageBatchWatchlistTable({
                     onClick={() => onSelectBatch?.(b.batch_id)}
                   >
                     <td className="px-3 py-3">
-                      <p className={`text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>
-                        {b.source_reference?.trim() || b.batch_id}
-                      </p>
-                      <p className="font-mono text-[13px] font-medium text-[#00239C]">{b.batch_id}</p>
+                      {b.source_reference?.trim() ? (
+                        <p className={`text-[15px] font-semibold ${HOME_TITLE_BLACK}`}>
+                          {b.source_reference.trim()}
+                        </p>
+                      ) : null}
+                      <p className="font-mono text-[13px] font-medium text-[#00239C]">{displayApiField(b.batch_id)}</p>
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-900">
-                      {formatKpiMoneyMinor(b.total_intended_amount_minor)}
+                      {displayApiField(b.total_intended_amount_minor)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {formatKpiMoneyMinor(b.total_variance_minor)}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-[13px] font-semibold tabular-nums ${leakageBadgeTone(leakagePct)}`}
-                      >
-                        {formatLeakageApiPct(
-                          typeof leakagePct === 'number' ? leakagePct : Number(leakagePct),
-                        )}
-                      </span>
+                      {displayApiField(b.total_variance_minor)}
                     </td>
                     <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
-                      {formatKpiMoneyMinor(b.reversal_exposure_minor)}
+                      {b.batch_id === selectedBatchId && scopeLeakagePct != null
+                        ? `${scopeLeakagePct}%`
+                        : displayApiField(b.predicted_leakage_rate)}
+                    </td>
+                    <td className="px-3 py-3 text-right text-[15px] font-semibold tabular-nums text-slate-700">
+                      {displayApiField(b.reversal_exposure_minor)}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <Link
@@ -141,6 +147,35 @@ export function LeakageBatchWatchlistTable({
           </tbody>
         </table>
       </div>
+
+      {!loading && filtered.length > WATCHLIST_PAGE_SIZE ? (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[13px] font-medium text-[#00239C]">
+            {rangeStart}–{rangeEnd} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={safePage === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span className="text-[12px] font-medium text-slate-600">
+              Page {safePage + 1} of {pageCount}
+            </span>
+            <button
+              type="button"
+              disabled={safePage >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

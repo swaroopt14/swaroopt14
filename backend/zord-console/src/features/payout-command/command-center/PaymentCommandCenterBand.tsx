@@ -68,7 +68,7 @@ export function PaymentCommandCenterBand({
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {slots.map((slot, index) => (
-              <div key={index} className="min-h-[220px]">
+              <div key={index} className="min-h-[260px]">
                 {slot}
               </div>
             ))}

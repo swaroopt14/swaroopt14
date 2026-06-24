@@ -175,6 +175,7 @@ export function PortfolioLeakageDashboard({ tenantReady, initialBatchId }: Portf
       loading,
       selectedBatchId,
       handleSelectBatch,
+      leakagePctCache,
       leak,
       patterns,
       patternsLoading,

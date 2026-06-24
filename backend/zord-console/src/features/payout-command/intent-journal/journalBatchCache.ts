@@ -70,6 +70,27 @@ export async function fetchJournalSidebarBatches(tenantId: string): Promise<Jour
         /* optional enrichment */
       }
 
+      // Fetch aggregate_confidence_score (0–1) from payment-intents for every batch in parallel
+      try {
+        const batchIds = Array.from(merged.keys())
+        const scoreResults = await Promise.allSettled(
+          batchIds.map((bid) => fetchJournalPaymentIntents(bid)),
+        )
+        for (let i = 0; i < batchIds.length; i++) {
+          const result = scoreResults[i]
+          if (result?.status !== 'fulfilled' || !result.value) continue
+          const raw = result.value.items?.find((item) => item.aggregate_confidence_score != null)?.aggregate_confidence_score
+          if (raw == null) continue
+          const score = typeof raw === 'string' ? Number.parseFloat(raw) : raw
+          if (!Number.isFinite(score)) continue
+          const bid = batchIds[i]!
+          const existing = merged.get(bid)
+          if (existing) merged.set(bid, { ...existing, aggregateConfidenceScore: score })
+        }
+      } catch {
+        /* optional enrichment */
+      }
+
       try {
         const dlqItems = await getAllProdDlqRows()
         const counts = new Map<string, number>()

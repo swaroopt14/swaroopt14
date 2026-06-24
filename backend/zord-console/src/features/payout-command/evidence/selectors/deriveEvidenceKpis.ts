@@ -113,10 +113,7 @@ export function deriveEvidenceKpis(input: {
           : packCount > 0
             ? '0'
             : '—',
-      sub:
-        defensibility && packCount > 0
-          ? `${readyCount} export-ready · ${disputePct} dispute-ready per defensibility KPI`
-          : disputeSub,
+      sub: '',
     },
   ]
 }

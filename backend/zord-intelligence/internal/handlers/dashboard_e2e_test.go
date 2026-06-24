@@ -1,4 +1,4 @@
-﻿package handlers_test
+package handlers_test
 
 // dashboard_e2e_test.go
 //
@@ -288,6 +288,7 @@ func TestDashboard_Ambiguity_HappyPath(t *testing.T) {
 		"ambiguity_rate":             0.15,
 		"avg_attachment_confidence": 0.72,
 		"provider_ref_missing_rate": 0.03,
+		"ambiguous_amount_minor":    120000,
 		"value_at_risk_minor":       350000,
 		"risk_tier":                 "MEDIUM"
 	}`))
@@ -317,6 +318,9 @@ func TestDashboard_Ambiguity_HappyPath(t *testing.T) {
 	}
 	if resp["provider_ref_missing_rate"].(float64) != 0.03 {
 		t.Errorf("provider_ref_missing_rate: want 0.03, got %v", resp["provider_ref_missing_rate"])
+	}
+	if got := fmt.Sprint(resp["value_at_risk_minor"]); got != "120000" {
+		t.Errorf("value_at_risk_minor: want ambiguous_amount_minor 120000, got %v", resp["value_at_risk_minor"])
 	}
 }
 

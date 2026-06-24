@@ -358,7 +358,7 @@ type LeakageValue struct {
 //	  "ambiguous_intent_count": 78,
 //	  "ambiguous_amount_minor": 1100000,
 //	  "unresolved_settlement_count": 20,
-//	  "value_at_risk_minor": 1850000,
+//	  "value_at_risk_minor": 1100000,
 //	  "avg_attachment_confidence": 0.83,
 //	  "confidence_sum": 831.4,
 //	  "confidence_count": 1001,
@@ -375,9 +375,8 @@ type AmbiguityValue struct {
 	UnresolvedSettlementCount int             `json:"unresolved_settlement_count"` // MATCH_UNRESOLVED decisions
 
 	// ── Value at risk ─────────────────────────────────────────────────────
-	// Spec Section 10.2: "Ambiguous Value-at-Risk =
-	//   sum(intended_amount_minor for MATCH_AMBIGUOUS or MATCH_UNRESOLVED)"
-	// This is the headline number finance cares about.
+	// Kept for API compatibility. Business meaning is ambiguous intent exposure:
+	// sum(intended_amount_minor for MATCH_AMBIGUOUS).
 	ValueAtRiskMinor decimal.Decimal `json:"value_at_risk_minor"`
 
 	// ── Running average confidence (incremental sum / count) ──────────────
@@ -912,7 +911,8 @@ type AmbiguityBySourceValue struct {
 	CandidateSetSizeSum   int `json:"candidate_set_size_sum"`   // running sum for average
 
 	// ── Value at risk ─────────────────────────────────────────────────────
-	// Sum of intended_amount_minor for MATCH_AMBIGUOUS and MATCH_UNRESOLVED decisions.
+	// Kept for API compatibility. Business meaning is ambiguous intent exposure:
+	// sum(intended_amount_minor for MATCH_AMBIGUOUS).
 	ValueAtRiskMinor decimal.Decimal `json:"value_at_risk_minor"`
 
 	// ── Derived rates (recomputed after every increment) ─────────────────

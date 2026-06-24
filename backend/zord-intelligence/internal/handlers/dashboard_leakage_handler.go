@@ -41,7 +41,6 @@ import (
 // L4 (ambiguous_value_at_risk) and L10 (risk_adjusted_leakage).
 type ambiguityKPIsForLeakage struct {
 	AmbiguousAmountMinor    decimal.Decimal `json:"ambiguous_amount_minor"`
-	ValueAtRiskMinor        decimal.Decimal `json:"value_at_risk_minor"`
 	AvgAttachmentConfidence float64         `json:"avg_attachment_confidence"`
 }
 
@@ -104,7 +103,7 @@ type DashboardLeakageResponse struct {
 	// L4 — ambiguous_value_at_risk: ambiguous_amount_minor from AMBIGUITY snapshot
 	AmbiguousValueAtRiskMinor decimal.Decimal `json:"ambiguous_value_at_risk_minor"`
 
-	// L10 — risk_adjusted_leakage: total_amount_minor + (value_at_risk_minor × weight)
+	// L10 — risk_adjusted_leakage: total_amount_minor + (ambiguous_amount_minor × weight)
 	// weight derived from avg_attachment_confidence: ≥0.90→0.25, ≥0.70→0.40, <0.70→0.60
 	RiskAdjustedLeakageMinor decimal.Decimal `json:"risk_adjusted_leakage_minor"`
 
@@ -186,7 +185,7 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 
 	// ── L4 and L10: fetch AMBIGUITY snapshot for cross-category derivation ──
 	// L4 = ambiguous_amount_minor (already computed in ambiguity snapshot)
-	// L10 = total_amount_minor + value_at_risk_minor × ambiguity_risk_weight
+	// L10 = total_amount_minor + ambiguous_amount_minor × ambiguity_risk_weight
 	ambSnap, err := h.snapshotRepo.GetLatestByTypeFiltered(
 		r.Context(),
 		tenantID, "AMBIGUITY", "TENANT", nil,
@@ -211,7 +210,7 @@ func (h *DashboardLeakageHandler) GetLeakageKPIs(w http.ResponseWriter, r *http.
 			default:
 				ambiguityRiskWeight = 0.60
 			}
-			weightedRisk := ambKPIs.ValueAtRiskMinor.Mul(decimal.NewFromFloat(ambiguityRiskWeight))
+			weightedRisk := ambKPIs.AmbiguousAmountMinor.Mul(decimal.NewFromFloat(ambiguityRiskWeight))
 			resp.RiskAdjustedLeakageMinor = kpis.TotalAmountMinor.Add(weightedRisk)
 		}
 	}

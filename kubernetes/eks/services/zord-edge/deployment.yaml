@@ -123,15 +123,6 @@ spec:
                   key: OTEL_EXPORTER_OTLP_ENDPOINT
             - name: OTEL_SERVICE_NAME
               value: zord-edge
-            - name: KAFKA_BROKERS
-              valueFrom:
-                configMapKeyRef:
-                  name: zord-aws-config
-                  key: KAFKA_BROKERS
-            - name: KAFKA_TOPIC
-              value: vault.envelope.accepted.v1
-            - name: SES_FROM_ADDRESS
-              value: No-reply@zordnet.com
           volumeMounts:
             - name: signing-key
               mountPath: /run/secrets

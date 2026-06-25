@@ -210,17 +210,16 @@ export function buildZordInsightCards(params: {
   )
   if (ambiguousCard) cards.push(ambiguousCard)
 
-  if (defData?.evidence_pack_rate != null) {
-    const proofPct = formatApiPct(defData.evidence_pack_rate, false, true)
+  if (leakageData != null) {
     cards.push({
       type: 'metric',
-      id: 'proof-coverage',
-      label: 'Proof readiness',
+      id: 'ambiguous-amount',
+      label: 'Ambiguous amount',
       valueRupee: 0,
-      valueDisplay: proofPct,
-      subtext: 'Evidence pack rate for audit or export.',
-      count: defData.weak_evidence_count ?? 0,
-      countLabel: 'incomplete proof items',
+      valueDisplay: formatMinorDisplay(leakageData.ambiguous_value_at_risk_minor),
+      subtext: 'Payment value with unclear match signal.',
+      count: ambData?.ambiguous_intent_count,
+      countLabel: 'ambiguous intents',
     })
   }
 

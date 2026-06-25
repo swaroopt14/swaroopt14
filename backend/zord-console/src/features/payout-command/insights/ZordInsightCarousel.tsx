@@ -103,7 +103,7 @@ const ICON: Record<string, () => React.ReactElement> = {
   'settlement-observed': RupeeSvg,
   'short-settled': RupeeSvg,
   'ambiguous-value': RupeeSvg,
-  'proof-coverage': TrendSvg,
+  'ambiguous-amount': RupeeSvg,
   'disbursement-trend': TrendSvg,
   leakage: AlertSvg,
 }

@@ -33,6 +33,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,8 +146,12 @@ func (s *DefensibilityIntelligenceService) ComputeAndSave(
 	// Non-fatal — if ambiguity data is not yet available the three components default to 0.
 	amb, _ := s.projRepo.GetAmbiguitySummary(ctx, tenantID)
 
+	// Step 1c: read pattern.tenant_summary for proof_readiness_score (dispute_ready_pct component 4).
+	// Non-fatal — defaults to 0 until the first batch summary event arrives.
+	pat, _ := s.projRepo.GetPatternTenantSummary(ctx, tenantID)
+
 	// Step 2: build snapshot
-	snap := s.buildSnapshot(def, amb)
+	snap := s.buildSnapshot(def, amb, pat)
 
 	// Step 3: persist snapshot
 	projRefs := []string{"defensibility.summary", "ambiguity.summary"}
@@ -175,6 +180,15 @@ func (s *DefensibilityIntelligenceService) ComputeAndSave(
 			tenantID, err)
 	}
 
+	// Step 3b: write dispute_ready_pct back to the projection so the policy engine
+	// (policy_service.go) can read it without querying intelligence_snapshots.
+	if err := s.projRepo.AtomicUpdateDefensibilityDisputeReady(
+		ctx, tenantID, snap.DisputeReadyPct, windowStart,
+	); err != nil {
+		// Non-fatal — snapshot already written; policy engine uses stale value until next event.
+		log.Printf("defensibility_svc: AtomicUpdateDefensibilityDisputeReady tenant=%s: %v", tenantID, err)
+	}
+
 	// Step 4: if batch-scoped, update the defensibility_tier on batch_contracts
 	// This lets GET /v1/intelligence/batches/{id} return the correct tier
 	// without needing to join intelligence_snapshots.
@@ -190,10 +204,11 @@ func (s *DefensibilityIntelligenceService) ComputeAndSave(
 
 // buildSnapshot converts a DefensibilityValue projection into a full snapshot.
 // amb may be nil if the ambiguity projection is not yet populated.
-func (s *DefensibilityIntelligenceService) buildSnapshot(dv *models.DefensibilityValue, amb *models.AmbiguityValue) DefensibilitySnapshot {
+// pat may be nil if the pattern.tenant_summary projection is not yet populated.
+func (s *DefensibilityIntelligenceService) buildSnapshot(dv *models.DefensibilityValue, amb *models.AmbiguityValue, pat *models.PatternTenantSummaryValue) DefensibilitySnapshot {
 	snap := DefensibilitySnapshot{
 		AuditReadyPct:            dv.AuditReadyPct,
-		DisputeReadyPct:          dv.DisputeReadyPct,
+		DisputeReadyPct:          computeDisputeReadyPct(dv, pat),
 		GovernanceCoveragePct:    dv.GovernanceCoveragePct,
 		EvidencePackRate:         dv.EvidencePackRate,
 		ReplayabilityPct:         dv.ReplayabilityPct,
@@ -237,6 +252,31 @@ func (s *DefensibilityIntelligenceService) buildSnapshot(dv *models.Defensibilit
 	}
 
 	return snap
+}
+
+// computeDisputeReadyPct computes the new dispute pack readiness score (0–1).
+//
+// Formula: (avg_intent_quality + avg_mapping_confidence + avg_pack_completeness + proof_readiness) / 4
+//
+//   - avg_intent_quality:    running avg of IntentQualityScore from IntentCreatedEvent
+//   - avg_mapping_confidence: running avg of MappingConfidence from CanonicalSettlementCreatedEvent
+//   - avg_pack_completeness:  running avg of PackCompletenessScore from EvidencePackReadyEvent (D2)
+//   - proof_readiness:        last batch ProofReadinessScore from pattern.tenant_summary
+//
+// pat may be nil when no batch summary has arrived yet; proof_readiness defaults to 0.
+func computeDisputeReadyPct(dv *models.DefensibilityValue, pat *models.PatternTenantSummaryValue) float64 {
+	proofReadiness := 0.0
+	if pat != nil {
+		proofReadiness = pat.ProofReadinessScore
+	}
+	pct := (dv.AvgIntentQualityScore + dv.AvgMappingConfidence + dv.AvgPackCompletenessScore + proofReadiness) / 4.0
+	if pct > 1.0 {
+		pct = 1.0
+	}
+	if pct < 0 {
+		pct = 0
+	}
+	return pct
 }
 
 // computeScore computes the Proof Readiness Score.

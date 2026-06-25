@@ -506,6 +506,20 @@ type DefensibilityValue struct {
 	// Format: "corridor:{corridor_id}" or "source:{source_system_id}"
 	WeakestProofRef string `json:"weakest_proof_ref,omitempty"`
 
+	// ── Dispute Readiness components ──────────────────────────────────────
+	// These four signals replace the old boolean-count formula for dispute_ready_pct.
+	// New formula: (avg_intent_quality + avg_mapping_confidence + avg_pack_completeness + proof_readiness) / 4
+
+	// Accumulated from IntentCreatedEvent.IntentQualityScore.
+	IntentQualitySum      float64 `json:"intent_quality_sum"`
+	IntentQualityCount    int     `json:"intent_quality_count"`
+	AvgIntentQualityScore float64 `json:"avg_intent_quality_score"`
+
+	// Accumulated from CanonicalSettlementCreatedEvent.MappingConfidence.
+	MappingConfidenceSum   float64 `json:"mapping_confidence_sum"`
+	MappingConfidenceCount int     `json:"mapping_confidence_count"`
+	AvgMappingConfidence   float64 `json:"avg_mapping_confidence"`
+
 	// ── Pattern Intelligence extensions: missing leaf tracking ────────────
 	// Required to compute missing_leaf_rate = (total_required_leaves - actual_leaves) / total_required_leaves.
 	// Previously LeafCount and RequiredLeafCount were received but not stored.

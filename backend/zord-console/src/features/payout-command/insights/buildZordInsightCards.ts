@@ -210,15 +210,18 @@ export function buildZordInsightCards(params: {
   )
   if (ambiguousCard) cards.push(ambiguousCard)
 
-  const ambiguityInsightCard = metricCard(
-    'ambiguous-amount',
-    'Ambiguous amount',
-    ambData?.ambiguous_amount_minor,
-    'Payment value with unclear match signal.',
-    ambData?.ambiguous_intent_count,
-    ambData?.ambiguous_intent_count != null ? 'ambiguous intents' : undefined,
-  )
-  if (ambiguityInsightCard) cards.push(ambiguityInsightCard)
+  if (ambData != null) {
+    cards.push({
+      type: 'metric',
+      id: 'ambiguous-amount',
+      label: 'Ambiguous amount',
+      valueRupee: 0,
+      valueDisplay: formatMinorDisplay(ambData.ambiguous_amount_minor),
+      subtext: 'Payment value with unclear match signal.',
+      count: ambData.ambiguous_intent_count,
+      countLabel: 'ambiguous intents',
+    })
+  }
 
   if (trendChartReady && trendSeries?.buckets?.length) {
     const rawSpark = trendSeries.buckets.map((bucket, i) => ({

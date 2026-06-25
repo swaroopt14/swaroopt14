@@ -121,10 +121,8 @@ export function batchMatchPct(b: IntelligenceBatchRow): number | null {
   return null
 }
 
-// Per-batch value at risk: unresolved_intended_amount_minor from /intelligence/batches response.
-// value_at_risk_minor is tenant-level only (ambiguity KPI API) — not returned per batch row.
 export function batchDisplayValue(b: IntelligenceBatchRow): string {
-  const v = b.unresolved_intended_amount_minor
+  const v = b.value_at_risk_minor
   if (v == null || String(v).trim() === '') return '—'
   const n = typeof v === 'number' ? v : Number(String(v).replace(/,/g, ''))
   if (Number.isFinite(n) && n === 0) return '0'

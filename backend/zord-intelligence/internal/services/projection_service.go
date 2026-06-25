@@ -304,6 +304,17 @@ func (s *ProjectionService) HandleIntentCreated(
 		log.Printf("HandleIntentCreated: EvaluateForEvent failed tenant=%s corridor=%s amount=%s currency=%s: intent=%s event_id=%s contract_id=%s created_at=%s trace_id=%s: %v",
 			e.TenantID, e.CorridorID, e.Amount, e.Currency, e.IntentID, e.EventID, e.ContractID, e.CreatedAt, e.TraceID, err)
 	}
+
+	// ── Dispute Readiness: intent quality component ───────────────────────────
+	if e.IntentQualityScore > 0 {
+		if err := s.projRepo.AtomicRecordDefensibilityIntentQuality(
+			ctx, e.TenantID, e.IntentQualityScore, window.start, window.end,
+		); err != nil {
+			log.Printf("HandleIntentCreated: AtomicRecordDefensibilityIntentQuality failed intent=%s: %v",
+				e.IntentID, err)
+		}
+	}
+
 	if err := s.projRepo.MarkProcessed(ctx, e.TenantID, e.EventID); err != nil {
 		return fmt.Errorf("HandleIntentCreated MarkProcessed event_id=%s: %w", e.EventID, err)
 	}
@@ -1159,6 +1170,16 @@ func (s *ProjectionService) HandleSettlementCreated(
 		if err := s.batchRepo.AtomicAddBatchBankRefStats(ctx, e.BatchID, e.TenantID, hasBankRef); err != nil {
 			log.Printf("HandleSettlementCreated: AtomicAddBatchBankRefStats failed settlement=%s batch=%s: %v",
 				e.SettlementID, e.BatchID, err)
+		}
+	}
+
+	// ── Dispute Readiness: mapping confidence component ──────────────────────
+	if e.MappingConfidence > 0 {
+		if err := s.projRepo.AtomicRecordDefensibilityMappingConfidence(
+			ctx, e.TenantID, e.MappingConfidence, window.start, window.end,
+		); err != nil {
+			log.Printf("HandleSettlementCreated: AtomicRecordDefensibilityMappingConfidence failed settlement=%s: %v",
+				e.SettlementID, err)
 		}
 	}
 

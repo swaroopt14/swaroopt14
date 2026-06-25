@@ -3184,7 +3184,8 @@ func (r *ProjectionRepo) AtomicRecordEvidencePackQuality(
 }
 
 // recomputeDefensibilityEvidenceRates recomputes D2/D4/D5/D7 derived rates
-// after any evidence quality update.
+// and the dispute-readiness component averages (intent quality, mapping confidence)
+// after any evidence or quality signal update.
 func (r *ProjectionRepo) recomputeDefensibilityEvidenceRates(
 	ctx context.Context,
 	tenantID, key string,
@@ -3201,43 +3202,65 @@ func (r *ProjectionRepo) recomputeDefensibilityEvidenceRates(
 				jsonb_set(
 					jsonb_set(
 						jsonb_set(
-							value_json,
-							'{avg_pack_completeness_score}',
+							jsonb_set(
+								jsonb_set(
+									value_json,
+									'{avg_pack_completeness_score}',
+									CASE
+										WHEN COALESCE((value_json->>'pack_completeness_count')::int, 0) > 0
+										THEN to_jsonb(
+											COALESCE((value_json->>'pack_completeness_sum')::float8, 0.0) /
+											(value_json->>'pack_completeness_count')::float8
+										)
+										ELSE to_jsonb(0.0)
+									END
+								),
+								'{settlement_evidence_coverage}',
+								CASE
+									WHEN COALESCE((value_json->>'with_evidence_pack')::int, 0) > 0
+									THEN to_jsonb(
+										COALESCE((value_json->>'with_settlement_leaf')::float8, 0.0) /
+										(value_json->>'with_evidence_pack')::float8
+									)
+									ELSE to_jsonb(0.0)
+								END
+							),
+							'{attachment_evidence_coverage}',
 							CASE
-								WHEN COALESCE((value_json->>'pack_completeness_count')::int, 0) > 0
+								WHEN COALESCE((value_json->>'with_evidence_pack')::int, 0) > 0
 								THEN to_jsonb(
-									COALESCE((value_json->>'pack_completeness_sum')::float8, 0.0) /
-									(value_json->>'pack_completeness_count')::float8
+									COALESCE((value_json->>'with_attachment_leaf')::float8, 0.0) /
+									(value_json->>'with_evidence_pack')::float8
 								)
 								ELSE to_jsonb(0.0)
 							END
 						),
-						'{settlement_evidence_coverage}',
+						'{weak_evidence_rate}',
 						CASE
-							WHEN COALESCE((value_json->>'with_evidence_pack')::int, 0) > 0
+							WHEN COALESCE((value_json->>'total_intents')::int, 0) > 0
 							THEN to_jsonb(
-								COALESCE((value_json->>'with_settlement_leaf')::float8, 0.0) /
-								(value_json->>'with_evidence_pack')::float8
+								COALESCE((value_json->>'weak_evidence_count')::float8, 0.0) /
+								(value_json->>'total_intents')::float8
 							)
 							ELSE to_jsonb(0.0)
 						END
 					),
-					'{attachment_evidence_coverage}',
+					'{avg_intent_quality_score}',
 					CASE
-						WHEN COALESCE((value_json->>'with_evidence_pack')::int, 0) > 0
+						WHEN COALESCE((value_json->>'intent_quality_count')::int, 0) > 0
 						THEN to_jsonb(
-							COALESCE((value_json->>'with_attachment_leaf')::float8, 0.0) /
-							(value_json->>'with_evidence_pack')::float8
+							COALESCE((value_json->>'intent_quality_sum')::float8, 0.0) /
+							(value_json->>'intent_quality_count')::float8
 						)
 						ELSE to_jsonb(0.0)
 					END
 				),
-				'{weak_evidence_rate}',
+				'{avg_mapping_confidence}',
 				CASE
-					WHEN COALESCE((value_json->>'total_intents')::int, 0) > 0
+					WHEN COALESCE((value_json->>'mapping_confidence_count')::int, 0) > 0
 					THEN to_jsonb(
-						COALESCE((value_json->>'weak_evidence_count')::float8, 0.0) /
-						(value_json->>'total_intents')::float8
+						COALESCE((value_json->>'mapping_confidence_sum')::float8, 0.0) /
+						(value_json->>'mapping_confidence_count')::float8
 					)
 					ELSE to_jsonb(0.0)
 				END

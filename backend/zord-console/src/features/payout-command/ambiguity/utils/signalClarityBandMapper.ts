@@ -1,12 +1,12 @@
 import type {
-  AmbiguityKpiResolved,
+  LeakageKpiResolved,
   MinorAmountField,
   SignalClarityBand,
 } from '@/services/payout-command/prod-api/intelligenceTypes'
 import {
   SIGNAL_CLARITY_BAND_ORDER,
   SIGNAL_CLARITY_COPY,
-  normalizeSignalClarityBandKey,
+
   signalClarityBandSpec,
   signalClarityHelperLabel,
 } from '../copy/signalClarityCopy'
@@ -66,24 +66,47 @@ export function displayBandRollLabel(band: SignalClarityBand): string | null {
   return spec?.rollLabel ?? null
 }
 
-/** Always returns five bands — API `signal_clarity_bands` only, no root-field synthesis. */
-export function mergeSignalClarityBands(
-  amb: AmbiguityKpiResolved | null,
-): SignalClarityBand[] {
-  const fromApi = amb?.signal_clarity_bands ?? []
-  const byKey = new Map<string, SignalClarityBand>()
-
-  for (const band of fromApi) {
-    const key = normalizeSignalClarityBandKey(band.band)
-    if (key) byKey.set(key, band)
-  }
+/** Empty UI shell for unavailable leakage endpoint fields; never substitutes values. */
+function emptySignalClarityBands(): SignalClarityBand[] {
 
   return SIGNAL_CLARITY_BAND_ORDER.map((key) => {
     const spec = SIGNAL_CLARITY_COPY.bands[key]
-    return byKey.get(key) ?? { band: spec.band, amount_minor: '' }
+    return { band: spec.band, amount_minor: '' }
   })
 }
+export function mergeSignalClarityBands(
+  leakage: LeakageKpiResolved | null,
+): SignalClarityBand[] {
+  if (!leakage) return emptySignalClarityBands()
 
+  return [
+    {
+      band: SIGNAL_CLARITY_COPY.bands.settlement.band,
+      amount_minor: leakage.total_observed_settled_amount_minor ?? '',
+      tone: 'green',
+    },
+    {
+      band: SIGNAL_CLARITY_COPY.bands.ambiguous.band,
+      amount_minor: leakage.ambiguous_value_at_risk_minor ?? '',
+      tone: 'lime',
+    },
+    {
+      band: SIGNAL_CLARITY_COPY.bands.variance.band,
+      amount_minor: leakage.under_settlement_amount_minor,
+      tone: 'amber',
+    },
+    {
+      band: SIGNAL_CLARITY_COPY.bands.reversal.band,
+      amount_minor: leakage.reversal_exposure_minor,
+      tone: 'orange',
+    },
+    {
+      band: SIGNAL_CLARITY_COPY.bands.unresolved.band,
+      amount_minor: leakage.unmatched_amount_minor,
+      tone: 'red',
+    },
+  ]
+}
 export function formatBandAmount(band: SignalClarityBand): string {
   return formatKpiMoneyMinor(resolveBandAmountMinor(band))
 }

@@ -173,6 +173,7 @@ export type AmbiguityKpiResolved = Resolved<{
   candidate_collision_rate?: number
   ambiguous_amount_rate?: number
   carrier_completeness_rate?: number
+  ambiguity_severity_score?: number
   /** Period-over-period deltas for KPI pills (percent points). */
   ambiguous_intent_count_delta_pct?: number
   ambiguity_rate_delta_pct?: number

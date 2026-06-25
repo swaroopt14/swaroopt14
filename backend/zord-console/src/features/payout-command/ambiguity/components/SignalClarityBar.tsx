@@ -1,7 +1,7 @@
 'use client'
 
 import { DM_Mono } from 'next/font/google'
-import type { AmbiguityKpiResolved, SignalClarityBand } from '@/services/payout-command/prod-api/intelligenceTypes'
+import type { AmbiguityKpiResolved, LeakageKpiResolved, SignalClarityBand } from '@/services/payout-command/prod-api/intelligenceTypes'
 import { displayApiField } from '../../shared/formatApiKpiFields'
 import { HOME_TITLE_BLACK } from '../../command-center/homeCommandCenterTokens'
 import { ZORD_SURFACE_MUTED } from '../../command-center/homeSurfaceFonts'
@@ -18,6 +18,7 @@ import {
 
 type SignalClarityBarProps = {
   amb: AmbiguityKpiResolved | null
+  leakage?: LeakageKpiResolved | null
   loading?: boolean
 }
 
@@ -50,11 +51,11 @@ function bandTone(band: SignalClarityBand): string {
   return '#94a3b8'
 }
 
-export function SignalClarityBar({ amb, loading }: SignalClarityBarProps) {
-  const bands = mergeSignalClarityBands(amb)
+export function SignalClarityBar({ leakage, loading }: SignalClarityBarProps) {
+  const bands = mergeSignalClarityBands(leakage ?? null)
   const widthPercents = computeBandWidthPercents(bands)
-  const rollRates = amb?.signal_clarity_roll_rates ?? []
-  const subtitle = loading ? '…' : amb?.signal_clarity_subtitle?.trim() || '—'
+  const rollRates = [] as NonNullable<LeakageKpiResolved['segment_roll_rates']>
+  const subtitle = loading ? '...' : '-'
 
   return (
     <section

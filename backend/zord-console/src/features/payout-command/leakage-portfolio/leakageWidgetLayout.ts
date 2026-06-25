@@ -2,7 +2,6 @@ export type LeakageWidgetId =
   | 'kpiHero'
   | 'trendChart'
   | 'watchlistTable'
-  | 'exposureSegmentBar'
   | 'batchScoreHealth'
   | 'zordInsight'
 
@@ -10,7 +9,6 @@ export const LEAKAGE_WIDGET_LABELS: Record<LeakageWidgetId, string> = {
   kpiHero: 'KPI hero',
   trendChart: 'Leakage trend',
   watchlistTable: 'Batch watchlist',
-  exposureSegmentBar: 'Exposure segments',
   batchScoreHealth: 'Batch score health',
   zordInsight: 'Zord insights',
 }
@@ -31,7 +29,7 @@ export function loadLeakageWidgetLayout(): LeakageWidgetId[] {
     if (!raw) return DEFAULT_LEAKAGE_WIDGET_ORDER
     const parsed = JSON.parse(raw) as LeakageWidgetId[]
     if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_LEAKAGE_WIDGET_ORDER
-    return parsed.filter((id) => id !== 'exposureSegmentBar')
+    return parsed.filter((id): id is LeakageWidgetId => id in LEAKAGE_WIDGET_LABELS)
   } catch {
     return DEFAULT_LEAKAGE_WIDGET_ORDER
   }

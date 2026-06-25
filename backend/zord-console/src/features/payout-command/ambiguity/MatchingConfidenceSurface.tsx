@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { useSessionTenant } from '@/services/auth/useSessionTenantId'
 import { useAmbiguityHeatmap } from '@/services/payout-command/prod-api/useAmbiguityHeatmap'
 import { getAmbiguityKpis, getIntelligenceBatches } from '@/services/payout-command/prod-api/getIntelligenceKpis'
@@ -22,6 +23,7 @@ import { intelligenceKpiScopeLabel } from '../shared/batchKpiScope'
 const POLL_MS = 30_000
 
 export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?: string } = {}) {
+  const router = useRouter()
   const { tenantReady } = useSessionTenant()
 
   const [selectedBatchId, setSelectedBatchId] = useState<string | undefined>(() =>
@@ -65,21 +67,10 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
     if (pinned) setSelectedBatchId(pinned)
   }, [initialBatchId])
 
-  const handlePageRefresh = useCallback(async () => {
-    await Promise.all([refresh(), refreshHeatmap()])
-  }, [refresh, refreshHeatmap])
-
-  useRegisterPayoutPageActions({
-    refresh: tenantReady ? handlePageRefresh : undefined,
-    refreshing: kpiLoading || heatmapLoading,
-  })
-
-  const kpiScopeHint = intelligenceKpiScopeLabel(selectedBatchId)
-  const stripLoading = kpiLoading && !amb
-
   const [finalityFilter, setFinalityFilter] = useState<'' | FinalityStatus>('')
   const [batches, setBatches] = useState<IntelligenceBatchRow[]>([])
   const [batchesLoading, setBatchesLoading] = useState(false)
+  const [dataRefreshToken, setDataRefreshToken] = useState(0)
 
   const loadBatches = useCallback(async () => {
     if (!tenantReady) {
@@ -104,12 +95,24 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
     void loadBatches()
   }, [loadBatches])
 
+  const handlePageRefresh = useCallback(async () => {
+    setDataRefreshToken((token) => token + 1)
+    router.refresh()
+    await Promise.all([refresh(), refreshHeatmap(), loadBatches()])
+  }, [refresh, refreshHeatmap, loadBatches, router])
+
+  useRegisterPayoutPageActions({
+    refresh: tenantReady ? handlePageRefresh : undefined,
+    refreshing: kpiLoading || heatmapLoading || batchesLoading,
+  })
+
+  const kpiScopeHint = intelligenceKpiScopeLabel(selectedBatchId)
+  const stripLoading = kpiLoading && !amb
+
   const zordInsights = useMemo(
     () =>
       buildMatchReviewInsightItems({
         ambiguity: isDataAvailable(ambiguity) ? ambiguity : null,
-        leakage: null,
-        patterns: null,
       }),
     [ambiguity],
   )
@@ -149,6 +152,7 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         batchId={selectedBatchId}
         selectedBatchId={selectedBatchId}
         onSelectBatch={handleSelectBatch}
+        refreshToken={dataRefreshToken}
       />
 
       <BatchesNeedingReviewTable
@@ -158,7 +162,6 @@ export function MatchingConfidenceSurface({ initialBatchId }: { initialBatchId?:
         onFilterChange={setFinalityFilter}
         highlightedBatchId={selectedBatchId}
         onRowSelect={handleSelectBatch}
-        scopedValueAtRisk={selectedBatchId ? (amb?.value_at_risk_minor ?? null) : null}
       />
 
             <ZordInsightsPanel

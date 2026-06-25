@@ -46,7 +46,7 @@ function BatchScoreHealthSkeleton() {
 }
 
 export function BatchScoreHealthCard({ patterns, loading, batchId, emptyReason }: BatchScoreHealthCardProps) {
-  const scopedBatchId = batchId?.trim() || patterns?.batch_id?.trim()
+  const scopedBatchId = batchId?.trim() || undefined
   const drivers = patterns?.risk_driver_breakdown ?? []
   const isEmpty = !loading && !patterns
 
@@ -67,7 +67,7 @@ export function BatchScoreHealthCard({ patterns, loading, batchId, emptyReason }
               <p className="mt-0.5 text-[14px] font-medium text-[#00239C]">
                 {scopedBatchId ? (
                   <>
-                    <span className="font-mono">{displayApiField(patterns?.batch_id ?? scopedBatchId)}</span>
+                    <span className="font-mono">{displayApiField(scopedBatchId)}</span>
                     <span className="ml-1">batch</span>
                   </>
                 ) : (

@@ -92,18 +92,20 @@ type Props = {
   batchId?: string
   selectedBatchId?: string
   onSelectBatch?: (batchId: string) => void
+  /** Bump to re-fetch bubble-map API (page refresh). */
+  refreshToken?: number
 }
 
-export function AmbiguityVelocityChart({ amb, batchId, selectedBatchId, onSelectBatch }: Props) {
+export function AmbiguityVelocityChart({ amb, batchId, selectedBatchId, onSelectBatch, refreshToken }: Props) {
   const [livePoints, setLivePoints] = useState<AmbiguityBubblePoint[] | null>(null)
   const [liveMaxAmountMinor, setLiveMaxAmountMinor] = useState(0)
   const [seriesLive, setSeriesLive] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    void getAmbiguityVelocityScatter({ batchId }).then((body) => {
+    void getAmbiguityVelocityScatter().then((body) => {
       if (cancelled) return
-      const mapped = mapAmbiguityVelocityScatter(body, { batchId })
+      const mapped = mapAmbiguityVelocityScatter(body)
       if (mapped.live && mapped.points.length > 0) {
         setLivePoints(mapped.points)
         setLiveMaxAmountMinor(mapped.maxAmountMinor)
@@ -117,7 +119,7 @@ export function AmbiguityVelocityChart({ amb, batchId, selectedBatchId, onSelect
     return () => {
       cancelled = true
     }
-  }, [batchId])
+  }, [refreshToken])
 
   const points = useMemo(
     () => (seriesLive && livePoints?.length ? livePoints : []),
@@ -294,7 +296,7 @@ export function AmbiguityVelocityChart({ amb, batchId, selectedBatchId, onSelect
           {batchId ? (
             <>
               {' '}
-              · filtered to <span className="font-semibold text-slate-900">{batchId}</span>
+              · highlighting <span className="font-semibold text-slate-900">{batchId}</span>
             </>
           ) : null}
         </p>

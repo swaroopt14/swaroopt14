@@ -1,4 +1,4 @@
-import { PRIMARY_BATCH, SMOKE_API_KEY, TENANT_ID } from './constants.js'
+import { PRIMARY_BATCH, SMOKE_API_KEY, TENANT_ID, intentId } from './constants.js'
 import {
   ambiguityHeatmap,
   ambiguityKpi,
@@ -89,7 +89,7 @@ export async function handleRequest(request) {
     return jsonResponse(authEnvelope())
   }
   if (method === 'GET' && pathname === '/v1/auth/principal') {
-    return jsonResponse({ tenant_id: TENANT_ID, principal_type: 'smoke' })
+    return jsonResponse({ tenant_id: TENANT_ID, principal_type: 'user' })
   }
   if (method === 'GET' && pathname === '/v1/session/status') {
     return jsonResponse(sessionStatus())
@@ -214,7 +214,7 @@ export async function handleRequest(request) {
     const packId = batchIdFromPath(pathname, 2)
     return jsonResponse({
       evidence_pack_id: packId,
-      intent_id: 'smoke-intent-alpha-001',
+      intent_id: intentId(PRIMARY_BATCH, 0),
       timeline: [{ timestamp: '2026-06-01T12:00:00Z', event: 'Payment instruction received', node_id: 'n1' }],
     })
   }

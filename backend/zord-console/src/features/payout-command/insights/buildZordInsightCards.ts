@@ -210,15 +210,15 @@ export function buildZordInsightCards(params: {
   )
   if (ambiguousCard) cards.push(ambiguousCard)
 
-  if (ambData != null) {
+  if (leakageData != null) {
     cards.push({
       type: 'metric',
       id: 'ambiguous-amount',
       label: 'Ambiguous amount',
       valueRupee: 0,
-      valueDisplay: formatMinorDisplay(ambData.ambiguous_amount_minor),
+      valueDisplay: formatMinorDisplay(leakageData.ambiguous_value_at_risk_minor),
       subtext: 'Payment value with unclear match signal.',
-      count: ambData.ambiguous_intent_count,
+      count: ambData?.ambiguous_intent_count,
       countLabel: 'ambiguous intents',
     })
   }

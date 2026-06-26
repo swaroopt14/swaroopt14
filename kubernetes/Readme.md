@@ -108,11 +108,12 @@ Copy this entire JSON and paste as the secret value:
   "INTELLIGENCE_READ_DSN": "postgres://zpi:zpi_secret@zord-postgres:5432/zord_intelligence?sslmode=disable",
   "EVIDENCE_READ_DSN": "postgres://evidence_user:evidence_password@zord-postgres:5432/zord_evidence_db?sslmode=disable",
   "OUTCOME_READ_DSN": "postgres://outcome_user:outcome_password@zord-postgres:5432/zord_outcome_db?sslmode=disable",
-  "SLACK_LEADS_WEBHOOK_URL": ""
+  "SLACK_LEADS_WEBHOOK_URL": "",
+  "SLACK_SUPPORT_WEBHOOK_URL": ""
 }
 ```
 
-**Total: 33 keys** (includes JWT_SIGNING_SECRET for Kong JWT plugin, ENCLAVE_INTERNAL_TOKEN for token-enclave auth, OUTCOME_READ_DSN for prompt-layer, SLACK_LEADS_WEBHOOK_URL for lead notifications)
+**Total: 34 keys** (includes JWT_SIGNING_SECRET for Kong JWT plugin, ENCLAVE_INTERNAL_TOKEN for token-enclave auth, OUTCOME_READ_DSN for prompt-layer, SLACK_LEADS_WEBHOOK_URL for lead notifications, SLACK_SUPPORT_WEBHOOK_URL for support tickets)
 
 ### 1.3 Value for `ZORD_EDGE_SIGNING_KEY_JSON`
 

@@ -93,6 +93,11 @@ spec:
                 secretKeyRef:
                   name: zord-app-secrets
                   key: SLACK_LEADS_WEBHOOK_URL
+            - name: SLACK_SUPPORT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: zord-app-secrets
+                  key: SLACK_SUPPORT_WEBHOOK_URL
           readinessProbe:
             httpGet:
               path: /api/health

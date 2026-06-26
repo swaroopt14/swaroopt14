@@ -62,7 +62,7 @@ spec:
                   name: zord-app-secrets
                   key: GEMINI_API_KEYS
             - name: GEMINI_MODEL
-              value: gemini-2.5-flash
+              value: gemini-3.1-flash-lite
             - name: GEMINI_BASE_URL
               value: https://generativelanguage.googleapis.com/v1beta
             - name: EDGE_READ_DSN

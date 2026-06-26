@@ -1,14 +1,14 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: zord-prompt-layer
+  name: zord-ml-service
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: zord-prompt-layer
+    name: zord-ml-service
   minReplicas: 1
-  maxReplicas: 4
+  maxReplicas: 3
   metrics:
     - type: Resource
       resource:
@@ -24,14 +24,14 @@ spec:
           averageUtilization: 80
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: 0
+      stabilizationWindowSeconds: 30
       policies:
-        - type: Percent
-          value: 100
+        - type: Pods
+          value: 1
           periodSeconds: 60
     scaleDown:
       stabilizationWindowSeconds: 300
       policies:
-        - type: Percent
-          value: 25
-          periodSeconds: 60
+        - type: Pods
+          value: 1
+          periodSeconds: 120

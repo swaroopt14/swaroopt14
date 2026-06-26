@@ -64,3 +64,5 @@ resources:
   - services/zord-console/hpa.yaml
   - services/ml-service/service.yaml
   - services/ml-service/deployment.yaml
+  - services/ml-service/pdb.yaml
+  - services/ml-service/hpa.yaml

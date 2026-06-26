@@ -27,6 +27,28 @@ function riskSeverity(tier: string | undefined): ZordInsightItem['severity'] {
   return 'low'
 }
 
+function endpointRiskSeverity(tier: string | undefined): ZordInsightItem['severity'] | undefined {
+  const normalized = tier?.toUpperCase()
+  if (normalized === 'HIGH' || normalized === 'CRITICAL') return 'high'
+  if (normalized === 'MEDIUM') return 'medium'
+  if (normalized === 'LOW' || normalized === 'CLEAN') return 'low'
+  return undefined
+}
+
+function ambiguitySeverity(ambiguity: AmbiguityKpiResolved): ZordInsightItem['severity'] {
+  const tier = endpointRiskSeverity(ambiguity.risk_tier)
+  if (tier) return tier
+  const score = ambiguity.ambiguity_severity_score
+  if (score == null || !Number.isFinite(score)) return undefined
+  if (score >= 50) return 'high'
+  if (score >= 10) return 'medium'
+  return 'low'
+}
+
+function formatApiPercent(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null
+  return `${value}%`
+}
 const MAX_INSIGHTS = 6
 
 /** Payment Gaps — insight list from leakage and ambiguity APIs only. */
@@ -116,72 +138,56 @@ export function buildMatchReviewInsightItems(params: {
 }): ZordInsightItem[] {
   const { ambiguity } = params
   const items: ZordInsightItem[] = []
-
-  if (ambiguity?.intelligence_headline?.trim()) {
-    const body = ambiguity.intelligence_body?.trim()
-    items.push({
-      title: ambiguity.intelligence_headline.trim(),
-      detail: body || '—',
-      severity: 'high',
-      caseCount: ambiguity.ambiguous_intent_count,
+  if (!ambiguity) return items
+   const severity = ambiguitySeverity(ambiguity)
+  const caseCount = ambiguity.ambiguous_intent_count
+  const valueAtRisk = formatMinor(ambiguity.value_at_risk_minor)
+  if (readMinor(ambiguity.value_at_risk_minor) != null) {
+     items.push({
+       title: 'Ambiguous match review value',
+      detail: `${valueAtRisk} in match-review exposure from ambiguous attachment decisions.`,
+      severity,
+      caseCount,
     })
   }
-
-  const ambiguousAmount = formatMinor(ambiguity?.ambiguous_amount_minor)
-  if (ambiguousAmount !== '—') {
+  const ambiguityRate = formatApiPercent(ambiguity.ambiguity_rate)
+  if (ambiguityRate) {
     items.push({
-      title: 'Ambiguous payment value',
-      detail: `${ambiguousAmount} tied to intents with unclear match signal.`,
-      severity: riskSeverity(ambiguity?.risk_tier),
-      caseCount: ambiguity?.ambiguous_intent_count,
+       title: 'Ambiguity rate',
+      detail: `${ambiguityRate} of attachment decisions landed in ambiguous review for this scope.`,
+      severity,  
     })
   }
-
-  const variance = formatMinor(ambiguity?.total_variance_minor)
-  if (variance !== '—') {
+  const lowConfidenceRate = formatApiPercent(ambiguity.low_confidence_rate)
+  if (lowConfidenceRate) {
     items.push({
-      title: 'Settlement variance',
-      detail: `${variance} in total variance between intended and observed settlement.`,
-      severity: 'medium',
+        title: 'Low-confidence signal rate',
+      detail: `${lowConfidenceRate} of match signals are below the confidence threshold.`,
+      severity, 
     })
   }
-
-  const unresolved = formatMinor(ambiguity?.unresolved_amount_minor)
-  if (unresolved !== '—') {
+  const missingRefRate = formatApiPercent(ambiguity.provider_ref_missing_rate)
+  if (missingRefRate) {
     items.push({
-      title: 'Unresolved amount',
-      detail: `${unresolved} still unresolved in match review.`,
-      severity: 'high',
-      caseCount: ambiguity?.unresolved_count,
+       title: 'Missing provider reference rate',
+      detail: `${missingRefRate} of payment records are missing provider reference coverage.`,
+      severity,
     })
   }
-
-  const reversal = formatMinor(ambiguity?.reversal_exposure_minor)
-  if (reversal !== '—') {
+   const candidateCollisionRate = formatApiPercent(ambiguity.candidate_collision_rate)
+  if (candidateCollisionRate) {
     items.push({
-      title: 'Reversal exposure',
-      detail: `${reversal} in reversal exposure on ambiguous intents.`,
-      severity: 'medium',
+       title: 'Candidate collision rate',
+      detail: `${candidateCollisionRate} of decisions have competing candidate matches.`,
+      severity,
     })
   }
-
-  if (ambiguity?.matching_execution_summary?.trim()) {
+   if (caseCount != null) {
     items.push({
-      title: 'Matching execution signal',
-      detail: ambiguity.matching_execution_summary.trim(),
-      severity: 'medium',
-      caseCount: ambiguity.intents_under_evaluation_count,
+       title: 'Payments needing review',
+      detail: `${caseCount} payment intents need ambiguity review in this scope.`,
+      severity,
     })
   }
-
-  const settled = formatMinor(ambiguity?.total_observed_settled_amount_minor)
-  if (settled !== '—') {
-    items.push({
-      title: 'Settlement value observed',
-      detail: `${settled} found in bank, PSP, or settlement records.`,
-      severity: 'low',
-    })
-  }
-
-  return items.slice(0, MAX_INSIGHTS)
+    return items.slice(0, MAX_INSIGHTS)
 }

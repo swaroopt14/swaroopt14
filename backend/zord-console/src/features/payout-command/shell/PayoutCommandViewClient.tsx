@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   DASHBOARD_FONT_STACK,
+  CONNECTORS_DOCK_TEMPORARILY_HIDDEN,
   dockItems,
   type DockId,
   type WorkspaceTab,
@@ -16,7 +17,8 @@ import { AskZordPanel } from '../layout/AskZordPanel'
 import { PayoutConsoleNavStack } from '../layout/PayoutConsoleNavStack'
 import { PageHeader } from '../layout/PageHeader'
 import { PayoutPageActionsProvider } from '../layout/PayoutPageActionsContext'
-import ConnectorIntelligenceClient from '../connectors/ConnectorIntelligenceClient'
+// Connectors dock temporarily hidden — keep imports for when CONNECTORS_DOCK_TEMPORARILY_HIDDEN is false.
+// import ConnectorIntelligenceClient from '../connectors/ConnectorIntelligenceClient'
 import {
   AmbiguitySurface,
   BillingSurface,
@@ -28,7 +30,7 @@ import {
   LeakageSurface,
   ProofSurface,
   PostDisbursalMonitoringSurface,
-  SandboxConnectorsSurface,
+  // SandboxConnectorsSurface,
   SupportSurface,
   WorkspaceSurface,
 } from '../surfaces'
@@ -67,6 +69,7 @@ function resolveSharedBatchId(initial?: string) {
 function resolveDockFromSearchParam(raw: string | null): DockId | null {
   if (!raw) return null
   const id = raw as DockId
+  if (CONNECTORS_DOCK_TEMPORARILY_HIDDEN && id === 'connectors') return null
   return dockItems.some((item) => item.id === id) ? id : null
 }
 
@@ -117,6 +120,14 @@ export default function PayoutCommandViewClient({
     const dockFromUrl = resolveDockFromSearchParam(searchParams.get('dock')) ?? initialDock
     setActiveDock((currentDock) => (currentDock === dockFromUrl ? currentDock : dockFromUrl))
   }, [initialDock, searchParams])
+
+  // Deep links with ?dock=connectors redirect to home while connectors nav is hidden.
+  useEffect(() => {
+    if (!CONNECTORS_DOCK_TEMPORARILY_HIDDEN || searchParams.get('dock') !== 'connectors') return
+    const params = new URLSearchParams(searchParams.toString())
+    params.set('dock', 'home')
+    router.replace(`${window.location.pathname}?${params.toString()}`, { scroll: false })
+  }, [router, searchParams])
 
   // ── Navigation handlers ────────────────────────────────────────────────────
   const handleDockChange = useCallback(
@@ -182,9 +193,10 @@ export default function PayoutCommandViewClient({
     if (activeDock === 'settlement') {
       return <SettlementJournalSurface initialClientBatchId={scope.clientBatchId} />
     }
-    if (activeDock === 'connectors') {
-      return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
-    }
+    // Connectors dock temporarily hidden — see CONNECTORS_DOCK_TEMPORARILY_HIDDEN in model.ts.
+    // if (activeDock === 'connectors') {
+    //   return forceMode === 'sandbox' ? <SandboxConnectorsSurface /> : <ConnectorIntelligenceClient />
+    // }
     if (activeDock === 'proof')
       return (
         <EvidenceSurface initialBatchId={sharedBatchId} />

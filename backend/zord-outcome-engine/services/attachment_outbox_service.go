@@ -509,6 +509,21 @@ func (s *AttachmentOutboxService) EmitForJob(
 		}
 		aggregateAmbiguity = summaryAmbiguity
 	}
+	// Resolution order (mirrors resolveDecisionBatchID):
+	//   1. summaryBatchID from DB (intent client_batch_ref) — already applied above
+	//   2. obs.ClientBatchID — for INGEST_RUN where intents carry no batch ref
+	//   3. job.ScopeRef — last resort so the event is never dropped with batch_id=""
+	if batchID == "" {
+		for _, obs := range obsMap {
+			if c := strings.TrimSpace(obs.ClientBatchID); c != "" {
+				batchID = c
+				break
+			}
+		}
+	}
+	if batchID == "" {
+		batchID = job.ScopeRef
+	}
 
 	// 2. Fetch corridor_id from the first observation in this job
 	if len(decisions) > 0 {

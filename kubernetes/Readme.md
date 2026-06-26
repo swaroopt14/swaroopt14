@@ -24,30 +24,33 @@ Before starting, you need:
 Internet
   │
   ├── zordnet.com / api.zordnet.com / kong-admin.zordnet.com
-  │     → ALB (Kong) → Kong API Gateway (api-gateway namespace)
+  │     → ALB (shared) → Kong API Gateway (api-gateway namespace)
   │                         ├── / → zord-console:3000
   │                         ├── /v1/admin, /v1/bulk-ingest, /v1/ingest → zord-edge:8080
   │                         ├── /v1/intents, /v1/dlq, /v1/etl → zord-intent-engine:8083
   │                         ├── /v1/dispatch → zord-relay:8082
   │                         ├── /v1/settlement, /v1/reconciliation → zord-outcome-engine:8081
   │                         ├── /v1/evidence, /v1/verify → zord-evidence:8088
-  │                         ├── /v1/projections, /v1/policies, /v1/rca → zord-intelligence:8089
+  │                         ├── /v1/intelligence/rca → zord-intelligence:8089
   │                         └── /v1/query, /v1/chat → zord-prompt-layer:8086
   │
   └── grafana.zordnet.com / kibana.zordnet.com / jaeger.zordnet.com
-        → ALB (Observability) → Grafana / Kibana / Jaeger
+        → Same ALB (shared) → Grafana / Kibana / Jaeger
 ```
 
 ## DNS Records (All Subdomains)
 
-| Domain | ALB | Purpose |
-|--------|-----|---------|
-| `zordnet.com` | Kong ALB | Frontend UI |
-| `www.zordnet.com` | Kong ALB | Frontend UI (www) |
-| `api.zordnet.com` | Kong ALB | API testing (Postman) |
-| `kong-admin.zordnet.com` | Kong ALB | Kong Admin Dashboard |
-| `grafana.zordnet.com` | Observability ALB | Metrics dashboards |
-| `kibana.zordnet.com` | Observability ALB | Log search |
+All subdomains point to the **same shared ALB** (single ALB for cost savings):
+
+| Domain | Purpose |
+|--------|---------|
+| `zordnet.com` | Frontend UI |
+| `www.zordnet.com` | Frontend UI (www) |
+| `api.zordnet.com` | API (Postman / mobile) |
+| `kong-admin.zordnet.com` | Kong Admin Dashboard |
+| `grafana.zordnet.com` | Metrics dashboards |
+| `kibana.zordnet.com` | Log search |
+| `jaeger.zordnet.com` | Trace viewer |
 | `jaeger.zordnet.com` | Observability ALB | Trace viewer |
 
 ---
@@ -825,14 +828,15 @@ To change any of these (e.g., switch to RDS or MSK), edit this one file and rede
 |---------|-------------|-------------|-------------|
 | Kong Gateway | 2 | 6 | 70% CPU |
 | zord-edge | 2 | 5 | 70% CPU |
-| zord-intent-engine | 2 | 8 | 70% CPU |
-| zord-token-enclave | 2 | 4 | 70% CPU |
-| zord-relay | 2 | 6 | 70% CPU |
-| zord-outcome-engine | 2 | 4 | 70% CPU |
-| zord-evidence | 2 | 4 | 70% CPU |
-| zord-intelligence | 2 | 5 | 70% CPU |
-| zord-prompt-layer | 2 | 4 | 70% CPU |
-| zord-console | 2 | 5 | 70% CPU |
+| zord-intent-engine | 1 | 8 | 70% CPU |
+| zord-token-enclave | 1 | 4 | 70% CPU |
+| zord-relay | 1 | 6 | 70% CPU |
+| zord-outcome-engine | 1 | 4 | 70% CPU |
+| zord-evidence | 1 | 4 | 70% CPU |
+| zord-intelligence | 1 | 5 | 70% CPU |
+| zord-prompt-layer | 1 | 4 | 70% CPU |
+| zord-console | 1 | 5 | 70% CPU |
+| zord-ml-service | 1 | 3 | 70% CPU |
 
 ---
 

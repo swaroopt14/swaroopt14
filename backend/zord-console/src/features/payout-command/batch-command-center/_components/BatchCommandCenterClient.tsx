@@ -51,6 +51,7 @@ type IngestDialogState =
   | { kind: 'settlement'; batchId: string; fileName: string }
   | null
 
+
 export default function BatchCommandCenterClient() {
   const pathname = usePathname()
   const router = useRouter()
@@ -59,7 +60,7 @@ export default function BatchCommandCenterClient() {
   const { tenantId, tenantReady } = useSessionTenant()
 
   const initialBatchFromUrl = searchParams.get('batch_id')?.trim() ?? ''
-  const [batchIdInput, setBatchIdInput] = useState(initialBatchFromUrl)
+  const [committedBatchId, setCommittedBatchId] = useState(initialBatchFromUrl)
   const [intakeSnapshot, setIntakeSnapshot] = useState<BatchIntakeSnapshot>({
     intakeStep: 'idle',
     intentFileName: null,
@@ -80,20 +81,21 @@ export default function BatchCommandCenterClient() {
   const toolbarNoticeTimerRef = useRef<number | null>(null)
 
   const activeBatchId = useMemo(() => {
-    const fromInput = batchIdInput.trim()
+    const fromInput = committedBatchId.trim()
     const fromIntake = intakeSnapshot.settlementBatchId?.trim() ?? ''
     return fromInput || fromIntake
-  }, [batchIdInput, intakeSnapshot.settlementBatchId])
+  }, [committedBatchId, intakeSnapshot.settlementBatchId])
 
   const feed = useBatchOperationsFeed({
     enabled: tenantReady,
     batchId: activeBatchId,
   })
 
+  // Browser back/forward or external ?batch_id= link — not fired while the user is typing.
   useEffect(() => {
-    const urlBatch = searchParams.get('batch_id')?.trim()
-    if (urlBatch && urlBatch !== batchIdInput) setBatchIdInput(urlBatch)
-  }, [searchParams, batchIdInput])
+    const urlBatch = searchParams.get('batch_id')?.trim() ?? ''
+    setCommittedBatchId(urlBatch)
+  }, [searchParams])
 
   const syncBatchIdToUrl = useCallback(
     (id: string) => {
@@ -107,13 +109,16 @@ export default function BatchCommandCenterClient() {
     [pathname, router, searchParams],
   )
 
-  const handleBatchIdChange = useCallback(
-    (value: string) => {
-      setBatchIdInput(value)
-      syncBatchIdToUrl(value)
-    },
-    [syncBatchIdToUrl],
-  )
+  useEffect(() => {
+    const urlBatch = searchParams.get('batch_id')?.trim() ?? ''
+    const nextBatch = committedBatchId.trim()
+    if (urlBatch === nextBatch) return
+    syncBatchIdToUrl(committedBatchId)
+  }, [committedBatchId, searchParams, syncBatchIdToUrl])
+
+  const handleBatchIdCommit = useCallback((value: string) => {
+    setCommittedBatchId(value)
+  }, [])
 
   const showToolbarNotice = useCallback((message: string) => {
     setToolbarNotice(message)
@@ -334,15 +339,15 @@ export default function BatchCommandCenterClient() {
         ) : null}
 
         <BatchAdvancedDetails
-          batchId={batchIdInput}
-          onBatchIdChange={handleBatchIdChange}
+          batchId={committedBatchId}
+          onBatchIdChange={handleBatchIdCommit}
           onAfterFetch={() => void feed.refreshBatchFeed()}
         />
 
         <BatchIntakePanel
-          batchIdInput={batchIdInput}
+          committedBatchId={committedBatchId}
           batchReferenceRef={batchReferenceRef}
-          onBatchIdChange={handleBatchIdChange}
+          onBatchIdCommit={handleBatchIdCommit}
           isSandboxRoute={isSandboxRoute}
           onIntentIngestSuccess={onIntentIngestSuccess}
           onSettlementIngestSuccess={onSettlementIngestSuccess}

@@ -25,6 +25,7 @@
   "dependencies": {
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
+    "exceljs": "^4.4.0",
     "framer-motion": "^11.18.2",
     "lucide-react": "^1.17.0",
     "next": "^14.2.29",
@@ -34,7 +35,7 @@
     "recharts": "^2.12.7",
     "remark-gfm": "^3.0.1",
     "sharp": "^0.33.0",
-    "exceljs": "^4.4.0"
+    "xlsx": "^0.18.5"
   },
   "overrides": {
     "flatted": "^3.4.2",

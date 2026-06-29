@@ -222,7 +222,6 @@ if (!activeThreadIdRef.current) {
   setActiveThreadId(threadId)
 }
 
-setIsOpen(true)
 setInput('')
 setLastUserPrompt(cleaned)
 

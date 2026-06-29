@@ -117,6 +117,12 @@ export default function PayoutCommandViewClient({
   }, [askZord])
 
   useEffect(() => {
+    if (activeDock === 'workspace') {
+      askZord.close()
+    }
+  }, [activeDock, askZord.close])
+
+  useEffect(() => {
     const dockFromUrl = resolveDockFromSearchParam(searchParams.get('dock')) ?? initialDock
     setActiveDock((currentDock) => (currentDock === dockFromUrl ? currentDock : dockFromUrl))
   }, [initialDock, searchParams])
